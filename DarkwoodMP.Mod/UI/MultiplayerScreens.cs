@@ -431,13 +431,13 @@ namespace DWMPHorde
 
         private static int NameIndex()
         {
-            string v = ModConfig.ShowPlayerNames?.Value ?? "always";
+            string v = ModConfig.ShowPlayerNames?.Value ?? "pointed";
             for (int i = 0; i < NameValues.Length; i++)
             {
                 if (string.Equals(v, NameValues[i], StringComparison.OrdinalIgnoreCase))
                     return i;
             }
-            return 2;
+            return 1;
         }
 
         private static readonly string[] PlayerChoices = { "2", "3", "4", "5", "6", "7", "8" };

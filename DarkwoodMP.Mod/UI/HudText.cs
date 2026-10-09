@@ -105,6 +105,21 @@ namespace DWMPHorde
             tm.transform.position = new Vector3(x, src.transform.position.y, z);
         }
 
+        /// <summary>One of the game's fonts by its data name (FontsDB, e.g. <c>tahoma_11px_light_AAdata</c>), or null.</summary>
+        internal static tk2dFontData Font(string dataName)
+        {
+            FontsDB db = Singleton<FontsDB>.Instance;
+            if (db == null || db.fonts == null)
+                return null;
+            for (int i = 0; i < db.fonts.Count; i++)
+            {
+                tk2dFontData f = db.fonts[i];
+                if (f != null && f.name == dataName)
+                    return f;
+            }
+            return null;
+        }
+
         /// <summary>The game's own resolution factor for HUD offsets (1 at 1080p).</summary>
         internal static float Scale => Mathf.Min(Core.ResolutionHeightModifier, Core.ResolutionWidthModifier);
     }

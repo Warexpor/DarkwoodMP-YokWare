@@ -2,7 +2,6 @@ using System.Collections.Generic;
 using DWMPHorde.Config;
 using DWMPHorde.Logging;
 using DWMPHorde.Networking;
-using DWMPHorde.Players;
 using DWMPHorde.Sync;
 using LiteNetLib;
 using UnityEngine;
@@ -12,8 +11,8 @@ namespace DWMPHorde
     /// <summary>
     /// Co-op text chat, drawn like the game's own text: the outlined hover-label font in the lower
     /// left corner, no box. Ctrl+C opens the line ("Say:"), Enter sends, Esc closes, Ctrl+V pastes.
-    /// Lines fade out after a while and all come back while typing. A sent line also shows over the
-    /// speaker's head the way vanilla shows the player's own remarks. While typing
+    /// A line shows at once and fades out smoothly after a while; all come back while typing. What
+    /// is said stays in the chat (nothing is shown over the players). While typing
     /// <see cref="UiInputLock"/> holds vanilla gameplay input (movement, hotbar keys, walkie TX).
     /// </summary>
     public sealed class ChatHud : MonoBehaviour
@@ -26,7 +25,7 @@ namespace DWMPHorde
         private const int MaxMessage = 160;
         /// <summary>Lines stay this long, then fade out over <see cref="FadeSec"/> (all shown while typing).</summary>
         private const float LineVisibleSec = 14f;
-        private const float FadeSec = 2f;
+        private const float FadeSec = 2.5f;
         private const int MaxVisibleLines = 8;
         private const int MaxHistory = 40;
 
@@ -40,11 +39,13 @@ namespace DWMPHorde
         private static readonly Color TextColor = new Color(0.92f, 0.92f, 0.92f, 1f);
         private static readonly Color SystemColor = new Color(0.55f, 0.55f, 0.55f, 1f);
 
-        private struct Line
+        private sealed class Line
         {
             public string Name;
             public string Text;
             public float At;
+            /// <summary>Shown alpha: up at once, down smoothly (<see cref="LineAlpha"/>).</summary>
+            public float Alpha;
         }
 
         private sealed class Row
@@ -97,7 +98,6 @@ namespace DWMPHorde
             if (string.IsNullOrEmpty(name) || name == "Player")
                 name = PlayerNames.Shown(msg.SenderId);
             _instance.AddLine(name, msg.Message);
-            TrySpeechBubble(msg.SenderId, msg.Message);
         }
 
         /// <summary>A line from the mod itself (map pins and pings), shown with the chat history.</summary>
@@ -234,8 +234,7 @@ namespace DWMPHorde
             for (int i = _lines.Count - 1; show && i >= 0 && row < MaxVisibleLines; i--)
             {
                 Line line = _lines[i];
-                float age = now - line.At;
-                float alpha = typing ? 1f : Mathf.Clamp01((LineVisibleSec + FadeSec - age) / FadeSec);
+                float alpha = LineAlpha(line, typing, now);
                 if (alpha <= 0f)
                     break;
                 Row r = EnsureRow(row);
@@ -284,6 +283,21 @@ namespace DWMPHorde
             tm.formatting = true;
             tm.wordWrapWidth = want;
             tm.Commit();
+        }
+
+        /// <summary>
+        /// A line shows at once (new, or the chat opened) and goes smoothly: after its time, or when
+        /// the chat closes on lines already past it, it eases out over <see cref="FadeSec"/>.
+        /// </summary>
+        private static float LineAlpha(Line line, bool typing, float now)
+        {
+            bool want = typing || now - line.At < LineVisibleSec;
+            if (want)
+                line.Alpha = 1f;
+            else if (line.Alpha > 0f)
+                line.Alpha = Mathf.Max(0f, line.Alpha - Time.unscaledDeltaTime / FadeSec);
+            // Linear in time, eased on screen: a slow start and a soft end.
+            return Mathf.SmoothStep(0f, 1f, line.Alpha);
         }
 
         private static Color Fade(Color c, float a) => new Color(c.r, c.g, c.b, c.a * a);
@@ -371,7 +385,6 @@ namespace DWMPHorde
             };
 
             AddLine(PlayerNames.Shown(net.LocalPlayerId), payload.Message);
-            TrySpeechBubble(payload.SenderId, payload.Message);
 
             // Reliable + Forwardable: host fans out to other clients.
             net.Broadcast(NetMessageType.ChatMessage, w => payload.Serialize(w), DeliveryMethod.ReliableOrdered);
@@ -380,42 +393,9 @@ namespace DWMPHorde
 
         private void AddLine(string name, string text)
         {
-            _lines.Add(new Line { Name = name, Text = text, At = Time.unscaledTime });
+            _lines.Add(new Line { Name = name, Text = text, At = Time.unscaledTime, Alpha = 1f });
             while (_lines.Count > MaxHistory)
                 _lines.RemoveAt(0);
-        }
-
-        private static void TrySpeechBubble(int senderId, string message)
-        {
-            try
-            {
-                DWMPHorde.Patches.PersonalFlavorHud.BeginBypass();
-                try
-                {
-                    var net = ModRuntime.Network;
-                    if (net != null && senderId == net.LocalPlayerId && Player.Instance != null)
-                    {
-                        Player.Instance.displayMessage(message);
-                        return;
-                    }
-
-                    // Remote: bubble at proxy transform (Yokyy Core.displayMessage path)
-                    if (net is LanNetworkManager lnm)
-                    {
-                        RemotePlayerProxy proxy = lnm.GetProxy(senderId);
-                        if (proxy != null && proxy.transform != null)
-                            Core.displayMessage(message, proxy.transform, 1f, false);
-                    }
-                }
-                finally
-                {
-                    DWMPHorde.Patches.PersonalFlavorHud.EndBypass();
-                }
-            }
-            catch
-            {
-                // never break chat on bubble failure
-            }
         }
     }
 }

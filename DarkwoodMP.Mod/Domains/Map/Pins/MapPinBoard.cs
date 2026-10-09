@@ -361,7 +361,7 @@ namespace DWMPHorde.Sync
                             string label = string.IsNullOrEmpty(incoming.Label) ? "" : " \"" + incoming.Label + "\"";
                             Notify(Loc.Russian
                                 ? incoming.OwnerName + " ставит на карте метку: " + Loc.T(KindName(incoming.Kind)) + label + "."
-                                : incoming.OwnerName + " marked " + KindName(incoming.Kind) + label + " on the map.", false);
+                                : incoming.OwnerName + " marked " + KindName(incoming.Kind) + label + " on the map.");
                         }
                     }
                     else
@@ -396,7 +396,7 @@ namespace DWMPHorde.Sync
                         Pings.RemoveAt(0);
                     Version++;
                     if (!IsLocalOwner(incoming))
-                        Notify(incoming.OwnerName + (Loc.Russian ? " подает сигнал на карте." : " pinged the map."), true);
+                        Notify(incoming.OwnerName + (Loc.Russian ? " подает сигнал на карте." : " pinged the map."));
                     ModLog.Event(LogCat.UI, "[MapPin] ping by " + incoming.OwnerName + " at "
                         + incoming.X.ToString("F0") + "," + incoming.Z.ToString("F0"));
                     return;
@@ -448,20 +448,8 @@ namespace DWMPHorde.Sync
             MapPinStore.MarkDirty();
         }
 
-        private static void Notify(string text, bool overHead)
-        {
-            ChatHud.AddSystemLine((Loc.Russian ? "[Карта] " : "[Map] ") + text);
-            if (!overHead) return;
-            try
-            {
-                Map map = Map.Instance;
-                if (Player.Instance == null || (map != null && map.opened)) return;
-                DWMPHorde.Patches.PersonalFlavorHud.BeginBypass();
-                try { Player.Instance.displayMessage(text); }
-                finally { DWMPHorde.Patches.PersonalFlavorHud.EndBypass(); }
-            }
-            catch { /* a message is never worth breaking the apply */ }
-        }
+        /// <summary>A note to the chat; nothing is shown over the player (chat stays in the chat).</summary>
+        private static void Notify(string text) => ChatHud.AddSystemLine((Loc.Russian ? "[Карта] " : "[Map] ") + text);
 
         // ── Host seeding from the world ───────────────────────────────────────────
 

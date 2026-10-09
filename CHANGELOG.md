@@ -3,7 +3,7 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.182**. The current Horde wire protocol is **48** (bumped in 0.8.182: new `PlayerName` (168),
+**0.8.183**. The current Horde wire protocol is **48** (held for 0.8.183; bumped in 0.8.182: new `PlayerName` (168),
 `PeerRoster` entries gain the player's name; same DLL on every install).
 47 held for 0.8.178 to 0.8.181, bumped in 0.8.177: `PlayerState` gains
 the `ClockHeld` trailer.
@@ -46,6 +46,27 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.183 — Names over the head in a softer look; chat fades smoothly; nothing said over the players
+
+- **Chat stays in the chat.** A chat line also popped up as a speech bubble over the speaker,
+  and map pins and pings from others as a remark over the local player. Both are gone: what is
+  said shows only in the chat corner. `UI/ChatHud.cs`, `MapPinBoard.Notify`.
+- **Chat fades out smoothly.** Lines already faded out over 2 s, but closing the chat dropped
+  every line past its time at once (their alpha came from their age). Each line now keeps its
+  own alpha: it shows at once (new line, or the chat opened) and eases out over 2.5 s after its
+  time or when the chat closes.
+- **Names over the head, on hover, softer.** The name moved from under the feet to over the head
+  (the speech bubbles that sat there are gone). By default it now shows only while the cursor is
+  on that player (`ShowPlayerNames` default `pointed`; Always and Off stay in Multiplayer >
+  Settings > Player names). Config files written by 0.8.182 keep their `always` until changed in
+  that menu. The look stays the game's hover-label font (the outlined text over a door), but
+  dimmed to grey, slightly see-through and at three quarters of its size, so it no longer reads
+  as stark as an object label. Names fade in and out over 0.45 s and grow faint with distance
+  (full up to 220 units, gone at 700). Seven looks from the game's own fonts (`FontsDB`) were
+  compared in game; they are kept in `Nameplates.Styles` and the test pilot's `namestyle <n>`
+  switches them live. `UI/Nameplates.cs`, `HudText.Font`.
+- Not tested in game: the final size and the hover default (the test run was stopped).
 
 ## 0.8.182 — Player names over the players, chat in the game's own text, pause-menu version label
 

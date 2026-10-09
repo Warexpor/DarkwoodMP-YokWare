@@ -28,7 +28,7 @@ namespace DWMPHorde.Config
         public static ModSetting<string> PlayerName { get; private set; }
         /// <summary>Master switch for the Ctrl+C co-op chat HUD (see <see cref="ChatHud"/>).</summary>
         public static ModSetting<bool> ChatEnabled { get; private set; }
-        /// <summary>When other players' names show under them: always | pointed | off (see <see cref="Nameplates"/>).</summary>
+        /// <summary>When other players' names show over them: always | pointed | off (see <see cref="Nameplates"/>).</summary>
         public static ModSetting<string> ShowPlayerNames { get; private set; }
         public static ModSetting<bool> FriendlyFireEnabled { get; private set; }
         public static ModSetting<bool> DoubleItemsEnabled { get; private set; }
@@ -178,8 +178,8 @@ namespace DWMPHorde.Config
             ChatEnabled = config.Bind("Network", "ChatEnabled", true,
                 "Co-op text chat: Ctrl+C opens the input, Enter sends, Esc closes. "
                 + "Gameplay input is locked while typing.");
-            ShowPlayerNames = config.Bind("Network", "ShowPlayerNames", "always",
-                "When other players' names show under them: always (while you can see them) | pointed (when the cursor is on them) | off.");
+            ShowPlayerNames = config.Bind("Network", "ShowPlayerNames", "pointed",
+                "When other players' names show over them: pointed (cursor on them, default) | always (while you can see them) | off.");
             MaxPlayers = config.Bind("Network", "MaxPlayers", 8, "Maximum players including host.");
             AllowJoinDuringDream = config.Bind("Network", "AllowJoinDuringDream", false, "If false, reject joins during dream session.");
             FriendlyFireEnabled = config.Bind("Gameplay", "FriendlyFireEnabled", true, "Players can damage each other.");

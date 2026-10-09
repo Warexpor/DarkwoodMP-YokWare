@@ -31,9 +31,9 @@ at once and is written to the file.
 | `HostPassword` | empty | Optional join password. Empty means open LAN. Host and every client must match. Also used as the Steam lobby connection key. |
 | `SteamLobbyId` | empty | Steam lobby id (ulong) for Multiplayer > Join > Join the lobby. The host fills it in when creating a Steam lobby. Friends can also join through the Steam invite overlay. |
 | `SteamLobbyType` | `friends` | Steam host lobby visibility: `friends`, `public` or `private`. |
-| `PlayerName` | `Player` | Name the other players see: under your character, in chat and on map pins. Left at `Player`, a Steam player goes by their Steam name. |
+| `PlayerName` | `Player` | Name the other players see: over your character, in chat and on map pins. Left at `Player`, a Steam player goes by their Steam name. |
 | `ChatEnabled` | `true` | Co-op text chat. Ctrl+C opens the input, Enter sends, Esc closes. Gameplay input (movement, hotbar, walkie) is held while typing. |
-| `ShowPlayerNames` | `always` | When other players' names show under them: `always` (while you can see them), `pointed` (when the cursor is on them) or `off`. |
+| `ShowPlayerNames` | `pointed` | When other players' names show over them: `pointed` (when the cursor is on them), `always` (while you can see them) or `off`. |
 | `MaxPlayers` | `8` | Maximum players including the host. |
 | `AllowJoinDuringDream` | `false` | When false, joins are rejected while a dream session is running. |
 | `HostMigrationEnabled` | `true` | When the host crashes or times out, the survivors elect the lowest remaining player id as the new host (LAN and Steam) and reconnect to it. |

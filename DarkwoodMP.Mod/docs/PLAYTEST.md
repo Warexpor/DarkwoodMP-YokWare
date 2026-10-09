@@ -382,13 +382,14 @@ Listen on the player who did not cause the sound.
       while dead or with chat open.
 - [ ] A client dragging a body or talking on the walkie while doors and pickups happen:
       the drag and the voice stay smooth and the events are not delayed.
-- [ ] Chat: lines and speech bubbles appear for everyone; `ChatEnabled=false` turns it
-      off. Lines sit in the lower left in the game's hover-label font, fade after a while
+- [ ] Chat: lines appear for everyone, at once; nothing shows over the players;
+      `ChatEnabled=false` turns it off. Lines sit in the lower left in the game's
+      hover-label font, fade out smoothly after a while (also when the chat is closed)
       and all come back while typing; a long line wraps under itself.
-- [ ] Player names: each player's name shows under them only while you can see them (not
-      behind a wall, not outside the view cone at a distance); a name changed in
-      Multiplayer > Settings updates for everyone at once. "When pointed at" shows a name
-      only with the cursor on that player; "Off" shows none.
+- [ ] Player names (default: on hover): pointing the cursor at a player shows their name
+      over them; it fades away when the cursor leaves. Only while you can see them (not
+      behind a wall). A name changed in Multiplayer > Settings updates for everyone at
+      once. "Always" shows every player you can see; "Off" shows none.
 
 ## 19. Steam
 

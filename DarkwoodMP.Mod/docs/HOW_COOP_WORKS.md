@@ -209,7 +209,7 @@ glow in its owner's colour, the day it was placed and an optional label.
 - A double click on a pin writes a label on it.
 - Middle click (or Shift + right click) pings a spot: it pulses on everyone's map
   for 25 seconds, and players with the map closed see "<name> pinged the map".
-- New pins and pings from others show as a `[Map]` line in the chat.
+- New pins and pings from others show as a `[Map]` line in the chat (not over the player).
 - Only the world map of the current chapter has pins (not the prologue map).
   Clients ask the host, the host numbers each pin and tells everyone, so two pins
   on one spot are never mixed up. An owner is a hash of their install key: the
@@ -826,9 +826,9 @@ party events.
   within its own range, a flat (2D) one from anything awake around you, at full
   volume. Creature sounds come from the host within their range of a player.
 - **Text chat** (Ctrl+C): relayed by the host, which stamps the sender, so a
-  name cannot be faked. Messages also appear as a speech bubble over the sender.
+  name cannot be faked. What is said stays in the chat; nothing shows over the players.
 - **Player names**: each player tells the host their name and the host hands every
-  name out with the player roster. A name shows under a player only while you can
+  name out with the player roster. A name shows over a player only while you can
   see them (vanilla's enemy sight test), so it never reveals someone behind a wall.
 - **Voice chat** (needs a logged-in Steam client, works over LAN too):
   - Proximity voice: full volume within 150 units, silent beyond 650, muffled

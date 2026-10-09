@@ -5,7 +5,7 @@ join it: the same forest, the same nights, the same story, played together.
 
 | | |
 |--|--|
-| Product | YokWare Branch **0.8.182** |
+| Product | YokWare Branch **0.8.183** |
 | Wire | Horde protocol **48** |
 | Players | Up to 8 by default (`MaxPlayers`, host included) |
 | Transport | LAN (LiteNetLib) or Steam lobby (SteamNetworkingSockets) |
@@ -98,8 +98,8 @@ menu. Its screens look and work like the game's own menus (Esc goes back):
 - **Join over Steam:** accept the host's Steam invite, or type the lobby id under
   Join and press **Join the lobby**. The host chooses the lobby type in Host
   settings (friends only, public or invite only).
-- **Settings:** your name, when other players' names show (always, when pointed
-  at, off), text and voice chat, push-to-talk key, voice and footstep volume.
+- **Settings:** your name, when other players' names show (when pointed at,
+  always, off), text and voice chat, push-to-talk key, voice and footstep volume.
 - **Host settings:** friendly fire, extra loot, player count, Steam lobby type,
   port and password.
 - **In the pause menu:** Invite friends (Steam host), Send the world again (host),

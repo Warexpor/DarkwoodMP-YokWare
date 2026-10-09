@@ -9,12 +9,13 @@ using UnityEngine;
 namespace DWMPHorde
 {
     /// <summary>
-    /// The name of another player, under their character in the game's own hover-label font. It
+    /// The name of another player, over their character in one of the game's own fonts. It
     /// shows only while this player can see them, by the same sight test vanilla gives its enemies
     /// (<c>Player.isInSight</c>: the view cone or the close circle, and no wall between), so it
     /// never gives away someone behind a wall or in the dark outside the cone. Config
     /// <c>[Network] ShowPlayerNames</c>: always, pointed (cursor on them) or off. Names fade in and
-    /// out, and are hidden in menus, the map, dialogues and cutscenes like the hover label.
+    /// out, grow faint with distance, and are hidden in menus, the map, dialogues and cutscenes
+    /// like the hover label.
     /// </summary>
     public sealed class Nameplates : MonoBehaviour
     {
@@ -24,14 +25,50 @@ namespace DWMPHorde
         {
             public tk2dTextMesh Text;
             public float Alpha;
+            public int Style = -1;
         }
 
-        /// <summary>Under the feet, clear of the speech bubbles above the head.</summary>
-        private const float BelowFeet = 46f;
+        /// <summary>A look for the names, from the game's own fonts (<c>FontsDB</c>).</summary>
+        internal struct Style
+        {
+            public string Label;
+            public string Font;
+            public float Grey;
+            public float Alpha;
+            public float Spacing;
+            public float Size;
+            public bool Lower;
+            public string Around;
+
+            public Style(string label, string font, float grey, float alpha, float spacing, float size, bool lower = false, string around = null)
+            {
+                Label = label; Font = font; Grey = grey; Alpha = alpha; Spacing = spacing; Size = size; Lower = lower; Around = around;
+            }
+        }
+
+        /// <summary>The looks tried so far; <see cref="StyleIndex"/> picks one (test pilot <c>namestyle</c>).</summary>
+        internal static readonly Style[] Styles =
+        {
+            new Style("hover label, dimmed", "tahoma_11px_outlinedata", 0.62f, 0.85f, 0.5f, 0.75f),
+            new Style("soft, no outline", "tahoma_11px_light_AAdata", 0.70f, 0.80f, 1f, 1f),
+            new Style("menu heading, spaced", "tahoma_11px_light_aa_occludeddata", 0.62f, 0.90f, 3f, 1f, lower: true),
+            new Style("thin outline, spaced", "tahoma_11px_light_outlinedata", 0.66f, 0.85f, 2f, 1f),
+            new Style("engraved", "tahoma_11px_bevel_whitedata", 0.80f, 0.90f, 1f, 1f),
+            new Style("day-title letters", "bebasNeue_35pxdata", 0.58f, 0.80f, 2f, 0.42f),
+            new Style("spaced with dots", "tahoma_11px_light_AAdata", 0.62f, 0.85f, 2f, 1f, around: "\u00b7"),
+        };
+
+        internal static int StyleIndex = 0; // process-scoped: the look in use
+
+        /// <summary>Over the head (no speech bubbles there any more: what is said stays in the chat).</summary>
+        private const float OverHead = 44f;
+        /// <summary>World units: full strength up to here, then fading out to <see cref="FarDistance"/>.</summary>
+        private const float NearDistance = 220f;
+        private const float FarDistance = 700f;
         /// <summary>How close (world units) the cursor must be to point at a player.</summary>
         private const float PointRadius = 34f;
-        private const float FadePerSec = 5f;
-        private static readonly Color NameColor = new Color(0.8235294f, 0.8235294f, 0.8235294f, 1f);
+        /// <summary>Seconds to fade a name in or out.</summary>
+        private const float FadeSec = 0.45f;
 
         private static Nameplates _instance; // process-scoped: one HUD component
         private readonly Dictionary<int, Plate> _plates = new Dictionary<int, Plate>();
@@ -49,7 +86,7 @@ namespace DWMPHorde
 
         private static Mode Current()
         {
-            string v = ModConfig.ShowPlayerNames != null ? ModConfig.ShowPlayerNames.Value : "always";
+            string v = ModConfig.ShowPlayerNames != null ? ModConfig.ShowPlayerNames.Value : "pointed";
             if (string.Equals(v, "off", StringComparison.OrdinalIgnoreCase))
                 return Mode.Off;
             if (string.Equals(v, "pointed", StringComparison.OrdinalIgnoreCase))
@@ -104,11 +141,16 @@ namespace DWMPHorde
                         Fade(plate, want);
                         if (plate.Alpha <= 0f)
                             continue;
-                        Vector3 ui = Core.worldToUIPos(t.position + new Vector3(0f, 0f, -BelowFeet));
+                        Style st = Styles[Mathf.Clamp(StyleIndex, 0, Styles.Length - 1)];
+                        Apply(plate, st);
+                        float dist = Vector2.Distance(new Vector2(t.position.x, t.position.z),
+                            new Vector2(p.transform.position.x, p.transform.position.z));
+                        float far = 1f - Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(NearDistance, FarDistance, dist));
+                        float a = Mathf.SmoothStep(0f, 1f, plate.Alpha) * far * st.Alpha;
+                        Vector3 ui = Core.worldToUIPos(t.position + new Vector3(0f, 0f, OverHead));
                         HudText.FollowScale(plate.Text);
                         HudText.Place(plate.Text, ui.x, ui.z);
-                        HudText.Set(plate.Text, PlayerNames.Shown(proxy.PlayerId),
-                            new Color(NameColor.r, NameColor.g, NameColor.b, plate.Alpha));
+                        HudText.Set(plate.Text, Shown(st, PlayerNames.Shown(proxy.PlayerId)), new Color(st.Grey, st.Grey, st.Grey, a));
                     }
                 }
             }
@@ -139,9 +181,34 @@ namespace DWMPHorde
                 _plates.Remove(_gone[i]);
         }
 
+        private static string Shown(Style st, string name)
+        {
+            if (st.Lower)
+                name = name.ToLowerInvariant();
+            return st.Around != null ? st.Around + " " + name + " " + st.Around : name;
+        }
+
+        /// <summary>Put the look on a plate (font, spacing, size), once per change.</summary>
+        private static void Apply(Plate plate, Style st)
+        {
+            int idx = Mathf.Clamp(StyleIndex, 0, Styles.Length - 1);
+            if (plate.Style == idx)
+                return;
+            plate.Style = idx;
+            tk2dTextMesh tm = plate.Text;
+            tk2dFontData font = HudText.Font(st.Font);
+            if (font != null && tm.font != font)
+                tm.font = font;
+            tm.anchor = TextAnchor.LowerCenter;
+            tm.Spacing = st.Spacing;
+            tm.scale = new Vector3(2f * st.Size, 2f * st.Size, 2f * st.Size);
+            tm.text = "";
+            tm.Commit();
+        }
+
         private static void Fade(Plate plate, bool want)
         {
-            float step = Time.unscaledDeltaTime * FadePerSec;
+            float step = Time.unscaledDeltaTime / FadeSec;
             plate.Alpha = Mathf.Clamp01(plate.Alpha + (want ? step : -step));
             bool active = plate.Alpha > 0f;
             if (plate.Text.gameObject.activeSelf != active)

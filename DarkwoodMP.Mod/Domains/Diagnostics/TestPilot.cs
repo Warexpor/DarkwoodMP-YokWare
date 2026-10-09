@@ -1336,6 +1336,11 @@ namespace DWMPHorde.Sync
                         ModConfig.PlayerName.Value = string.Join(" ", a, 1, a.Length - 1);
                     Out("  name=" + PlayerNames.LocalName());
                     return;
+                case "namestyle":
+                    if (a.Length > 1)
+                        Nameplates.StyleIndex = int.Parse(a[1], CultureInfo.InvariantCulture);
+                    Out("  style " + Nameplates.StyleIndex + " = " + Nameplates.Styles[Mathf.Clamp(Nameplates.StyleIndex, 0, Nameplates.Styles.Length - 1)].Label);
+                    return;
                 case "names":
                 {
                     var sb = new StringBuilder("  me=p" + net.LocalPlayerId + " '" + PlayerNames.Shown(net.LocalPlayerId) + "'");
