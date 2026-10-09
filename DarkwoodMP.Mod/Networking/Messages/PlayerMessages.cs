@@ -146,6 +146,11 @@ namespace DWMPHorde.Networking
         /// at half volume. Trailer.
         /// </summary>
         public bool Aiming;
+        /// <summary>
+        /// Sender is in a freeze vanilla puts on its own player (dying, dead until morning, the
+        /// Wolf's trap): it does not keep the shared clock running. Trailer.
+        /// </summary>
+        public bool ClockHeld;
         public short CurrentFrame;
 
         // Continuous light state uses a conditional LightFlags payload.
@@ -233,6 +238,7 @@ namespace DWMPHorde.Networking
             writer.Put(InOpenWorld);
             writer.Put(SeesVillager);
             writer.Put(Aiming);
+            writer.Put(ClockHeld);
         }
 
         public static PlayerStateMessage Deserialize(NetReader reader)
@@ -302,6 +308,7 @@ namespace DWMPHorde.Networking
             msg.InOpenWorld = reader.GetBool();
             msg.SeesVillager = reader.GetBool();
             msg.Aiming = reader.GetBool();
+            msg.ClockHeld = reader.GetBool();
             return msg;
         }
     }

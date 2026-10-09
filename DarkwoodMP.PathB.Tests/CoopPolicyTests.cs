@@ -43,9 +43,11 @@ public class CoopPolicyTests
         Assert.False(CoopTimePolicy.ShouldSuppressClientClock(isConnected: false, isClient: true));
         Assert.True(CoopTimePolicy.ShouldUseRefreshTimeNoLogicOnClientSync);
         // Shared clock: stops only when the host and every peer are inside.
-        Assert.True(CoopTimePolicy.SharedClockRuns(hostInOutsideLocation: false, anyRemoteInOpenWorld: false));
-        Assert.True(CoopTimePolicy.SharedClockRuns(hostInOutsideLocation: true, anyRemoteInOpenWorld: true));
-        Assert.False(CoopTimePolicy.SharedClockRuns(hostInOutsideLocation: true, anyRemoteInOpenWorld: false));
+        // A host dying or in the Wolf's trap does not stop a peer's clock; a world hold does.
+        Assert.True(CoopTimePolicy.SharedClockSteps(worldHeld: false, hostCounts: false, anyRemoteCounts: true));
+        Assert.False(CoopTimePolicy.SharedClockSteps(worldHeld: false, hostCounts: false, anyRemoteCounts: false));
+        Assert.False(CoopTimePolicy.SharedClockSteps(worldHeld: true, hostCounts: true, anyRemoteCounts: true));
+        Assert.True(CoopTimePolicy.SharedClockSteps(worldHeld: false, hostCounts: true, anyRemoteCounts: false));
         // Village at night: away from the night warning until morning; flips unseen only.
         Assert.True(VillageNightPolicy.IsNearNight(970, 1100, 360));
         Assert.True(VillageNightPolicy.IsNearNight(100, 1100, 360));

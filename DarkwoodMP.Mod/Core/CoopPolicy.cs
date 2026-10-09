@@ -21,12 +21,14 @@ namespace DWMPHorde
 
         /// <summary>
         /// Vanilla stops the clock while the player is inside an outside location (village,
-        /// bunker, basement). The shared clock runs while anyone is in the open world and
-        /// stops only when nobody is. A peer counts only on its own report: one still loading
-        /// or in the opening movie does not run the clock.
+        /// bunker, basement). One shared clock step: a world-wide hold (the morning, the day-1 prologue wait, a
+        /// load) stops it for everyone. Otherwise it runs while any player counts: in the open
+        /// world and not in a freeze vanilla puts on that one player (dying, dead until morning,
+        /// the Wolf's trap). A peer counts only on its own report: one still loading or in the
+        /// opening movie does not run the clock.
         /// </summary>
-        public static bool SharedClockRuns(bool hostInOutsideLocation, bool anyRemoteInOpenWorld)
-            => !hostInOutsideLocation || anyRemoteInOpenWorld;
+        public static bool SharedClockSteps(bool worldHeld, bool hostCounts, bool anyRemoteCounts)
+            => !worldHeld && (hostCounts || anyRemoteCounts);
 
         public const int MinutesPerDay = 1440;
 

@@ -340,10 +340,11 @@ code, not yet playtested).
 - **The host is the only clock.** Clients never advance time or fire day and night
   edges; they show the host's time.
 - **The clock runs while anyone is in the open world.** Vanilla stops the clock
-  while the player is inside a location (a village, a bunker). With a party, the
-  clock stops only when nobody is in the open world. A player still loading or in
-  their prologue does not count. Vanilla's own freezes (morning, death, scripted
-  events) still stop it.
+  while the player is inside a location (a village, a bunker), while the player is
+  dying, and in the Wolf's trap. With a party, these only take that one player out of
+  the count: the clock stops only when nobody is in the open world and free. A player
+  still loading, in their prologue, or dead until morning does not count. The
+  world-wide freezes (the morning, a dream, the day-1 wait) stop it for everyone.
 - **Day 1 waits for prologues.** On a fresh world the clock holds at 05:00 while
   anyone is still in their prologue, for at most 45 minutes.
 - **Menus do not pause the world.** In single player the map, journal, padlocks,

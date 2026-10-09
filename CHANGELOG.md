@@ -3,9 +3,11 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.176**. The current Horde wire protocol is **46** (bumped in 0.8.176: `NightDeathState` gains
+**0.8.177**. The current Horde wire protocol is **47** (bumped in 0.8.177: `PlayerState` gains
+the `ClockHeld` trailer; same DLL on every install).
+46 held for 0.8.176, bumped there: `NightDeathState` gains
 the rejoin resume and its position, `PlayerDied` gains the dying player's home, the entity
-snapshot's second flag byte gains the in-sight bit; same DLL on every install).
+snapshot's second flag byte gains the in-sight bit.
 45 held for 0.8.171 to 0.8.175, bumped in 0.8.170:
 `Handshake` gains `WorldGeneratedLocally`.
 44 held for 0.8.166 to 0.8.169, bumped in 0.8.165: `ScenarioEventFired` gains the
@@ -42,6 +44,35 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.177 — Where time stands still, with three players
+
+On top of 0.8.176. Protocol **47**. Three-player pilot runs of every place and moment where
+vanilla stops the clock: a location (the bunker), a player dying, the Wolf's trap in chapter 2
+(its personal `timeFreeze`), a player dead until morning, the morning hold, and a dream.
+
+**Verified in game, unchanged:** host inside the bunker with the clients outside, the clock
+runs; all three inside, it stops; one client out, it runs; the host out with both clients in,
+it runs. The morning holds the clock for everyone until the hideout is empty (a client walking
+out with the host still home keeps it; the host walking out ends it). A dream started by a client
+holds the clock for everyone and the world time comes back where it was.
+
+**Fixed:**
+- **The host dying stopped everyone's clock.** Vanilla `Player.die` turns the clock off until the
+  respawn, so for about seven seconds the clients' world stood still, while a client dying
+  stopped nothing. The Wolf's trap did the same: the host caught in it froze time for the whole
+  party, a client caught in it froze nobody. Now a player's own freeze (dying, dead until
+  morning, the trap's `timeFreeze`) only takes that player out of the count, like being inside a
+  location: the clock runs while any player is in the open world and not held, and stops when
+  nobody is. A host dead at night and spectating no longer keeps the clock running alone either
+  (both clients in the bunker: held; one walks out: it runs). World-wide holds (the morning, the
+  day-1 prologue wait, a load) still stop it for everyone.
+- Each client reports its own freeze on `PlayerState` (`ClockHeld`, new trailer, protocol 47).
+
+Files: `ClientTimeAuthorityPatches.cs` (`HostSharedClockPatch` rewritten around
+`CoopTimePolicy.SharedClockSteps`, `LocalPersonalHold`), `PersonalProloguePatches.cs` (the
+day-1 hold is readable per step), `PlayerMessages.cs`, `RemotePlayerState.cs`,
+`PlayerStateNetHandlers.cs`, `LanNetworkManager.Tick.cs`, `CoopPolicy.cs`. Pilot: `effect <type> off`.
 
 ## 0.8.176 — Nights, deaths, blood, skills and every creature with three players
 

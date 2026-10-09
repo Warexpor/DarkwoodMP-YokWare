@@ -563,9 +563,13 @@ namespace DWMPHorde.Sync
                 {
                     // "effect <CharacterEffectType> <seconds> [magnitude]": put an effect on this
                     // player, as a sensor's effects list does (bleeding, poison...).
+                    // "effect <type> off" takes it off (what the Wolf trap's exit step does).
                     var type = (CharacterEffectType)Enum.Parse(typeof(CharacterEffectType), a[1], ignoreCase: true);
-                    p.effects.activate(type, F(a[2]), a.Length > 3 ? F(a[3]) : 0f);
-                    Out("  " + type + " on, bleeding=" + p.bleeding + " hp=" + Mathf.RoundToInt(p.health));
+                    if (a[2] == "off")
+                        p.effects.deleteThisTypeOfEffect(type);
+                    else
+                        p.effects.activate(type, F(a[2]), a.Length > 3 ? F(a[3]) : 0f);
+                    Out("  " + type + (a[2] == "off" ? " off" : " on") + ", bleeding=" + p.bleeding + " hp=" + Mathf.RoundToInt(p.health));
                     return;
                 }
                 case "shadows":

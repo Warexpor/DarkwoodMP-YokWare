@@ -292,6 +292,7 @@ namespace DWMPHorde.Networking
                 HasNightShadows = local.skills != null && local.skills.NightShadows,
                 AfterNightActive = Singleton<Controller>.Instance != null && Singleton<Controller>.Instance.isAfterNight,
                 InOpenWorld = Patches.HostSharedClockPatch.LocalInOpenWorld(),
+                ClockHeld = Patches.HostSharedClockPatch.LocalPersonalHold(),
                 SeesVillager = Sync.NightVillage.LocalSeesVillager,
                 Aiming = local.aiming,
                 TrapNetId = local.inBearTrap ? Sync.LocalBearTrap.CurrentId(hostMint: _role == NetworkRole.Host) : 0

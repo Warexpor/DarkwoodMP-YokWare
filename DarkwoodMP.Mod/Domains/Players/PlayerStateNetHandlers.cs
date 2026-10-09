@@ -52,6 +52,7 @@ namespace DWMPHorde.Networking
                     hostSt.HasLightProtection = state.HasLightProtection;
                     hostSt.HasNightShadows = state.HasNightShadows;
                     hostSt.InOpenWorld = state.InOpenWorld;
+                    hostSt.ClockHeld = state.ClockHeld;
                     hostSt.SeesVillager = state.SeesVillager;
                     hostSt.Aiming = state.Aiming;
                     if (state.InBearTrap && trapChanged)
@@ -168,6 +169,7 @@ namespace DWMPHorde.Networking
                 cliSt.HasNightShadows = state.HasNightShadows;
                 // Kept on clients too: a promoted host runs the shared clock from it.
                 cliSt.InOpenWorld = state.InOpenWorld;
+                cliSt.ClockHeld = state.ClockHeld;
                 cliSt.SeesVillager = state.SeesVillager;
                 cliSt.Aiming = state.Aiming;
                 if (state.InBearTrap && cliTrapChanged)
