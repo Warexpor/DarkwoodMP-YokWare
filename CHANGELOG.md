@@ -3,7 +3,7 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.178**. The current Horde wire protocol is **47** (held for 0.8.178; bumped in 0.8.177: `PlayerState` gains
+**0.8.179**. The current Horde wire protocol is **47** (held for 0.8.178 and 0.8.179; bumped in 0.8.177: `PlayerState` gains
 the `ClockHeld` trailer; same DLL on every install).
 46 held for 0.8.176, bumped there: `NightDeathState` gains
 the rejoin resume and its position, `PlayerDied` gains the dying player's home, the entity
@@ -44,6 +44,22 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.179 — MULTIPLAYER title button redrawn as vanilla pixel art
+
+- The title-screen MULTIPLAYER button was an AI-generated picture (bevelled letters, blurry glow,
+  sized by a guessed fraction of the row) and looked foreign next to PLAY/OPTIONS/EXIT. It is now
+  real pixel art on the vanilla grid: the idle state is assembled pixel for pixel from the vanilla
+  menu atlas glyphs (M, U, I from MAIN MENU; P, L, A from PLAY; E, T from EXIT; R from CREDITS; Y
+  from the Turkish YARDIM, the form every other vanilla Y uses, since PLAY's Y leans left), each letter
+  with its own soft edge column,
+  and the lit state is made with the same idle-to-rollover look vanilla uses for its `_0` → `_1`
+  sprites (fitted on PLAY/EXIT/CREDITS, cross-checked against them at about 1% error).
+- The art is drawn point-filtered at exactly one texel of the cloned EXIT sprite, so its letters are
+  the same height and pixel size as the vanilla buttons at every resolution. Idle and lit share one
+  canvas, so the letters no longer jump on hover.
+- Files: `Resources/MenuButtons/multiplayer_idle.png`, `multiplayer_hover.png` (the old `_sm` copies
+  are gone), `UI/MenuButtonArt.cs`.
 
 ## 0.8.178 — The village at night, with three players
 

@@ -7,21 +7,15 @@ using UnityEngine;
 namespace DWMPHorde
 {
     /// <summary>
-    /// Embedded title-button art (beveled MULTIPLAYER idle/hover).
-    /// CamUI looks down (Euler 90). UI lives in screen-pixel XZ; size comes from row spacing,
-    /// not BoxCollider AABB.y (near-zero / undersized vs PLAY sprites).
+    /// Embedded title-button art (MULTIPLAYER idle/hover). Pixel art built from the vanilla
+    /// menu atlas glyphs (MAIN MENU, PLAY, EXIT, CREDITS) with the vanilla _0 → _1 rollover
+    /// look; both PNGs share one canvas (the hover's glow padding), drawn point-filtered at
+    /// the EXIT sprite's texel size. CamUI looks down (Euler 90); UI lives in screen-pixel XZ.
     /// </summary>
     internal static class MenuButtonArt
     {
         private const string IdleResource = "DWMPHorde.Resources.MenuButtons.multiplayer_idle.png";
         private const string HoverResource = "DWMPHorde.Resources.MenuButtons.multiplayer_hover.png";
-        /// <summary>Title row gap in PositionMe offset units (matches inject RowSpacing).</summary>
-        private const float TitleRowSpacing = 60f;
-        /// <summary>
-        /// Visible letter height vs one title row. Keep under ~0.6 so MULTIPLAYER
-        /// matches PLAY/OPTIONS face size (0.82 overshot and looked huge).
-        /// </summary>
-        private const float LetterHeightFracOfRow = 0.55f;
 
         private static Texture2D _idle; // process-scoped: loaded asset
         private static Texture2D _hover; // process-scoped: loaded asset
@@ -46,23 +40,15 @@ namespace DWMPHorde
                 return false;
             }
 
-            float aspect = idle.height > 0 ? (float)idle.width / (float)idle.height : 5.35f;
-            float rowPx = TitleRowSpacing * Core.ResolutionHeightModifier;
-            // Opaque letter band may be shorter than the PNG (hover bloom padding).
-            float contentFrac = EstimateOpaqueHeightFrac(idle);
-            float targetH = rowPx * LetterHeightFracOfRow / contentFrac;
-            float targetW = targetH * aspect;
-
-            // Cap against quit/PLAY mesh face so we never exceed native title letter height.
-            if (TryMeshFace(buttonGo, out _, out float meshH) && meshH > 1f)
+            // One art texel = one texel of the EXIT sprite this button was cloned from, so the
+            // letters land on the same pixel grid as PLAY/OPTIONS/EXIT.
+            if (!TryVanillaTexel(buttonGo, out float texel))
             {
-                float meshLetterH = meshH * 0.72f / contentFrac;
-                if (meshLetterH > 8f && meshLetterH < targetH)
-                {
-                    targetH = meshLetterH;
-                    targetW = targetH * aspect;
-                }
+                ModLog.Warn(LogCat.Session, "Menu button art: no EXIT sprite to size from — falling back to text");
+                return false;
             }
+            float targetW = idle.width * texel;
+            float targetH = idle.height * texel;
 
             if (targetW < 8f || targetH < 8f)
             {
@@ -112,7 +98,7 @@ namespace DWMPHorde
             ModLog.Event(LogCat.Session,
                 "MULTIPLAYER art attached shader=" + shader.name
                 + " size=" + targetW.ToString("F1") + "x" + targetH.ToString("F1")
-                + " rowPx=" + rowPx.ToString("F1"));
+                + " texel=" + texel.ToString("F2"));
             return true;
         }
 
@@ -160,6 +146,23 @@ namespace DWMPHorde
             }
         }
 
+        /// <summary>
+        /// World size of one texel of the cloned EXIT sprite: its mesh face height over the
+        /// sprite definition's trimmed height in texels (the menu atlas has texelSize 1).
+        /// </summary>
+        private static bool TryVanillaTexel(GameObject go, out float texel)
+        {
+            texel = 0f;
+            tk2dBaseSprite sprite = go.GetComponent<tk2dBaseSprite>();
+            tk2dSpriteDefinition def = sprite != null ? sprite.GetCurrentSpriteDef() : null;
+            if (def == null || def.boundsData == null || def.boundsData.Length < 2 || def.boundsData[1].y < 1f)
+                return false;
+            if (!TryMeshFace(go, out _, out float meshH))
+                return false;
+            texel = meshH / def.boundsData[1].y;
+            return texel > 0f;
+        }
+
         private static bool TryMeshFace(GameObject go, out float faceW, out float faceH)
         {
             faceW = faceH = 0f;
@@ -173,44 +176,6 @@ namespace DWMPHorde
             if (faceH < 1f && Mathf.Abs(ms.z * lossy.z) > faceH)
                 faceH = Mathf.Abs(ms.z * lossy.z);
             return faceW > 1f && faceH > 1f;
-        }
-
-        /// <summary>
-        /// Fraction of texture height that has visible (non-near-zero alpha) pixels.
-        /// Used so hover bloom padding does not shrink the letter faces.
-        /// </summary>
-        private static float EstimateOpaqueHeightFrac(Texture2D tex)
-        {
-            if (tex == null || tex.height < 2)
-                return 1f;
-            try
-            {
-                Color32[] px = tex.GetPixels32();
-                int w = tex.width;
-                int h = tex.height;
-                int yMin = h, yMax = -1;
-                for (int y = 0; y < h; y++)
-                {
-                    int row = y * w;
-                    for (int x = 0; x < w; x++)
-                    {
-                        if (px[row + x].a > 24)
-                        {
-                            if (y < yMin) yMin = y;
-                            if (y > yMax) yMax = y;
-                            break;
-                        }
-                    }
-                }
-                if (yMax < yMin)
-                    return 1f;
-                float frac = (yMax - yMin + 1) / (float)h;
-                return Mathf.Clamp(frac, 0.35f, 1f);
-            }
-            catch
-            {
-                return 1f;
-            }
         }
 
         private static void PlaceFacingCam(Transform art, Transform follow, Collider col,

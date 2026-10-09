@@ -13,7 +13,7 @@ namespace DWMPHorde
             if (template == null || template.GetComponent<Button>() == null)
                 return;
 
-            // Title door: generated bevel art (matches PLAY/OPTIONS). Fallback = text label.
+            // Title door: pixel art from the vanilla menu glyphs (matches PLAY/OPTIONS). Fallback = text label.
             _mpButton = CloneButton(template, template.transform.parent,
                 MpButtonName, "MULTIPLAYER", OpenPanel, TagKindMp, useTextLabel: false);
 
