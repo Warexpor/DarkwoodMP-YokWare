@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Reflection;
 using DWMPHorde.Logging;
 using HarmonyLib;
@@ -16,25 +17,24 @@ namespace DWMPHorde.Items
     {
         public const string ItemType = "walkie_talkie";
         private const string DonorType = "junk";
-        /// <summary>
-        /// The game's own handheld radio in the inventory atlas (<c>InventorySprites</c>), the
-        /// icon of the "damaged handheld radio" journal note: same hand, same grey, same diagonal
-        /// as every other item.
-        /// </summary>
-        private const string IconSprite = "radio_small_01";
+        private const string EmbeddedResourceName = "DWMPHorde.Resources.walkie_talkie.png";
 
         private static GameObject _templateGo; // process-scoped: injected item template
         private static InvItem _template; // process-scoped: injected item template
         private static CraftingRecipes _recipes; // process-scoped: injected item template
+        private static string _donorIconName; // process-scoped: injected item template
+        private static Texture2D _iconTexture; // process-scoped: loaded asset
+        private static bool _iconTextureFailed; // process-scoped: loaded asset
         private static bool _langDone; // process-scoped: one-time injection state
         private static float _nextAttempt; // process-scoped: one-time injection state
         private static bool _warnedNoDb; // process-scoped: one-time injection state
-        /// <summary>True once the item is built and its name is in the language sheet.</summary>
-        private static bool _settled; // process-scoped: one-time injection state
+        /// <summary>True after icon sprite is in a collection (or texture load failed permanently).</summary>
+        private static bool _iconSettled; // process-scoped: one-time injection state
 
         public static void Tick()
         {
-            if (_settled)
+            // Settled: never call InjectIcon again — FindObjectsOfTypeAll was the ~50ms/5s hitch.
+            if (_iconSettled)
                 return;
             if (Time.unscaledTime < _nextAttempt)
                 return;
@@ -46,7 +46,20 @@ namespace DWMPHorde.Items
                 try { EnsureTemplate(Singleton<ItemsDatabase>.Instance); }
                 catch { /* ignore */ }
             }
-            _settled = _template != null && _langDone;
+            if (_iconTextureFailed)
+            {
+                _iconSettled = true;
+                return;
+            }
+            if (Player.Instance == null || _template == null)
+                return;
+            try { InjectIcon(); }
+            catch (Exception ex)
+            {
+                ModLog.Warn(LogCat.Audio, "Walkie icon: " + ex.Message);
+            }
+            if (_template != null && _template.iconType == ItemType)
+                _iconSettled = true;
         }
 
         /// <summary>
@@ -185,6 +198,7 @@ namespace DWMPHorde.Items
                 return false;
             }
 
+            _donorIconName = donor.iconType;
             _templateGo = new GameObject("YokWare_WalkieTalkie");
             _templateGo.SetActive(false);
             UnityEngine.Object.DontDestroyOnLoad(_templateGo);
@@ -193,7 +207,7 @@ namespace DWMPHorde.Items
                 field.SetValue(item, field.GetValue(donor));
 
             item.type = ItemType;
-            item.iconType = IconSprite;
+            item.iconType = _donorIconName;
             item.categories = new List<InvItem.Category> { (InvItem.Category)700 };
             item.upgrades = new List<ItemUpgrade>();
             item.effects = new List<InvItemEffect>();
@@ -280,13 +294,8 @@ namespace DWMPHorde.Items
         private static void InjectLocalization()
         {
             Dictionary<string, string> sheet = Language.GetAllKeysForSheet("Items");
-            if (sheet == null)
+            if (sheet == null || sheet.ContainsKey("walkie_talkie_name"))
                 return;
-            if (sheet.ContainsKey("walkie_talkie_name"))
-            {
-                _langDone = true;
-                return;
-            }
             // DoSwitch runs before the menu's per-frame language refresh: read the setting now.
             Loc.SetLanguage(GameSettings.GetString("LanguageCode"));
             sheet.Add("walkie_talkie_name", Loc.T("Walkie-Talkie"));
@@ -299,6 +308,165 @@ namespace DWMPHorde.Items
             {
                 _langDone = true;
                 ModLog.Event(LogCat.Audio, "Walkie localization injected");
+            }
+        }
+
+        private static void InjectIcon()
+        {
+            if (string.IsNullOrEmpty(_donorIconName))
+                return;
+            Texture2D tex = LoadIconTexture();
+            if (tex == null)
+                return;
+
+            bool injected = false;
+            tk2dSpriteCollectionData[] cols = Resources.FindObjectsOfTypeAll<tk2dSpriteCollectionData>();
+            foreach (tk2dSpriteCollectionData col in cols)
+            {
+                tk2dSpriteCollectionData inst = col.inst != null ? col.inst : col;
+                if (inst.GetSpriteIdByName(_donorIconName, -1) < 0)
+                    continue;
+                if (inst.GetSpriteIdByName(ItemType, -1) >= 0)
+                {
+                    injected = true;
+                    continue;
+                }
+                AppendDefinition(inst, tex);
+                injected = true;
+                ModLog.Event(LogCat.Audio, "Walkie sprite injected into '" + inst.name + "'");
+            }
+            if (injected)
+            {
+                if (_template.iconType != ItemType)
+                    _template.iconType = ItemType;
+                _iconSettled = true;
+            }
+        }
+
+        private static void AppendDefinition(tk2dSpriteCollectionData col, Texture2D tex)
+        {
+            tk2dSpriteDefinition donor = col.spriteDefinitions[col.GetSpriteIdByName(_donorIconName)];
+            Material mat = new Material(donor.material.shader)
+            {
+                mainTexture = tex,
+                name = "YokWare_WalkieIcon"
+            };
+            Vector3[] positions = (Vector3[])donor.positions.Clone();
+            var def = new tk2dSpriteDefinition
+            {
+                name = ItemType,
+                material = mat,
+                materialInst = mat,
+                materialId = col.materials != null ? col.materials.Length : 0,
+                positions = positions,
+                uvs = BuildUvsFromPositions(positions),
+                normals = donor.normals != null ? (Vector3[])donor.normals.Clone() : new Vector3[0],
+                tangents = donor.tangents != null ? (Vector4[])donor.tangents.Clone() : new Vector4[0],
+                indices = (int[])donor.indices.Clone(),
+                boundsData = (Vector3[])donor.boundsData.Clone(),
+                untrimmedBoundsData = (Vector3[])donor.untrimmedBoundsData.Clone(),
+                texelSize = donor.texelSize,
+                flipped = tk2dSpriteDefinition.FlipMode.None,
+                complexGeometry = false
+            };
+
+            tk2dSpriteDefinition[] defs = col.spriteDefinitions;
+            Array.Resize(ref defs, defs.Length + 1);
+            defs[defs.Length - 1] = def;
+            col.spriteDefinitions = defs;
+
+            Material[] mats = col.materials ?? new Material[0];
+            Array.Resize(ref mats, mats.Length + 1);
+            mats[mats.Length - 1] = mat;
+            col.materials = mats;
+            if (col.materialInsts != null)
+            {
+                Material[] insts = col.materialInsts;
+                Array.Resize(ref insts, insts.Length + 1);
+                insts[insts.Length - 1] = mat;
+                col.materialInsts = insts;
+            }
+            col.materialIdsValid = false;
+            typeof(tk2dSpriteCollectionData)
+                .GetField("spriteNameLookupDict", BindingFlags.Instance | BindingFlags.NonPublic)
+                ?.SetValue(col, null);
+        }
+
+        private static Vector2[] BuildUvsFromPositions(Vector3[] positions)
+        {
+            float minX = float.MaxValue, maxX = float.MinValue;
+            float minY = float.MaxValue, maxY = float.MinValue;
+            foreach (Vector3 p in positions)
+            {
+                if (p.x < minX) minX = p.x;
+                if (p.x > maxX) maxX = p.x;
+                if (p.y < minY) minY = p.y;
+                if (p.y > maxY) maxY = p.y;
+            }
+            float midX = (minX + maxX) * 0.5f;
+            float midY = (minY + maxY) * 0.5f;
+            var uvs = new Vector2[positions.Length];
+            for (int i = 0; i < positions.Length; i++)
+                uvs[i] = new Vector2(positions[i].x > midX ? 1f : 0f, positions[i].y > midY ? 1f : 0f);
+            return uvs;
+        }
+
+        /// <summary>
+        /// The walkie's painted icon (256 px, embedded). The inventory draws it at 30 units, so it
+        /// gets a mip chain and trilinear filtering: shrunk without mips it shimmers and jags.
+        /// </summary>
+        private static Texture2D LoadIconTexture()
+        {
+            if (_iconTexture != null)
+                return _iconTexture;
+            if (_iconTextureFailed)
+                return null;
+            try
+            {
+                byte[] bytes;
+                using (Stream stream = typeof(WalkieItem).Assembly.GetManifestResourceStream(EmbeddedResourceName))
+                {
+                    if (stream == null)
+                    {
+                        _iconTextureFailed = true;
+                        ModLog.Warn(LogCat.Audio, "Walkie sprite missing — keeping scrap icon");
+                        return null;
+                    }
+                    bytes = new byte[stream.Length];
+                    int read = 0;
+                    while (read < bytes.Length)
+                    {
+                        int n = stream.Read(bytes, read, bytes.Length - read);
+                        if (n <= 0) break;
+                        read += n;
+                    }
+                }
+
+                var png = new Texture2D(2, 2, TextureFormat.RGBA32, false);
+                if (!ImageConversion.LoadImage(png, bytes))
+                {
+                    _iconTextureFailed = true;
+                    ModLog.Warn(LogCat.Audio, "Walkie sprite decode failed");
+                    return null;
+                }
+                var tex = new Texture2D(png.width, png.height, TextureFormat.RGBA32, true)
+                {
+                    name = "YokWare_WalkieIconTex",
+                    wrapMode = TextureWrapMode.Clamp,
+                    filterMode = FilterMode.Trilinear,
+                    anisoLevel = 2
+                };
+                tex.SetPixels32(png.GetPixels32());
+                tex.Apply(true, true);
+                UnityEngine.Object.Destroy(png);
+                _iconTexture = tex;
+                return tex;
+            }
+            catch (Exception ex)
+            {
+                _iconTextureFailed = true;
+                ModLog.Warn(LogCat.Audio, "Walkie icon load: " + ex.Message);
+                return null;
             }
         }
     }

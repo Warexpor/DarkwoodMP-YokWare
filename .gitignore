@@ -77,6 +77,7 @@ appsettings.*.local.json
 !/scripts/pack-release.sh
 !/scripts/pack-release.ps1
 !/scripts/unity-yaml.py
+!/scripts/paint-walkie-icon.py
 /tools/
 /libs/
 

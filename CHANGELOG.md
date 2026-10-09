@@ -3,7 +3,7 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.192**. The current Horde wire protocol is **52** (held for 0.8.190 to 0.8.192; bumped in 0.8.189: `PlayerState`'s walkie trailer
+**0.8.193**. The current Horde wire protocol is **52** (held for 0.8.190 to 0.8.193; bumped in 0.8.189: `PlayerState`'s walkie trailer
 becomes a state byte, `WalkieState`: none, off or flat, on in a pocket, on in hand, plus underground;
 same DLL on every install).
 51 held for 0.8.187 to 0.8.188, bumped in 0.8.187: `VoiceData` (129) carries the
@@ -54,6 +54,22 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.193 — A hand-painted walkie icon
+
+- **New walkie icon, painted for the mod in the game's inventory style.** 0.8.192's borrowed
+  vanilla icon (`radio_small_01`) is a 25-pixel atlas cell and looked blurry blown up to a
+  slot. The new one is painted at 1024 and shipped at 256: a battered boxy handheld in worn
+  dark metal, lit from the top left like every vanilla item, standing nearly upright with a
+  slight lean as the game stands its boxy items (the 9V battery), a stubby rubber aerial, two
+  ridged knobs, a sunk speaker grille, a push-to-talk bar, a coiled
+  cord, black tape wrapped round the middle (it is made at a bench from scrap), a scratched
+  label plate with screws, a little old blood at the bottom, and the soft dark shadow the atlas
+  icons have. Greyscale with a breath of warm, like the atlas.
+- **The icon no longer shimmers when shrunk.** The old 500 px icon was loaded without mipmaps and
+  drawn at about 50 px, so it jagged. The loader now builds a mip chain with trilinear filtering.
+  The unused fallbacks (a PNG beside the DLL, a second resource name) are gone.
+- The icon is painted by a script, `scripts/paint-walkie-icon.py`, so it can be repainted.
 
 ## 0.8.192 — The walkie wears the game's own radio icon
 
