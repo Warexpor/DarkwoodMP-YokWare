@@ -775,13 +775,20 @@ namespace YokWare.VanillaMenu
         public object Default;
         /// <summary>False: shown but locked right now (left alone by "Revert to default").</summary>
         public bool Enabled = true;
+        /// <summary>
+        /// A change with consequences (others see it, it changes the game for everyone): leaving
+        /// with it not applied asks first. Other changes are simply kept.
+        /// </summary>
+        public bool Ask;
     }
 
     /// <summary>
     /// The vanilla Options way for a settings screen: a change shows at once, "Apply" keeps it,
-    /// "Revert to default" puts the screen's settings back to their defaults, and leaving with
-    /// changes not applied asks "Do you wish to apply these changes?" (No puts back what the
-    /// screen had when it was opened). Child screens opened from it do not count as leaving.
+    /// "Revert to default" puts the screen's settings back to their defaults. Leaving with a
+    /// change not applied to a setting marked <see cref="VmSetting.Ask"/> asks "Do you wish to
+    /// apply these changes?" (No puts those settings back to what the screen had when it was
+    /// opened); every other change is kept without asking. Child screens opened from it do not
+    /// count as leaving.
     /// </summary>
     public sealed class VmSettingsPage
     {
@@ -812,17 +819,17 @@ namespace YokWare.VanillaMenu
         }
 
         /// <summary>Changed since opened or last applied.</summary>
-        public bool Changed
+        public bool Changed => AnyChanged(false);
+
+        /// <summary><paramref name="askOnly"/>: only the settings that ask before leaving.</summary>
+        private bool AnyChanged(bool askOnly)
         {
-            get
+            foreach (VmSetting s in _settings())
             {
-                foreach (VmSetting s in _settings())
-                {
-                    if (s != null && _opened.TryGetValue(s.Key, out object was) && !Equals(was, s.Get()))
-                        return true;
-                }
-                return false;
+                if (s != null && (!askOnly || s.Ask) && _opened.TryGetValue(s.Key, out object was) && !Equals(was, s.Get()))
+                    return true;
             }
+            return false;
         }
 
         private bool AtDefaults
@@ -895,28 +902,28 @@ namespace YokWare.VanillaMenu
             _screen.Rebuild();
         }
 
-        private void PutBack()
+        private void PutBackAsking()
         {
             foreach (VmSetting s in _settings())
             {
-                if (s != null && _opened.TryGetValue(s.Key, out object was) && !Equals(was, s.Get()))
+                if (s != null && s.Ask && _opened.TryGetValue(s.Key, out object was) && !Equals(was, s.Get()))
                     s.Set(was);
             }
         }
 
         private void Leave()
         {
-            if (!Changed)
+            if (!AnyChanged(true))
             {
+                Remember();
                 Close();
                 return;
             }
             _screen.Confirm(Vm.Vanilla("ApplySettingsBox_title"), yes =>
             {
-                if (yes)
-                    Remember();
-                else
-                    PutBack();
+                if (!yes)
+                    PutBackAsking();
+                Remember();
                 Close();
             });
         }

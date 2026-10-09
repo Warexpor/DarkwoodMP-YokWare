@@ -37,8 +37,9 @@ namespace DWMPHorde
 
         private static IEnumerable<VmSetting> VoiceEntries()
         {
-            yield return Setting(ModConfig.VoiceEnabled);
-            yield return Setting(ModConfig.VoiceMode);
+            // Whether and when this mic goes out to everyone; keys, device and volumes stay local.
+            yield return Setting(ModConfig.VoiceEnabled, ask: true);
+            yield return Setting(ModConfig.VoiceMode, ask: true);
             yield return Setting(ModConfig.VoicePttKey);
             yield return Setting(ModConfig.VoiceRadioTalkKey);
             yield return Setting(ModConfig.VoiceRadioPowerKey);

@@ -401,30 +401,36 @@ namespace DWMPHorde
         }
 
         /// <summary>A config setting for a <see cref="VmSettingsPage"/> (null when not bound).</summary>
-        private static VmSetting Setting<T>(ModSetting<T> m, bool enabled = true)
+        /// <summary><paramref name="ask"/>: a change with consequences, confirmed when leaving unapplied.</summary>
+        private static VmSetting Setting<T>(ModSetting<T> m, bool enabled = true, bool ask = false)
         {
             if (m == null)
                 return null;
-            return new VmSetting { Key = m.Id, Get = () => m.Value, Set = v => m.Value = (T)v, Default = m.Default, Enabled = enabled };
+            return new VmSetting { Key = m.Id, Get = () => m.Value, Set = v => m.Value = (T)v, Default = m.Default, Enabled = enabled, Ask = ask };
         }
 
         private static IEnumerable<VmSetting> SettingsEntries()
         {
-            yield return Setting(ModConfig.PlayerName);
+            // The name everyone sees; the rest only changes this player's own screen and ears.
+            yield return Setting(ModConfig.PlayerName, ask: true);
             yield return Setting(ModConfig.ShowPlayerNames);
             yield return Setting(ModConfig.ChatEnabled);
             yield return Setting(ModConfig.PeerMovementVolume);
         }
 
-        /// <summary>The rules, plus how the game is opened while not hosting yet (locked once online).</summary>
+        /// <summary>
+        /// The rules, plus how the game is opened while not hosting yet (locked once online). A
+        /// rule changed mid-game changes it for everyone at once, so leaving unapplied asks; before
+        /// hosting nothing is live yet.
+        /// </summary>
         private static IEnumerable<VmSetting> HostSettingsEntries()
         {
             bool offline = Role == NetworkRole.Offline;
-            yield return Setting(ModConfig.FriendlyFireEnabled);
-            yield return Setting(ModConfig.LootShareModeSetting);
-            yield return Setting(ModConfig.DoubleItemsEnabled);
-            yield return Setting(ModConfig.NightMonsterMultiplier);
-            yield return Setting(ModConfig.VoiceAlertsEnemies);
+            yield return Setting(ModConfig.FriendlyFireEnabled, ask: !offline);
+            yield return Setting(ModConfig.LootShareModeSetting, ask: !offline);
+            yield return Setting(ModConfig.DoubleItemsEnabled, ask: !offline);
+            yield return Setting(ModConfig.NightMonsterMultiplier, ask: !offline);
+            yield return Setting(ModConfig.VoiceAlertsEnemies, ask: !offline);
             yield return Setting(ModConfig.MaxPlayers, offline);
             yield return Setting(ModConfig.SteamLobbyType, offline);
             yield return Setting(ModConfig.ConnectPort, offline);

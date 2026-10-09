@@ -3,7 +3,7 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.194**. The current Horde wire protocol is **52** (held for 0.8.190 to 0.8.194; bumped in 0.8.189: `PlayerState`'s walkie trailer
+**0.8.195**. The current Horde wire protocol is **52** (held for 0.8.190 to 0.8.195; bumped in 0.8.189: `PlayerState`'s walkie trailer
 becomes a state byte, `WalkieState`: none, off or flat, on in a pocket, on in hand, plus underground;
 same DLL on every install).
 51 held for 0.8.187 to 0.8.188, bumped in 0.8.187: `VoiceData` (129) carries the
@@ -54,6 +54,21 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.195 — The apply-changes question only for changes with consequences
+
+- **Leaving a Multiplayer settings screen asks "Do you wish to apply these changes?" only for
+  a change that matters to others**, not for small adjustments. Asked: your name (everyone
+  sees it), Voice chat off / push to talk / always on (whether your mic goes out to
+  everyone), and, while hosting, the rules (friendly fire, extra loot, night monsters,
+  creatures hear voices), which change the game for everyone at once. Not asked: volumes,
+  keys, microphone device, player names display, text chat, other players' steps, each
+  player's volume, and the host's players / lobby / port / password before hosting. Those
+  are kept on Return as before 0.8.194.
+- No on the question now puts back only the settings it asked about; small adjustments made
+  on the same screen stay.
+- Code: `VmSetting.Ask` in `UI/VanillaMenu/VanillaMenu.cs`; the marks in
+  `MultiplayerScreens.cs` / `MultiplayerScreens.Voice.cs`.
 
 ## 0.8.194 — Apply and Revert to default on the Multiplayer settings screens
 
