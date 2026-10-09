@@ -4,14 +4,13 @@ using DWMPHorde.Config;
 using DWMPHorde.Logging;
 using DWMPHorde.Networking;
 using LiteNetLib;
-using Steamworks;
 using UnityEngine;
 
 namespace DWMPHorde.Audio
 {
     /// <summary>
-    /// Steam Voice capture/playback over Horde wire (LAN or Steam SNS session).
-    /// Requires Steam client logged on for codec; transport is independent.
+    /// Voice chat over the Horde wire (LAN or Steam session alike): this player's microphone
+    /// (<see cref="VoiceMic"/>) in the mod's own codec (<see cref="VoiceCodec"/>), no Steam needed.
     /// A voice is heard from where the talker stands (3D, muffled through walls), and as far as
     /// they spoke loud: each packet carries the talker's loudness, measured where it was
     /// recorded. On the walkie it is heard through the radio, band-limited and with static that
@@ -155,35 +154,37 @@ namespace DWMPHorde.Audio
 
         private static int OutputRate = 48000; // process-scoped: AudioSettings.outputSampleRate, read on the main thread
 
-        private static bool _recording;
+        /// <summary>Voice is carried at the codec's rate end to end.</summary>
+        private static readonly uint _sampleRate = VoiceCodec.SampleRate;
+
         private static float _stopLinger;
         private static ushort _seq; // process-scoped: wrapping packet counter
-        private static readonly byte[] _captureBuf = new byte[8192];
         private static KeyCode _pttKey = KeyCode.V; // process-scoped: config cache, re-parsed when the setting text changes
         private static string _pttKeyText; // process-scoped: the setting text _pttKey was parsed from
         private static AudioClip _carrier; // process-scoped: asset
         private static readonly Dictionary<int, Speaker> _speakers = new Dictionary<int, Speaker>();
         private static readonly List<int> _reap = new List<int>(); // process-scoped: scratch
         private static GameObject _root; // process-scoped: DontDestroyOnLoad speaker parent
-        private static byte[] _decompressBuf; // process-scoped: decoder setup
-        private static uint _sampleRate; // process-scoped: decoder setup
-        private static byte[] _levelBuf; // process-scoped: decoder setup (own loudness)
+        private static readonly float[] _decodeBuf = new float[VoiceCodec.PacketSamples * 2]; // process-scoped: decode scratch
+        private static readonly byte[] _encodeBuf = new byte[VoiceCodec.EncodedSize(VoiceCodec.PacketSamples)]; // process-scoped: encode scratch
+        private static readonly List<float[]> _frames = new List<float[]>(8); // process-scoped: frames from the mic this tick
+        private static float[] _preroll; // process-scoped: the frame before talk began (its first syllable)
         private static bool _localWalkie; // process-scoped: polled every 0.5 s
         private static float _nextWalkieCheck; // process-scoped: polled every 0.5 s
-        private static float _nextSteamCheck; // process-scoped: Steam availability
-        private static bool _steamOk; // process-scoped: Steam availability
-        private static bool _steamWarned; // process-scoped: Steam availability
         private static bool _walkieTx;
         private static bool _walkieTxWas;
-        private static float _nextRearm; // process-scoped: rate limit
-        private static float _lastSent; // process-scoped: stats
+        private static bool _transmitting;
         private static int _txPackets; // process-scoped: stats
         private static float _nextStatsLog; // process-scoped: stats
 
+        /// <summary>The Voice settings screen is showing: keep the mic on for its level meter.</summary>
+        internal static float MeterWantedUntil; // process-scoped: menu flag, refreshed every frame the screen shows
+
+        /// <summary>This player is sending voice right now (push to talk held, the walkie keyed, or the open mic's gate open).</summary>
+        internal static bool Transmitting => _transmitting;
+
         public static void Reset()
         {
-            if (_recording)
-                StopCapture();
             foreach (Speaker s in _speakers.Values)
             {
                 if (s.Go != null)
@@ -193,6 +194,8 @@ namespace DWMPHorde.Audio
             _stopLinger = 0f;
             _walkieTx = false;
             _walkieTxWas = false;
+            _transmitting = false;
+            _preroll = null;
             _radioHolder = 0;
             _radioHolderAt = 0f;
             VoiceHearing.Reset();
@@ -216,25 +219,29 @@ namespace DWMPHorde.Audio
         {
             // Creatures hear the clients' voices on the host whether or not this player has voice.
             VoiceHearing.Tick(ModRuntime.Network);
+            if (AudioSettings.outputSampleRate > 0)
+                OutputRate = AudioSettings.outputSampleRate;
 
-            if (ModConfig.VoiceEnabled == null || !ModConfig.VoiceEnabled.Value)
+            var net = ModRuntime.Network;
+            bool enabled = ModConfig.VoiceEnabled != null && ModConfig.VoiceEnabled.Value;
+            bool inGame = net != null && net.IsConnected && Player.Instance != null && !Core.loadingGame;
+            bool meter = Time.unscaledTime < MeterWantedUntil;
+
+            _frames.Clear();
+            VoiceMic.Tick(enabled && (inGame || meter), _frames);
+
+            if (!enabled)
             {
-                if (_recording)
-                    StopCapture();
+                _transmitting = false;
                 return;
             }
-
-            if (!SteamAvailable())
-                return;
 
             UpdateLocalWalkie();
             UpdateSpeakers();
 
-            var net = ModRuntime.Network;
-            if (net == null || !net.IsConnected || Player.Instance == null || Core.loadingGame)
+            if (!inGame)
             {
-                if (_recording)
-                    StopCapture();
+                _transmitting = false;
                 _walkieTxWas = false;
                 return;
             }
@@ -254,6 +261,8 @@ namespace DWMPHorde.Audio
                     _pttKey = KeyCode.V;
                 }
             }
+
+            PumpTestTone(net);
 
             // Typing in chat or a menu text field must not key the mic.
             bool ptt = Input.GetKey(_pttKey) && !UiInputLock.IsHeld;
@@ -279,24 +288,73 @@ namespace DWMPHorde.Audio
                 PlayLocalSquelch(_walkieTx);
             }
 
-            if (openMic || ptt || _walkieTx)
-            {
-                if (!_recording)
-                    StartCapture();
+            // Push to talk and the walkie send while held (and a moment after, for the last
+            // word); an always-on mic sends while its gate hears speech over the room.
+            if (ptt || _walkieTx)
                 _stopLinger = Time.unscaledTime + 0.25f;
-                if (Time.unscaledTime >= _nextRearm)
-                {
-                    _nextRearm = Time.unscaledTime + 1f;
-                    try { SteamUser.StartVoiceRecording(); } catch { /* ignore */ }
-                }
-            }
-            else if (_recording && Time.unscaledTime > _stopLinger)
+            bool send = ptt || _walkieTx || Time.unscaledTime < _stopLinger || (openMic && VoiceMic.GateOpen);
+            if (send && !_transmitting && _preroll != null)
+                SendFrame(net, _preroll);
+            _transmitting = send;
+            for (int i = 0; i < _frames.Count; i++)
             {
-                StopCapture();
+                if (send)
+                    SendFrame(net, _frames[i]);
+                _preroll = _frames[i];
             }
+        }
 
-            if (_recording || _stopLinger > Time.unscaledTime)
-                PumpCapture(net);
+        private static float _toneUntil; // process-scoped: test pilot tone
+        private static bool _toneWalkie; // process-scoped: test pilot tone
+        private static double _tonePhase; // process-scoped: test pilot tone
+        private static float _toneNext; // process-scoped: test pilot tone pacing
+
+        /// <summary>Test pilot: send a 440 Hz tone for <paramref name="seconds"/>, at the mic's own pace, as if talking.</summary>
+        internal static void SendTestTone(float seconds, bool walkie)
+        {
+            _toneUntil = Time.unscaledTime + seconds;
+            _toneWalkie = walkie;
+            _toneNext = Time.unscaledTime;
+        }
+
+        private static void PumpTestTone(LanNetworkManager net)
+        {
+            const float frameSec = VoiceCodec.PacketSamples / (float)VoiceCodec.SampleRate;
+            while (Time.unscaledTime < _toneUntil && _toneNext <= Time.unscaledTime)
+            {
+                _toneNext += frameSec;
+                var frame = new float[VoiceCodec.PacketSamples];
+                for (int i = 0; i < frame.Length; i++)
+                {
+                    frame[i] = 0.1f * (float)Math.Sin(_tonePhase);
+                    _tonePhase += 2.0 * Math.PI * 440.0 / VoiceCodec.SampleRate;
+                }
+                bool was = _walkieTx;
+                _walkieTx = _toneWalkie;
+                SendFrame(net, frame);
+                _walkieTx = was;
+            }
+        }
+
+        /// <summary>Test pilot: this player's mic and every talker heard here.</summary>
+        internal static string Describe()
+        {
+            var sb = new System.Text.StringBuilder();
+            sb.Append("mic=").Append(VoiceMic.Running ? "'" + VoiceMic.RunningDevice + "' level=" + VoiceMic.Level.ToString("0.00") : "off")
+              .Append(" devices=").Append(VoiceMic.Devices.Length)
+              .Append(" walkie=").Append(_localWalkie)
+              .Append(" sent=").Append(_seq);
+            foreach (Speaker s in _speakers.Values)
+            {
+                int buffered, under;
+                lock (s.Lock) { buffered = s.Buffered; under = s.Underruns; }
+                sb.Append(" | p").Append(s.Id).Append(" seq=").Append(s.LastSeq).Append(" buf=").Append(buffered)
+                  .Append(" under=").Append(under).Append(" level=").Append(s.LevelEnv.ToString("0.00"))
+                  .Append(" vol=").Append(s.Beh != null ? s.Beh.Volume.ToString("0.00") : "-")
+                  .Append(" mode=").Append(s.Mode).Append(s.WalkieActive ? " walkie" : "")
+                  .Append(" age=").Append((Time.unscaledTime - s.LastData).ToString("0.0")).Append("s");
+            }
+            return sb.ToString();
         }
 
         /// <summary>
@@ -329,135 +387,43 @@ namespace DWMPHorde.Audio
             var net = ModRuntime.Network;
             if (net != null && msg.PlayerId == net.LocalPlayerId)
                 return;
-            // The loudness travels with the packet, so the host needs no Steam to let creatures hear it.
+            // The loudness travels with the packet: creatures hear it even where voice is off.
             VoiceHearing.Heard(msg.PlayerId, msg.Level / 255f, (msg.Flags & VoiceDataMessage.FlagWalkie) != 0);
             if (ModConfig.VoiceEnabled == null || !ModConfig.VoiceEnabled.Value)
                 return;
-            if (!SteamAvailable())
+            if (msg.Data == null || msg.Data.Length <= VoiceCodec.HeaderBytes)
                 return;
-            if (msg.Data == null || msg.Data.Length == 0)
-                return;
-            Decompress(msg);
+            Decode(msg);
         }
 
-        private static void StartCapture()
+        private static void SendFrame(LanNetworkManager net, float[] frame)
         {
             try
             {
-                SteamUser.StartVoiceRecording();
-                _recording = true;
-            }
-            catch (Exception ex)
-            {
-                ModLog.Warn(LogCat.Audio, "StartVoiceRecording: " + ex.Message);
-            }
-        }
-
-        private static void StopCapture()
-        {
-            try
-            {
-                SteamUser.StopVoiceRecording();
-                uint avail = 0;
-                uint got = 0;
-                for (int i = 0; i < 16; i++)
-                {
-                    if (SteamUser.GetAvailableVoice(out avail) != EVoiceResult.k_EVoiceResultOK)
-                        break;
-                    if (avail == 0)
-                        break;
-                    SteamUser.GetVoice(true, _captureBuf, (uint)_captureBuf.Length, out got);
-                }
-            }
-            catch { /* ignore */ }
-            _recording = false;
-        }
-
-        private static void PumpCapture(LanNetworkManager net)
-        {
-            try
-            {
-                uint avail = 0;
-                if (SteamUser.GetAvailableVoice(out avail) != EVoiceResult.k_EVoiceResultOK || avail == 0)
-                    return;
-                uint got = 0;
-                if (SteamUser.GetVoice(true, _captureBuf, (uint)_captureBuf.Length, out got)
-                    != EVoiceResult.k_EVoiceResultOK || got == 0)
-                    return;
-
+                int len = VoiceCodec.Encode(frame, frame.Length, _encodeBuf);
+                float level = VoiceCodec.LevelOf(frame, frame.Length);
                 int playerId = Math.Max(net.LocalPlayerId, 0);
                 ushort seq = _seq++;
                 byte flags = (byte)(_walkieTx ? VoiceDataMessage.FlagWalkie : 0);
-                float level = MeasureOwnLevel((int)got);
                 byte levelByte = (byte)Mathf.RoundToInt(level * 255f);
                 if (net.Role == NetworkRole.Host)
                     VoiceHearing.Heard(net.LocalPlayerId, level, _walkieTx);
-                int len = (int)got;
                 net.Broadcast(NetMessageType.VoiceData,
-                    w => VoiceDataMessage.WriteSlice(w, playerId, seq, flags, levelByte, _captureBuf, len),
+                    w => VoiceDataMessage.WriteSlice(w, playerId, seq, flags, levelByte, _encodeBuf, len),
                     DeliveryMethod.Unreliable);
                 _txPackets++;
-                _lastSent = Time.unscaledTime;
             }
             catch (Exception ex)
             {
-                ModLog.Warn(LogCat.Audio, "Voice capture: " + ex.Message);
+                if (NetLogThrottle.ShouldLog("voice-send", 10f, out _))
+                    ModLog.Warn(LogCat.Audio, "Voice send: " + ex.Message);
             }
         }
 
-        /// <summary>Loudness of the packet just recorded: it is decoded here once (low rate is plenty to measure).</summary>
-        private static float MeasureOwnLevel(int length)
+        private static void Decode(VoiceDataMessage p)
         {
             try
             {
-                if (_levelBuf == null)
-                    _levelBuf = new byte[65536];
-                uint bytesOut;
-                if (SteamUser.DecompressVoice(_captureBuf, (uint)length, _levelBuf, (uint)_levelBuf.Length,
-                        out bytesOut, 11025u) != EVoiceResult.k_EVoiceResultOK)
-                    return 0f;
-                return LevelOf(_levelBuf, (int)bytesOut / 2);
-            }
-            catch
-            {
-                return 0f;
-            }
-        }
-
-        /// <summary>
-        /// 0 for silence, about 0.15 for a whisper, 0.65 for normal speech, 1 for shouting: the RMS of the
-        /// 16-bit samples in dBFS, from -50 to -12.
-        /// </summary>
-        internal static float LevelOf(byte[] pcm16, int samples)
-        {
-            if (samples <= 0)
-                return 0f;
-            double sum = 0;
-            for (int i = 0; i < samples; i++)
-            {
-                short v = (short)(pcm16[i * 2] | (pcm16[i * 2 + 1] << 8));
-                double f = v / 32768.0;
-                sum += f * f;
-            }
-            double rms = Math.Sqrt(sum / samples);
-            float db = 20f * (float)Math.Log10(rms + 1e-9);
-            return Mathf.Clamp01(Mathf.InverseLerp(-45f, -10f, db));
-        }
-
-        private static void Decompress(VoiceDataMessage p)
-        {
-            try
-            {
-                if (_sampleRate == 0)
-                {
-                    // Decoded straight at the mixer's rate (Steam takes 11025..48000): no resampling
-                    // left for the audio thread unless the mixer runs faster than that.
-                    OutputRate = AudioSettings.outputSampleRate > 0 ? AudioSettings.outputSampleRate : 48000;
-                    _sampleRate = (uint)Mathf.Clamp(OutputRate, 11025, 48000);
-                    _decompressBuf = new byte[262144];
-                    ModLog.Event(LogCat.Audio, "Voice decoding at " + _sampleRate + "Hz (mixer " + OutputRate + "Hz)");
-                }
-
                 Speaker speaker = EnsureSpeaker(p.PlayerId);
                 // Unreliable packets can arrive late or twice: an older one would play out of order.
                 if (speaker.HasSeq)
@@ -469,11 +435,8 @@ namespace DWMPHorde.Audio
                 speaker.HasSeq = true;
                 speaker.LastSeq = p.Seq;
 
-                uint bytesOut = 0;
-                EVoiceResult result = SteamUser.DecompressVoice(
-                    p.Data, (uint)p.Data.Length, _decompressBuf, (uint)_decompressBuf.Length,
-                    out bytesOut, _sampleRate);
-                if (result != EVoiceResult.k_EVoiceResultOK || bytesOut < 2)
+                int samples = VoiceCodec.Decode(p.Data, p.Data.Length, _decodeBuf);
+                if (samples <= 0)
                     return;
 
                 bool walkieNow = (p.Flags & VoiceDataMessage.FlagWalkie) != 0;
@@ -500,15 +463,13 @@ namespace DWMPHorde.Audio
                     WriteSquelch(speaker, open: true);
                 }
 
-                int samples = (int)bytesOut / 2;
                 lock (speaker.Lock)
                 {
                     for (int i = 0; i < samples; i++)
                     {
                         if (speaker.Buffered >= speaker.Ring.Length)
                             break;
-                        short pcm = (short)(_decompressBuf[i * 2] | (_decompressBuf[i * 2 + 1] << 8));
-                        float sample = pcm / 32768f * gain;
+                        float sample = _decodeBuf[i] * gain;
                         if (radioMode)
                             sample = RadioSample(speaker, sample);
                         speaker.Ring[speaker.WritePos] = Mathf.Clamp(sample, -1f, 1f);
@@ -528,7 +489,8 @@ namespace DWMPHorde.Audio
             }
             catch (Exception ex)
             {
-                ModLog.Warn(LogCat.Audio, "Voice decompress: " + ex.Message);
+                if (NetLogThrottle.ShouldLog("voice-decode", 10f, out _))
+                    ModLog.Warn(LogCat.Audio, "Voice decode: " + ex.Message);
             }
         }
 

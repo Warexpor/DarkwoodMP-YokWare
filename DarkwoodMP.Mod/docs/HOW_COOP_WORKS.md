@@ -373,7 +373,7 @@ code, not yet playtested).
   on your screen, so nothing gets pushed twice.
 - **Night comes to every player, at vanilla's rate.** Each hideout a living player
   is home in gets the night's monsters at vanilla's pace and count, around a player
-  there. Each living, unwarded player gets its own worm, as in vanilla; a player in a
+  there (times the host's night monster setting, see [section 18](#18-balancing-for-the-party)). Each living, unwarded player gets its own worm, as in vanilla; a player in a
   dream gets none (the host's dream does not spare the players still out in the night). Wards count
   for the player a monster is after. Night events play in every hideout a living
   player stands in; an event that asks about "the player" (the Shadows perk, being
@@ -830,7 +830,9 @@ party events.
 - **Player names**: each player tells the host their name and the host hands every
   name out with the player roster. A name shows over a player only while you can
   see them (vanilla's enemy sight test), so it never reveals someone behind a wall.
-- **Voice chat** (needs a logged-in Steam client, works over LAN too):
+- **Voice chat** (any install, LAN or Steam; the game's own microphone input and the
+  mod's own codec, no Steam client needed). Mic, mic volume, voice volume and each
+  player's volume are in Settings > Voice:
   - Proximity voice comes from where the talker stands (panned toward them) and
     carries as far as they spoke loud: a shout to 650 units, normal speech about three
     quarters of that, a whisper about a third. Muffled through walls.
@@ -864,11 +866,13 @@ same numbers.
 | `NamedNpcScaleEnabled` / `NamedNpcAllowlist` | on / `ChomperBlack` | In dreams only, one extra black chomper per extra player, spawned around the original when it first appears and fighting with it. Night hideout monsters are not scaled. |
 | `FriendlyFireEnabled` | on | See [section 9](#9-player-combat-and-friendly-fire). |
 | `MaxPeerDamage` | 200 | Upper bound on one client-reported hit (anti-grief). |
+| `NightMonsterMultiplier` | x1 | Host settings > Night monsters (x1 to x10). Each hideout's night monsters: how many of each kind may be out at once and the pace they come at, times this. Read live by the host (the only one who spawns them), so it can be changed before hosting or mid-night. Worms, shadows and night events stay vanilla. |
 
 Other party-relevant rules that are not settings:
 
 - Creature health, damage and numbers are not scaled with party size (apart from
-  the dream chompers).
+  the dream chompers). The night monster count is the host's own choice, not tied to
+  party size.
 - Players in the level-up menu, a dialogue or the pause menu are protected because
   the world no longer pauses for them (it pauses only when everyone is in the pause
   menu).

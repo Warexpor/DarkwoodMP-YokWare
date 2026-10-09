@@ -73,11 +73,27 @@ namespace DWMPHorde.Patches
     {
         private static readonly Dictionary<Location, Dictionary<int, int>> _spawned = new Dictionary<Location, Dictionary<int, int>>(); // reset-in: Reset
         private static readonly Dictionary<int, KeyValuePair<Location, int>> _byCreature = new Dictionary<int, KeyValuePair<Location, int>>(); // reset-in: Reset
+        private static readonly Dictionary<Location, float> _credit = new Dictionary<Location, float>(); // reset-in: Reset
 
         internal static void Reset()
         {
             _spawned.Clear();
             _byCreature.Clear();
+            _credit.Clear();
+        }
+
+        /// <summary>
+        /// How many monsters this hideout may place on this spawner tick. Vanilla places one per tick;
+        /// the host's night monster multiplier places that many on average, so a bigger night also
+        /// fills at the matching pace.
+        /// </summary>
+        internal static int TakeSpawnsThisTick(Location home, float mult)
+        {
+            _credit.TryGetValue(home, out float c);
+            c += mult;
+            int n = Mathf.FloorToInt(c + 0.0001f);
+            _credit[home] = c - n;
+            return n;
         }
 
         internal static int Spawned(Location home, int index)
@@ -108,7 +124,10 @@ namespace DWMPHorde.Patches
     /// <summary>
     /// Host with peers: the night's monsters come to every hideout someone is home in, each at
     /// vanilla's pace and count, around one of the players home there. Out in the forest nobody gets
-    /// these (vanilla), only the worm. With no peer, vanilla runs.
+    /// these (vanilla), only the worm. With no peer, vanilla runs, unless the host's night monster
+    /// multiplier (<see cref="CoopBalance.NightMonsterMultiplier"/>) is above 1: then the same
+    /// per-hideout path runs for the host alone. The multiplier raises how many of each kind may be
+    /// out at once and the pace they come at; it is read every tick, so a change applies mid-night.
     /// </summary>
     [HarmonyPatch(typeof(CharacterSpawner), "spawnNightChar")]
     public static class NightSpawnFlagPatch
@@ -119,15 +138,41 @@ namespace DWMPHorde.Patches
         private static bool Prefix(CharacterSpawner __instance)
         {
             NightSpawnGetFreeSpotPatch.InsideNightSpawn = true;
-            if (!NetGuard.ConnectedHost(out LanNetworkManager net) || !PlayerPositionManager.HasRemotePlayer)
+            // A client spawns nothing (ClientDisableNightSpawnPatch); Harmony still runs this prefix.
+            if (ClientWorldHelper.IsClient)
+                return false;
+            float mult = CoopBalance.NightMonsterMultiplier;
+            bool coop = NetGuard.ConnectedHost(out LanNetworkManager net) && PlayerPositionManager.HasRemotePlayer;
+            if (!coop && mult <= 1f)
                 return true;
             if (!__instance.spawnNocturnalCharacters)
                 return false;
-            NightBaseBodies.FillByHideout(net, _homes);
+            if (coop)
+            {
+                NightBaseBodies.FillByHideout(net, _homes);
+            }
+            else
+            {
+                foreach (List<GameObject> l in _homes.Values)
+                    l.Clear();
+                if (NightBaseBodies.HostHome())
+                {
+                    Location hostHome = Player.Instance.whereAmI.bigLocation;
+                    if (!_homes.TryGetValue(hostHome, out List<GameObject> l))
+                        _homes[hostHome] = l = new List<GameObject>(1);
+                    l.Add(Player.Instance.gameObject);
+                }
+            }
             foreach (KeyValuePair<Location, List<GameObject>> home in _homes)
             {
-                if (home.Value.Count > 0)
-                    SpawnAt(__instance, home.Key, home.Value[Random.Range(0, home.Value.Count)]);
+                if (home.Value.Count == 0)
+                    continue;
+                int n = NightHideoutQuota.TakeSpawnsThisTick(home.Key, mult);
+                for (int k = 0; k < n; k++)
+                {
+                    if (!SpawnAt(__instance, home.Key, home.Value[Random.Range(0, home.Value.Count)], mult, solo: !coop))
+                        break;
+                }
             }
             return false;
         }
@@ -144,21 +189,26 @@ namespace DWMPHorde.Patches
             NightSpawnGetFreeSpotPatch.InsideNightSpawn = false;
         }
 
-        /// <summary>Vanilla <c>spawnNightChar</c> after its gate, for one hideout, around a body there.</summary>
-        private static void SpawnAt(CharacterSpawner spawner, Location home, GameObject anchor)
+        /// <summary>
+        /// Vanilla <c>spawnNightChar</c> after its gate, for one hideout, around a body there: the first
+        /// kind still under its count gets one more. False when nothing was placed (every kind full).
+        /// Solo, vanilla's own per-kind count also counts: monsters vanilla placed before the host
+        /// raised the multiplier mid-night are not in the hideout's count.
+        /// </summary>
+        private static bool SpawnAt(CharacterSpawner spawner, Location home, GameObject anchor, float mult, bool solo)
         {
             var ns = Singleton<NightScenarios>.Instance;
             if (ns == null)
-                return;
+                return false;
             if (ns.currentScenario == null)
                 ns.setCurrentScenario();
             if (ns.currentScenario == null)
-                return;
+                return false;
             for (int i = 0; i < ns.currentScenario.characters.Count; i++)
             {
                 NightScenario.CharacterToSpawn c = ns.currentScenario.characters[i];
                 if (c == null || string.IsNullOrEmpty(c.characterName) || c.amount <= 0
-                    || NightHideoutQuota.Spawned(home, i) >= c.amount)
+                    || Mathf.Max(NightHideoutQuota.Spawned(home, i), solo ? c.spawned : 0) >= CoopBalance.ScaledNightAmount(c.amount, mult))
                     continue;
                 Character character = spawner.spawnCharacterAround(anchor, Vector3.zero, 1500f, c.characterName, nocturnal: true);
                 if (character != null)
@@ -171,8 +221,9 @@ namespace DWMPHorde.Patches
                     NightHideoutQuota.Note(home, i, character);
                     ModRuntime.LegacyInfo($"[NightSpawn] {c.characterName} at {home.name}");
                 }
-                break;
+                return character != null;
             }
+            return false;
         }
 
         private static bool ChapterAboveOne()

@@ -14,7 +14,7 @@ namespace DWMPHorde
     /// the host's world. On the title screen they lead into a game; in the pause menu they run the
     /// session (invite, send the world again, restore the character, leave).
     /// </summary>
-    internal static class MultiplayerScreens
+    internal static partial class MultiplayerScreens
     {
         private static VmScreen _root; // process-scoped: menu screens, rebuilt on show
         private static VmScreen _host; // process-scoped: menu screens
@@ -37,6 +37,7 @@ namespace DWMPHorde
             _join = new VmScreen("MultiplayerJoin") { Build = BuildJoin, Signature = JoinSignature, Parent = _root, Tick = TickStatus };
             _settings = new VmScreen("MultiplayerSettings") { Build = BuildSettings, Signature = SettingsSignature, Parent = _root };
             _hostSettings = new VmScreen("MultiplayerHostSettings") { Build = BuildHostSettings, Signature = HostSettingsSignature, Parent = _root };
+            EnsureVoice();
             _picker = new VmScreen("MultiplayerWorldCopy") { Build = BuildPicker, Parent = _join, Tick = TickStatus, OnBack = PickerBack };
         }
 
@@ -365,8 +366,10 @@ namespace DWMPHorde
         private static readonly string[] LobbyChoices = { "Friends only", "Public", "Invite only" };
         private static readonly string[] LobbyValues = { "friends", "public", "private" };
         private static readonly string[] LootChoices = { "Off", "Grows with the party" };
+        private static readonly string[] NightMonsterChoices = { "x1", "x1.5", "x2", "x3", "x4", "x5", "x7", "x10" };
+        private static readonly float[] NightMonsterValues = { 1f, 1.5f, 2f, 3f, 4f, 5f, 7f, 10f };
 
-        /// <summary>This player's own settings: seven rows, as many as the vanilla Video options.</summary>
+        /// <summary>This player's own settings; voice has a screen of its own.</summary>
         private static void BuildSettings(VmBuilder b)
         {
             b.Header("Settings", 178f + 100f);
@@ -383,13 +386,9 @@ namespace DWMPHorde
             b.Choice("Text chat", z, YesNo, () => ModConfig.ChatEnabled != null && ModConfig.ChatEnabled.Value ? 1 : 0,
                 i => { if (ModConfig.ChatEnabled != null) ModConfig.ChatEnabled.Value = i == 1; });
             z -= step;
-            b.Choice("Voice chat", z, VoiceChoices, VoiceIndex, SetVoice);
-            z -= step;
-            b.KeyField("Push to talk key", z, () => ModConfig.VoicePttKey?.Value ?? "V",
-                v => { if (ModConfig.VoicePttKey != null) ModConfig.VoicePttKey.Value = v; }, enabled: VoiceIndex() == 1);
-            z -= step;
-            b.Slider("Voice volume", z, () => (ModConfig.VoiceVolume?.Value ?? 1f) / 2f,
-                t => { if (ModConfig.VoiceVolume != null) ModConfig.VoiceVolume.Value = Mathf.Round(t * 2f * 20f) / 20f; });
+            // Its own screen: mode, key, microphone, levels and each player's volume.
+            b.Name("Voice chat", z);
+            b.Value(Loc.T(VoiceChoices[VoiceIndex()]) + " ...", z, () => Vm.Open(_voice));
             z -= step;
             b.Slider("Other players' steps", z, () => ModConfig.PeerMovementVolume?.Value ?? 0.85f,
                 t => { if (ModConfig.PeerMovementVolume != null) ModConfig.PeerMovementVolume.Value = Mathf.Round(t * 20f) / 20f; });
@@ -411,6 +410,9 @@ namespace DWMPHorde
                 i => { if (ModConfig.FriendlyFireEnabled != null) ModConfig.FriendlyFireEnabled.Value = i == 1; });
             z -= step;
             b.Choice("Extra loot", z, LootChoices, () => ModConfig.GetLootShareMode() == LootShareMode.Off ? 0 : 1, SetLoot);
+            z -= step;
+            b.Choice("Night monsters", z, NightMonsterChoices, NightMonsterIndex,
+                i => { if (ModConfig.NightMonsterMultiplier != null) ModConfig.NightMonsterMultiplier.Value = NightMonsterValues[i]; });
             z -= step;
             b.Choice("Creatures hear voices", z, YesNo, () => ModConfig.VoiceAlertsEnemies == null || ModConfig.VoiceAlertsEnemies.Value ? 1 : 0,
                 i => { if (ModConfig.VoiceAlertsEnemies != null) ModConfig.VoiceAlertsEnemies.Value = i == 1; });
@@ -458,6 +460,19 @@ namespace DWMPHorde
                 ModConfig.VoiceEnabled.Value = i != 0;
             if (i != 0 && ModConfig.VoiceMode != null)
                 ModConfig.VoiceMode.Value = i == 1 ? "ptt" : "open";
+        }
+
+        /// <summary>The listed step at or just below the current multiplier (a hand-edited 2.5 shows as x2).</summary>
+        private static int NightMonsterIndex()
+        {
+            float v = CoopBalance.NightMonsterMultiplier;
+            int best = 0;
+            for (int i = 0; i < NightMonsterValues.Length; i++)
+            {
+                if (NightMonsterValues[i] <= v + 0.001f)
+                    best = i;
+            }
+            return best;
         }
 
         private static int LobbyIndex()

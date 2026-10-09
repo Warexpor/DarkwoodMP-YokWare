@@ -3,15 +3,11 @@ using System.Collections.Generic;
 using DWMPHorde.Config;
 using DWMPHorde.Logging;
 using DWMPHorde.Networking;
-using Steamworks;
 using UnityEngine;
 
 namespace DWMPHorde.Audio
 {
-    /// <summary>
-    /// Steam Voice capture/playback over Horde wire (LAN or Steam SNS session).
-    /// Requires Steam client logged on for codec; transport is independent.
-    /// </summary>
+    /// <summary>Playback: one 3D speaker per talker, placed and muffled each frame.</summary>
     public static partial class VoiceChatService
     {
         /// <summary>
@@ -289,7 +285,7 @@ namespace DWMPHorde.Audio
                 }
 
                 if (s.Beh != null)
-                    s.Beh.Volume = Mathf.Clamp01(outVol);
+                    s.Beh.Volume = Mathf.Clamp(outVol * VoicePlayerVolumes.Get(s.Id), 0f, 2f);
                 if (s.Muffle != null)
                 {
                     s.SmoothCutoff = Mathf.Lerp(s.SmoothCutoff, outCutoff, Mathf.Clamp01(dt * 8f));
@@ -385,38 +381,6 @@ namespace DWMPHorde.Audio
                     || (p.Hotbar != null && p.Hotbar.getItemAmount(name) > 0);
             }
             catch { /* ignore */ }
-        }
-
-        /// <summary>Steam may initialise or log on after the mod loads: retry a negative result.</summary>
-        private const float SteamRecheckSec = 5f;
-
-        private static bool SteamAvailable()
-        {
-            // A positive result is cached; a negative one is re-probed every few seconds.
-            if (_steamOk || Time.unscaledTime < _nextSteamCheck)
-                return _steamOk;
-
-            _nextSteamCheck = Time.unscaledTime + SteamRecheckSec;
-            try
-            {
-                _steamOk = SteamManager.Initialized && SteamUser.BLoggedOn();
-            }
-            catch
-            {
-                _steamOk = false;
-            }
-
-            if (!_steamOk && !_steamWarned)
-            {
-                _steamWarned = true;
-                ModLog.Event(LogCat.Audio, "Steam unavailable — voice chat disabled (will retry)");
-            }
-            else if (_steamOk && _steamWarned)
-            {
-                _steamWarned = false;
-                ModLog.Event(LogCat.Audio, "Steam available — voice chat enabled");
-            }
-            return _steamOk;
         }
 
         /// <summary>

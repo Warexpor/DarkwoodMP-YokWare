@@ -5,8 +5,8 @@ join it: the same forest, the same nights, the same story, played together.
 
 | | |
 |--|--|
-| Product | YokWare Branch **0.8.186** |
-| Wire | Horde protocol **50** |
+| Product | YokWare Branch **0.8.188** |
+| Wire | Horde protocol **51** |
 | Players | Up to 8 by default (`MaxPlayers`, host included) |
 | Transport | LAN (LiteNetLib) or Steam lobby (SteamNetworkingSockets) |
 | Loaders | BepInEx 5.x or MelonLoader 0.7.x |
@@ -99,7 +99,9 @@ menu. Its screens look and work like the game's own menus (Esc goes back):
   Join and press **Join the lobby**. The host chooses the lobby type in Host
   settings (friends only, public or invite only).
 - **Settings:** your name, when other players' names show (when pointed at,
-  always, off), text and voice chat, push-to-talk key, voice and footstep volume.
+  always, off), text chat, footstep volume, and **Voice**: off / push to talk / always
+  on, the key, which microphone and how loud (with a live level meter), voice volume,
+  and each other player's volume.
 - **Host settings:** friendly fire, extra loot, whether creatures hear voices, player count, Steam lobby type,
   port and password.
 - **In the pause menu:** Invite friends (Steam host), Send the world again (host),
@@ -124,7 +126,7 @@ A GOG copy of Darkwood has no Steam, so a GOG player joins over LAN.
 | **F3** | Save slots, with the optional manual-saves add-on |
 | **F4** | Spectate other players; also used while dead at night |
 | **Ctrl+C** | Text chat (Enter sends, Esc closes, Ctrl+V pastes) |
-| **V** | Push-to-talk voice chat (needs a logged-in Steam client) |
+| **V** | Push-to-talk voice chat (any install, LAN or Steam; no Steam client needed) |
 | **Right mouse** with a walkie-talkie in hand | Talk on the radio |
 
 ### Settings

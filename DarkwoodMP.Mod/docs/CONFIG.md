@@ -17,7 +17,7 @@ test, so every bound key must be listed here.
 
 In game, **Multiplayer > Settings** edits `PlayerName`, `ChatEnabled`, `ShowPlayerNames`,
 `VoiceEnabled` / `VoiceMode`, `VoicePttKey`, `VoiceVolume` and `PeerMovementVolume`;
-**Multiplayer > Host settings** edits `FriendlyFireEnabled`, `LootShareMode`, `MaxPlayers`,
+**Multiplayer > Host settings** edits `FriendlyFireEnabled`, `LootShareMode`, `NightMonsterMultiplier`, `MaxPlayers`,
 `SteamLobbyType`, `ConnectPort` and `HostPassword`; **Multiplayer > Join** edits
 `ConnectAddress`, `ConnectPort`, `HostPassword` and `SteamLobbyId`. A change applies
 at once and is written to the file.
@@ -55,20 +55,25 @@ at once and is written to the file.
 | `NamedNpcScaleEnabled` | `true` | Host: multiply allowlisted dream NPC presence by the party multiplier. |
 | `NamedNpcAllowlist` | `ChomperBlack` | Comma-separated character short names scaled in dreams only (not night hideout trash). |
 | `MaxPeerDamage` | `200` | The host clamps peer-reported attack / friendly-fire damage to this maximum per hit (anti-grief). Separately, each peer has a fixed hit budget (20 hits/s with a burst of 40, 1000 damage/s with a burst of 3000): bursts such as shotgun pellets apply in full, sustained spam is rejected. |
+| `NightMonsterMultiplier` | `1` | Host: how many night monsters come to each hideout compared with vanilla (1 = vanilla, up to 10; Host settings offers x1, x1.5, x2, x3, x4, x5, x7 and x10). Raises how many of each kind may be out at once and how fast they come. Applies at once, also mid-night; works in a solo game too. Worms, shadows and night events are not changed. |
 | `PeerMovementVolume` | `0.85` | Volume of other players' movement on this machine: footsteps, clothes rustle, dodge and landing steps (0..1). Their other sounds (shots, hits, tools) are not affected. |
 
 ## Voice
 
-Steam Voice needs a running, logged-on Steam client; transport is independent
-(LAN or Steam sessions both work).
+Voice is recorded with the game's own microphone input and sent in the mod's own codec,
+so it needs no Steam client and works in LAN and Steam sessions alike. Most of these are
+set in Multiplayer > Settings > Voice.
 
 | Key | Default | Meaning |
 |-----|---------|---------|
-| `VoiceEnabled` | `true` | Proximity and walkie voice chat when the Steam client is logged on. |
-| `VoiceMode` | `ptt` | `ptt` is push-to-talk (`VoicePttKey`); `open` always transmits while connected. |
+| `VoiceEnabled` | `true` | Proximity and walkie voice chat. |
+| `VoiceMode` | `ptt` | `ptt` is push-to-talk (`VoicePttKey`); `open` sends whenever you speak (a gate that follows the room's own noise). |
 | `VoicePttKey` | `V` | Unity `KeyCode` name for push-to-talk. |
 | `VoiceVolume` | `1` | Playback volume multiplier for remote voice. |
-| `VoiceGain` | `1.4` | Gain applied after Steam `DecompressVoice`. |
+| `VoiceGain` | `1.4` | Gain applied to received voice. |
+| `VoiceMicDevice` | empty | Microphone to talk into, by the name the game lists it under; empty for the system default. A device that is not plugged in falls back to the default. |
+| `VoiceMicVolume` | `1` | Microphone volume, 0 to 4 (1 as recorded; the Voice screen sets 0 to 2). It is also how loud you count for how far your voice carries. |
+| `VoicePlayerVolumes` | empty | How loud each other player is heard, by the name they go by: `name=volume` entries (0 muted to 2) separated by `|`. Set in Settings > Voice > Players. |
 | `VoiceFullVolumeDistance` | `150` | Distance (game units; a body is about 40 across) within which a shout is at full volume; quieter speech a shorter way. |
 | `VoiceMaxDistance` | `650` | Distance (game units) a shout carries before it is silent, the same range as other sounds from peers. Normal speech carries about three quarters of it, a whisper about a third (the loudness is measured on the talker's machine). |
 | `WalkieItemName` | `walkie_talkie` | Inventory item type for the walkie radio. Hold it and press RMB to transmit (not while a menu, container, dialogue, map, journal or chat box is open); carrying one enables radio reception, and other walkies play the talk out loud for players near their carriers. |

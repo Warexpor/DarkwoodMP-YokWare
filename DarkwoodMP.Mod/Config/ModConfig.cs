@@ -58,6 +58,8 @@ namespace DWMPHorde.Config
         public static ModSetting<int> MaxPlayers { get; private set; }
         public static ModSetting<bool> AllowJoinDuringDream { get; private set; }
         public static ModSetting<int> MaxPeerDamage { get; private set; }
+        /// <summary>Host: night monsters per hideout compared with vanilla (1..10).</summary>
+        public static ModSetting<float> NightMonsterMultiplier { get; private set; }
         public static ModSetting<float> PeerMovementVolume { get; private set; }
         /// <summary>
         /// On host crash/timeout, survivors elect lowest player id as new host (LAN + Steam).
@@ -73,6 +75,9 @@ namespace DWMPHorde.Config
         public static ModSetting<float> VoiceMaxDistance { get; private set; }
         public static ModSetting<string> WalkieItemName { get; private set; }
         public static ModSetting<bool> VoiceAlertsEnemies { get; private set; }
+        public static ModSetting<string> VoiceMicDevice { get; private set; }
+        public static ModSetting<float> VoiceMicVolume { get; private set; }
+        public static ModSetting<string> VoicePlayerVolumes { get; private set; }
 
         /// <summary>
         /// LiteNetLib connection key shared by host accept and client connect.
@@ -194,12 +199,14 @@ namespace DWMPHorde.Config
                 "Comma-separated character short names scaled in dreams only (not night hideout trash).");
             MaxPeerDamage = config.Bind("Gameplay", "MaxPeerDamage", 200,
                 "Host clamps peer-reported attack/FF damage to this max per hit (anti-grief). A per-peer budget (20 hits/s, burst 40; 1000 damage/s, burst 3000) caps sustained spam while multi-hit bursts like shotgun pellets still apply in full.");
+            NightMonsterMultiplier = config.Bind("Gameplay", "NightMonsterMultiplier", 1f,
+                "Host: how many night monsters come to each hideout compared with vanilla (1 = vanilla, up to 10). Raises how many of each kind may be out at once and how fast they come. Also in Host settings, mid-game too.");
             PeerMovementVolume = config.Bind("Gameplay", "PeerMovementVolume", 0.85f,
                 "Volume of other players' movement here (footsteps, clothes, dodge and landing steps), 0..1. Their other sounds (shots, hits, tools) stay at full volume.");
             HostMigrationEnabled = config.Bind("Network", "HostMigrationEnabled", true,
                 "If true, host crash/timeout elects lowest remaining player id as new host (LAN n+). Peers reconnect to elected listen port.");
             VoiceEnabled = config.Bind("Voice", "VoiceEnabled", true,
-                "Steam Voice proximity/walkie chat when Steam client is logged on.");
+                "Proximity and walkie voice chat (the game's own microphone input; no Steam needed).");
             VoiceMode = config.Bind("Voice", "VoiceMode", "ptt",
                 "ptt = push-to-talk (VoicePttKey). open = always transmit while connected.");
             VoicePttKey = config.Bind("Voice", "VoicePttKey", "V",
@@ -207,7 +214,7 @@ namespace DWMPHorde.Config
             VoiceVolume = config.Bind("Voice", "VoiceVolume", 1f,
                 "Playback volume multiplier for remote voice.");
             VoiceGain = config.Bind("Voice", "VoiceGain", 1.4f,
-                "Gain applied after Steam DecompressVoice.");
+                "Gain applied to received voice.");
             // Game units, like every other range here (a body is about 40 across).
             VoiceFullVolumeDistance = config.Bind("Voice", "VoiceFullVolumeDistance", 150f,
                 "Distance (game units) within which a shout is at full volume (quieter speech a shorter way).");
@@ -215,6 +222,12 @@ namespace DWMPHorde.Config
                 "Distance (game units) a shout carries before it is silent (same as other peer sounds). Normal speech carries about three quarters of it, a whisper about a third, muffled through walls.");
             WalkieItemName = config.Bind("Voice", "WalkieItemName", "walkie_talkie",
                 "InvItem type for walkie radio (hold + RMB to TX; inventory enables radio RX).");
+            VoiceMicDevice = config.Bind("Voice", "VoiceMicDevice", "",
+                "Microphone to talk into, by the name the game lists it under (Multiplayer > Settings > Voice). Empty: the system default.");
+            VoiceMicVolume = config.Bind("Voice", "VoiceMicVolume", 1f,
+                "Microphone volume, 0..4 (1 as recorded). Also how loud you count for how far your voice carries.");
+            VoicePlayerVolumes = config.Bind("Voice", "VoicePlayerVolumes", "",
+                "How loud each other player is heard, by name: name=volume entries (0 muted .. 2) separated by |. Set in Multiplayer > Settings > Voice > Players.");
             VoiceAlertsEnemies = config.Bind("Voice", "VoiceAlertsEnemies", true,
                 "Host: creatures hear players talk. Normal speech carries about as far as a walking step, a shout farther than running; a whisper is not heard.");
             // Entity spawner moved to standalone plugin YokWare.EntitySpawner.

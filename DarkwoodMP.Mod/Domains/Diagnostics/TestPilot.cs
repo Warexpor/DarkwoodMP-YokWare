@@ -1341,6 +1341,17 @@ namespace DWMPHorde.Sync
                         Nameplates.StyleIndex = int.Parse(a[1], CultureInfo.InvariantCulture);
                     Out("  style " + Nameplates.StyleIndex + " = " + Nameplates.Styles[Mathf.Clamp(Nameplates.StyleIndex, 0, Nameplates.Styles.Length - 1)].Label);
                     return;
+                case "voicetone":
+                {
+                    // "voicetone [sec] [walkie]": send a 440 Hz tone as if talking (no mic needed).
+                    float sec = a.Length > 1 ? float.Parse(a[1], CultureInfo.InvariantCulture) : 2f;
+                    Audio.VoiceChatService.SendTestTone(sec, a.Length > 2 && a[2] == "walkie");
+                    Out("  sending a tone for " + sec.ToString(CultureInfo.InvariantCulture) + " s");
+                    return;
+                }
+                case "voice":
+                    Out("  " + Audio.VoiceChatService.Describe());
+                    return;
                 case "names":
                 {
                     var sb = new StringBuilder("  me=p" + net.LocalPlayerId + " '" + PlayerNames.Shown(net.LocalPlayerId) + "'");

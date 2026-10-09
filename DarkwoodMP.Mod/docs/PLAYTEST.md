@@ -374,7 +374,10 @@ Listen on the player who did not cause the sound.
       loop stops when the creature dies. Enemy footsteps move with the enemy and are
       muffled behind a wall.
 - [ ] The Sound volume slider at 0 also silences other players' sounds.
-- [ ] Voice (needs two logged-in Steam clients): a teammate a room away is heard from
+- [ ] Settings > Voice: the meter moves when you speak, switching Microphone cycles the
+      devices (and back to Default), Microphone volume changes the meter, a player's
+      volume in Players changes only that player, at 0 mutes them.
+- [ ] Voice (any two installs, the GOG one too): a teammate a room away is heard from
       their side (left or right); a whisper fades out sooner than a shout; muffled
       through a wall. A walkie-talkie carries from anywhere with a squelch click at the
       start, a burst of static at the end and more hiss the farther apart. A player who

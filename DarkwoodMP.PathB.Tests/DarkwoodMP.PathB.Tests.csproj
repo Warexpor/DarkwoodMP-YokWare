@@ -48,6 +48,7 @@
     <Compile Include="..\DarkwoodMP.Mod\Networking\Messages\ChatMessages.cs" Link="Shipped\ChatMessages.cs" />
     <Compile Include="..\DarkwoodMP.Mod\Networking\Messages\WorldSaveShareMessages.cs" Link="Shipped\WorldSaveShareMessages.cs" />
     <Compile Include="..\DarkwoodMP.Mod\Networking\Messages\VoiceDataMessage.cs" Link="Shipped\VoiceDataMessage.cs" />
+    <Compile Include="..\DarkwoodMP.Mod\Audio\VoiceCodec.cs" Link="Shipped\VoiceCodec.cs" />
     <Compile Include="..\DarkwoodMP.Mod\Domains\Inventory\InvItemUpgradeWire.cs" Link="Shipped\InvItemUpgradeWire.cs" />
     <Compile Include="..\DarkwoodMP.Mod\Networking\Messages\DesyncMessages.cs" Link="Shipped\DesyncMessages.cs" />
     <Compile Include="..\DarkwoodMP.Mod\Core\DesyncEntries.cs" Link="Shipped\DesyncEntries.cs" />

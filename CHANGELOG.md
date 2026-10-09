@@ -3,7 +3,9 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.186**. The current Horde wire protocol is **50** (held for 0.8.186; bumped in 0.8.185: `PlayerState` gains the
+**0.8.188**. The current Horde wire protocol is **51** (bumped in 0.8.187: `VoiceData` (129) carries the
+mod's own voice codec instead of Steam Voice; same DLL on every install).
+50 held for 0.8.186, bumped in 0.8.185: `PlayerState` gains the
 `CarriesWalkie` trailer; same DLL on every install).
 49 held for 0.8.184, bumped there: `VoiceData` (129) gains the talker's loudness byte.
 48 held for 0.8.183, bumped in 0.8.182: new `PlayerName` (168),
@@ -49,6 +51,69 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.188 — Night monsters setting for the host (x1 to x10)
+
+- **New: Host settings > Night monsters.** The host picks how many night monsters come to
+  each hideout: x1 (vanilla, the default), x1.5, x2, x3, x4, x5, x7 or x10. It raises how
+  many of each kind of the night's monsters may be out at once (rounded up) and the pace
+  they come at (vanilla places one per spawner tick; x3 places three on average), so a
+  bigger night does not just trickle in slower. Worms, shadows and scripted night events
+  stay vanilla.
+- **Before hosting or mid-game.** Host settings is on the title screen and in the pause
+  menu. Only the host spawns night monsters and it reads the value every tick, so a change
+  applies at once, also in the middle of a night (lowering it lets the extra ones already out
+  stay until they die or morning). No wire change: clients do not need the value.
+- **Solo too.** Above x1 the host's per-hideout night spawner also runs with nobody
+  connected, so the setting works in a game hosted alone or played offline; at x1 with no
+  peers vanilla's own spawner runs, as before.
+- Config key `[Gameplay] NightMonsterMultiplier` (float, 1..10, default 1; a hand-edited
+  value in between works and shows as the step below it). Files:
+  `Domains/Night/Patches/NightSpawnProxyPatch.cs`, `Core/CoopBalance.cs`,
+  `Config/ModConfig.cs`, `UI/MultiplayerScreens.cs`, `Core/Loc.Ru.cs`, docs CONFIG and
+  HOW_COOP_WORKS (sections 6 and 18; the loot-share row now says the first taker carries the
+  whole party's share, which is what the code does).
+
+## 0.8.187 — Voice settings of its own; voice without Steam, on any install
+
+- **Voice no longer needs Steam.** Voice was recorded and decoded by Steam's voice API, which
+  needs a logged-in Steam client on every player (the GOG build and players without Steam had
+  no voice, also over LAN), and which always uses the mic and level set in Steam's own
+  settings, so a game could not offer either. Voice is now recorded through Unity's own
+  `Microphone` (any device the game sees) and sent in the mod's own codec: 16 kHz IMA ADPCM,
+  40 ms a packet, each packet decodable on its own so a lost one costs only itself
+  (`Audio/VoiceCodec.cs`, `Audio/VoiceMic.cs`). 64 kbit/s per talker while talking. It works
+  on every install, LAN or Steam session alike. Protocol 51.
+- **Multiplayer > Settings > Voice**, a screen of its own (Settings keeps one "Voice chat" row
+  that opens it):
+  - Voice chat: Off / Push to talk / Always on.
+  - Push to talk key.
+  - Microphone: Default, then each input device the game lists (config `VoiceMicDevice`). A
+    saved device that is not plugged in falls back to the default.
+  - Microphone volume, 0 to 2 (config `VoiceMicVolume`). It is also how loud you count for
+    how far your voice carries and for the creatures.
+  - Microphone level: a live meter while the screen is open (the mic runs for it on the title
+    screen too), showing when you count as talking.
+  - Voice volume: everyone.
+  - Players: one volume slider per other player in the game, 0 (muted) to 2, kept by the name
+    they go by so it holds across sessions (config `VoicePlayerVolumes`,
+    `Audio/VoicePlayerVolumes.cs`).
+- **Always on** sends only while you speak: a gate that opens 12 dB over the room's own noise
+  floor, which it keeps following (a fan switched on stops counting as speech after a while),
+  with the 40 ms before the gate opened sent first so the first syllable is not cut. Push to
+  talk sends that 40 ms too.
+- Steam's own noise suppression and automatic gain no longer apply; the mic volume is set by
+  hand, with the meter.
+- Tests: codec round trip, packets decoding independently, the loudness scale.
+- Test pilot: `voicetone [sec] [walkie]` sends a 440 Hz tone as if talking (no mic needed),
+  `voice` shows this player's mic and every talker heard here (packets, buffer, underruns,
+  loudness, volume, how they are heard).
+- Box-tested (native host + Wine GOG client, neither with Steam voice): a tone sent each way
+  arrives in order with no underruns, its loudness as sent (0.63 for -23 dBFS), playback
+  buffer steady around 0.1-0.17 s. Settings > Voice and Players lay out like the vanilla
+  Options pages; with no input device (the box has no audio) the meter says "No microphone
+  found" and the log warns once. No exceptions in either log. Not tested: real microphones,
+  device switching, the always-on gate on real speech.
 
 ## 0.8.186 — Walkies one way at a time, the talker's click heard around them, indoor echo on voices
 
