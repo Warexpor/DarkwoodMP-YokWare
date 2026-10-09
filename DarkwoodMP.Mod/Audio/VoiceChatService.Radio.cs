@@ -104,6 +104,28 @@ namespace DWMPHorde.Audio
             }
         }
 
+        private static void EnsureSquelchClips()
+        {
+            if (_keyClip == null)
+                _keyClip = SquelchClip("yokware_radio_key", 0.03f, 0.5f, cubic: true);
+            if (_releaseClip == null)
+                _releaseClip = SquelchClip("yokware_radio_release", 0.14f, 0.3f, cubic: false);
+        }
+
+        /// <summary>A talker's own radio clicking as they key it and let go, heard by players near them.</summary>
+        private static void PlayTalkerClick(Speaker s, bool keyDown)
+        {
+            try
+            {
+                if (s.Click == null || ModRuntime.Network?.GetProxy(s.Id) == null)
+                    return;
+                EnsureSquelchClips();
+                float vol = Mathf.Clamp01((ModConfig.VoiceVolume?.Value ?? 1f) * 0.3f);
+                s.Click.PlayOneShot(keyDown ? _keyClip : _releaseClip, vol);
+            }
+            catch { /* audio not ready */ }
+        }
+
         /// <summary>This player's own radio: a click when the key goes down, a short hiss when it comes up.</summary>
         private static void PlayLocalSquelch(bool keyDown)
         {
@@ -120,10 +142,7 @@ namespace DWMPHorde.Audio
                     _localRadio.playOnAwake = false;
                     _localRadio.spatialBlend = 0f;
                 }
-                if (_keyClip == null)
-                    _keyClip = SquelchClip("yokware_radio_key", 0.03f, 0.5f, cubic: true);
-                if (_releaseClip == null)
-                    _releaseClip = SquelchClip("yokware_radio_release", 0.14f, 0.3f, cubic: false);
+                EnsureSquelchClips();
                 float vol = Mathf.Clamp01((ModConfig.VoiceVolume?.Value ?? 1f) * 0.35f);
                 _localRadio.PlayOneShot(keyDown ? _keyClip : _releaseClip, vol);
             }

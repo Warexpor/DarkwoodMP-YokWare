@@ -842,6 +842,11 @@ party events.
     Every other walkie plays the talk out loud too: standing near someone who carries
     one, you hear it from them (a short way, muffled through walls), and creatures near
     a playing radio hear it.
+    Radios work one way at a time: your own radio is silent while you transmit, and a
+    channel carries whoever keyed first until they let go. Players near a talker hear
+    their walkie click on and off.
+  - Indoors a voice gets the same reverb vanilla puts on sounds made inside; walls muffle
+    it as vanilla muffles any sound behind a wall.
   - Push-to-talk (`V`) or open mic.
   - While spectating, you hear from the player you follow.
 
@@ -855,7 +860,7 @@ same numbers.
 
 | Setting | Default | What it does |
 |---|---|---|
-| `LootShareMode` / `DoubleItemsEnabled` | `ScaleWithPlayers` / on | Taking a hideout furnace fuel (odd mushrooms, odd meat, red eggs, embryos, dead rats, fish, insects, the large odd mushrooms, and any item vanilla flags as an experience item) gives the taker the stack multiplied by party size. The container keeps its stack, so each player can take their share. Not scaled: wood, nails, regular dog meat, unique items, items players put in containers, dropped items. |
+| `LootShareMode` / `DoubleItemsEnabled` | `ScaleWithPlayers` / on | Taking a hideout furnace fuel (odd mushrooms, odd meat, red eggs, embryos, dead rats, fish, insects, the large odd mushrooms, and any item vanilla flags as an experience item) gives the taker the stack multiplied by party size (the extra goes straight into the taker's bag; the container loses only the real stack, first come first served, so the first taker carries the whole party's share). Not scaled: wood, nails, regular dog meat, unique items, items players put in containers, dropped items. |
 | `NamedNpcScaleEnabled` / `NamedNpcAllowlist` | on / `ChomperBlack` | In dreams only, one extra black chomper per extra player, spawned around the original when it first appears and fighting with it. Night hideout monsters are not scaled. |
 | `FriendlyFireEnabled` | on | See [section 9](#9-player-combat-and-friendly-fire). |
 | `MaxPeerDamage` | 200 | Upper bound on one client-reported hit (anti-grief). |

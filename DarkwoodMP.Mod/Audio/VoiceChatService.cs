@@ -37,6 +37,14 @@ namespace DWMPHorde.Audio
             public readonly object Lock = new object();
             public float LastData;
             public bool Walkie;
+            /// <summary>The talker is keying their walkie right now (walkie packets still coming).</summary>
+            public bool WalkieActive;
+            /// <summary>The talker's walkie key click and release, heard around them (3D, a short way).</summary>
+            public AudioSource Click;
+            public AudioLowPassFilter ClickMuffle;
+            /// <summary>Vanilla's indoor reverb (<c>AudioController</c>: a sound from inside a building gets an AudioReverbFilter).</summary>
+            public AudioReverbFilter Reverb;
+            public float NextInsideCheck;
             public bool RadioMode;
             public bool RadioWasActive;
             public Biquad RadioHp;
@@ -185,6 +193,8 @@ namespace DWMPHorde.Audio
             _stopLinger = 0f;
             _walkieTx = false;
             _walkieTxWas = false;
+            _radioHolder = 0;
+            _radioHolderAt = 0f;
             VoiceHearing.Reset();
         }
 
@@ -466,7 +476,15 @@ namespace DWMPHorde.Audio
                 if (result != EVoiceResult.k_EVoiceResultOK || bytesOut < 2)
                     return;
 
-                speaker.Walkie = (p.Flags & VoiceDataMessage.FlagWalkie) != 0;
+                bool walkieNow = (p.Flags & VoiceDataMessage.FlagWalkie) != 0;
+                if (walkieNow != speaker.WalkieActive)
+                {
+                    speaker.WalkieActive = walkieNow;
+                    PlayTalkerClick(speaker, keyDown: walkieNow);
+                }
+                speaker.Walkie = walkieNow;
+                if (walkieNow)
+                    ClaimChannel(speaker.Id);
                 speaker.Level = p.Level / 255f;
                 speaker.PacketsIn++;
                 speaker.LastData = Time.unscaledTime;

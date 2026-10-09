@@ -32,6 +32,37 @@ namespace DWMPHorde.Audio
         internal const float NearRadioRange = 260f;
         private const float NearRadioFull = 45f;
         private const float NearRadioVolume = 0.7f;
+        private const float WallVolume = 0.75f;
+        private const float WallCutoff = 1500f;
+        /// <summary>A radio stays held by its talker this long after their last packet.</summary>
+        private const float ChannelHoldSec = 0.35f;
+
+        private static int _radioHolder; // reset-in: Reset
+        private static float _radioHolderAt; // reset-in: Reset
+
+        /// <summary>A walkie packet from <paramref name="id"/>: it takes the channel if nobody is on it.</summary>
+        private static void ClaimChannel(int id)
+        {
+            if (_radioHolder == 0 || _radioHolder == id || Time.unscaledTime - _radioHolderAt > ChannelHoldSec)
+            {
+                _radioHolder = id;
+                _radioHolderAt = Time.unscaledTime;
+            }
+        }
+
+        private static bool HoldsChannel(int id)
+            => _radioHolder == id && Time.unscaledTime - _radioHolderAt <= ChannelHoldSec;
+
+        /// <summary>A peer stands inside a building (vanilla <c>CharBase.isInside</c>, its ground refreshed first: the stand-in has no tick of its own).</summary>
+        private static bool IsInside(LanNetworkManager net, int playerId)
+        {
+            var proxy = playerId > 0 && net != null ? net.GetProxy(playerId) : null;
+            if (proxy == null)
+                return false;
+            WorldProxyEffectNetHandlers.RefreshStandInGround(proxy);
+            CharBase cb = proxy.CachedCharBase;
+            return cb != null && cb.isInside;
+        }
 
         private static Speaker EnsureSpeaker(int id)
         {
@@ -70,7 +101,22 @@ namespace DWMPHorde.Audio
             s.Src.maxDistance = 100000f;
             s.Src.dopplerLevel = 0f;
             s.Src.spread = 60f;
+            // Same indoor reverb vanilla puts on a sound made inside (default filter, toggled).
+            s.Reverb = s.Go.AddComponent<AudioReverbFilter>();
+            s.Reverb.enabled = false;
             s.Src.Play();
+
+            var click = new GameObject("YokWare_VoiceClick_" + id);
+            click.transform.SetParent(s.Go.transform, false);
+            s.Click = click.AddComponent<AudioSource>();
+            s.Click.playOnAwake = false;
+            s.Click.spatialBlend = 1f;
+            s.Click.rolloffMode = AudioRolloffMode.Linear;
+            s.Click.minDistance = NearRadioFull;
+            s.Click.maxDistance = NearRadioRange;
+            s.Click.dopplerLevel = 0f;
+            s.ClickMuffle = click.AddComponent<AudioLowPassFilter>();
+            s.ClickMuffle.cutoffFrequency = 22000f;
             _speakers[id] = s;
             return s;
         }
@@ -125,6 +171,13 @@ namespace DWMPHorde.Audio
                         s.PrimeRelease = true;
                 }
 
+                // Walkie packets stopped: the talker let go of the key.
+                if (s.WalkieActive && since > 0.3f)
+                {
+                    s.WalkieActive = false;
+                    PlayTalkerClick(s, keyDown: false);
+                }
+
                 if (s.RadioWasActive && since > 0.3f)
                 {
                     s.RadioWasActive = false;
@@ -161,17 +214,21 @@ namespace DWMPHorde.Audio
                         s.OccludedNow = IsOccluded(listen, talkerPos);
                     }
                     s.Occlusion = Mathf.MoveTowards(s.Occlusion, s.OccludedNow ? 1f : 0f, dt * 5f);
-                    proxVol *= Mathf.Lerp(1f, 0.55f, s.Occlusion);
-                    cutoff = Mathf.Lerp(cutoff, Mathf.Min(cutoff, 900f), s.Occlusion);
+                    // Vanilla's own muffle for a sound behind a wall (AudioController: 0.75 volume, 1500 Hz).
+                    proxVol *= Mathf.Lerp(1f, WallVolume, s.Occlusion);
+                    cutoff = Mathf.Lerp(cutoff, Mathf.Min(cutoff, WallCutoff), s.Occlusion);
                 }
 
                 // On the radio: this player's own walkie, or the nearest other player's walkie
                 // playing it out loud (a small speaker, heard a short way).
-                float ownRadioVol = (s.Walkie && _localWalkie) ? vol * 0.9f : 0f;
+                // Radios are half duplex and one talker at a time: this player's own radio is
+                // silent while they key it, and a radio plays only the talker who keyed first.
+                bool onAir = s.WalkieActive && HoldsChannel(s.Id);
+                float ownRadioVol = (onAir && _localWalkie && !_walkieTx) ? vol * 0.9f : 0f;
                 float nearRadioVol = 0f;
                 Vector3 nearRadioPos = Vector3.zero;
                 float nearRadioCutoff = 22000f;
-                int nearRadioId = s.Walkie && net != null ? NearestRadio(net, s.Id, listen, out nearRadioPos) : 0;
+                int nearRadioId = onAir && net != null ? NearestRadio(net, s.Id, listen, out nearRadioPos) : 0;
                 if (nearRadioId != 0)
                 {
                     float d = DistXz(listen, nearRadioPos);
@@ -182,8 +239,8 @@ namespace DWMPHorde.Audio
                         s.RadioOccludedNow = IsOccluded(listen, nearRadioPos);
                     }
                     s.RadioOcclusion = Mathf.MoveTowards(s.RadioOcclusion, s.RadioOccludedNow ? 1f : 0f, dt * 5f);
-                    nearRadioVol *= Mathf.Lerp(1f, 0.5f, s.RadioOcclusion);
-                    nearRadioCutoff = Mathf.Lerp(22000f, 900f, s.RadioOcclusion);
+                    nearRadioVol *= Mathf.Lerp(1f, WallVolume, s.RadioOcclusion);
+                    nearRadioCutoff = Mathf.Lerp(22000f, WallCutoff, s.RadioOcclusion);
                 }
                 s.NearRadioId = nearRadioId;
 
@@ -213,6 +270,23 @@ namespace DWMPHorde.Audio
                     s.Go.transform.position = nearRadioPos;
                 else if (talkerHere)
                     s.Go.transform.position = talkerPos;
+
+                if (s.Click != null)
+                {
+                    if (talkerHere)
+                        s.Click.transform.position = talkerPos;
+                    if (s.ClickMuffle != null)
+                        s.ClickMuffle.cutoffFrequency = Mathf.Lerp(22000f, WallCutoff, s.Occlusion);
+                }
+                if (s.Reverb != null && Time.unscaledTime >= s.NextInsideCheck)
+                {
+                    s.NextInsideCheck = Time.unscaledTime + 0.5f;
+                    bool inside = mode == HearMode.OwnRadio
+                        ? Player.Instance != null && Player.Instance.isInside
+                        : IsInside(net, mode == HearMode.NearRadio ? nearRadioId : s.Id);
+                    if (s.Reverb.enabled != inside)
+                        s.Reverb.enabled = inside;
+                }
 
                 if (s.Beh != null)
                     s.Beh.Volume = Mathf.Clamp01(outVol);

@@ -385,6 +385,9 @@ Listen on the player who did not cause the sound.
 - [ ] Three players: A talks on the walkie, B carries one, C without one stands next to B
       and hears the radio from B's side, fading out a few steps away and muffled through
       a wall; a creature near B turns toward the radio.
+- [ ] Walkie one way: while A holds the key, A hears nothing on the radio; with A on the air,
+      B keying is not heard on the radios. C next to A hears A's click on and off and the
+      reply from A's walkie. A voice inside a building has an echo.
 - [ ] The walkie transmits only while playing (right mouse with the radio in hand), not
       in the inventory, a container, dialogue, the map, the journal, the pause menu,
       while dead or with chat open.

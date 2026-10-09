@@ -3,7 +3,7 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.185**. The current Horde wire protocol is **50** (bumped in 0.8.185: `PlayerState` gains the
+**0.8.186**. The current Horde wire protocol is **50** (held for 0.8.186; bumped in 0.8.185: `PlayerState` gains the
 `CarriesWalkie` trailer; same DLL on every install).
 49 held for 0.8.184, bumped there: `VoiceData` (129) gains the talker's loudness byte.
 48 held for 0.8.183, bumped in 0.8.182: new `PlayerName` (168),
@@ -49,6 +49,28 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.186 — Walkies one way at a time, the talker's click heard around them, indoor echo on voices
+
+- **Radios are half duplex.** A walkie that is transmitting no longer plays what others say:
+  while you hold the key, your own radio is silent, as on a real handheld. And a channel
+  carries one talker at a time: whoever keyed first holds it until they let go (plus a third
+  of a second), and a second talker keying meanwhile is not heard on the radios (only their
+  live voice, by whoever stands near them).
+- **The talker's own radio is heard around them.** Players near someone keying a walkie now
+  hear its click as the key goes down and the short static as it comes up, from the talker's
+  position (full within about 45 units, gone by 260, muffled through walls). Before, only the
+  talker heard those. Standing next to a talker, you hear their live voice and their clicks,
+  and the reply from the far end comes out of their walkie (or out of yours, if you carry one).
+- **Echo indoors.** A voice from inside a building now gets the reverb vanilla puts on any
+  sound made inside (`AudioController` adds a default `AudioReverbFilter` when the source's
+  `CharBase.isInside`): the talker's stand-in for their voice, the carrier for a radio heard
+  nearby, this player for their own radio. Vanilla's reverb zones (underground places, dreams)
+  already reached the voice, which plays through an ordinary 3D source.
+- **Walls muffle a voice the way vanilla muffles sounds**: 0.75 volume and a 1500 Hz cutoff
+  (`AudioController`'s own values), instead of 0.55 and 900, which made a voice through a door
+  far duller than a step through the same door.
+- Not tested in game (voice needs two logged-in Steam clients).
 
 ## 0.8.185 — A walkie playing radio talk is heard by the players and creatures around it
 
