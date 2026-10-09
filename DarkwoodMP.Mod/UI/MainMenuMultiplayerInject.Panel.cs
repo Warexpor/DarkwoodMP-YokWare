@@ -47,13 +47,16 @@ namespace DWMPHorde
             return (play != null ? play.offset.y : 60f) - RowSpacing;
         }
 
+        /// <summary>How far the title's version / player-id labels move down (buttons move <see cref="RowSpacing"/>).</summary>
+        private const float TitleLabelShift = 30f;
+
         /// <summary>Title rows shifted down for MULTIPLAYER, with their vanilla offsets.</summary>
         private static readonly List<KeyValuePair<PositionMe, Vector2>> _titleShifted = new List<KeyValuePair<PositionMe, Vector2>>(8); // reset-in: ResetTitleStack
         private static MainMenu _titleShiftedMenu; // reset-in: ResetTitleStack
 
         /// <summary>
-        /// Title screen: OPTIONS, CREDITS, EXIT and the version / player-id labels sit one row
-        /// lower than vanilla so MULTIPLAYER takes the row under PLAY. The shift is taken from the
+        /// Title screen: OPTIONS, CREDITS and EXIT sit one row lower than vanilla so MULTIPLAYER
+        /// takes the row under PLAY; the version / player-id labels move half a row. The shift is taken from the
         /// vanilla offsets (vanilla resets EXIT's on every menu open) and checked every UI poll.
         /// Pause-menu-only rows (RESUME, HELP, MAIN MENU) and the logo are left alone.
         /// </summary>
@@ -84,7 +87,10 @@ namespace DWMPHorde
                 PositionMe pm = _titleShifted[i].Key;
                 if (pm == null)
                     continue;
-                Vector2 want = _titleShifted[i].Value - new Vector2(0f, RowSpacing);
+                // Buttons move a full row; the version / player-id labels only half a row, so
+                // the version text stays close under EXIT.
+                float shift = pm.GetComponent<Button>() != null ? RowSpacing : TitleLabelShift;
+                Vector2 want = _titleShifted[i].Value - new Vector2(0f, shift);
                 if (pm.offset == want)
                     continue;
                 pm.offset = want;

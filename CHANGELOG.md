@@ -64,8 +64,8 @@ tested in the game.
 - Removed the F2 window's never-shown "host next step" hint (dead code).
 - The title MULTIPLAYER button sat below the version text, in the dark bottom band of the menu's
   vignette overlay, at about half the brightness of PLAY/EXIT. It now takes the row right under
-  PLAY; OPTIONS, CREDITS, EXIT and the version / player-id labels each move down one row (60 units,
-  vanilla's spacing). The shift is taken from the vanilla offsets, re-applied when vanilla resets
+  PLAY; OPTIONS, CREDITS and EXIT each move down one row (60 units, vanilla's spacing) and the
+  version / player-id labels half a row, so the version text stays close under EXIT. The shift is taken from the vanilla offsets, re-applied when vanilla resets
   EXIT on menu open, and undone when leaving the title; pause-menu-only rows are untouched
   (`ApplyTitleStack` / `ResetTitleStack`).
 - The title art's letters sat 2 texels low in their canvas (cropped at a faint shadow pixel above
