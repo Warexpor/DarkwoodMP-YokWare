@@ -720,7 +720,9 @@ namespace DWMPHorde.Sync
                         CharBase cb = c.GetComponent<CharBase>();
                         string tgt = c.target == null ? "-" : c.target == p.transform ? "me"
                             : c.target.GetComponent<RemotePlayerProxy>() is RemotePlayerProxy tp ? "p" + tp.PlayerId : c.target.name;
-                        return "id=" + id + " alive=" + (cb == null || cb.alive) + " active=" + c.gameObject.activeInHierarchy
+                        SaveableObject so = c.saveableObject;
+                        return "id=" + id + " sid=" + (so != null ? so.uniqueId : -1) + " alive=" + (cb == null || cb.alive) + " active=" + c.gameObject.activeInHierarchy
+                            + " fac=" + c.faction + (NightVillage.IsHidden(c.gameObject) ? " away" : "")
                             + " hp=" + (cb != null ? Mathf.RoundToInt(cb.health) : -1) + " target=" + tgt
                             + " beh=" + c.behaviour + " sleep=" + c.sleeping + " isActive=" + c.isActive
                             + " seen=" + c.canSeeEnemyFar + " enabled=" + c.enabled
@@ -824,6 +826,9 @@ namespace DWMPHorde.Sync
                     Out("  " + who.name + "@" + Pos(who.transform.position) + " attacks " + target.name + " beh=" + who.behaviour);
                     return;
                 }
+                case "match":
+                    Out("  " + ClientEntityInterpolationService.DebugMatch(a[1]));
+                    return;
                 case "comps":
                 {
                     // "comps <Type> [radius]": every live component of that game type near (gore,
@@ -1467,13 +1472,15 @@ namespace DWMPHorde.Sync
             sb.Append("  role=").Append(net.Role).Append(" id=").Append(net.LocalPlayerId)
                 .Append(" pos=").Append(Pos(p.transform.position)).Append(" loc=").Append(loc)
                 .Append(" hp=").Append(Mathf.RoundToInt(p.health)).Append('/').Append(Mathf.RoundToInt(p.maxHealth))
-                .Append(" alive=").Append(p.alive)
+                .Append(" alive=").Append(p.alive).Append(DeathStateTracker.LocalNightDeath ? " nightDead" : "")
                 .Append(" day=").Append(c != null ? c.day : -1).Append(" time=").Append(c != null ? c.CurrentTime : -1)
                 .Append(" dream=").Append(DreamSyncManager.IsDreamActive)
                 .Append(" clockOn=").Append(c != null && c.DoUpdateTime)
                 .Append(" timeScale=").Append(Time.timeScale.ToString("0.##", CultureInfo.InvariantCulture))
                 .Append(" inOutsideLoc=").Append(Singleton<OutsideLocations>.Instance != null && Singleton<OutsideLocations>.Instance.playerInOutsideLocation)
                 .Append(" afterNight=").Append(c != null && c.isAfterNight)
+                .Append(" ward=").Append(p.effects != null && p.effects.hasEffectType(CharacterEffectType.shadowWard))
+                .Append(" villagersAway=").Append(NightVillage.Away)
                 .Append(" scene=").Append(UnityEngine.SceneManagement.SceneManager.GetActiveScene().name)
                 .Append(" ending=").Append(EpilogueNetHandlers.IsLocalInEpilogue())
                 .Append(" grid=").Append(Singleton<WorldGrid>.Instance != null && Singleton<WorldGrid>.Instance.currentGrid != null ? Singleton<WorldGrid>.Instance.currentGrid.name : "-");

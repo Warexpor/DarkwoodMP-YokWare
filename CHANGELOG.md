@@ -3,7 +3,7 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.177**. The current Horde wire protocol is **47** (bumped in 0.8.177: `PlayerState` gains
+**0.8.178**. The current Horde wire protocol is **47** (held for 0.8.178; bumped in 0.8.177: `PlayerState` gains
 the `ClockHeld` trailer; same DLL on every install).
 46 held for 0.8.176, bumped there: `NightDeathState` gains
 the rejoin resume and its position, `PlayerDied` gains the dying player's home, the entity
@@ -44,6 +44,38 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.178 — The village at night, with three players
+
+On top of 0.8.177. Protocol **47** (unchanged). Three-player pilot runs of the chapter-1 village
+night (`NightVillage`): two players in the village, the third out in the world keeping the clock
+running, then the third walking in late.
+
+**Verified in game, unchanged:** at the "night is coming" warning the villagers stay while anyone
+looks at them and leave together once nobody does, on every machine; a player walking in after
+that finds them gone; the worm killed the host standing outdoors in the village (spectating until
+morning) and never touched the client sheltering in the brother's house (vanilla's shadow ward
+on it); at dawn the dead host was released and the villagers came back unseen. The village is a
+location: with all three inside, the clock stops and night does not come (section 5 rule).
+
+**Fixed:**
+- **A villager stayed invisible on a client for good.** A location pad loaded after the world
+  gives its bodies save ids in each machine's own load order, so the village woodcutter's id on the
+  client was the id of a different host villager. The client's matcher refused him as "that
+  villager's save twin", fell back to spawning a prefab that does not exist, and logged a spawn
+  error every half second while he stood invisible in front of the client. A body now counts as
+  another host body's save twin only under that body's name, as the save-twin lookup itself
+  requires (`ClientEntityInterpolationService.SaveTwin.cs`). This covers every pad, not only the
+  village.
+- **The sick villagers left at night too.** Every villager is `villagerNeutral`, so the
+  "friendly villagers" picked by faction included the sick lying in the houses, against the
+  documented rule ("the crazy / infected villagers stay"). Villagers already standing on an
+  indoor floor (vanilla's ground test, 6 of 30) now stay; the ones outdoors (the crazy man in the
+  pig cottage's yard, one sick villager lying outside) go home like the rest; the list is built only once the pad's floors are live, so every
+  machine picks the same ones (`NightVillage.cs`).
+
+Pilot: `chars` shows faction, save id and an away villager; `status` shows `ward`,
+`villagersAway` and `nightDead`; new `match <name>` explains a client's pending body match.
 
 ## 0.8.177 — Where time stands still, with three players
 

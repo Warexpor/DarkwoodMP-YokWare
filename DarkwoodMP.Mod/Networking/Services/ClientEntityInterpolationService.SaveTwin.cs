@@ -20,11 +20,21 @@ namespace DWMPHorde.Networking
         /// <summary>Host id the next position search is for (argument of <see cref="RejectOtherSaveTwin"/>).</summary>
         private static short _matchHostId; // process-scoped: call-scoped argument, set before each search
 
-        /// <summary>A position candidate that is the save twin of another host body is not this one's.</summary>
+        /// <summary>
+        /// A position candidate that is the save twin of another host body is not this one's. The
+        /// same save id alone does not make it that body's twin: a location pad loaded after the
+        /// world gives its bodies ids in this machine's own load order (the chapter-1 village's
+        /// woodcutter got the id of a host villager elsewhere and was refused as that one's twin,
+        /// so the client never showed him). As in <see cref="FindSaveTwin"/>, it is the other body's
+        /// twin only under that body's name.
+        /// </summary>
         private static readonly System.Predicate<Character> RejectOtherSaveTwin = c =>
         {
             int sid = SaveIdOf(c);
-            return sid > 0 && _saveIdOwners.TryGetValue(sid, out short owner) && owner != _matchHostId;
+            if (sid <= 0 || !_saveIdOwners.TryGetValue(sid, out short owner) || owner == _matchHostId)
+                return false;
+            return !_descriptors.TryGetValue(owner, out EntityDescriptor d)
+                || CharacterTracker.BaseNameEquals(c.name, d.Name);
         };
 
         private static void NoteSaveIdOwner(int saveId, short hostId)

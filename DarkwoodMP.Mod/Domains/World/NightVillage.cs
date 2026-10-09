@@ -10,7 +10,8 @@ namespace DWMPHorde.Sync
     /// inside (its clock stopped in outside locations); the shared clock now runs, so:
     /// <list type="bullet">
     /// <item>The friendly villagers are away from the "night is coming" warning until morning
-    /// (<see cref="VillageNightPolicy"/>). The Musician and the hostile villagers stay. Entering
+    /// (<see cref="VillageNightPolicy"/>). The Musician, the hostile villagers and the ones
+    /// already indoors (most of the sick) stay. Entering
     /// near night finds them gone. With players inside, they leave (or come back at dawn) all at
     /// once, and only while nobody sees any of them: each player reports that on
     /// <c>PlayerState.SeesVillager</c>, using vanilla's own "in sight or close" test.</item>
@@ -188,16 +189,32 @@ namespace DWMPHorde.Sync
             if (loc == _villagersOf)
                 return Villagers;
             Villagers.Clear();
-            _villagersOf = loc;
+            int home = 0;
+            bool anyGround = false;
             foreach (Character c in loc.GetComponentsInChildren<Character>(includeInactive: true))
             {
                 if (c.faction != Faction.villagerNeutral)
                     continue;
                 if (c.name.IndexOf("musician", System.StringComparison.OrdinalIgnoreCase) >= 0)
                     continue;
+                // Already home: the sick lying indoors. All are villagerNeutral, as the walkers are.
+                if (Indoors(c.transform.position, out bool hitGround))
+                {
+                    home++;
+                    continue;
+                }
+                anyGround |= hitGround;
                 Villagers.Add(c);
             }
-            Logging.ModLog.Event(Logging.LogCat.World, $"[NightVillage] {Villagers.Count} friendly villagers in '{loc.name}'");
+            if (!anyGround && home == 0)
+            {
+                // The pad's floors are not live here yet (not entered): indoors cannot be told,
+                // so hide nobody now; entering the village applies the state again.
+                Villagers.Clear();
+                return Villagers;
+            }
+            _villagersOf = loc;
+            Logging.ModLog.Event(Logging.LogCat.World, $"[NightVillage] {Villagers.Count} friendly villagers in '{loc.name}' ({home} indoors stay)");
             return Villagers;
         }
 
@@ -224,7 +241,7 @@ namespace DWMPHorde.Sync
             Player p = Player.Instance;
             if (p.effects == null)
                 return;
-            if (inVillage && Indoors(p))
+            if (inVillage && Indoors(p._transform.position, out _))
             {
                 if (!p.effects.hasEffectType(CharacterEffectType.shadowWard))
                     p.effects.activate(new InvItemEffect { type = CharacterEffectType.shadowWard, duration = WardDuration });
@@ -250,11 +267,13 @@ namespace DWMPHorde.Sync
         }
 
         /// <summary>Vanilla <c>CharBase.checkGround</c>: an indoor floor under the player.</summary>
-        private static bool Indoors(Player p)
+        private static bool Indoors(Vector3 pos, out bool hitGround)
         {
-            if (!Physics.Raycast(p._transform.position + new Vector3(0f, 300f, 0f), Vector3.down, out RaycastHit hit, 1000f, 2))
+            hitGround = false;
+            if (!Physics.Raycast(pos + new Vector3(0f, 300f, 0f), Vector3.down, out RaycastHit hit, 1000f, 2))
                 return false;
             Ground g = hit.collider.GetComponent<Ground>();
+            hitGround = g != null;
             return g != null && g.isInside;
         }
     }

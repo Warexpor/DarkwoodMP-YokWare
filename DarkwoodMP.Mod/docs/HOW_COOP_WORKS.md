@@ -396,7 +396,10 @@ code, not yet playtested).
   Electrician skill applies at the best rate any player has.
 - **Village nights (co-op only).** Vanilla never needed this: friendly villagers go
   home between the "night is coming" warning and morning, but only while nobody
-  sees them. Village houses give the shadow ward to a player standing inside.
+  sees them. The ones already indoors (the sick) stay. Village houses give the
+  shadow ward to a player standing inside; outdoors the worm comes as anywhere else.
+  The village is a location, so night only comes there while someone is out in the
+  open world (the clock rule in section 5).
 
 ---
 
