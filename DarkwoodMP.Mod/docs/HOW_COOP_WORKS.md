@@ -848,6 +848,8 @@ party events.
     channel carries whoever keyed first until they let go; someone keying over them is
     heard garbled under a whistle. Players near a talker hear their walkie click on and
     off; the far radios end each transmission with a roger beep.
+  - A walkie is crafted at the workbench (level 1) from 2 junk and 1 nail; each player
+    makes their own.
   - A walkie is a device: an on/off knob (`B`, in hand), a 9V battery that drains while
     it is on (faster while talking; `R` swaps in a fresh `battery9v`, as for the
     flashlight), quieter and duller in a pocket than in hand. Off or flat, it neither
@@ -869,7 +871,8 @@ party events.
 
 Darkwood is balanced for one player. The mod changes the balance in only these
 places. All of them are host settings, sent to clients, so every machine applies the
-same numbers.
+same numbers. The ones in Host settings can be changed mid-game; leaving the screen
+with such a change not applied asks first, since it changes the game for everyone.
 
 | Setting | Default | What it does |
 |---|---|---|
@@ -902,8 +905,8 @@ By design:
   pause it only when every player is in the pause menu
   ([section 5](#5-time-pause-and-the-clock)).
 - **Nobody can sleep or skip time** (the game has no such mechanic).
-- **A client cannot change balance settings.** Friendly fire, loot sharing and the
-  party multiplier come from the host.
+- **A client cannot change balance settings.** Friendly fire, extra loot, the night
+  monster count and whether creatures hear voices come from the host.
 - **Two players cannot talk to the same NPC at once.** The second one listens in.
 - **A shared story item cannot be handed over twice.**
 - **A night-dead player cannot respawn before morning,** and F4 cannot release them.

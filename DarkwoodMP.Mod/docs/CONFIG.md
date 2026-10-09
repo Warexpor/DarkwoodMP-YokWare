@@ -8,19 +8,32 @@ with every key and its description; edit it with the game closed.
 | BepInEx | `BepInEx/config/com.yokware.branch.cfg` |
 | MelonLoader | `UserData/YokWare/com.yokware.branch.cfg` |
 
-Values are read once at startup (restart after changing them). Bool values are
+A value edited in the file is read at startup (restart after changing it); one changed
+in the game's menus applies at once. Bool values are
 `true` / `false`; numbers use `.` as the decimal separator. Defaults below are the
 values written into a fresh file; an existing file keeps what it already has.
 
 The table is checked against `Config/ModConfig.cs` by the `ConfigDocTests` unit
 test, so every bound key must be listed here.
 
-In game, **Multiplayer > Settings** edits `PlayerName`, `ChatEnabled`, `ShowPlayerNames`,
-`VoiceEnabled` / `VoiceMode`, `VoicePttKey`, `VoiceVolume` and `PeerMovementVolume`;
-**Multiplayer > Host settings** edits `FriendlyFireEnabled`, `LootShareMode`, `NightMonsterMultiplier`, `MaxPlayers`,
-`SteamLobbyType`, `ConnectPort` and `HostPassword`; **Multiplayer > Join** edits
-`ConnectAddress`, `ConnectPort`, `HostPassword` and `SteamLobbyId`. A change applies
-at once and is written to the file.
+In game:
+
+- **Multiplayer > Settings** edits `PlayerName`, `ShowPlayerNames`, `ChatEnabled` and
+  `PeerMovementVolume`.
+- **Settings > Voice** edits `VoiceEnabled` / `VoiceMode`, `VoicePttKey`,
+  `VoiceRadioTalkKey`, `VoiceRadioPowerKey`, `VoiceMicDevice`, `VoiceMicVolume` and
+  `VoiceVolume`; **Voice > Players** edits `VoicePlayerVolumes`.
+- **Multiplayer > Host settings** edits `FriendlyFireEnabled`, `LootShareMode` (with
+  `DoubleItemsEnabled`), `NightMonsterMultiplier` and `VoiceAlertsEnemies`, and before
+  hosting `MaxPlayers`, `SteamLobbyType`, `ConnectPort` and `HostPassword`.
+- **Multiplayer > Join** edits `ConnectAddress`, `ConnectPort`, `HostPassword` and
+  `SteamLobbyId`.
+
+A change applies at once and is written to the file. Each settings screen has **Apply**
+and **Revert to default** (the screen's own keys back to the defaults below). Leaving a
+screen with a change to `PlayerName`, `VoiceEnabled` / `VoiceMode` or, while hosting, a
+rule not applied asks "Do you wish to apply these changes?"; No puts those back. Other
+changes are kept without asking.
 
 ## Network
 

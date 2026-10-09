@@ -99,11 +99,17 @@ menu. Its screens look and work like the game's own menus (Esc goes back):
   Join and press **Join the lobby**. The host chooses the lobby type in Host
   settings (friends only, public or invite only).
 - **Settings:** your name, when other players' names show (when pointed at,
-  always, off), text chat, footstep volume, and **Voice**: off / push to talk / always
-  on, the key, which microphone and how loud (with a live level meter), voice volume,
-  and each other player's volume.
-- **Host settings:** friendly fire, extra loot, whether creatures hear voices, player count, Steam lobby type,
-  port and password.
+  always, off), text chat, other players' footstep volume, and **Voice**: off / push
+  to talk / always on, the push-to-talk, radio talk and radio on/off keys, which
+  microphone and how loud (with a live level meter), voice volume, and each other
+  player's volume.
+- **Host settings:** friendly fire, extra loot, night monsters (x1 to x10), whether
+  creatures hear voices, and, before hosting, player count, Steam lobby type, port
+  and password. The rules can be changed mid-game too and apply to everyone at once.
+- **Apply and Revert to default** sit on the Return row of every settings screen, as
+  in the game's Options. A change shows at once. Leaving with a change that matters
+  to others not applied (your name, the voice mode, a rule while hosting) asks first;
+  small adjustments (volumes, keys, the microphone) are just kept.
 - **In the pause menu:** Invite friends (Steam host), Send the world again (host),
   Restore my character (client, when the automatic restore missed), Disconnect.
 
@@ -131,6 +137,10 @@ A GOG copy of Darkwood has no Steam, so a GOG player joins over LAN.
 | **B** with a walkie-talkie in hand | Switch the radio on or off |
 | **R** with a walkie-talkie in hand | Put in a fresh 9V battery |
 
+The walkie-talkie is crafted at the workbench (level 1) from 2 junk and 1 nail. Switched
+on and charged, it receives the radio anywhere it is carried; the full rules are in
+[How co-op works, section 17](DarkwoodMP.Mod/docs/HOW_COOP_WORKS.md#17-seeing-and-hearing-other-players).
+
 ### Settings
 
 Settings live in one INI file, created on first launch:
@@ -139,8 +149,8 @@ Settings live in one INI file, created on first launch:
 - MelonLoader: `UserData/YokWare/com.yokware.branch.cfg`
 
 The common ones are also in **Multiplayer > Settings**; edit the file itself with
-the game closed. The gameplay settings (friendly fire, loot sharing,
-party scaling) are the host's and apply to everyone. Every key and its default is
+the game closed. The gameplay settings (friendly fire, extra loot,
+night monsters, creatures hearing voices) are the host's and apply to everyone. Every key and its default is
 in [CONFIG.md](DarkwoodMP.Mod/docs/CONFIG.md).
 
 ### Reporting a bug

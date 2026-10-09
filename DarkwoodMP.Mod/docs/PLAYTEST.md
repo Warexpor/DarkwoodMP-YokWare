@@ -27,6 +27,25 @@ version and protocol in the README table. The sections follow
 The releases since the last playtest that need a first look, newest first. Each item
 points to the section with the full check.
 
+- [ ] **Settings screens:** Apply, Revert to default, and the apply-changes question
+      only for the name, the voice mode and live host rules (section 18).
+- [ ] **Walkie as a radio:** crafted at the workbench, on/off knob, battery, signal
+      range, one way at a time, feedback, the new icon (section 18).
+- [ ] **Voice without Steam:** 3D proximity voice, the Voice screen (microphone,
+      levels, each player's volume), creatures hearing talk (section 18).
+- [ ] **Names and chat:** names over players on hover, chat only in the chat
+      (section 18).
+- [ ] **Multiplayer menus as the game's own:** the title button under PLAY, the Host,
+      Join and Settings screens, Russian text (section 3).
+- [ ] **Three players:** story NPCs, dreams, the ending, nights, deaths, the village at
+      night (sections 8, 9, 14 and 16).
+- [ ] **Night soak fixes:** night events, the morning trader, chapter 2 on the host's
+      map, the desync checker (sections 8, 15 and 20).
+- [ ] **Host settings > Night monsters:** x2 brings more monsters to each hideout than
+      x1; changed mid-night it takes effect (section 8).
+
+Older, still open:
+
 - [ ] **Same look everywhere:** grass, trees, debris, creature tints, flickering and
       twitching animations and vines look the same for host and client, in a fresh
       world, after a reload, for a late joiner and after a chapter change; examine
@@ -59,6 +78,10 @@ points to the section with the full check.
 - [ ] A client on a different DLL is refused with a protocol mismatch, not half-joined.
 
 ## 3. Hosting and joining
+
+- [ ] MULTIPLAYER sits under PLAY on the title screen and under OPTIONS in the pause
+      menu; its screens look like the game's own (fonts, hover, click sound, Esc goes
+      back, gamepad works), also in Russian.
 
 - [ ] The host loads a save and enters the chapter. The client's Join > Connect shows
       "Connecting…", "waiting for the host to enter the game" (until the host is in the
@@ -177,6 +200,8 @@ points to the section with the full check.
 - [ ] One player walks out of the hideout in the morning: the trader stays for the
       others until the hideout is empty.
 - [ ] Generator: a client refuels and switches it; the fuel matches on every machine.
+- [ ] Host settings > Night monsters at x2 and more: more of each kind come to every
+      hideout and sooner; x1 is vanilla. Changed mid-night, the next spawns follow it.
 - [ ] Village at night: friendly villagers go home between the night warning and
       morning, only while nobody sees them (`[NightVillage]` lines count the right
       villagers).
@@ -396,6 +421,9 @@ Listen on the player who did not cause the sound.
 - [ ] Walkie one way: while A holds the key, A hears nothing on the radio; with A on the air,
       B keying is not heard on the radios. C next to A hears A's click on and off and the
       reply from A's walkie. A voice inside a building has an echo.
+- [ ] Walkie crafting: the workbench (level 1) lists the walkie for 2 junk and 1 nail on
+      every player's bench; the made walkie shows the hand-painted icon, sharp at slot
+      size.
 - [ ] Walkie as a device: B with it in hand switches it off and on (click, the speaker
       coming alive); off, nothing comes through and the talk key sends nothing. Its bar drains while
       on; under 10% it chirps every 30 s; flat, it dies with a click; R with a 9V battery
