@@ -383,7 +383,12 @@ Listen on the player who did not cause the sound.
 - [ ] A client dragging a body or talking on the walkie while doors and pickups happen:
       the drag and the voice stay smooth and the events are not delayed.
 - [ ] Chat: lines and speech bubbles appear for everyone; `ChatEnabled=false` turns it
-      off.
+      off. Lines sit in the lower left in the game's hover-label font, fade after a while
+      and all come back while typing; a long line wraps under itself.
+- [ ] Player names: each player's name shows under them only while you can see them (not
+      behind a wall, not outside the view cone at a distance); a name changed in
+      Multiplayer > Settings updates for everyone at once. "When pointed at" shows a name
+      only with the cursor on that player; "Off" shows none.
 
 ## 19. Steam
 

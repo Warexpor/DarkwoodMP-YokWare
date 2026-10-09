@@ -5,8 +5,8 @@ join it: the same forest, the same nights, the same story, played together.
 
 | | |
 |--|--|
-| Product | YokWare Branch **0.8.181** |
-| Wire | Horde protocol **47** |
+| Product | YokWare Branch **0.8.182** |
+| Wire | Horde protocol **48** |
 | Players | Up to 8 by default (`MaxPlayers`, host included) |
 | Transport | LAN (LiteNetLib) or Steam lobby (SteamNetworkingSockets) |
 | Loaders | BepInEx 5.x or MelonLoader 0.7.x |
@@ -96,11 +96,12 @@ menu. Its screens look and work like the game's own menus (Esc goes back):
 - **Join over LAN:** Join, type the host's address (default port 7788) and, if the
   host set one, the password, then **Connect**.
 - **Join over Steam:** accept the host's Steam invite, or type the lobby id under
-  Join and press **Join the lobby**. The host chooses the lobby type in Settings
-  (friends only, public or invite only).
-- **Settings:** your name, text and voice chat, push-to-talk key, voice and
-  footstep volume; the host's friendly fire, extra loot, player count, Steam lobby
-  type, port and password.
+  Join and press **Join the lobby**. The host chooses the lobby type in Host
+  settings (friends only, public or invite only).
+- **Settings:** your name, when other players' names show (always, when pointed
+  at, off), text and voice chat, push-to-talk key, voice and footstep volume.
+- **Host settings:** friendly fire, extra loot, player count, Steam lobby type,
+  port and password.
 - **In the pause menu:** Invite friends (Steam host), Send the world again (host),
   Restore my character (client, when the automatic restore missed), Disconnect.
 
@@ -122,7 +123,7 @@ A GOG copy of Darkwood has no Steam, so a GOG player joins over LAN.
 | **Esc** | Pause menu, with **MULTIPLAYER** (session, settings) |
 | **F3** | Save slots, with the optional manual-saves add-on |
 | **F4** | Spectate other players; also used while dead at night |
-| **Ctrl+C** | Text chat (Enter sends, Esc closes) |
+| **Ctrl+C** | Text chat (Enter sends, Esc closes, Ctrl+V pastes) |
 | **V** | Push-to-talk voice chat (needs a logged-in Steam client) |
 | **Right mouse** with a walkie-talkie in hand | Talk on the radio |
 
@@ -260,7 +261,7 @@ mod.
 LAN and Steam carry the same messages. The host owns the world simulation and
 validates everything clients send; it relays a client's message to the other
 clients only after applying it, and drops message types only the host may send.
-The highest assigned message ID is 167 (`MapPinEvent`). Voice uses message 129.
+The highest assigned message ID is 168 (`PlayerName`). Voice uses message 129.
 
 ---
 

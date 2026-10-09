@@ -302,6 +302,7 @@ namespace DWMPHorde
             NetworkResetRegistry.Register(DreamRetry.Reset);
             NetworkResetRegistry.Register(MenuShield.Reset);
             NetworkResetRegistry.Register(PauseMenuSync.Reset);
+            NetworkResetRegistry.Register(PlayerNames.Reset);
             NetworkResetRegistry.Register(PauseMenuNoInputPatch.Reset);
             NetworkResetRegistry.Register(StackedLightProbe.Reset);
             NetworkResetRegistry.Register(BackgroundFrameRate.Reset);
@@ -362,6 +363,7 @@ namespace DWMPHorde
             YokWare.VanillaMenu.Vm.EditLock = held => UiInputLock.Set("menu-edit", held);
 
             ChatHud.EnsureExists();
+            Nameplates.EnsureExists();
             Spectator.SpectatorModeController.EnsureExists();
         }
 

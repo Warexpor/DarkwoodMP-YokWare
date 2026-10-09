@@ -28,6 +28,8 @@ namespace DWMPHorde.Config
         public static ModSetting<string> PlayerName { get; private set; }
         /// <summary>Master switch for the Ctrl+C co-op chat HUD (see <see cref="ChatHud"/>).</summary>
         public static ModSetting<bool> ChatEnabled { get; private set; }
+        /// <summary>When other players' names show under them: always | pointed | off (see <see cref="Nameplates"/>).</summary>
+        public static ModSetting<string> ShowPlayerNames { get; private set; }
         public static ModSetting<bool> FriendlyFireEnabled { get; private set; }
         public static ModSetting<bool> DoubleItemsEnabled { get; private set; }
         public static ModSetting<string> LootShareModeSetting { get; private set; }
@@ -172,10 +174,12 @@ namespace DWMPHorde.Config
                 "Last local profile slot (1-5) used for a permanent co-op world copy. 0 = none. "
                 + "Join picker highlights this; empty slots are still preferred when free.");
             PlayerName = config.Bind("Network", "PlayerName", "Player",
-                "Name shown in co-op chat (Ctrl+C) and speech bubbles.");
+                "Name the other players see: under your character, in chat (Ctrl+C) and on map pins. Left at Player, a Steam player goes by their Steam name.");
             ChatEnabled = config.Bind("Network", "ChatEnabled", true,
                 "Co-op text chat: Ctrl+C opens the input, Enter sends, Esc closes. "
-                + "Gameplay input is locked while typing. Restart after change.");
+                + "Gameplay input is locked while typing.");
+            ShowPlayerNames = config.Bind("Network", "ShowPlayerNames", "always",
+                "When other players' names show under them: always (while you can see them) | pointed (when the cursor is on them) | off.");
             MaxPlayers = config.Bind("Network", "MaxPlayers", 8, "Maximum players including host.");
             AllowJoinDuringDream = config.Bind("Network", "AllowJoinDuringDream", false, "If false, reject joins during dream session.");
             FriendlyFireEnabled = config.Bind("Gameplay", "FriendlyFireEnabled", true, "Players can damage each other.");

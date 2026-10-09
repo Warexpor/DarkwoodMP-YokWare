@@ -466,7 +466,13 @@ namespace DWMPHorde.Networking
         MapPinRequest = 166,
         /// <summary>Host→clients: one change to the party map board, or a ping. <c>Sync.MapPinBoard</c>. Protocol 43.</summary>
         [HostOnly] MapPinEvent = 167,
+        /// <summary>
+        /// Client→host: the name this player goes by (Multiplayer > Settings > Name), sent after the
+        /// handshake and whenever it changes. The host hands every name out in <see cref="PeerRoster"/>.
+        /// <c>Sync.PlayerNames</c>. Protocol 48.
+        /// </summary>
+        PlayerName = 168,
         /// <summary>Highest used message type ID.</summary>
-        _Highest = 167
+        _Highest = 168
     }
 }

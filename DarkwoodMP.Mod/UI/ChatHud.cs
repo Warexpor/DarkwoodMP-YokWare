@@ -3,38 +3,65 @@ using DWMPHorde.Config;
 using DWMPHorde.Logging;
 using DWMPHorde.Networking;
 using DWMPHorde.Players;
+using DWMPHorde.Sync;
 using LiteNetLib;
 using UnityEngine;
 
 namespace DWMPHorde
 {
     /// <summary>
-    /// Yokyy-style in-game chat. Ctrl+C opens; Enter/KeypadEnter sends; Esc closes.
-    /// Send and close must work from both Update (raw input) and OnGUI (IMGUI events);
-    /// IMGUI alone often swallows KeyDown so Enter appeared dead.
-    /// While the input is open <see cref="UiInputLock"/> holds vanilla gameplay input
-    /// (movement, hotbar keys, walkie TX) so typing does not drive the character.
+    /// Co-op text chat, drawn like the game's own text: the outlined hover-label font in the lower
+    /// left corner, no box. Ctrl+C opens the line ("Say:"), Enter sends, Esc closes, Ctrl+V pastes.
+    /// Lines fade out after a while and all come back while typing. A sent line also shows over the
+    /// speaker's head the way vanilla shows the player's own remarks. While typing
+    /// <see cref="UiInputLock"/> holds vanilla gameplay input (movement, hotbar keys, walkie TX).
     /// </summary>
     public sealed class ChatHud : MonoBehaviour
     {
         /// <summary>Config <c>[Network] ChatEnabled</c> (default on).</summary>
         public static bool Enabled => ModConfig.ChatEnabled != null && ModConfig.ChatEnabled.Value;
 
-        private const string InputControlName = "YokWareChat";
         private const string LockOwner = "chat";
         private const float AntiSpamSec = 0.25f;
-        /// <summary>History lines fade out of the corner after this long (all shown while typing).</summary>
+        private const int MaxMessage = 160;
+        /// <summary>Lines stay this long, then fade out over <see cref="FadeSec"/> (all shown while typing).</summary>
         private const float LineVisibleSec = 14f;
+        private const float FadeSec = 2f;
         private const int MaxVisibleLines = 8;
+        private const int MaxHistory = 40;
 
-        private static ChatHud _instance;
-        private readonly List<string> _lines = new List<string>(32);
-        private readonly List<float> _lineTimes = new List<float>(32);
+        // Layout in 1080p HUD pixels (scaled like the vanilla HUD).
+        private const float Left = 40f;
+        private const float InputBottom = 150f;
+        private const float LineGap = 4f;
+        private const float Width = 620f;
+
+        private static readonly Color NameColor = new Color(0.62f, 0.62f, 0.62f, 1f);
+        private static readonly Color TextColor = new Color(0.92f, 0.92f, 0.92f, 1f);
+        private static readonly Color SystemColor = new Color(0.55f, 0.55f, 0.55f, 1f);
+
+        private struct Line
+        {
+            public string Name;
+            public string Text;
+            public float At;
+        }
+
+        private sealed class Row
+        {
+            public tk2dTextMesh Name;
+            public tk2dTextMesh Text;
+        }
+
+        private static ChatHud _instance; // process-scoped: one HUD component
+        private readonly List<Line> _lines = new List<Line>(MaxHistory);
+        private readonly Row[] _rows = new Row[MaxVisibleLines];
+        private tk2dTextMesh _sayLabel;
+        private tk2dTextMesh _sayText;
         private bool _inputOpen;
+        private int _openedFrame = -1;
         private string _draft = "";
         private float _lastLocalSend;
-        private bool _focusPending;
-        private int _lastSendFrame = -1;
 
         public static bool IsInputOpen => Enabled && _instance != null && _instance._inputOpen;
 
@@ -47,17 +74,14 @@ namespace DWMPHorde
             if (_instance != null)
             {
                 _instance._lines.Clear();
-                _instance._lineTimes.Clear();
                 _instance._inputOpen = false;
                 _instance._draft = "";
-                _instance._focusPending = false;
             }
             UiInputLock.Set(LockOwner, false);
         }
 
         public static void EnsureExists()
         {
-            if (!Enabled) return;
             if (_instance != null) return;
             var go = new GameObject("YokWare_ChatHud");
             Object.DontDestroyOnLoad(go);
@@ -69,8 +93,10 @@ namespace DWMPHorde
             if (!Enabled) return;
             EnsureExists();
             if (_instance == null) return;
-            string name = string.IsNullOrEmpty(msg.SenderName) ? ("P" + msg.SenderId) : msg.SenderName;
-            _instance.AddLine(name + ": " + msg.Message);
+            string name = PlayerNames.Clean(msg.SenderName);
+            if (string.IsNullOrEmpty(name) || name == "Player")
+                name = PlayerNames.Shown(msg.SenderId);
+            _instance.AddLine(name, msg.Message);
             TrySpeechBubble(msg.SenderId, msg.Message);
         }
 
@@ -80,8 +106,10 @@ namespace DWMPHorde
             if (!Enabled || string.IsNullOrEmpty(line)) return;
             EnsureExists();
             if (_instance == null) return;
-            _instance.AddLine(line);
+            _instance.AddLine(null, line);
         }
+
+        private static bool InWorld => !Core.mainMenu && !Core.loadingGame && Player.Instance != null;
 
         private void Update()
         {
@@ -92,16 +120,15 @@ namespace DWMPHorde
                 return;
             }
 
-            // Scene change / title: nothing to type into.
-            if (_inputOpen && (Core.mainMenu || Core.loadingGame || Player.Instance == null))
+            // Scene change / title / pause menu: nothing to type into.
+            if (_inputOpen && !InWorld)
                 ToggleInput(false);
 
-            // Open with Ctrl+C (either Ctrl). While open, Ctrl+C is the text-field copy shortcut.
+            // Open with Ctrl+C (either Ctrl).
             if (!_inputOpen
                 && (Input.GetKey(KeyCode.LeftControl) || Input.GetKey(KeyCode.RightControl))
                 && Input.GetKeyDown(KeyCode.C)
-                && !Core.mainMenu && !Core.loadingGame && Player.Instance != null
-                && UiInputLock.CanOpenOverlay)
+                && InWorld && UiInputLock.CanOpenOverlay)
             {
                 ToggleInput(true);
             }
@@ -110,108 +137,214 @@ namespace DWMPHorde
             // clears Core.forbidInputs on its own schedule).
             UiInputLock.Set(LockOwner, _inputOpen);
 
-            // Raw input fallback: IMGUI Event.current KeyDown is unreliable while TextField focused.
-            if (!_inputOpen)
+            if (!_inputOpen || Time.frameCount == _openedFrame)
                 return;
 
-            if (Input.GetKeyDown(KeyCode.Return) || Input.GetKeyDown(KeyCode.KeypadEnter))
-                TrySend();
-            else if (Input.GetKeyDown(KeyCode.Escape))
+            if (Input.GetKeyDown(KeyCode.Escape))
+            {
                 ToggleInput(false);
+                return;
+            }
+            if (Input.GetKeyDown(KeyCode.Return) || Input.GetKeyDown(KeyCode.KeypadEnter))
+            {
+                TrySend();
+                return;
+            }
+            bool ctrl = Input.GetKey(KeyCode.LeftControl) || Input.GetKey(KeyCode.RightControl)
+                || Input.GetKey(KeyCode.LeftCommand) || Input.GetKey(KeyCode.RightCommand);
+            if (ctrl && Input.GetKeyDown(KeyCode.V))
+            {
+                foreach (char c in GUIUtility.systemCopyBuffer ?? "")
+                    Append(c == '\n' || c == '\r' || c == '\t' ? ' ' : c);
+                return;
+            }
+            foreach (char c in Input.inputString)
+            {
+                if (c == '\b')
+                {
+                    if (_draft.Length > 0)
+                        _draft = _draft.Substring(0, _draft.Length - 1);
+                }
+                else if (c == '\n' || c == '\r')
+                {
+                    TrySend();
+                    return;
+                }
+                else if (!ctrl)
+                {
+                    Append(c);
+                }
+            }
+        }
+
+        private void Append(char c)
+        {
+            if (char.IsControl(c) || _draft.Length >= MaxMessage)
+                return;
+            _draft += c;
         }
 
         private void ToggleInput(bool open)
         {
             _inputOpen = open;
+            _draft = "";
             if (open)
-            {
-                _draft = "";
-                _focusPending = true;
-            }
-            else
-            {
-                _draft = "";
-                _focusPending = false;
-                // Release now (not next Update) so the Esc/Enter frame is stamped for the Esc swallow.
-                GUIUtility.keyboardControl = 0;
-            }
+                _openedFrame = Time.frameCount;
             UiInputLock.Set(LockOwner, open);
         }
 
-        private void OnGUI()
+        // ------------------------------------------------------------------
+        // Drawing
+        // ------------------------------------------------------------------
+
+        private void LateUpdate()
         {
-            if (!Enabled) return;
+            bool show = Enabled && InWorld && Singleton<UI>.Instance != null && Singleton<UI>.Instance.gameObject.activeInHierarchy;
+            float s = HudText.Scale;
+            float x = Left * s;
+            float z = InputBottom * s;
+            float now = Time.unscaledTime;
 
-            // Session status strip (HOST/CLIENT/peers) was removed because it cluttered the corner.
-            // Role/peers still live in F2 settings menu. Chat lines only while history exists.
-
-            if (_lines.Count > 0)
+            // The "Say:" line.
+            bool typing = show && _inputOpen;
+            if (typing && EnsureInput())
             {
-                float now = Time.unscaledTime;
-                float y = 8f;
-                for (int i = Mathf.Max(0, _lines.Count - MaxVisibleLines); i < _lines.Count; i++)
+                bool caret = ((int)(now * 2f) & 1) == 0;
+                HudText.FollowScale(_sayLabel);
+                HudText.FollowScale(_sayText);
+                string say = Loc.T("Say:");
+                HudText.Set(_sayLabel, say, NameColor);
+                HudText.Place(_sayLabel, x, z);
+                float textX = x + HudText.Size(_sayLabel, say + " ").x;
+                Wrap(_sayText, Width * s - (textX - x));
+                HudText.Set(_sayText, _draft + (caret ? "_" : " "), TextColor);
+                HudText.Place(_sayText, textX, z);
+                SetActive(_sayLabel, true);
+                SetActive(_sayText, true);
+                z += Height(_sayText) + LineGap * 2f * s;
+            }
+            else
+            {
+                SetActive(_sayLabel, false);
+                SetActive(_sayText, false);
+            }
+
+            // History, newest at the bottom.
+            int row = 0;
+            for (int i = _lines.Count - 1; show && i >= 0 && row < MaxVisibleLines; i--)
+            {
+                Line line = _lines[i];
+                float age = now - line.At;
+                float alpha = typing ? 1f : Mathf.Clamp01((LineVisibleSec + FadeSec - age) / FadeSec);
+                if (alpha <= 0f)
+                    break;
+                Row r = EnsureRow(row);
+                if (r == null)
+                    break;
+                row++;
+                HudText.FollowScale(r.Name);
+                HudText.FollowScale(r.Text);
+
+                float textX = x;
+                bool named = !string.IsNullOrEmpty(line.Name);
+                if (named)
                 {
-                    if (!_inputOpen && now - _lineTimes[i] > LineVisibleSec)
-                        continue;
-                    GUI.Label(new Rect(8f, y, Screen.width * 0.55f, 18f), _lines[i]);
-                    y += 18f;
+                    string label = line.Name + ":";
+                    HudText.Set(r.Name, label, Fade(NameColor, alpha));
+                    textX = x + HudText.Size(r.Name, label + " ").x;
                 }
+                SetActive(r.Name, named);
+                // Wrapped under its own start, so a long line reads as one block beside the name.
+                Wrap(r.Text, Width * s - (textX - x));
+                HudText.Set(r.Text, line.Text, Fade(named ? TextColor : SystemColor, alpha));
+                SetActive(r.Text, true);
+                float h = Height(r.Text);
+                float top = z + h;
+                if (named)
+                    HudText.Place(r.Name, x, top);
+                HudText.Place(r.Text, textX, top);
+                z = top + LineGap * s;
             }
-
-            if (!_inputOpen)
-                return;
-
-            // IMGUI path uses the same keys as Update; consume events so the game does not eat them.
-            HandleGuiKeys();
-
-            float w = Mathf.Min(520f, Screen.width - 40f);
-            float h = 64f;
-            Rect box = new Rect(20f, Screen.height - h - 40f, w, h);
-            GUI.Box(box, Loc.T("Chat  —  ENTER send   ESC close"));
-            GUI.SetNextControlName(InputControlName);
-            _draft = GUI.TextField(
-                new Rect(box.x + 8f, box.y + 28f, box.width - 88f, 24f),
-                _draft ?? "",
-                200);
-
-            if (GUI.Button(new Rect(box.x + box.width - 72f, box.y + 28f, 60f, 24f), Loc.T("SEND")))
-                TrySend();
-
-            if (_focusPending)
+            for (int i = row; i < _rows.Length; i++)
             {
-                GUI.FocusControl(InputControlName);
-                if (Event.current != null && Event.current.type == EventType.Repaint)
-                    _focusPending = false;
+                if (_rows[i] == null)
+                    continue;
+                SetActive(_rows[i].Name, false);
+                SetActive(_rows[i].Text, false);
             }
         }
 
-        private void HandleGuiKeys()
+        /// <summary>Wrap at <paramref name="widthPx"/> UI pixels (the mesh wraps in its own units).</summary>
+        private static void Wrap(tk2dTextMesh tm, float widthPx)
         {
-            Event e = Event.current;
-            if (e == null || e.type != EventType.KeyDown)
+            float local = Mathf.Max(120f * HudText.Scale, widthPx) / Mathf.Max(0.0001f, tm.transform.localScale.x);
+            int want = Mathf.RoundToInt(local);
+            if (tm.formatting && tm.wordWrapWidth == want)
                 return;
-
-            if (e.keyCode == KeyCode.Return || e.keyCode == KeyCode.KeypadEnter)
-            {
-                TrySend();
-                e.Use();
-            }
-            else if (e.keyCode == KeyCode.Escape)
-            {
-                ToggleInput(false);
-                e.Use();
-            }
+            tm.formatting = true;
+            tm.wordWrapWidth = want;
+            tm.Commit();
         }
+
+        private static Color Fade(Color c, float a) => new Color(c.r, c.g, c.b, c.a * a);
+
+        private static void SetActive(tk2dTextMesh tm, bool on)
+        {
+            if (tm != null && tm.gameObject.activeSelf != on)
+                tm.gameObject.SetActive(on);
+        }
+
+        /// <summary>Height of a laid-out text in UI pixels (one line at least).</summary>
+        private static float Height(tk2dTextMesh tm)
+        {
+            Renderer rend = tm.GetComponent<Renderer>();
+            float h = rend != null && rend.enabled && tm.gameObject.activeInHierarchy ? rend.bounds.size.z : 0f;
+            float one = HudText.Size(tm, "Ay").y;
+            return Mathf.Max(h, one);
+        }
+
+        private bool EnsureInput()
+        {
+            if (_sayLabel == null)
+                _sayLabel = Create("YokWare_ChatSay", TextAnchor.UpperLeft);
+            if (_sayText == null)
+                _sayText = Create("YokWare_ChatDraft", TextAnchor.UpperLeft);
+            if (_sayLabel != null)
+                _sayLabel.anchor = TextAnchor.LowerLeft;
+            if (_sayText != null)
+                _sayText.anchor = TextAnchor.LowerLeft;
+            return _sayLabel != null && _sayText != null;
+        }
+
+        private Row EnsureRow(int i)
+        {
+            Row r = _rows[i];
+            if (r == null)
+                r = _rows[i] = new Row();
+            if (r.Name == null)
+                r.Name = Create("YokWare_ChatName" + i, TextAnchor.UpperLeft);
+            if (r.Text == null)
+                r.Text = Create("YokWare_ChatLine" + i, TextAnchor.UpperLeft);
+            return r.Name != null && r.Text != null ? r : null;
+        }
+
+        private static tk2dTextMesh Create(string name, TextAnchor anchor)
+        {
+            tk2dTextMesh tm = HudText.Create(name);
+            if (tm == null)
+                return null;
+            tm.anchor = anchor;
+            tm.Commit();
+            return tm;
+        }
+
+        // ------------------------------------------------------------------
+        // Sending
+        // ------------------------------------------------------------------
 
         private void TrySend()
         {
-            // Update + OnGUI can both fire the same keypress.
-            if (_lastSendFrame == Time.frameCount)
-                return;
-            _lastSendFrame = Time.frameCount;
-
             string msg = (_draft ?? "").Trim();
-            _draft = "";
             ToggleInput(false);
 
             if (string.IsNullOrEmpty(msg))
@@ -223,25 +356,21 @@ namespace DWMPHorde
             var net = ModRuntime.Network;
             if (net == null || net.Role == NetworkRole.Offline)
             {
-                AddLine(Loc.T("[System] Not in a session."));
+                AddLine(null, Loc.T("[System] Not in a session."));
                 return;
             }
 
-            if (msg.Length > 160)
-                msg = msg.Substring(0, 160);
-
-            string name = ModConfig.PlayerName != null ? ModConfig.PlayerName.Value : "Player";
-            if (string.IsNullOrWhiteSpace(name))
-                name = "Player";
+            if (msg.Length > MaxMessage)
+                msg = msg.Substring(0, MaxMessage);
 
             var payload = new ChatMessagePayload
             {
                 SenderId = net.LocalPlayerId,
-                SenderName = name.Trim(),
+                SenderName = PlayerNames.LocalName(),
                 Message = msg
             };
 
-            AddLine(payload.SenderName + ": " + payload.Message);
+            AddLine(PlayerNames.Shown(net.LocalPlayerId), payload.Message);
             TrySpeechBubble(payload.SenderId, payload.Message);
 
             // Reliable + Forwardable: host fans out to other clients.
@@ -249,15 +378,11 @@ namespace DWMPHorde
             ModLog.Event(LogCat.UI, "[CHAT] " + payload.SenderName + ": " + payload.Message);
         }
 
-        private void AddLine(string line)
+        private void AddLine(string name, string text)
         {
-            _lines.Add(line);
-            _lineTimes.Add(Time.unscaledTime);
-            while (_lines.Count > 40)
-            {
+            _lines.Add(new Line { Name = name, Text = text, At = Time.unscaledTime });
+            while (_lines.Count > MaxHistory)
                 _lines.RemoveAt(0);
-                _lineTimes.RemoveAt(0);
-            }
         }
 
         private static void TrySpeechBubble(int senderId, string message)

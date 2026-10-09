@@ -1331,6 +1331,26 @@ namespace DWMPHorde.Sync
                 case "say":
                     Out("  " + string.Join(" ", a, 1, a.Length - 1));
                     return;
+                case "setname":
+                    if (ModConfig.PlayerName != null)
+                        ModConfig.PlayerName.Value = string.Join(" ", a, 1, a.Length - 1);
+                    Out("  name=" + PlayerNames.LocalName());
+                    return;
+                case "names":
+                {
+                    var sb = new StringBuilder("  me=p" + net.LocalPlayerId + " '" + PlayerNames.Shown(net.LocalPlayerId) + "'");
+                    foreach (RemotePlayerProxy proxy in net.EnumerateRemoteProxies())
+                    {
+                        if (proxy == null)
+                            continue;
+                        GameObject plate = GameObject.Find("YokWare_Name_p" + proxy.PlayerId);
+                        sb.Append(" | p" + proxy.PlayerId + " '" + PlayerNames.Shown(proxy.PlayerId) + "' insight="
+                            + (Player.Instance != null && Player.Instance.isInSight(proxy.transform))
+                            + " plate=" + (plate != null ? plate.GetComponent<tk2dTextMesh>().text + "@" + plate.GetComponent<tk2dTextMesh>().color.a.ToString("F2") : "none"));
+                    }
+                    Out(sb.ToString());
+                    return;
+                }
                 case "quit":
                     Out("  quitting");
                     Application.Quit();

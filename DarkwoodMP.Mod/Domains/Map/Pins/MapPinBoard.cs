@@ -127,12 +127,7 @@ namespace DWMPHorde.Sync
             catch { return 0; }
         }
 
-        internal static string LocalName()
-        {
-            string name = DWMPHorde.Config.ModConfig.PlayerName != null ? DWMPHorde.Config.ModConfig.PlayerName.Value : null;
-            name = string.IsNullOrWhiteSpace(name) ? "Player" : name.Trim();
-            return name.Length > 24 ? name.Substring(0, 24) : name;
-        }
+        internal static string LocalName() => PlayerNames.LocalName();
 
         /// <summary>Hash of this install's LAN key: what the host files this player's pins under.</summary>
         internal static string LocalTag

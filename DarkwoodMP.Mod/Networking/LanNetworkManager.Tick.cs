@@ -36,6 +36,7 @@ namespace DWMPHorde.Networking
             PollSteamBackend();
             Sync.TestPilot.Tick(this);
             Sync.PauseMenuSync.Tick(this);
+            Sync.PlayerNames.Tick(this);
             StackedLightProbe.Tick(this);
             BackgroundFrameRate.Tick(this);
             Sync.DialogHandInArbiter.TickClient(this);

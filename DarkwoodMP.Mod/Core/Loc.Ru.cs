@@ -22,6 +22,7 @@ namespace DWMPHorde
             { "Send the world again", "Отправить мир заново" },
             { "Restore my character", "Восстановить персонажа" },
             { "Settings", "Настройки" },
+            { "Host settings", "Настройки хоста" },
             { "Disconnect", "Отключиться" },
             { "Local network", "Локальная сеть" },
             { "Steam", "Steam" },
@@ -34,6 +35,10 @@ namespace DWMPHorde
             { "Steam lobby", "Лобби Steam" },
             { "Name", "Имя" },
             { "Text chat", "Текстовый чат" },
+            { "Player names", "Имена игроков" },
+            { "When pointed at", "При наведении" },
+            { "Always", "Всегда" },
+            { "Say:", "Сказать:" },
             { "Voice chat", "Голосовой чат" },
             { "Push to talk key", "Клавиша рации" },
             { "Voice volume", "Громкость голоса" },
@@ -190,8 +195,6 @@ namespace DWMPHorde
             { "A crude two-way radio. Carry one each to talk over any distance.", "Самодельная рация. Возьмите каждый по одной — и говорите на любом расстоянии." },
 
             // Chat and map pins.
-            { "Chat  —  ENTER send   ESC close", "Чат  —  ENTER отправить   ESC закрыть" },
-            { "SEND", "ОТПР." },
             { "[System] Not in a session.", "[Система] Вы не в сетевой игре." },
             { "you", "вы" },
             { "someone", "кто-то" },

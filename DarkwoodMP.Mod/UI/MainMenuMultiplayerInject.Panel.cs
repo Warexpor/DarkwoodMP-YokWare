@@ -58,8 +58,12 @@ namespace DWMPHorde
             return (anchor != null ? anchor.offset.y : 60f) - RowSpacing;
         }
 
-        /// <summary>How far the version / player-id labels move down (buttons move <see cref="RowSpacing"/>).</summary>
+        /// <summary>How far the version / player-id labels move down on the title (buttons move <see cref="RowSpacing"/>).</summary>
         private const float LabelShift = 30f;
+        /// <summary>The lowest vanilla button on the title (EXIT): the labels sit a fixed gap under it.</summary>
+        private const float TitleLowestRow = -120f;
+        /// <summary>How far the labels move in the menu now shown (more in the pause menu, see <see cref="ApplyMenuStack"/>).</summary>
+        private static float _labelShift = LabelShift; // reset-in: ResetMenuStack
 
         /// <summary>Rows moved down for MULTIPLAYER, with their vanilla offsets.</summary>
         private static readonly List<KeyValuePair<PositionMe, Vector2>> _shiftedRows = new List<KeyValuePair<PositionMe, Vector2>>(8); // reset-in: ResetMenuStack
@@ -68,7 +72,7 @@ namespace DWMPHorde
         /// <summary>
         /// Every shown row under the anchor (title: OPTIONS, CREDITS, EXIT; pause: MAIN MENU, EXIT)
         /// moves one row down so MULTIPLAYER takes the row under the anchor; the version / player-id
-        /// labels move half a row. Offsets are taken as vanilla set them (vanilla sets them again on
+        /// labels move half a row, keeping the title's gap under EXIT in the longer pause stack. Offsets are taken as vanilla set them (vanilla sets them again on
         /// every menu open, see <see cref="MenuStackOpenPatch"/>) and checked every UI poll.
         /// </summary>
         private static void ApplyMenuStack()
@@ -83,6 +87,18 @@ namespace DWMPHorde
                 ResetMenuStack();
                 _shiftedMenu = _menu;
                 PositionMe[] pms = _menu.Menu0.GetComponentsInChildren<PositionMe>(true);
+                // The pause stack (RESUME, HELP, OPTIONS, MAIN MENU, EXIT) is a row longer than the
+                // title's, but vanilla leaves the version labels where they are: under EXIT they sit
+                // as far as on the title screen.
+                float lowest = TitleLowestRow;
+                for (int i = 0; i < pms.Length; i++)
+                {
+                    PositionMe pm = pms[i];
+                    if (pm != null && pm.gameObject.activeSelf && pm.GetComponent<tk2dBaseSprite>() != null
+                        && pm.GetComponent<Button>() != null && pm.GetComponent<YokWareUiTag>() == null)
+                        lowest = Mathf.Min(lowest, pm.offset.y);
+                }
+                _labelShift = LabelShift + (TitleLowestRow - lowest);
                 for (int i = 0; i < pms.Length; i++)
                 {
                     PositionMe pm = pms[i];
@@ -101,7 +117,7 @@ namespace DWMPHorde
                 if (pm == null)
                     continue;
                 // Buttons (sprites) move a full row; the text labels under the stack half a row.
-                float shift = pm.GetComponent<tk2dBaseSprite>() != null ? RowSpacing : LabelShift;
+                float shift = pm.GetComponent<tk2dBaseSprite>() != null ? RowSpacing : _labelShift;
                 Vector2 want = _shiftedRows[i].Value - new Vector2(0f, shift);
                 if (pm.offset == want)
                     continue;
@@ -123,6 +139,7 @@ namespace DWMPHorde
             }
             _shiftedRows.Clear();
             _shiftedMenu = null;
+            _labelShift = LabelShift;
         }
 
         /// <summary>

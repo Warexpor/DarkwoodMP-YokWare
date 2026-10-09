@@ -26,6 +26,12 @@ namespace DWMPHorde.Networking
                 return;
 
             var list = BuildRosterEntries();
+            for (int i = 0; i < list.Count; i++)
+            {
+                PeerRosterEntry e = list[i];
+                e.Name = PlayerNames.ForRoster(this, e.PlayerId);
+                list[i] = e;
+            }
             var msg = new PeerRosterMessage
             {
                 HostPlayerId = _localPlayerId,
@@ -122,6 +128,7 @@ namespace DWMPHorde.Networking
                 _sessionPort = msg.SessionPort;
 
             _peerRoster.Clear();
+            PlayerNames.ApplyRoster(msg.Entries);
             if (msg.Entries == null)
             {
                 PruneRemoteProxiesMissingFromRoster();

@@ -808,19 +808,23 @@ namespace DWMPHorde.Networking
         public string Address;
         /// <summary>Session listen port for promote/reconnect (same for all peers).</summary>
         public int Port;
+        /// <summary>The name this player goes by (empty until the host has heard it). Protocol 48.</summary>
+        public string Name;
 
         public void Serialize(NetWriter w)
         {
             w.Put(PlayerId);
             w.Put(Address ?? "");
             w.Put(Port);
+            w.Put(Name ?? "");
         }
 
         public static PeerRosterEntry Deserialize(NetReader r) => new PeerRosterEntry
         {
             PlayerId = r.GetInt(),
             Address = r.GetString(),
-            Port = r.GetInt()
+            Port = r.GetInt(),
+            Name = r.GetString()
         };
     }
 
@@ -1613,6 +1617,16 @@ namespace DWMPHorde.Networking
         public void Serialize(NetWriter w) => w.Put(Open);
 
         public static PauseMenuStateMessage Deserialize(NetReader r) => new PauseMenuStateMessage { Open = r.GetBool() };
+    }
+
+    /// <summary>Client→host: the name this player goes by.</summary>
+    public struct PlayerNameMessage
+    {
+        public string Name;
+
+        public void Serialize(NetWriter w) => w.Put(Name ?? "");
+
+        public static PlayerNameMessage Deserialize(NetReader r) => new PlayerNameMessage { Name = r.GetString() };
     }
 
     /// <summary>Host→clients: every player is in the pause menu, so the whole world is paused (or no longer is).</summary>

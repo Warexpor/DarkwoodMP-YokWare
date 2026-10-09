@@ -827,6 +827,9 @@ party events.
   volume. Creature sounds come from the host within their range of a player.
 - **Text chat** (Ctrl+C): relayed by the host, which stamps the sender, so a
   name cannot be faked. Messages also appear as a speech bubble over the sender.
+- **Player names**: each player tells the host their name and the host hands every
+  name out with the player roster. A name shows under a player only while you can
+  see them (vanilla's enemy sight test), so it never reveals someone behind a wall.
 - **Voice chat** (needs a logged-in Steam client, works over LAN too):
   - Proximity voice: full volume within 150 units, silent beyond 650, muffled
     through walls.

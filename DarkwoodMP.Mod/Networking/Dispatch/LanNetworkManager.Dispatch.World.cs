@@ -33,6 +33,7 @@ namespace DWMPHorde.Networking
             On(NetMessageType.DialogMirror, DialogMirrorMessage.Deserialize, m => DialogMirror.Handle(this, m));
             On(NetMessageType.DialogHandInClaim, DialogHandInClaimMessage.Deserialize, m => DialogHandInArbiter.HandleClaim(this, m));
             On(NetMessageType.PauseMenuState, PauseMenuStateMessage.Deserialize, m => PauseMenuSync.HandleState(this, m));
+            On(NetMessageType.PlayerName, PlayerNameMessage.Deserialize, m => PlayerNames.HandleName(this, m));
             On(NetMessageType.WorldPause, WorldPauseMessage.Deserialize, m => PauseMenuSync.HandleWorldPause(this, m));
             On(NetMessageType.CosmeticState, CosmeticStateMessage.Deserialize, m => CosmeticRolls.HandleState(this, m));
             On(NetMessageType.WorldObjectRemoved, WorldObjectRemovedMessage.Deserialize, m => WorldFxHandlers.HandleWorldObjectRemoved(m));

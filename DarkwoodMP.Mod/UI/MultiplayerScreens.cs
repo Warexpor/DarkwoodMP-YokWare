@@ -20,6 +20,7 @@ namespace DWMPHorde
         private static VmScreen _host; // process-scoped: menu screens
         private static VmScreen _join; // process-scoped: menu screens
         private static VmScreen _settings; // process-scoped: menu screens
+        private static VmScreen _hostSettings; // process-scoped: menu screens
         private static VmScreen _picker; // process-scoped: menu screens
         private static string _pickerStatus; // process-scoped: menu status line
         private static float _pickerStatusUntil; // process-scoped: menu status line timer
@@ -35,6 +36,7 @@ namespace DWMPHorde
             _host = new VmScreen("MultiplayerHost") { Build = BuildHost, Parent = _root, Tick = TickStatus };
             _join = new VmScreen("MultiplayerJoin") { Build = BuildJoin, Signature = JoinSignature, Parent = _root, Tick = TickStatus };
             _settings = new VmScreen("MultiplayerSettings") { Build = BuildSettings, Signature = SettingsSignature, Parent = _root };
+            _hostSettings = new VmScreen("MultiplayerHostSettings") { Build = BuildHostSettings, Signature = HostSettingsSignature, Parent = _root };
             _picker = new VmScreen("MultiplayerWorldCopy") { Build = BuildPicker, Parent = _join, Tick = TickStatus, OnBack = PickerBack };
         }
 
@@ -184,6 +186,9 @@ namespace DWMPHorde
                     items.Add(Entry("Restore my character", ConfirmRestoreSelf));
             }
             items.Add(Entry("Settings", () => Vm.Open(_settings)));
+            // What a host decides for everyone: a client in a game plays by the host's choice.
+            if (role != NetworkRole.Client)
+                items.Add(Entry("Host settings", () => Vm.Open(_hostSettings)));
             if (role != NetworkRole.Offline)
                 items.Add(Entry("Disconnect", ConfirmDisconnect));
 
@@ -349,17 +354,19 @@ namespace DWMPHorde
         // Settings
         // ------------------------------------------------------------------
 
-        private static string SettingsSignature()
-        {
-            return Role + "|" + VoiceIndex();
-        }
+        private static string SettingsSignature() => VoiceIndex().ToString();
+
+        private static string HostSettingsSignature() => Role.ToString();
 
         private static readonly string[] YesNo = { "No", "Yes" };
         private static readonly string[] VoiceChoices = { "Off", "Push to talk", "Always on" };
+        private static readonly string[] NameChoices = { "Off", "When pointed at", "Always" };
+        private static readonly string[] NameValues = { "off", "pointed", "always" };
         private static readonly string[] LobbyChoices = { "Friends only", "Public", "Invite only" };
         private static readonly string[] LobbyValues = { "friends", "public", "private" };
         private static readonly string[] LootChoices = { "Off", "Grows with the party" };
 
+        /// <summary>This player's own settings: seven rows, as many as the vanilla Video options.</summary>
         private static void BuildSettings(VmBuilder b)
         {
             b.Header("Settings", 178f + 100f);
@@ -367,7 +374,11 @@ namespace DWMPHorde
             const float step = Vm.RowStep;
 
             b.TextField("Name", z, () => ModConfig.PlayerName?.Value ?? "Player",
-                v => { if (ModConfig.PlayerName != null) ModConfig.PlayerName.Value = string.IsNullOrEmpty(v) ? "Player" : v; }, 24);
+                v => { if (ModConfig.PlayerName != null) ModConfig.PlayerName.Value = string.IsNullOrEmpty(v) ? "Player" : v; },
+                Sync.PlayerNames.MaxLength);
+            z -= step;
+            b.Choice("Player names", z, NameChoices, NameIndex,
+                i => { if (ModConfig.ShowPlayerNames != null) ModConfig.ShowPlayerNames.Value = NameValues[i]; });
             z -= step;
             b.Choice("Text chat", z, YesNo, () => ModConfig.ChatEnabled != null && ModConfig.ChatEnabled.Value ? 1 : 0,
                 i => { if (ModConfig.ChatEnabled != null) ModConfig.ChatEnabled.Value = i == 1; });
@@ -382,32 +393,51 @@ namespace DWMPHorde
             z -= step;
             b.Slider("Other players' steps", z, () => ModConfig.PeerMovementVolume?.Value ?? 0.85f,
                 t => { if (ModConfig.PeerMovementVolume != null) ModConfig.PeerMovementVolume.Value = Mathf.Round(t * 20f) / 20f; });
-            z -= step;
-
-            // What a host decides for everyone: a client in a game sees the host's choice, not these.
-            if (Role != NetworkRole.Client)
-            {
-                b.Choice("Friendly fire", z, YesNo, () => ModConfig.FriendlyFireEnabled == null || ModConfig.FriendlyFireEnabled.Value ? 1 : 0,
-                    i => { if (ModConfig.FriendlyFireEnabled != null) ModConfig.FriendlyFireEnabled.Value = i == 1; });
-                z -= step;
-                b.Choice("Extra loot", z, LootChoices, () => ModConfig.GetLootShareMode() == LootShareMode.Off ? 0 : 1, SetLoot);
-                z -= step;
-                b.Choice("Players", z, PlayerChoices, () => Mathf.Clamp((ModConfig.MaxPlayers?.Value ?? 8) - 2, 0, PlayerChoices.Length - 1),
-                    i => { if (ModConfig.MaxPlayers != null) ModConfig.MaxPlayers.Value = i + 2; },
-                    enabled: Role == NetworkRole.Offline);
-                z -= step;
-                b.Choice("Steam lobby", z, LobbyChoices, LobbyIndex,
-                    i => { if (ModConfig.SteamLobbyType != null) ModConfig.SteamLobbyType.Value = LobbyValues[i]; },
-                    enabled: Role == NetworkRole.Offline);
-                z -= step;
-                b.TextField("Port", z, () => ModConfig.GetConnectPort().ToString(), SetPort, 5, accept: char.IsDigit,
-                    enabled: Role == NetworkRole.Offline);
-                z -= step;
-                b.TextField("Password", z, () => ModConfig.HostPassword?.Value ?? "",
-                    v => { if (ModConfig.HostPassword != null) ModConfig.HostPassword.Value = v; }, 64, masked: true,
-                    enabled: Role == NetworkRole.Offline);
-            }
             b.Return();
+        }
+
+        /// <summary>
+        /// What the host decides for everyone. The rules apply at once, also mid-game; the way the
+        /// game is opened (players, lobby, port, password) only before hosting.
+        /// </summary>
+        private static void BuildHostSettings(VmBuilder b)
+        {
+            b.Header("Host settings", 178f + 100f);
+            float z = 100f + 80f;
+            const float step = Vm.RowStep;
+            bool offline = Role == NetworkRole.Offline;
+
+            b.Choice("Friendly fire", z, YesNo, () => ModConfig.FriendlyFireEnabled == null || ModConfig.FriendlyFireEnabled.Value ? 1 : 0,
+                i => { if (ModConfig.FriendlyFireEnabled != null) ModConfig.FriendlyFireEnabled.Value = i == 1; });
+            z -= step;
+            b.Choice("Extra loot", z, LootChoices, () => ModConfig.GetLootShareMode() == LootShareMode.Off ? 0 : 1, SetLoot);
+            z -= step;
+            b.Choice("Players", z, PlayerChoices, () => Mathf.Clamp((ModConfig.MaxPlayers?.Value ?? 8) - 2, 0, PlayerChoices.Length - 1),
+                i => { if (ModConfig.MaxPlayers != null) ModConfig.MaxPlayers.Value = i + 2; },
+                enabled: offline);
+            z -= step;
+            b.Choice("Steam lobby", z, LobbyChoices, LobbyIndex,
+                i => { if (ModConfig.SteamLobbyType != null) ModConfig.SteamLobbyType.Value = LobbyValues[i]; },
+                enabled: offline);
+            z -= step;
+            b.TextField("Port", z, () => ModConfig.GetConnectPort().ToString(), SetPort, 5, accept: char.IsDigit,
+                enabled: offline);
+            z -= step;
+            b.TextField("Password", z, () => ModConfig.HostPassword?.Value ?? "",
+                v => { if (ModConfig.HostPassword != null) ModConfig.HostPassword.Value = v; }, 64, masked: true,
+                enabled: offline);
+            b.Return();
+        }
+
+        private static int NameIndex()
+        {
+            string v = ModConfig.ShowPlayerNames?.Value ?? "always";
+            for (int i = 0; i < NameValues.Length; i++)
+            {
+                if (string.Equals(v, NameValues[i], StringComparison.OrdinalIgnoreCase))
+                    return i;
+            }
+            return 2;
         }
 
         private static readonly string[] PlayerChoices = { "2", "3", "4", "5", "6", "7", "8" };

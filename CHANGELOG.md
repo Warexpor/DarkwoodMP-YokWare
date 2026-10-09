@@ -3,8 +3,10 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.181**. The current Horde wire protocol is **47** (held for 0.8.178 to 0.8.181; bumped in 0.8.177: `PlayerState` gains
-the `ClockHeld` trailer; same DLL on every install).
+**0.8.182**. The current Horde wire protocol is **48** (bumped in 0.8.182: new `PlayerName` (168),
+`PeerRoster` entries gain the player's name; same DLL on every install).
+47 held for 0.8.178 to 0.8.181, bumped in 0.8.177: `PlayerState` gains
+the `ClockHeld` trailer.
 46 held for 0.8.176, bumped there: `NightDeathState` gains
 the rejoin resume and its position, `PlayerDied` gains the dying player's home, the entity
 snapshot's second flag byte gains the in-sight bit.
@@ -44,6 +46,44 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.182 — Player names over the players, chat in the game's own text, pause-menu version label
+
+- **Player names.** Other players' names now show under their character in the game's own
+  hover-label font (the outlined text over a door or an item). A name shows only while you can
+  see that player, by the sight test vanilla uses for enemies (`Player.isInSight`: the view cone
+  or the close circle, no wall in between), so it never gives away someone behind a wall or out
+  in the dark. Names fade in and out and are hidden in menus, the map, dialogues and cutscenes.
+  Multiplayer > Settings > **Player names**: Always (default), When pointed at (cursor on the
+  player), Off; config `[Network] ShowPlayerNames` (`always` / `pointed` / `off`).
+  `UI/Nameplates.cs`, `UI/HudText.cs`.
+- **Names reach everyone.** Until now a name only travelled with chat lines and map pins. A
+  client now tells the host its name after the handshake and whenever it changes (new message
+  `PlayerName`, 168); the host puts every name in the peer roster, so late joiners and a promoted
+  host know them all, and a name edited mid-game updates for everyone at once. Left at the
+  default "Player", a Steam player goes by their Steam name; otherwise unknown names show as
+  "Player N". `Sync/PlayerNames` (`Domains/Players/PlayerNames.cs`), roster in
+  `HostMigration.PeerRoster.cs`. Protocol 48.
+- **Chat.** The chat was a grey Unity IMGUI box with a SEND button and plain IMGUI lines. It is
+  now drawn in the same hover-label font in the lower left, with no box: "Name: text" lines
+  (name in grey), long lines wrapped under their own start, map-pin notes in grey. Lines fade out
+  after 14 s and all come back while typing. Ctrl+C opens a "Say:" line with a blinking caret,
+  Enter sends, Esc closes, Ctrl+V pastes. Text chat can now be turned on and off mid-game (it
+  needed a restart). `UI/ChatHud.cs`.
+- **Settings split in two.** The Settings screen had grown to 12 rows, past what the vanilla
+  Options screens hold. It now has this player's own seven (Name, Player names, Text chat, Voice
+  chat, Push to talk key, Voice volume, Other players' steps), the same count as vanilla Video;
+  what the host decides for everyone (Friendly fire, Extra loot, Players, Steam lobby, Port,
+  Password) moved to a new **Host settings** screen, shown to everyone but a joined client.
+- **Pause-menu version label.** In the pause menu the Darkwood version text sat right under EXIT,
+  because the pause stack (Continue, Help, Options, Multiplayer, Main menu, Exit) is a row longer
+  than the title's and the label moved only half a row. It now keeps the title screen's gap under
+  EXIT. `MainMenuMultiplayerInject.Panel.cs`.
+- Test pilot: `names` (each player's shown name, sight and plate), `setname <name>`.
+- Box-tested (host + one client): names both ways, a live rename on both sides, the name hidden
+  with the client behind a wall, chat both ways with wrapping, the pause menu and both settings
+  screens; no exceptions in either log. Not tested: Steam names, the "When pointed at" mode by
+  hand.
 
 ## 0.8.181 — Multiplayer menus as the game's own; F2 removed; manual saves become an add-on
 

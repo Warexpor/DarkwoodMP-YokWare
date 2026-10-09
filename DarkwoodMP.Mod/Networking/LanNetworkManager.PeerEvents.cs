@@ -131,6 +131,7 @@ namespace DWMPHorde.Networking
             Sync.NpcDialogueLock.HostReleaseAllForPlayer(this, playerId);
             Sync.DialogMirror.HostPeerLeft(this, playerId);
             Sync.PauseMenuSync.HostPeerLeft(playerId);
+            Sync.PlayerNames.HostPeerLeft(playerId);
             Sync.DialogHandInArbiter.HostPeerLeft(playerId);
             Sync.DreamForestSpiritAggro.ClearIfOwner(playerId);
             Sync.PeerItemPresence.ClearPlayer(playerId);
