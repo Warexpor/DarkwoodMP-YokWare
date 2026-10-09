@@ -6,6 +6,28 @@ namespace DWMPHorde.Sync
 {
     internal static partial class DreamSyncManager
     {
+        private static string _hostEndClaimedPreset; // reset-in: ResetHostEndClaim (dream end, chain, network stop)
+
+        /// <summary>
+        /// Host: the one vanilla initiateEndDreaming of this pocket. A peer's story step reaches
+        /// the host twice (its dialogue outcome or area fires here too, and the peer asks the host
+        /// to end the dream); vanilla runs initiateEndDreaming once, and a second run after a chain
+        /// ended the next pocket with this one's outcome.
+        /// </summary>
+        public static bool TryClaimHostEnd(string preset)
+        {
+            string key = preset ?? "";
+            if (_hostEndClaimedPreset != null && string.Equals(_hostEndClaimedPreset, key, StringComparison.OrdinalIgnoreCase))
+                return false;
+            _hostEndClaimedPreset = key;
+            return true;
+        }
+
+        public static void ResetHostEndClaim() => _hostEndClaimedPreset = null;
+
+        /// <summary>Host: this pocket's story end has begun (DreamEnded went out for it).</summary>
+        public static bool HostStoryEndStarted => _dreamEndBroadcastSent;
+
         /// <summary>Host chain: allow the next pocket's initiateEndDreaming to fan DreamEnded.</summary>
         public static void ClearDreamEndBroadcastLatch()
         {

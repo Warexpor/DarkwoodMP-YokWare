@@ -224,7 +224,10 @@ namespace DWMPHorde.Patches
         {
             int damage = (int)__args[0];
             Transform attacker = (Transform)__args[1];
-            if (!__instance.destructible)
+            // A story object struck (not destructible, its scene waits for the player's blow) goes
+            // to the host as well: the client's own trigger fires a world step the host owns, so the
+            // blow was lost and the scene stuck (the village cellar dream's barricade).
+            if (!__instance.destructible && !WorldQueryHelper.HasAttackTrigger(__instance))
                 return true;
             if (!ClientWorldMeleeRedirectHelper.ShouldRedirect(attacker))
                 return true;

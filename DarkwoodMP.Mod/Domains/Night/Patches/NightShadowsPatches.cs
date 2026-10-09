@@ -69,7 +69,7 @@ namespace DWMPHorde.Patches
         {
             if (__instance == null) return true;
             if (__instance.GetComponent<ProxyShadowController>() != null)
-                return false; // ProxyShadowController handles its own sensors
+                return false; // a peer's wave swipes through PeerShadows (ShadowAttackBidirectionalPatch)
 
             var info = __instance.GetComponent<ShadowSyncInfo>();
             if (info == null || info.OwnerPlayerId <= 0)

@@ -217,6 +217,7 @@ namespace DWMPHorde
             NetworkResetRegistry.Register(EventTriggersProxyOccupancy.Reset);
             NetworkResetRegistry.Register(MorningHideoutHold.Reset);
             NetworkResetRegistry.Register(DreamForestSpiritAggro.Reset);
+            NetworkResetRegistry.Register(DreamSyncManager.ResetHostEndClaim);
             NetworkResetRegistry.Register(ItemDoublePickupPatch.Reset);
             NetworkResetRegistry.Register(WorldPickupClaimPending.Reset);
             NetworkResetRegistry.Register(NamedNpcScalePatch.Reset);
@@ -269,6 +270,7 @@ namespace DWMPHorde
             NetworkResetRegistry.Register(ChatHud.Reset);
             NetworkResetRegistry.Register(HostCheckFrequenciesPostfix.Reset);
             NetworkResetRegistry.Register(NightShadowsRateLimit.Reset);
+            NetworkResetRegistry.Register(PeerShadows.Reset);
             NetworkResetRegistry.Register(SessionSettings.ResetToLocal);
             NetworkResetRegistry.Register(PlayerAnimLibraryPatch.Reset);
             NetworkResetRegistry.Register(ClientRandomEventGate.Reset);

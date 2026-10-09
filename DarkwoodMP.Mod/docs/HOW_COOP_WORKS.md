@@ -375,7 +375,9 @@ code, not yet playtested).
   for the player a monster is after. Night events play in every hideout a living
   player stands in; an event that asks about "the player" (the Shadows perk, being
   attacked) plays only where its player qualifies, and a shadow wave is the curse
-  of that one player. A scripted spawn "around the player" comes around the player
+  of that one player: its shadows hunt only that player, as vanilla's do (blinking in
+  closer, never onto light, dying in it), anyone's light protects that player, every
+  player sees them, and only the cursed player's torch and lantern go out. A scripted spawn "around the player" comes around the player
   the scene is for.
 - **The host does not have to be home.** If the host is away, the night type is
   picked at a peer's hideout, and night events never land inside location pads.
@@ -702,7 +704,12 @@ party events.
   living player along. Dead players sit it out.
 - **The host's world waits.** From the start of the entry movie until the dream is
   up, the host freezes its world (creatures included). New joins are refused for the
-  duration unless the host allows them.
+  duration unless the host allows them, except during the ending, where joiners are
+  pulled onto its pad (a finished game reloads into the ending).
+- **Anyone can drive the story.** A client's talk, lamp, area step or blow on a story
+  object moves the dream on for everyone; a dream that hands over to the next one
+  (doctor 1 to 2) takes everyone along. Creatures the story sends (the forest spirit,
+  chompers) go after the player who set them off.
 - **Level-up dreams.** The first player to reach level 2, 3, 5, 6 or 7 brings that
   level's dream to everyone present, and everyone who was in it has that level's
   dream done. A player who missed it (late, or dead) still gets an unplayed dream

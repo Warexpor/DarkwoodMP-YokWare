@@ -3,7 +3,7 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.174**. The current Horde wire protocol is **45** (held for 0.8.171 to 0.8.174, bumped in 0.8.170:
+**0.8.175**. The current Horde wire protocol is **45** (held for 0.8.171 to 0.8.175, bumped in 0.8.170:
 `Handshake` gains `WorldGeneratedLocally`, same DLL on both installs).
 44 held for 0.8.166 to 0.8.169, bumped in 0.8.165: `ScenarioEventFired` gains the
 scenario name; `GameEventsFired` gains the scene-piece flag in 0.8.167.
@@ -39,6 +39,74 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.175 — Dreams played through with three players, the Shadows perk rebuilt
+
+On top of 0.8.174. Protocol **45** unchanged. Every dream was played with three players in the
+pilot (new commands: `dream`, `use` for objects and scene actions, `hit` for creatures and
+objects, `face`, `dstate`, `pending`, `skill`, `shadows`, `shadowlist`, `hold`, `lit`; `chars`
+shows targets and AI state): acid, grave meadow, bunker, church ruins, doctor 1 and 2, home,
+village cellar, one chance and the ending. Clients drove the story steps (talking, lamps,
+areas, objects struck), deaths in a dream (one spectating, then all dead), a player quitting
+mid-dream and rejoining after, and the rewards and world events of each outcome. Fixed:
+
+### Dreams
+
+- **The church ruins dream crashed the host's game.** Its chomper stands indoors; the extra
+  chompers for extra players were placed with vanilla's random-spot helper, which retries
+  itself without end for a spot indoors and overflowed the stack. Extras now look for a spot on
+  the same side of the walls as the original, a bounded search (`NamedNpcScalePatch.SpotNear`).
+- **The extra chompers stood still** until a player came close. They were handed a target
+  before the fight started, so the "join the original's attack" step skipped them as already
+  fighting, but they had no path to it. An extra that does not see the one it chases now joins
+  the original's attack. They also take the scene's own tuning of the original (the grave
+  meadow's is faster and is never cut in half).
+- **Doctor 1 left the clients behind.** Its ending moves on to doctor 2. When a client ended it
+  (talking to the hatted man), the host ran the ending inside the network message handler,
+  where the chain announcement stands down: the host went into doctor 2 alone and every client
+  waited in doctor 1. It now runs as the host's own ending. The same step also reaches the host
+  twice (the client's dialogue outcome fires there too, and the client asks the host to end the
+  dream); the second run ended doctor 2 on its first frame and marked it played. The host now
+  ends a dream once (`TryClaimHostEnd`), and a late request for a dream already left is
+  dropped.
+- **The bunker dream's forest spirit hunted the host** whoever walked into the forest. It looked
+  for a client trigger within 2000 of the dream's origin; the forest is some 8000 out. It now
+  hunts the player whose step set it off (the scene's actor).
+- **A client could not break the village cellar dream's barricade.** The barricade is not
+  destructible: its scene waits for the player's blow. A client's blow on such an object was
+  not sent to the host, so the scene never moved on. Struck story objects now go to the host
+  like destructible ones (`WorldQueryHelper.HasAttackTrigger`).
+- **A reloaded ending now lets friends in.** A finished game reloads straight into the ending;
+  joins are let in there and the host's dream (started before anyone joined) becomes the
+  party's, so they are pulled onto its pad (`DreamSession.IsEnding`,
+  `DreamSyncManager.AdoptSoloDreamForParty`). Tested: host reloaded into the ending, both clients
+  joined into it.
+
+### The Shadows perk
+
+How vanilla works: on a hard night the Shadows night event sends a wave of 8 shadows at the
+player with the perk, and puts out that player's torch and lantern. A shadow blinks in around
+the player every 2 to 6 seconds, closer each time, never on a lit spot; when it appears on a lit
+spot it dies; it swipes up to three times per appearance, and never at a player standing in
+light (a lit spot, a light area or a lantern).
+
+- **A client's wave did no damage and ignored light.** It was driven by a custom orbit: one
+  swipe on the host's copy of the client (which never reached the client), no light check while
+  orbiting, so a torch never killed or kept them away. A client's shadows now run vanilla's own
+  logic measured from that client: they blink in around it, are pushed out of light and die in
+  it, and their swipes reach the client as shadow hits only when it stands in the dark
+  (`PeerShadows`). Tested: alone in the dark the client was killed; next to the host's lit torch
+  the shadows hovered at 150 to 600 and it took no damage; a bystander next to the cursed client
+  took no shadow damage.
+- **A client's wave put out the host's torch.** The host's game marked the host as cursed for
+  any wave, and vanilla does not light a cursed player's torch or lantern. Only the cursed
+  player is marked now, and the end of a wave reaches only its owner. Tested: the host lit a
+  torch during a client's wave.
+- **The wave's light flicker hit the host's hideout** instead of the cursed player's.
+- **Other players now see each shadow appear where it does**, instead of a copy sliding toward it.
+
+Not covered: the doctor 1 hand-off started by the host (not a client), and reading every dream's
+dialogue branches.
 
 ## 0.8.174 — The ending with three players
 

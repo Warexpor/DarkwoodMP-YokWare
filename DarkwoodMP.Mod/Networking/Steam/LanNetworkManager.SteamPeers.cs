@@ -60,7 +60,7 @@ namespace DWMPHorde.Networking
                 && Config.ModConfig.AllowJoinDuringDream.Value;
             // A migration survivor is not a new player: it is still on the dream pad.
             bool survivor = IsMigrationSurvivorAddress(remote.m_SteamID.ToString());
-            if (!allowDreamJoin && !survivor
+            if (!allowDreamJoin && !survivor && !Sync.DreamSession.IsEnding
                 && (Sync.DreamSession.ShouldRejectNewConnections
                     || Sync.DreamSyncManager.IsDreamActive
                     || Sync.DreamSyncManager.IsHostDreamEntryPending))

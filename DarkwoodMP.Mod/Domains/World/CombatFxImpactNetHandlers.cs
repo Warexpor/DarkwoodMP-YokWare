@@ -183,7 +183,8 @@ namespace DWMPHorde.Networking
 
         internal static bool TryHitDestructibleItemAt(Vector3 pos, float radius, int damage, Transform attackerT)
         {
-            Item best = WorldQueryHelper.FindDestructibleItemXz(pos, radius);
+            Item best = WorldQueryHelper.FindDestructibleItemXz(pos, radius)
+                ?? WorldQueryHelper.FindStruckStoryItemXz(pos, radius);
             if (best == null) return false;
             DialogHostApplyGuard.RunHostWorldFanout(() =>
                 best.getHit(damage, attackerT, true));

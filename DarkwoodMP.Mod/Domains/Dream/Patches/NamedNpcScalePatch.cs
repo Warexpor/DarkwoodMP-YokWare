@@ -94,16 +94,7 @@ namespace DWMPHorde.Patches
             {
                 for (int i = 0; i < count; i++)
                 {
-                    Vector3 spawnPos;
-                    try
-                    {
-                        // Outside walls, on the dream's walk graph.
-                        spawnPos = Core.randomPosAround(basePos, 30f, 90f, canBeInside: false, mustBeInsideGraph: true);
-                    }
-                    catch
-                    {
-                        spawnPos = basePos + new Vector3(Random.Range(-60f, 60f), 0f, Random.Range(-60f, 60f));
-                    }
+                    Vector3 spawnPos = SpotNear(basePos);
                     spawnPos.y = basePos.y;
 
                     GameObject go = Core.AddPrefab(prefabPath, spawnPos, rot, parent, worldSpace: true);
@@ -119,6 +110,10 @@ namespace DWMPHorde.Patches
                         continue;
                     extra.aggressiveness = original.aggressiveness;
                     extra.relentlessPursuit = original.relentlessPursuit;
+                    // The scene's own tuning of this creature (the grave meadow's is faster and is
+                    // never cut in half): the prefab's defaults made the extras a different beast.
+                    extra.chaseSpeed = original.chaseSpeed;
+                    extra.canBeCutInHalf = original.canBeCutInHalf;
                     extra.isActive = true;
                     extras.Add(extra);
                 }
@@ -131,9 +126,39 @@ namespace DWMPHorde.Patches
         }
 
         /// <summary>
+        /// A walkable spot 30-90 from the original, on the same side of a wall as it (indoors when
+        /// it stands indoors, as in the church ruins). Vanilla's randomPosAround with canBeInside
+        /// false retries itself with a shrinking radius while the spot is indoors and never stops
+        /// for a creature standing indoors: the church dream's chomper overflowed the stack and
+        /// took the host's game down.
+        /// </summary>
+        private static Vector3 SpotNear(Vector3 basePos)
+        {
+            bool baseInside = Physics.Raycast(new Ray(basePos, Vector3.down), 200f, 2);
+            for (int i = 0; i < 12; i++)
+            {
+                Vector3 v = basePos + Core.RandomOnUnitCircle3(Random.Range(30f, 90f), 0f);
+                if (!baseInside && Physics.Raycast(new Ray(v, Vector3.down), 200f, 2))
+                    continue;
+                return OnGraph(v);
+            }
+            return OnGraph(basePos);
+        }
+
+        private static Vector3 OnGraph(Vector3 v)
+        {
+            if (AstarPath.active == null)
+                return v;
+            Pathfinding.GraphNode node = AstarPath.active.GetNearest(v, Singleton<Controller>.Instance.pathNoneConstraint).node;
+            return node != null ? (Vector3)node.position : v;
+        }
+
+        /// <summary>
         /// Host, after an attack order: the story's attack events and activities target only the
         /// scene's creature, so its extras join its fight (each on the arbiter's pick for it).
-        /// An extra already fighting keeps its own target.
+        /// An extra already fighting (it sees the one it chases) keeps its own target. A target
+        /// alone is not a fight: an extra handed a player before the order (its first look around
+        /// at Start) had no path to it and stood at its spawn until someone walked up to it.
         /// </summary>
         internal static void OnAttack(Character c)
         {
@@ -145,7 +170,8 @@ namespace DWMPHorde.Patches
             for (int i = 0; i < marker.Extras.Count; i++)
             {
                 Character extra = marker.Extras[i];
-                if (extra == null || !extra.alive || extra.target != null)
+                if (extra == null || !extra.alive
+                    || (extra.target != null && extra.behaviour == Character.Behaviour.chasingTarget && extra.canSeeEnemyFar))
                     continue;
                 extra.aggressiveness = c.aggressiveness;
                 extra.relentlessPursuit = c.relentlessPursuit;

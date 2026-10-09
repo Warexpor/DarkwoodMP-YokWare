@@ -313,6 +313,13 @@ points to the section with the full check.
       Walking it as a client moves everyone too. A slow client still arrives. Player
       ids and names are unchanged; Steam sessions resume on the same lobby.
 
+- [ ] Shadows perk on a client: in the dark its shadows close in and hurt only it; with
+      another player's lit torch next to it they stay back; the torch can be lit by the
+      other player during the wave; everyone sees the shadows in the same spots.
+- [ ] Doctor 1 ended by a client (the hatted man's talk): everyone goes on to doctor 2
+      together and doctor 2 plays normally.
+- [ ] Village cellar dream: a client breaks the barricade and the chomper comes.
+
 ## 16. Ending
 
 - [ ] Every player in the ending reads their pages; the credits start when all are

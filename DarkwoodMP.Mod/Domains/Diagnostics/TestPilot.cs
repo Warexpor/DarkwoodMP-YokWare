@@ -426,15 +426,210 @@ namespace DWMPHorde.Sync
                     return;
                 }
                 case "epilogue":
+                case "dream":
                 {
-                    // The road home's step into the ending (GameEvent startDream epilog_part1a_dream).
+                    // A story step's GameEvent startDream (no entry movie): "epilogue" is the road
+                    // home's step into the ending, "dream <preset>" any other.
+                    string preset = a[0] == "epilogue" ? "epilog_part1a_dream" : a[1];
                     Dreams d = Dreams.Instance;
                     if (d == null || d.dreaming) { Out("  already dreaming"); return; }
                     Core.forbidInputs = true;
                     p.halt();
                     d.wantToDream = true;
-                    d.StartCoroutine(d.prepareDream("epilog_part1a_dream"));
-                    Out("  epilogue started");
+                    d.StartCoroutine(d.prepareDream(preset));
+                    Out("  " + preset + " started");
+                    return;
+                }
+                case "use":
+                {
+                    // "use <name>": walk up to the nearest active object of that name and press E on it
+                    // (Item.activate: its onActivate triggers, a bed, a switch, a note).
+                    Item best = null;
+                    float bestD = float.MaxValue;
+                    foreach (Item it in Resources.FindObjectsOfTypeAll<Item>())
+                    {
+                        if (it == null || !it.gameObject.activeInHierarchy || !it.gameObject.scene.IsValid()
+                            || it.name.IndexOf(a[1], StringComparison.OrdinalIgnoreCase) < 0)
+                            continue;
+                        float dd = Flat(p.transform.position, it.transform.position);
+                        if (dd < bestD) { bestD = dd; best = it; }
+                    }
+                    if (best == null)
+                    {
+                        // A scene action without an Item (a bed to lie in, a hole to climb into):
+                        // CustomCursorAction, named by itself or its parent.
+                        CustomCursorAction cca = null;
+                        foreach (CustomCursorAction c in Resources.FindObjectsOfTypeAll<CustomCursorAction>())
+                        {
+                            if (c == null || !c.gameObject.activeInHierarchy || !c.gameObject.scene.IsValid())
+                                continue;
+                            string nm = c.name + "/" + (c.transform.parent != null ? c.transform.parent.name : "");
+                            if (nm.IndexOf(a[1], StringComparison.OrdinalIgnoreCase) < 0)
+                                continue;
+                            float dd = Flat(p.transform.position, c.transform.position);
+                            if (dd < bestD) { bestD = dd; cca = c; }
+                        }
+                        if (cca == null) { Out("  nothing to use named like " + a[1]); return; }
+                        p.teleportTo(cca.transform.position + new Vector3(30f, 0f, 0f), p.transform.rotation);
+                        p.selectedObject = cca.transform;
+                        cca.activate();
+                        Out("  used action " + cca.transform.parent?.name + "/" + cca.name + "@" + Pos(cca.transform.position));
+                        return;
+                    }
+                    p.teleportTo(best.transform.position + new Vector3(30f, 0f, 0f), p.transform.rotation);
+                    p.selectedObject = best.transform;
+                    bool r = best.activate();
+                    Out("  used " + best.name + "@" + Pos(best.transform.position) + " -> " + r);
+                    return;
+                }
+                case "hit":
+                {
+                    // "hit <name> [damage]": this player's melee hit on the nearest creature of that
+                    // name (switched off ones too, as a story dummy can be), from right beside it.
+                    CharBase best = null;
+                    float bestD = float.MaxValue;
+                    foreach (CharBase cb in Resources.FindObjectsOfTypeAll<CharBase>())
+                    {
+                        if (cb == null || cb.gameObject == p.gameObject || !cb.gameObject.scene.IsValid()
+                            || cb.GetComponent<RemotePlayerProxy>() != null
+                            || cb.name.IndexOf(a[1], StringComparison.OrdinalIgnoreCase) < 0)
+                            continue;
+                        float dd = Flat(p.transform.position, cb.transform.position);
+                        if (dd < bestD) { bestD = dd; best = cb; }
+                    }
+                    if (best == null)
+                    {
+                        // An object struck instead (a barricade, a crate): Item.getHit, as a swing does.
+                        Item hitItem = null;
+                        foreach (Item it in Resources.FindObjectsOfTypeAll<Item>())
+                        {
+                            if (it == null || !it.gameObject.activeInHierarchy || !it.gameObject.scene.IsValid()
+                                || it.name.IndexOf(a[1], StringComparison.OrdinalIgnoreCase) < 0)
+                                continue;
+                            float dd = Flat(p.transform.position, it.transform.position);
+                            if (dd < bestD) { bestD = dd; hitItem = it; }
+                        }
+                        if (hitItem == null) { Out("  nothing named like " + a[1]); return; }
+                        p.teleportTo(hitItem.transform.position + new Vector3(40f, 0f, 0f), p.transform.rotation);
+                        hitItem.getHit(a.Length > 2 ? (int)F(a[2]) : 30, p.transform);
+                        Out("  hit object " + hitItem.name + "@" + Pos(hitItem.transform.position));
+                        return;
+                    }
+                    p.teleportTo(best.transform.position + new Vector3(40f, 0f, 0f), p.transform.rotation);
+                    best.getHit(a.Length > 2 ? F(a[2]) : 30f, p.transform, false, true, true);
+                    Out("  hit " + best.name + "@" + Pos(best.transform.position) + " hp=" + Mathf.RoundToInt(best.health)
+                        + " alive=" + best.alive + " active=" + best.gameObject.activeInHierarchy);
+                    return;
+                }
+                case "skill":
+                {
+                    // "skill <PlayerSkills field> [0|1]": read or set a perk/trait flag (NightShadows...).
+                    var f = AccessTools.Field(typeof(PlayerSkills), a[1]);
+                    if (f == null) { Out("  no skill " + a[1]); return; }
+                    if (a.Length > 2)
+                        f.SetValue(p.skills, a[2] == "1");
+                    Out("  " + a[1] + "=" + f.GetValue(p.skills));
+                    return;
+                }
+                case "shadows":
+                    // The Shadows perk's night step (a night scene's tryToSpawnShadow on this player).
+                    p.tryToSpawnShadow();
+                    Out("  shadow wave asked for");
+                    return;
+                case "shadowlist":
+                {
+                    // Every shadow here: id, owner, where, how close to its owner, alive, lit spot.
+                    int n = 0;
+                    foreach (ShadowCreature sc in UnityEngine.Object.FindObjectsOfType<ShadowCreature>())
+                    {
+                        if (sc == null)
+                            continue;
+                        n++;
+                        Patches.ShadowSyncInfo info = sc.GetComponent<Patches.ShadowSyncInfo>();
+                        int owner = info != null ? info.OwnerPlayerId : 0;
+                        Transform ot = owner == 0 || owner == net.LocalPlayerId ? p.transform
+                            : net.GetProxy(owner) != null ? net.GetProxy(owner).transform : null;
+                        Out("  #" + (info != null ? info.ShadowId : -1) + " owner=p" + owner
+                            + (sc.GetComponent<Patches.ProxyShadowController>() != null ? "(proxy)" : "")
+                            + " @" + Pos(sc.transform.position) + " d=" + (ot != null ? Flat(ot.position, sc.transform.position).ToString("0", CultureInfo.InvariantCulture) : "?")
+                            + " dist=" + sc.distanceToPlayer.ToString("0", CultureInfo.InvariantCulture)
+                            + " dead=" + sc.dead + " lit=" + Core.isInLight(sc.transform.position, mustBeWalkable: false));
+                    }
+                    var cs = Singleton<CharacterSpawner>.Instance;
+                    Out("  " + n + " shadow(s) spawned=" + (cs != null && cs.spawnedShadows) + " remove=" + (cs != null && cs.shadowsRemove)
+                        + " amount=" + (cs != null ? cs.spawnedShadowsAmount : -1));
+                    return;
+                }
+                case "hold":
+                {
+                    // "hold <type> [0]": take that item from the hotbar in hand and switch it on (a
+                    // torch, flashlight, lantern), or off with 0.
+                    int idx = -1;
+                    for (int i = 0; i < p.Hotbar.slots.Count; i++)
+                        if (p.Hotbar.slots[i] != null && !InvItemClass.isNull(p.Hotbar.slots[i].invItem)
+                            && string.Equals(p.Hotbar.slots[i].invItem.type, a[1], StringComparison.OrdinalIgnoreCase))
+                        { idx = i; break; }
+                    if (idx < 0 && p.Inventory.haveItemAmountInPlayer(a[1]) > 0f)
+                    {
+                        // In the pack: onto the hotbar, as dragging it there would.
+                        p.Inventory.removeItemAmount(a[1], 1);
+                        p.Hotbar.addItemType(a[1], 1);
+                        for (int i = 0; i < p.Hotbar.slots.Count; i++)
+                            if (p.Hotbar.slots[i] != null && !InvItemClass.isNull(p.Hotbar.slots[i].invItem)
+                                && string.Equals(p.Hotbar.slots[i].invItem.type, a[1], StringComparison.OrdinalIgnoreCase))
+                            { idx = i; break; }
+                    }
+                    if (idx < 0) { Out("  no " + a[1] + " carried"); return; }
+                    p.Hotbar.selectSlot(idx, noiseless: true, force: true);
+                    InvItemClass held = p.Hotbar.slots[idx].invItem;
+                    // An already selected slot (the item was put into it) is not selected again.
+                    if (p.currentItem != held)
+                    {
+                        held.shouldBeActive = true;
+                        p.switchToItem(held);
+                    }
+                    held.switchActive(a.Length < 3 || a[2] != "0");
+                    Out("  holding " + held.type + " on=" + held.activated + " current=" + (InvItemClass.isNull(p.currentItem) ? "-" : p.currentItem.type));
+                    return;
+                }
+                case "face":
+                {
+                    // "face <name>": turn toward the nearest object of that name, as the cursor would.
+                    Transform best = null;
+                    float bestD = float.MaxValue;
+                    foreach (Transform t in UnityEngine.Object.FindObjectsOfType<Transform>())
+                    {
+                        if (t == null || t.name.IndexOf(a[1], StringComparison.OrdinalIgnoreCase) < 0)
+                            continue;
+                        float dd = Flat(p.transform.position, t.position);
+                        if (dd < bestD) { bestD = dd; best = t; }
+                    }
+                    if (best == null) { Out("  nothing named like " + a[1]); return; }
+                    Vector3 dir = best.position - p.transform.position;
+                    p.transform.rotation = Quaternion.Euler(90f, Mathf.Atan2(dir.x, dir.z) * Mathf.Rad2Deg, 0f);
+                    Out("  facing " + best.name + " d=" + bestD.ToString("0", CultureInfo.InvariantCulture));
+                    return;
+                }
+                case "lit":
+                    // Is this player protected from shadows: in a light area / holding a protecting
+                    // item (isInLight), and is the path node under it lit (Core.isInLight)?
+                    Out("  isInLight=" + p.isInLight + " node=" + Core.isInLight(p.transform.position, mustBeWalkable: true)
+                        + " hp=" + Mathf.RoundToInt(p.health) + " pos=" + Pos(p.transform.position));
+                    return;
+                case "pending":
+                    Out("  pending:" + ClientEntityInterpolationService.DebugPending());
+                    return;
+                case "dstate":
+                {
+                    // Dream progress: session, completed presets, this player's dream flags.
+                    Dreams d = Dreams.Instance;
+                    Out("  session=" + DreamSession.Current + " preset=" + (DreamSession.PresetName ?? "-")
+                        + " dreaming=" + (d != null && d.dreaming) + " local=" + (d != null && d.preset != null ? d.preset.name : "-")
+                        + " outcome=" + (d != null ? d.outcome : "-")
+                        + " completed=[" + string.Join(",", DreamSession.GetCompletedPresets() ?? new string[0]) + "]"
+                        + " dead=" + FinalDreamsceneManager.IsLocalDead + " spectating=" + (DWMPHorde.Spectator.SpectatorModeController.Instance != null && DWMPHorde.Spectator.SpectatorModeController.Instance.IsSpectating)
+                        + " hp=" + Mathf.RoundToInt(p.health) + " pos=" + Pos(p.transform.position)
+                        + " forbid=" + Core.forbidInputs);
                     return;
                 }
                 case "credits":
@@ -480,7 +675,15 @@ namespace DWMPHorde.Sync
                     {
                         CharacterTracker.TryGetStableId(c, out short id);
                         CharBase cb = c.GetComponent<CharBase>();
-                        return "id=" + id + " alive=" + (cb == null || cb.alive) + " active=" + c.gameObject.activeInHierarchy;
+                        string tgt = c.target == null ? "-" : c.target == p.transform ? "me"
+                            : c.target.GetComponent<RemotePlayerProxy>() is RemotePlayerProxy tp ? "p" + tp.PlayerId : c.target.name;
+                        return "id=" + id + " alive=" + (cb == null || cb.alive) + " active=" + c.gameObject.activeInHierarchy
+                            + " hp=" + (cb != null ? Mathf.RoundToInt(cb.health) : -1) + " target=" + tgt
+                            + " beh=" + c.behaviour + " sleep=" + c.sleeping + " isActive=" + c.isActive
+                            + " seen=" + c.canSeeEnemyFar + " enabled=" + c.enabled
+                            + (c.AIpath != null ? " path(move=" + c.AIpath.canMove + " search=" + c.AIpath.canSearch
+                                + " on=" + c.AIpath.enabled + " to=" + (c.AIpath.target != null ? c.AIpath.target.name : Pos(c.AIpath.targetPos))
+                                + " reached=" + c.AIpath.TargetReached + " v=" + Mathf.RoundToInt(c.GetComponent<Rigidbody>() != null ? c.GetComponent<Rigidbody>().velocity.magnitude : -1) + ")" : " nopath");
                     });
                     return;
                 }
