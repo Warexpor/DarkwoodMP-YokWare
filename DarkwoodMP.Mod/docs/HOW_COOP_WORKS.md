@@ -838,7 +838,7 @@ party events.
     quarters of that, a whisper about a third. Muffled through walls.
   - Creatures hear it too (host rule, on by default): talk louder than a murmur is a
     sound at the talker's position, like a step or a door. Whispering is safe.
-  - Walkie-talkie: hold a `walkie_talkie` and right-click to transmit. Carrying one
+  - Walkie-talkie: hold a `walkie_talkie` and hold the radio talk key (right mouse by default, rebindable in Settings > Voice) to transmit. Carrying one
     lets you hear the radio from anywhere: a narrow, slightly distorted band, a squelch
     click and tail, and more static the farther apart the two radios are.
     Every other walkie plays the talk out loud too: standing near someone who carries

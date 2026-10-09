@@ -898,7 +898,22 @@ namespace YokWare.VanillaMenu
 
         private void Show()
         {
-            Vm.SetText(_button.textMesh, _get != null ? (_get() ?? "") : "");
+            Vm.SetText(_button.textMesh, Label(_get != null ? (_get() ?? "") : ""));
+        }
+
+        /// <summary>A Unity KeyCode name as players know it: the mouse buttons by name, the side ones as Mouse 4 and 5.</summary>
+        public static string Label(string keyCode)
+        {
+            switch (keyCode)
+            {
+                case "Mouse1": return Vm.T("Right mouse");
+                case "Mouse2": return Vm.T("Middle mouse");
+                case "Mouse3": return Vm.T("Mouse 4");
+                case "Mouse4": return Vm.T("Mouse 5");
+                case "Mouse5": return Vm.T("Mouse 6");
+                case "Mouse6": return Vm.T("Mouse 7");
+                default: return keyCode;
+            }
         }
 
         public void Begin()

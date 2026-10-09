@@ -3,7 +3,7 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.190**. The current Horde wire protocol is **52** (held for 0.8.190; bumped in 0.8.189: `PlayerState`'s walkie trailer
+**0.8.191**. The current Horde wire protocol is **52** (held for 0.8.190 to 0.8.191; bumped in 0.8.189: `PlayerState`'s walkie trailer
 becomes a state byte, `WalkieState`: none, off or flat, on in a pocket, on in hand, plus underground;
 same DLL on every install).
 51 held for 0.8.187 to 0.8.188, bumped in 0.8.187: `VoiceData` (129) carries the
@@ -54,6 +54,16 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.191 — Radio talk key rebindable
+
+- **Settings > Voice > Radio talk key** (config `VoiceRadioTalkKey`, default `Mouse1`, right
+  mouse as before). Talking on the walkie was hard-wired to right mouse; it is now any key or
+  mouse button, the side buttons included (`Mouse3`, `Mouse4`). It still keys the radio only
+  with the walkie in hand and only while playing (no menu, container, dialogue, map or chat).
+- Key settings on the Multiplayer screens show mouse buttons by name (Right mouse, Middle
+  mouse, Mouse 4 and Mouse 5 for the side buttons) instead of Unity's `Mouse1`..`Mouse4`.
+- Not tested in game: side buttons reaching the game on Linux and under Wine.
 
 ## 0.8.190 — The walkie in the item list
 

@@ -292,7 +292,7 @@ namespace DWMPHorde.Audio
                 {
                     InvItemClass cur = Player.Instance.currentItem;
                     if (!InvItemClass.isNull(cur) && cur.type == walkie)
-                        _walkieTx = Input.GetMouseButton(1) && WalkieTxAllowed() && LocalRadioLive;
+                        _walkieTx = Input.GetKey(RadioTalkKey()) && WalkieTxAllowed() && LocalRadioLive;
                 }
             }
             catch { /* ignore */ }
@@ -402,8 +402,28 @@ namespace DWMPHorde.Audio
             return sb.ToString();
         }
 
+        private static KeyCode _talkKey = KeyCode.Mouse1; // process-scoped: config cache
+        private static string _talkKeyText; // process-scoped: the setting text _talkKey was parsed from
+
+        /// <summary>The walkie's talk button (config <c>VoiceRadioTalkKey</c>, right mouse by default).</summary>
+        private static KeyCode RadioTalkKey()
+        {
+            string text = ModConfig.VoiceRadioTalkKey?.Value ?? "Mouse1";
+            if (!string.Equals(text, _talkKeyText, StringComparison.Ordinal))
+            {
+                _talkKeyText = text;
+                try { _talkKey = (KeyCode)Enum.Parse(typeof(KeyCode), text, ignoreCase: true); }
+                catch
+                {
+                    ModLog.Warn(LogCat.Audio, "Bad VoiceRadioTalkKey — using Mouse1");
+                    _talkKey = KeyCode.Mouse1;
+                }
+            }
+            return _talkKey;
+        }
+
         /// <summary>
-        /// RMB is also vanilla aim / context click, so it only keys the radio while the player is
+        /// The talk key (right mouse by default) is also vanilla aim / context click, so it only keys the radio while the player is
         /// actually playing: no inventory, container, dialogue, map, journal or other menu; no
         /// pause menu; not dead; and no overlay of ours holding input (chat, a menu text field).
         /// </summary>

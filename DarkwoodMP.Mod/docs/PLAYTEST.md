@@ -392,14 +392,14 @@ Listen on the player who did not cause the sound.
       B keying is not heard on the radios. C next to A hears A's click on and off and the
       reply from A's walkie. A voice inside a building has an echo.
 - [ ] Walkie as a device: B with it in hand switches it off and on (click, the speaker
-      coming alive); off, nothing comes through and RMB sends nothing. Its bar drains while
+      coming alive); off, nothing comes through and the talk key sends nothing. Its bar drains while
       on; under 10% it chirps every 30 s; flat, it dies with a click; R with a 9V battery
       fills it. In a pocket it plays quieter and duller than in hand.
 - [ ] Signal: far apart the radio hisses and breaks up, and from a cellar or the bunker
       underground barely anything gets through. Each transmission ends with a roger beep.
 - [ ] A keying next to B's live radio: a rising howl, from B and on every radio; B
       switching off stops it. A and C keying together: a whistle and garble.
-- [ ] The walkie transmits only while playing (right mouse with the radio in hand), not
+- [ ] The walkie transmits only while playing (the radio talk key, right mouse by default, with the radio in hand), not
       in the inventory, a container, dialogue, the map, the journal, the pause menu,
       while dead or with chat open.
 - [ ] A client dragging a body or talking on the walkie while doors and pickups happen:

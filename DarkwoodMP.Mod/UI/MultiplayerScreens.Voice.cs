@@ -44,6 +44,9 @@ namespace DWMPHorde
             b.KeyField("Push to talk key", z, () => ModConfig.VoicePttKey?.Value ?? "V",
                 v => { if (ModConfig.VoicePttKey != null) ModConfig.VoicePttKey.Value = v; }, enabled: VoiceIndex() == 1);
             z -= step;
+            b.KeyField("Radio talk key", z, () => ModConfig.VoiceRadioTalkKey?.Value ?? "Mouse1",
+                v => { if (ModConfig.VoiceRadioTalkKey != null) ModConfig.VoiceRadioTalkKey.Value = v; });
+            z -= step;
             b.KeyField("Radio on/off key", z, () => ModConfig.VoiceRadioPowerKey?.Value ?? "B",
                 v => { if (ModConfig.VoiceRadioPowerKey != null) ModConfig.VoiceRadioPowerKey.Value = v; });
             z -= step;

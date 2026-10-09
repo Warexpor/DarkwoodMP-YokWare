@@ -71,13 +71,14 @@ set in Multiplayer > Settings > Voice.
 | `VoicePttKey` | `V` | Unity `KeyCode` name for push-to-talk. |
 | `VoiceVolume` | `1` | Playback volume multiplier for remote voice. |
 | `VoiceGain` | `1.4` | Gain applied to received voice. |
+| `VoiceRadioTalkKey` | `Mouse1` | Unity `KeyCode` name for talking on the walkie, held with it in hand. `Mouse1` is right mouse, `Mouse3` and `Mouse4` the side buttons. Settings > Voice > Radio talk key. |
 | `VoiceRadioPowerKey` | `B` | Unity `KeyCode` name for the walkie's on/off knob; it turns only with the walkie in hand. |
 | `VoiceMicDevice` | empty | Microphone to talk into, by the name the game lists it under; empty for the system default. A device that is not plugged in falls back to the default. |
 | `VoiceMicVolume` | `1` | Microphone volume, 0 to 4 (1 as recorded; the Voice screen sets 0 to 2). It is also how loud you count for how far your voice carries. |
 | `VoicePlayerVolumes` | empty | How loud each other player is heard, by the name they go by: `name=volume` entries (0 muted to 2) separated by `|`. Set in Settings > Voice > Players. |
 | `VoiceFullVolumeDistance` | `150` | Distance (game units; a body is about 40 across) within which a shout is at full volume; quieter speech a shorter way. |
 | `VoiceMaxDistance` | `650` | Distance (game units) a shout carries before it is silent, the same range as other sounds from peers. Normal speech carries about three quarters of it, a whisper about a third (the loudness is measured on the talker's machine). |
-| `WalkieItemName` | `walkie_talkie` | Inventory item type for the walkie radio. Hold it and press RMB to transmit (not while a menu, container, dialogue, map, journal or chat box is open); switched on and charged, it receives anywhere it is carried, and other live walkies play the talk out loud for players near their carriers. |
+| `WalkieItemName` | `walkie_talkie` | Inventory item type for the walkie radio. Hold it and hold `VoiceRadioTalkKey` (right mouse by default) to transmit (not while a menu, container, dialogue, map, journal or chat box is open); switched on and charged, it receives anywhere it is carried, and other live walkies play the talk out loud for players near their carriers. |
 | `VoiceAlertsEnemies` | `true` | Host: creatures hear players talk. Speech louder than a murmur is a sound at the talker's position (vanilla `Character.alertInArea`): normal speech about as far as a walking step, a shout farther than running; a whisper is not heard. A walkie playing radio talk is a small sound (160 units) where its carrier stands. Also in Host settings. |
 
 ## Logging
