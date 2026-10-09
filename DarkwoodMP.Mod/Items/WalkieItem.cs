@@ -80,6 +80,29 @@ namespace DWMPHorde.Items
             }
         }
 
+        /// <summary>
+        /// The walkie in the database's name list (<c>itemsDict</c>: type to resource path), so
+        /// item lists built from it, the vanilla debug Items window and item-giver mods, show it
+        /// and can give it. Nothing loads the path: <c>getItem</c> is answered above it
+        /// (<see cref="GetItemPatch"/>). Loot comes from loot tables, not this list.
+        /// </summary>
+        private static void Register(ItemsDatabase db)
+        {
+            if (db != null && db.itemsDict != null && !db.itemsDict.ContainsKey(ItemType))
+                db.itemsDict.Add(ItemType, "YokWare/" + ItemType);
+        }
+
+        /// <summary><c>populateDict</c> clears the list and refills it from the asset: add the walkie back.</summary>
+        [HarmonyPatch(typeof(ItemsDatabase), nameof(ItemsDatabase.populateDict))]
+        private static class PopulateDictPatch
+        {
+            private static void Postfix(ItemsDatabase __instance)
+            {
+                if (_template != null)
+                    Register(__instance);
+            }
+        }
+
         [HarmonyPatch(typeof(ItemsDatabase), nameof(ItemsDatabase.hasItem))]
         private static class HasItemPatch
         {
@@ -263,6 +286,7 @@ namespace DWMPHorde.Items
                 }
             };
             _template = item;
+            Register(db);
             ModLog.Event(LogCat.Audio, "Walkie-Talkie item built (2 scrap + 1 nail, WB lvl 1)");
             return true;
         }

@@ -3,7 +3,7 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.189**. The current Horde wire protocol is **52** (bumped in 0.8.189: `PlayerState`'s walkie trailer
+**0.8.190**. The current Horde wire protocol is **52** (held for 0.8.190; bumped in 0.8.189: `PlayerState`'s walkie trailer
 becomes a state byte, `WalkieState`: none, off or flat, on in a pocket, on in hand, plus underground;
 same DLL on every install).
 51 held for 0.8.187 to 0.8.188, bumped in 0.8.187: `VoiceData` (129) carries the
@@ -54,6 +54,16 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.190 — The walkie in the item list
+
+- **Item givers can give the walkie.** The walkie was answered only by `ItemsDatabase.getItem`
+  and `hasItem`, never listed in the database's name list (`itemsDict`), so anything that lists
+  items from it (the vanilla debug Items window, item-giver mods such as Darkwood Item Spawner's
+  Browse Items) did not show it. It is now in that list (re-added after `populateDict`, which
+  clears it). Nothing loads its path: `getItem` still answers for it. Loot is unaffected (loot
+  tables, not this list). `Items/WalkieItem.cs`.
+- Not tested in game: the third-party item spawner's own grant path.
 
 ## 0.8.189 — The walkie as a real radio: knob, battery, pocket, range, doubling, feedback, roger beep
 
