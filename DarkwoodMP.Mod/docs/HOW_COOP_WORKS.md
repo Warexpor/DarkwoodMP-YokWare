@@ -281,16 +281,17 @@ movie), unless the host sets `AllowJoinDuringDream`.
 
 ### Saving
 
-- **Only the host saves the world.** F3 on the host, or any host save, makes every
-  client save its copy at the same moment and send its character snapshot to the
-  host. F3 on a client refuses ("only the host can save").
+- **Only the host saves the world.** Any host save (the game's own, or a slot of the
+  optional manual-saves add-on) makes every client save its copy at the same moment
+  and send its character snapshot to the host. The add-on's Save is greyed out on a
+  client.
 - A connected client never writes the world to disk on its own, because a
   client-side save could overwrite shared state with a partial picture.
 - Loading a save is refused while in a session.
 - No saves happen during a prologue, a dream, a held night death or a chapter
   change.
 - A host that was promoted by host migration never auto-saves (its world is a
-  client copy); it gets an F3 reminder instead.
+  client copy); it is told the world is saved again at the game's next save.
 - Each save of a co-op world also writes `savcos.dat` next to it: the seed of every cosmetic roll on
   a saved object ([section 16](#16-world-objects-doors-lights-fire-traps)). It is part
   of the world download.

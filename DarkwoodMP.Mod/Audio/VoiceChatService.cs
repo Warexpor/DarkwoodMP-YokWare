@@ -112,8 +112,8 @@ namespace DWMPHorde.Audio
         private static float _stopLinger;
         private static ushort _seq; // process-scoped: wrapping packet counter
         private static readonly byte[] _captureBuf = new byte[8192];
-        private static KeyCode _pttKey = KeyCode.V; // process-scoped: config cache, re-parsed after Reset clears _keyParsed
-        private static bool _keyParsed;
+        private static KeyCode _pttKey = KeyCode.V; // process-scoped: config cache, re-parsed when the setting text changes
+        private static string _pttKeyText; // process-scoped: the setting text _pttKey was parsed from
         private static AudioClip _carrier; // process-scoped: asset
         private static readonly Dictionary<int, Speaker> _speakers = new Dictionary<int, Speaker>();
         private static readonly List<int> _reap = new List<int>(); // process-scoped: scratch
@@ -141,7 +141,6 @@ namespace DWMPHorde.Audio
                     UnityEngine.Object.Destroy(s.Go);
             }
             _speakers.Clear();
-            _keyParsed = false;
             _stopLinger = 0f;
             _walkieTx = false;
         }
@@ -182,13 +181,14 @@ namespace DWMPHorde.Audio
                 return;
             }
 
-            if (!_keyParsed)
+            // Multiplayer > Settings can change the key mid-game.
+            string keyText = ModConfig.VoicePttKey?.Value ?? "V";
+            if (!string.Equals(keyText, _pttKeyText, StringComparison.Ordinal))
             {
-                _keyParsed = true;
+                _pttKeyText = keyText;
                 try
                 {
-                    _pttKey = (KeyCode)Enum.Parse(typeof(KeyCode),
-                        ModConfig.VoicePttKey?.Value ?? "V", ignoreCase: true);
+                    _pttKey = (KeyCode)Enum.Parse(typeof(KeyCode), keyText, ignoreCase: true);
                 }
                 catch
                 {
@@ -197,7 +197,7 @@ namespace DWMPHorde.Audio
                 }
             }
 
-            // Typing in chat / F2 / F3 / the slot picker must not key the mic.
+            // Typing in chat or a menu text field must not key the mic.
             bool ptt = Input.GetKey(_pttKey) && !UiInputLock.IsHeld;
             bool openMic = !string.Equals(ModConfig.VoiceMode?.Value ?? "ptt", "ptt",
                 StringComparison.OrdinalIgnoreCase);
@@ -237,7 +237,7 @@ namespace DWMPHorde.Audio
         /// <summary>
         /// RMB is also vanilla aim / context click, so it only keys the radio while the player is
         /// actually playing: no inventory, container, dialogue, map, journal or other menu; no
-        /// pause menu; not dead; and no overlay of ours holding input (chat, F2, F3).
+        /// pause menu; not dead; and no overlay of ours holding input (chat, a menu text field).
         /// </summary>
         private static bool WalkieTxAllowed()
         {

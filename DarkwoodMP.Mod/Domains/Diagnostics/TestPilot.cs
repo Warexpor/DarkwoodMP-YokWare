@@ -304,6 +304,28 @@ namespace DWMPHorde.Sync
             }
         }
 
+        /// <summary>Clickable entries of the pause/title menu and its screens that are on screen now.</summary>
+        private static List<Button> MenuButtons()
+        {
+            var list = new List<Button>();
+            MainMenu menu = Singleton<MainMenu>.Instance;
+            if (menu == null || !menu.gameObject.activeInHierarchy)
+                return list;
+            foreach (Button b in menu.GetComponentsInChildren<Button>(false))
+            {
+                if (b != null && b.gameObject.activeInHierarchy && b.GetComponent<Collider>() != null && b.GetComponent<Collider>().enabled)
+                    list.Add(b);
+            }
+            return list;
+        }
+
+        private static string MenuLabel(Button b)
+        {
+            if (b.textMesh != null && !string.IsNullOrEmpty(b.textMesh.text))
+                return b.textMesh.text;
+            return b.gameObject.name.Replace("YokWare_", "").Replace("Btn", "");
+        }
+
         private static float F(string s) => float.Parse(s, NumberStyles.Float, CultureInfo.InvariantCulture);
 
         private static void Run(LanNetworkManager net, string[] a)
@@ -393,6 +415,30 @@ namespace DWMPHorde.Sync
                     loc.gameObject.SetActive(false);
                     loc.gameObject.SetActive(true);
                     Out("  cycled " + name);
+                    return;
+                }
+                case "pause":
+                    Core.showHidePauseMenu();
+                    Out("  menu " + (Core.mainMenu ? "open" : "closed"));
+                    return;
+                case "menu":
+                    foreach (Button b in MenuButtons())
+                        Out("  [" + MenuLabel(b) + "]" + (b.disabled ? " (off)" : ""));
+                    return;
+                case "press":
+                {
+                    // "press <label>": click the shown menu entry with that text (or button name).
+                    string want = string.Join(" ", a, 1, a.Length - 1);
+                    foreach (Button b in MenuButtons())
+                    {
+                        string label = MenuLabel(b);
+                        if (!string.Equals(label, want, StringComparison.OrdinalIgnoreCase))
+                            continue;
+                        Out("  pressing " + label);
+                        b.getClicked(force: true);
+                        return;
+                    }
+                    Out("  no shown entry '" + want + "'");
                     return;
                 }
                 case "ui":

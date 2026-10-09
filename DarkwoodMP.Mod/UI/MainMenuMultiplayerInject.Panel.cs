@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 using DWMPHorde.Logging;
-using DWMPHorde.Networking;
+using HarmonyLib;
 using UnityEngine;
 
 namespace DWMPHorde
@@ -14,13 +14,13 @@ namespace DWMPHorde
             if (template == null || template.GetComponent<Button>() == null)
                 return;
 
-            // Title door: pixel art from the vanilla menu glyphs (matches PLAY/OPTIONS). Fallback = text label.
+            // Pixel art from the vanilla menu glyphs (matches PLAY/OPTIONS). Fallback = text label.
             _mpButton = CloneButton(template, template.transform.parent,
-                MpButtonName, "MULTIPLAYER", OpenPanel, TagKindMp, useTextLabel: false);
+                MpButtonName, "MULTIPLAYER", MultiplayerScreens.OpenRoot, TagKindMp);
 
-            float y = TitleMultiplayerOffsetY();
+            float y = MultiplayerRowOffsetY();
             SetRow(_mpButton, y);
-            WireButton(_mpButton, OpenPanel);
+            WireButton(_mpButton, MultiplayerScreens.OpenRoot);
 
             // Attach after SetRow so collider bounds match final pose.
             if (!MenuButtonArt.TryAttachMultiplayerArt(_mpButton))
@@ -37,60 +37,72 @@ namespace DWMPHorde
 
             ModLog.Event(LogCat.Session,
                 "Injected MULTIPLAYER button @ " + Screen.width + "x" + Screen.height
-                + " offsetY=" + y.ToString("F1"));
+                + " offsetY=" + y.ToString("F1") + (GameScreen.AtTitle ? " (title)" : " (pause)"));
         }
-
-        private static float TitleMultiplayerOffsetY()
-        {
-            // Second row of the title stack, right under PLAY; the rows below move down for it.
-            PositionMe play = _menu?.playBtn != null ? _menu.playBtn.GetComponent<PositionMe>() : null;
-            return (play != null ? play.offset.y : 60f) - RowSpacing;
-        }
-
-        /// <summary>How far the title's version / player-id labels move down (buttons move <see cref="RowSpacing"/>).</summary>
-        private const float TitleLabelShift = 30f;
-
-        /// <summary>Title rows shifted down for MULTIPLAYER, with their vanilla offsets.</summary>
-        private static readonly List<KeyValuePair<PositionMe, Vector2>> _titleShifted = new List<KeyValuePair<PositionMe, Vector2>>(8); // reset-in: ResetTitleStack
-        private static MainMenu _titleShiftedMenu; // reset-in: ResetTitleStack
 
         /// <summary>
-        /// Title screen: OPTIONS, CREDITS and EXIT sit one row lower than vanilla so MULTIPLAYER
-        /// takes the row under PLAY; the version / player-id labels move half a row. The shift is taken from the
-        /// vanilla offsets (vanilla resets EXIT's on every menu open) and checked every UI poll.
-        /// Pause-menu-only rows (RESUME, HELP, MAIN MENU) and the logo are left alone.
+        /// The row MULTIPLAYER sits under: PLAY on the title screen, OPTIONS in the pause menu
+        /// (RESUME, HELP, OPTIONS, then MULTIPLAYER above MAIN MENU and EXIT).
         /// </summary>
-        private static void ApplyTitleStack()
+        private static PositionMe AnchorRow(MainMenu menu)
         {
-            if (_menu == null || _menu.Menu0 == null || _menu.playBtn == null)
+            if (menu == null)
+                return null;
+            GameObject anchor = menu.playBtn != null && menu.playBtn.activeSelf ? menu.playBtn : menu.optionsBtn;
+            return anchor != null ? anchor.GetComponent<PositionMe>() : null;
+        }
+
+        private static float MultiplayerRowOffsetY()
+        {
+            PositionMe anchor = AnchorRow(_menu);
+            return (anchor != null ? anchor.offset.y : 60f) - RowSpacing;
+        }
+
+        /// <summary>How far the version / player-id labels move down (buttons move <see cref="RowSpacing"/>).</summary>
+        private const float LabelShift = 30f;
+
+        /// <summary>Rows moved down for MULTIPLAYER, with their vanilla offsets.</summary>
+        private static readonly List<KeyValuePair<PositionMe, Vector2>> _shiftedRows = new List<KeyValuePair<PositionMe, Vector2>>(8); // reset-in: ResetMenuStack
+        private static MainMenu _shiftedMenu; // reset-in: ResetMenuStack
+
+        /// <summary>
+        /// Every shown row under the anchor (title: OPTIONS, CREDITS, EXIT; pause: MAIN MENU, EXIT)
+        /// moves one row down so MULTIPLAYER takes the row under the anchor; the version / player-id
+        /// labels move half a row. Offsets are taken as vanilla set them (vanilla sets them again on
+        /// every menu open, see <see cref="MenuStackOpenPatch"/>) and checked every UI poll.
+        /// </summary>
+        private static void ApplyMenuStack()
+        {
+            if (_menu == null || _menu.Menu0 == null)
                 return;
-            PositionMe play = _menu.playBtn.GetComponent<PositionMe>();
-            if (play == null)
+            PositionMe anchor = AnchorRow(_menu);
+            if (anchor == null)
                 return;
-            if (_titleShiftedMenu != _menu)
+            if (_shiftedMenu != _menu)
             {
-                ResetTitleStack();
-                _titleShiftedMenu = _menu;
+                ResetMenuStack();
+                _shiftedMenu = _menu;
                 PositionMe[] pms = _menu.Menu0.GetComponentsInChildren<PositionMe>(true);
                 for (int i = 0; i < pms.Length; i++)
                 {
                     PositionMe pm = pms[i];
-                    if (pm == null || pm == play || pm.offset.y >= play.offset.y || IsPauseOnlyRow(pm.gameObject))
+                    if (pm == null || pm == anchor || !pm.gameObject.activeSelf || pm.offset.y >= anchor.offset.y)
                         continue;
                     if (pm.GetComponent<YokWareUiTag>() != null || pm.gameObject.name.StartsWith("YokWare_", StringComparison.Ordinal))
                         continue;
-                    _titleShifted.Add(new KeyValuePair<PositionMe, Vector2>(pm, pm.offset));
+                    if (pm.GetComponent<tk2dBaseSprite>() == null && pm.GetComponent<tk2dTextMesh>() == null)
+                        continue;
+                    _shiftedRows.Add(new KeyValuePair<PositionMe, Vector2>(pm, pm.offset));
                 }
             }
-            for (int i = 0; i < _titleShifted.Count; i++)
+            for (int i = 0; i < _shiftedRows.Count; i++)
             {
-                PositionMe pm = _titleShifted[i].Key;
+                PositionMe pm = _shiftedRows[i].Key;
                 if (pm == null)
                     continue;
-                // Buttons move a full row; the version / player-id labels only half a row, so
-                // the version text stays close under EXIT.
-                float shift = pm.GetComponent<Button>() != null ? RowSpacing : TitleLabelShift;
-                Vector2 want = _titleShifted[i].Value - new Vector2(0f, shift);
+                // Buttons (sprites) move a full row; the text labels under the stack half a row.
+                float shift = pm.GetComponent<tk2dBaseSprite>() != null ? RowSpacing : LabelShift;
+                Vector2 want = _shiftedRows[i].Value - new Vector2(0f, shift);
                 if (pm.offset == want)
                     continue;
                 pm.offset = want;
@@ -98,121 +110,61 @@ namespace DWMPHorde
             }
         }
 
-        /// <summary>Put the shifted title rows back at their vanilla offsets (leaving the title).</summary>
-        private static void ResetTitleStack()
+        /// <summary>Put the moved rows back at their vanilla offsets (menu closing / changing).</summary>
+        private static void ResetMenuStack()
         {
-            for (int i = 0; i < _titleShifted.Count; i++)
+            for (int i = 0; i < _shiftedRows.Count; i++)
             {
-                PositionMe pm = _titleShifted[i].Key;
+                PositionMe pm = _shiftedRows[i].Key;
                 if (pm == null || !pm)
                     continue;
-                pm.offset = _titleShifted[i].Value;
+                pm.offset = _shiftedRows[i].Value;
                 pm.init();
             }
-            _titleShifted.Clear();
-            _titleShiftedMenu = null;
+            _shiftedRows.Clear();
+            _shiftedMenu = null;
         }
 
-        private static bool IsPauseOnlyRow(GameObject go)
+        /// <summary>
+        /// Vanilla <c>MainMenu.OnEnable</c> sets the button offsets for title or pause on every
+        /// open: the moved rows go back first, then the stack is taken again from what vanilla set.
+        /// </summary>
+        [HarmonyPatch(typeof(MainMenu), "OnEnable")]
+        internal static class MenuStackOpenPatch
         {
-            return go == _menu.mainMenuBtn
-                || (_menu.ResumeBtn != null && go == _menu.ResumeBtn.gameObject)
-                || (_menu.HelpBtn != null && go == _menu.HelpBtn.gameObject);
-        }
-
-        private static void BuildPanel()
-        {
-            if (_panel != null && _panel)
+            private static void Prefix()
             {
-                try { UnityEngine.Object.DestroyImmediate(_panel); }
-                catch { UnityEngine.Object.Destroy(_panel); }
-            }
-            ClearPanelRefs();
-
-            if (!ResolveMenu())
-                return;
-            GameObject template = _menu.quitBtn;
-            if (template == null)
-                return;
-
-            _panel = new GameObject(PanelName);
-            _panel.transform.SetParent(_menu.Menu0.transform.parent, false);
-            Tag(_panel, TagKindPanel);
-
-            _hostDoorBtn = CloneButton(template, _panel.transform, "YokWare_HostDoor", "HOST", () => ShowPanelView(PanelView.Host), TagKindRow);
-            _joinDoorBtn = CloneButton(template, _panel.transform, "YokWare_JoinDoor", "JOIN", () => ShowPanelView(PanelView.Join), TagKindRow);
-            _settingsBtn = CloneButton(template, _panel.transform, "YokWare_SettingsBtn", "SETTINGS", OnSettingsClicked, TagKindRow);
-            _disconnectButton = CloneButton(template, _panel.transform, "YokWare_DiscBtn", "DISCONNECT", OnDisconnectClicked, TagKindRow);
-            _backRootBtn = CloneButton(template, _panel.transform, "YokWare_BackRoot", "BACK", ClosePanel, TagKindRow);
-
-            _hostLanBtn = CloneButton(template, _panel.transform, "YokWare_HostLan", "HOST LAN", OnHostLanClicked, TagKindRow);
-            _hostSteamBtn = CloneButton(template, _panel.transform, "YokWare_HostSteam", "HOST STEAM", OnHostSteamClicked, TagKindRow);
-            _joinLanBtn = CloneButton(template, _panel.transform, "YokWare_JoinLan", "JOIN LAN", OnJoinLanClicked, TagKindRow);
-            _joinSteamBtn = CloneButton(template, _panel.transform, "YokWare_JoinSteam", "JOIN STEAM", OnJoinSteamClicked, TagKindRow);
-            _backSubBtn = CloneButton(template, _panel.transform, "YokWare_BackSub", "BACK", () => ShowPanelView(PanelView.Root), TagKindRow);
-
-            ShowPanelView(PanelView.Root);
-        }
-
-        private static void ShowPanelView(PanelView view)
-        {
-            _panelView = view;
-            bool root = view == PanelView.Root;
-            bool host = view == PanelView.Host;
-            bool join = view == PanelView.Join;
-
-            SetActiveSafe(_hostDoorBtn, root);
-            SetActiveSafe(_joinDoorBtn, root);
-            SetActiveSafe(_settingsBtn, root);
-            SetActiveSafe(_backRootBtn, root);
-            SetActiveSafe(_hostLanBtn, host);
-            SetActiveSafe(_hostSteamBtn, host);
-            SetActiveSafe(_joinLanBtn, join);
-            SetActiveSafe(_joinSteamBtn, join);
-            SetActiveSafe(_backSubBtn, host || join);
-
-            var net = ModRuntime.Network;
-            bool online = net != null && net.Role != NetworkRole.Offline;
-            SetActiveSafe(_disconnectButton, root && online);
-
-            if (root)
-            {
-                int row = 0;
-                SetRow(_hostDoorBtn, -PanelRowSpacing * row++);
-                SetRow(_joinDoorBtn, -PanelRowSpacing * row++);
-                SetRow(_settingsBtn, -PanelRowSpacing * row++);
-                if (online)
-                    SetRow(_disconnectButton, -PanelRowSpacing * row++);
-                SetRow(_backRootBtn, -PanelRowSpacing * row);
-            }
-            else if (host)
-            {
-                SetRow(_hostLanBtn, 0f);
-                SetRow(_hostSteamBtn, -PanelRowSpacing);
-                SetRow(_backSubBtn, -PanelRowSpacing * 2f);
-            }
-            else
-            {
-                SetRow(_joinLanBtn, 0f);
-                SetRow(_joinSteamBtn, -PanelRowSpacing);
-                SetRow(_backSubBtn, -PanelRowSpacing * 2f);
+                try { ResetMenuStack(); }
+                catch (Exception ex) { ModLog.Warn(LogCat.Session, "menu stack reset: " + ex.Message); }
             }
 
-            RefreshSessionButtons();
-        }
-
-        private static void SetActiveSafe(GameObject go, bool active)
-        {
-            if (go != null && go)
-                go.SetActive(active);
+            private static void Postfix(MainMenu __instance)
+            {
+                try
+                {
+                    if (!Core.mainMenu || __instance == null)
+                        return;
+                    _menu = __instance;
+                    _wasAtTitle = GameScreen.AtTitle;
+                    if (__instance.Menu0 == null || !__instance.Menu0.activeInHierarchy)
+                        return;
+                    ApplyMenuStack();
+                    if (_mpButton != null && _mpButton)
+                        SetRow(_mpButton, MultiplayerRowOffsetY());
+                }
+                catch (Exception ex)
+                {
+                    ModLog.Warn(LogCat.Session, "menu stack: " + ex.Message);
+                }
+            }
         }
 
         private static void SetRow(GameObject go, float y)
         {
-            if (go == null)
+            if (go == null || !go)
                 return;
             PositionMe pm = go.GetComponent<PositionMe>();
-            if (pm == null)
+            if (pm == null || pm.offset.y == y)
                 return;
             pm.offset = new Vector2(pm.offset.x, y);
             pm.init();
@@ -226,128 +178,5 @@ namespace DWMPHorde
                 ModLog.Error(LogCat.Session, "menu click: " + ex.Message, ex);
             }
         }
-
-        private static void OpenPanel()
-        {
-            ModLog.Event(LogCat.Session, "MULTIPLAYER menu opened");
-            MultiplayerMenu.PushFieldsToConfig();
-            if (_panel == null || !_panel)
-                BuildPanel();
-            if (_panel == null || _menu == null)
-                return;
-            _menu.Menu0.SetActive(false);
-            _panel.SetActive(true);
-            ShowPanelView(PanelView.Root);
-        }
-
-        private static void ClosePanel()
-        {
-            if (_panel != null && _panel)
-                _panel.SetActive(false);
-            if (_menu != null && _menu.Menu0 != null)
-                _menu.Menu0.SetActive(true);
-        }
-
-        private static void OnSettingsClicked()
-        {
-            MultiplayerMenu.EnsureExists();
-            MultiplayerMenu.ShowSettings();
-        }
-
-        private static void OnDisconnectClicked()
-        {
-            var net = ModRuntime.Network;
-            if (net == null)
-                return;
-            _joinPending = false;
-            _hostingHint = false;
-            if (net.Role == NetworkRole.Host && net.TryGracefulHostLeave())
-            {
-                ResetJoinLabelsIdle();
-                RefreshSessionButtons();
-                ModLog.Event(LogCat.Session, "Host disconnect — handing off to elect…");
-                return;
-            }
-            net.StopNetwork();
-            ResetJoinLabelsIdle();
-            RefreshSessionButtons();
-            ModLog.Event(LogCat.Session, "Disconnected.");
-        }
-
-        private static void RefreshSessionButtons()
-        {
-            ExpireFailureLabel();
-
-            var net = ModRuntime.Network;
-            bool online = net != null && net.Role != NetworkRole.Offline;
-
-            if (_panelView == PanelView.Root)
-            {
-                SetActiveSafe(_disconnectButton, online);
-                // Relayout root when disconnect appears/disappears
-                int row = 0;
-                SetRow(_hostDoorBtn, -PanelRowSpacing * row++);
-                SetRow(_joinDoorBtn, -PanelRowSpacing * row++);
-                SetRow(_settingsBtn, -PanelRowSpacing * row++);
-                if (online)
-                    SetRow(_disconnectButton, -PanelRowSpacing * row++);
-                SetRow(_backRootBtn, -PanelRowSpacing * row);
-            }
-
-            if (net != null && net.Role == NetworkRole.Host && _hostingHint)
-                SetLabel(_hostDoorBtn, "HOSTING — LOAD SAVE");
-            else if (!online)
-            {
-                _hostingHint = false;
-                SetLabel(_hostDoorBtn, "HOST");
-            }
-
-            // A HOST/JOIN failure label owns its button until it expires (see ExpireFailureLabel).
-            if (FailureLabelActive)
-                return;
-
-            if (_joinPending)
-                return;
-
-            if (net == null)
-                return;
-
-            if (net.Role == NetworkRole.Host)
-            {
-                ResetJoinLabelsIdle();
-                return;
-            }
-
-            if (net.WorldSaveShare != null && net.WorldSaveShare.IsAwaitingSlotPick)
-                SetJoinProgress("CHOOSE SLOT");
-            else if (net.WorldSaveShare != null && net.WorldSaveShare.IsAwaitingEnterWorld
-                     && !IsShareFailureBlocked(net))
-                SetJoinProgress("ENTER WORLD");
-            else if (net.Role == NetworkRole.Client && net.IsHandshakeComplete)
-                UpdateJoinLabelFromShare(net);
-            else if (!online)
-                ResetJoinLabelsIdle();
-        }
-
-        private static void SetLabel(GameObject buttonGo, string text)
-        {
-            if (buttonGo == null || !buttonGo)
-                return;
-            YokWareUiTag tag = buttonGo.GetComponent<YokWareUiTag>();
-            if (tag != null)
-                tag.LabelEn = text;
-            tk2dTextMesh tm = buttonGo.GetComponentInChildren<tk2dTextMesh>(true);
-            if (tm == null)
-                return;
-            string shown = Loc.T(text);
-            if (tm.text == shown)
-                return;
-            if (tm.maxChars < shown.Length + 4)
-                tm.maxChars = shown.Length + 8;
-            tm.text = shown;
-            tm.Commit();
-            FitButtonHitbox(buttonGo);
-        }
-
     }
 }

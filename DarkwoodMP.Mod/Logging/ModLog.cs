@@ -340,7 +340,7 @@ namespace DWMPHorde.Logging
                 Event(LogCat.Core, "  Unity=" + Application.unityVersion
                     + " | " + SystemInfo.operatingSystem);
                 Event(LogCat.Core, "  Config: " + ConfigPathHint);
-                Event(LogCat.Core, "  Title: MULTIPLAYER | F2=settings F3=save F4=spectate | F5=spawner");
+                Event(LogCat.Core, "  Title/pause: MULTIPLAYER | F4=spectate | add-ons: F3=saves F5=spawner");
                 Event(LogCat.Core, "  Log: " + LoaderLogPath + " in each player's game folder");
                 Event(LogCat.Core, "  Bug report: quit cleanly, send every player's " + LoaderLogPath);
                 Event(LogCat.Core, "  Quiet logs: set [Logging] LogPreset=Public (max capture: Trace)");

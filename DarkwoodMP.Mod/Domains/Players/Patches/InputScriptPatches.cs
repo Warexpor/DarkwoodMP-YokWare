@@ -1,19 +1,15 @@
 using HarmonyLib;
-using UnityEngine;
 
 namespace DWMPHorde.Patches
 {
-    /// <summary>Hooks InputScript.Update so the multiplayer menu (F2) works reliably in this Unity build.</summary>
+    /// <summary>Drives the MULTIPLAYER entry, its screens and the title-screen join flow every frame.</summary>
     [HarmonyPatch(typeof(InputScript), "Update")]
     public static class InputScriptUpdatePatch
     {
         private static void Postfix()
         {
             ModRuntime.EnsureRunning();
-            // Native title MULTIPLAYER inject + join timeout (must run even if IMGUI closed)
             MainMenuMultiplayerInject.OnUpdate();
-            if (Input.GetKeyDown(KeyCode.F2))
-                MultiplayerMenu.ToggleVisible();
         }
     }
 

@@ -77,6 +77,7 @@ Sync path is **GameEventsFired** (host fires leave-door GE → clients apply), p
   ```bash
   dotnet build DarkwoodMP.Mod -c Release
   # csproj DeployToGameDirs → Steam + SecondDarkwood plugins when present
+  dotnet build DarkwoodMP.ManualSaves -c Release   # optional F3 save-slot add-on (also builds + deploys the mod)
   ```
 - **GameDir props:** `DarkwoodMP.Mod/GamePath.local.props` → Steam `GameDir` + `SecondPlugins` (gitignored)
 

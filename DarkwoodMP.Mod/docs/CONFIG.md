@@ -15,14 +15,21 @@ values written into a fresh file; an existing file keeps what it already has.
 The table is checked against `Config/ModConfig.cs` by the `ConfigDocTests` unit
 test, so every bound key must be listed here.
 
+In game, **Multiplayer > Settings** edits `PlayerName`, `ChatEnabled`,
+`VoiceEnabled` / `VoiceMode`, `VoicePttKey`, `VoiceVolume`, `PeerMovementVolume`,
+and for the host `FriendlyFireEnabled`, `LootShareMode`, `MaxPlayers`,
+`SteamLobbyType`, `ConnectPort` and `HostPassword`; **Multiplayer > Join** edits
+`ConnectAddress`, `ConnectPort`, `HostPassword` and `SteamLobbyId`. A change applies
+at once and is written to the file.
+
 ## Network
 
 | Key | Default | Meaning |
 |-----|---------|---------|
-| `ConnectAddress` | `127.0.0.1` | Default host IP shown in the F2 connect field and used by JOIN LAN. |
+| `ConnectAddress` | `127.0.0.1` | Host address of Multiplayer > Join (Address), used by Connect. |
 | `ConnectPort` | `7788` | Default UDP port for hosting and joining on LAN (1-65535; out-of-range values are clamped with a warning). |
 | `HostPassword` | empty | Optional join password. Empty means open LAN. Host and every client must match. Also used as the Steam lobby connection key. |
-| `SteamLobbyId` | empty | Steam lobby id (ulong) for JOIN STEAM. The host fills it in when creating a Steam lobby. Friends can also join through the Steam invite overlay. |
+| `SteamLobbyId` | empty | Steam lobby id (ulong) for Multiplayer > Join > Join the lobby. The host fills it in when creating a Steam lobby. Friends can also join through the Steam invite overlay. |
 | `SteamLobbyType` | `friends` | Steam host lobby visibility: `friends`, `public` or `private`. |
 | `PlayerName` | `Player` | Name shown in co-op chat and speech bubbles. |
 | `ChatEnabled` | `true` | Co-op text chat. Ctrl+C opens the input, Enter sends, Esc closes. Gameplay input (movement, hotbar, walkie) is held while the box is open. |
@@ -35,7 +42,7 @@ test, so every bound key must be listed here.
 | Key | Default | Meaning |
 |-----|---------|---------|
 | `SaveRootOverride` | empty | Absolute path for save data (`1_4Save/profs`). Empty means the Unity default; a SecondDarkwood install auto-isolates to `LocalLow/.../Darkwood_Second` (a ThirdDarkwood one to `Darkwood_Third`). Set it manually if a dual-box setup still shares a save tree. |
-| `PreferredCoopCopySlot` | `0` | Last local profile slot (1-5) used for a permanent co-op world copy; 0 means none. The join slot picker highlights it; empty slots are still preferred when free. |
+| `PreferredCoopCopySlot` | `0` | Last local profile slot (1-5) used for a permanent co-op world copy; 0 means none. The join profile picker marks it "last used"; empty slots are still preferred when free. |
 
 ## Gameplay
 

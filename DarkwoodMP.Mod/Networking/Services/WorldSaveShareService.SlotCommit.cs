@@ -251,7 +251,7 @@ namespace DWMPHorde.Networking
             _enterProfileId = profileId;
             _enterChapterId = chapterId;
 
-            ProgressText = "Permanent copy on Profile " + profileId + " — press ENTER WORLD";
+            ProgressText = "Permanent copy on Profile " + profileId + " — press Enter world";
             if (_net != null)
                 _net.StatusText = ProgressText;
             ModLog.Event(LogCat.Session,

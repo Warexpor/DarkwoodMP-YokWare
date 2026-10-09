@@ -3,7 +3,7 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.180**. The current Horde wire protocol is **47** (held for 0.8.178 to 0.8.180; bumped in 0.8.177: `PlayerState` gains
+**0.8.181**. The current Horde wire protocol is **47** (held for 0.8.178 to 0.8.181; bumped in 0.8.177: `PlayerState` gains
 the `ClockHeld` trailer; same DLL on every install).
 46 held for 0.8.176, bumped there: `NightDeathState` gains
 the rejoin resume and its position, `PlayerDied` gains the dying player's home, the entity
@@ -44,6 +44,56 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.181 — Multiplayer menus as the game's own; F2 removed; manual saves become an add-on
+
+- The multiplayer menus looked bolted on: the HOST/JOIN panel used a different, all-caps font at
+  the wrong size, and the session controls lived in a grey IMGUI window (F2), as did the join
+  profile picker and the F3 save slots. They are now built from the game's own menu pieces, so
+  they look and behave like Options and Profiles: the spaced grey heading and centred entries of
+  Profiles, the Video tab's grey setting names with white values, the Options "Return", the volume
+  slider, and the vanilla yes/no box for every confirm. Hover, click sound and gamepad navigation
+  are vanilla's; Esc / gamepad B goes back one screen (`UI/VanillaMenu/VanillaMenu.cs`).
+- MULTIPLAYER is also in the pause menu now, under OPTIONS (MAIN MENU and EXIT move down a row).
+  Its screens (`UI/MultiplayerScreens.cs`):
+  - Multiplayer: what can be done now. Title: Host, Join, Settings (connected: Join/Enter world,
+    Disconnect; hosting: Choose a profile). Pause menu: Host this game (single player opens the
+    current game to others), Invite friends (Steam host: copies the lobby id, opens the invite
+    overlay), Send the world again (host), Restore my character (client, when its backup exists),
+    Settings, Disconnect. A status line says what the session is doing (hosting and how many joined,
+    connecting, waiting for the host, download progress, failures in plain words); the mod's
+    version is at the bottom.
+  - Host: Local network / Steam (greyed out without a running Steam).
+  - Join: Address, Port and Password typed in place, Connect; Steam lobby id and Join the lobby.
+    While connecting it shows the progress and Cancel; once the world is ready, Enter world.
+  - Settings: name, text chat, voice chat (off / push to talk / always on), push-to-talk key (press
+    a key), voice volume and other players' steps (sliders); for the host friendly fire, extra loot,
+    player count, Steam lobby type, port and password (the last four only while not in a game).
+    Changes apply at once and are written to the config.
+  - The host's world: the profile picker opens by itself when the download is done; occupied
+    profiles ask in the yes/no box, another campaign is marked; Back asks to leave the game.
+- F2 and its window are gone; everything it did is in the screens above. Disconnecting from the
+  pause menu pauses the game again when you are alone, like single player.
+- The push-to-talk key changed in Settings applies at once (it was read once per session).
+- Manual save slots (F3) are no longer part of the co-op mod: they are the optional add-on
+  `YokWare.ManualSaves` (`DarkwoodMP.ManualSaves`, plugin `com.yokware.manualsaves` 1.0.0, needs the
+  co-op mod). F3 in the world opens a Saves screen in the pause menu: ten slots of the current
+  profile with Save and Load and the same co-op rules as before (only the host saves, and every
+  player saves with it; no save during a partial night death, dream or prologue; Load needs the
+  session left). The co-op mod exposes what add-ons may use in `Bootstrap/AddOnApi.cs` (language,
+  session state, save rules, the crash-safe save-set copy, the input lock). The release packs the
+  add-on as its own zip per loader.
+- Messages that named F2 or ENTER WORLD now name the menu entries (WORLD SHARE FAILED asks the host
+  for Multiplayer > Send the world again; "press Enter world"). A promoted host is told the world is
+  saved again at the game's next save (the F3 reminder pointed at a key that is now an add-on).
+- The menu font has no dash or ellipsis glyphs: menu text draws them as "-" and "...".
+- Russian for every new text; `LocTests` also scans the new screens and the add-on (first arguments
+  of the menu calls, the choice lists, returned status lines).
+- Test pilot: `pause`, `menu` (list the shown entries) and `press <label>` drive the menus.
+- Box-tested (host + one client): title screens in English and Russian, pause-menu screens, Send the
+  world again, F3 Save (with the client's SaveSync), Disconnect confirm on both sides, host failing
+  on a busy port, host leaving and hosting again from the pause menu, client rejoining from the title
+  through the picker and Enter world. Not tested: Steam (no Steam in the box), gamepad navigation.
 
 ## 0.8.180 — Russian for the mod's own text
 

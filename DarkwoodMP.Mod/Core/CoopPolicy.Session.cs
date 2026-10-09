@@ -46,7 +46,7 @@ namespace DWMPHorde
 
         public static string FormatShareFailure(string reason)
             => ShareFailurePrefix + " " + (reason ?? "unknown")
-               + " — do not continue (different forests). Host: save once, F2 Resend, or rejoin.";
+               + " — do not continue (different forests). Host: save once, then Multiplayer > Send the world again; or rejoin.";
 
         public static bool IsShareFailureMessage(string progressText)
             => !string.IsNullOrEmpty(progressText)

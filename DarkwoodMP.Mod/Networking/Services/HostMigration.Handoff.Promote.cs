@@ -102,7 +102,7 @@ namespace DWMPHorde.Networking
             // Do NOT auto-Save here. Promote used to checkpoint after host leave, but the
             // survivor was a co-op client with a partially synced world; writing sav.dat corrupted
             // their slot. Old host already flushed via graceful-leave checkpoint; survivor
-            // persists via manual F3 when the sim is trustworthy.
+            // persists at the game's own next save.
             // TryHostMigrationSaveCheckpoint(); // disabled; corrupts survivor sav
             NotifyPromotedHostSaveReminder();
 
@@ -148,12 +148,12 @@ namespace DWMPHorde.Networking
 
 
         /// <summary>
-        /// Safer than auto-Save on promote: remind the survivor to F3 when the sim is
-        /// trustworthy. Does not write sav.dat (that corrupted co-op client slots).
+        /// Safer than auto-Save on promote: tell the survivor the world is not saved until the
+        /// game's own next save. Does not write sav.dat (that corrupted co-op client slots).
         /// </summary>
         private void NotifyPromotedHostSaveReminder()
         {
-            const string tip = "You are host now — press F3 to save when ready (auto-save on promote is disabled)";
+            const string tip = "You are host now — the world is saved again at the game's next save";
             try
             {
                 StatusText = tip;
@@ -167,7 +167,7 @@ namespace DWMPHorde.Networking
             }
             catch (Exception ex)
             {
-                ModLog.Warn(LogCat.Save, "Promote F3 reminder: " + ex.Message);
+                ModLog.Warn(LogCat.Save, "Promote save reminder: " + ex.Message);
             }
         }
 

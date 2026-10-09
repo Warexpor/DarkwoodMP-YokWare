@@ -92,7 +92,7 @@ namespace DWMPHorde.Networking
                 + session.ChapterId
                 + ", day "
                 + session.DayIndex
-                + ". Stay on title — host auto-pushes world when in-game; you pick a permanent local profile slot, then ENTER WORLD.";
+                + ". Stay on title — host auto-pushes world when in-game; you pick a permanent local profile slot, then Enter world.";
         }
 
         /// <summary>Clear pending host session note on disconnect.</summary>

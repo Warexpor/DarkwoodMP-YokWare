@@ -5,7 +5,7 @@ using UnityEngine;
 
 namespace DWMPHorde
 {
-    // Join-flow bookkeeping and the transient HOST/JOIN failure label.
+    // Join-flow bookkeeping and the short-lived status line (a HOST/JOIN that did not work).
     public static partial class MainMenuMultiplayerInject
     {
         private static void BeginJoinTimer()
@@ -16,6 +16,7 @@ namespace DWMPHorde
             _loggedWaitingWorld = false;
             _worldRequest10sSent = false;
             _worldRequest25sSent = false;
+            ClearFlash();
         }
 
         /// <summary>Forget every join-flow static (session ended or never started).</summary>
@@ -28,8 +29,10 @@ namespace DWMPHorde
             _worldRequest25sSent = false;
         }
 
+        internal static bool JoinPending => _joinPending;
+
         /// <summary>
-        /// Steam invite / launch-lobby connects start outside the JOIN button, so they never got
+        /// Steam invite / launch-lobby connects start outside the Connect button, so they never got
         /// the join timeout. Adopt them into the same state machine while on the title screen
         /// (in-world connects are soft reconnects / host migration and keep their own retry logic).
         /// </summary>
@@ -41,7 +44,7 @@ namespace DWMPHorde
 
             if (net.Role == NetworkRole.Offline)
             {
-                // PollJoinState reports a failed JOIN-button attempt first; clear once it is done.
+                // PollJoinState reports a failed attempt first; clear once it is done.
                 if (!_joinPending)
                     ClearJoinState();
                 return;
@@ -54,66 +57,52 @@ namespace DWMPHorde
 
             _joinViaSteam = net.IsSteamSession;
             BeginJoinTimer();
-            SetJoinProgress(_joinViaSteam ? "STEAM…" : "CONNECTING…");
+            MultiplayerScreens.OpenJoinProgress();
             ModLog.Event(LogCat.Session,
-                "Connect started outside the JOIN button (" + (_joinViaSteam ? "Steam invite/launch lobby" : "LAN")
+                "Connect started outside the Connect button (" + (_joinViaSteam ? "Steam invite/launch lobby" : "LAN")
                 + ") — join timeout armed.");
         }
 
         // ------------------------------------------------------------------
-        // Transient failure label (HOST/JOIN failures used to be log-only)
+        // Short-lived status line (HOST/JOIN failures, "lobby id copied")
         // ------------------------------------------------------------------
 
-        private const float FailureLabelSec = 4f;
-        private static GameObject _failBtn;
-        private static string _failRestore;
-        private static float _failUntil; // process-scoped: menu label timer
+        private const float FlashSec = 6f;
+        private static string _flash; // process-scoped: menu status line
+        private static float _flashUntil; // process-scoped: menu status line timer
 
-        private static bool FailureLabelActive =>
-            _failBtn != null && _failBtn && Time.realtimeSinceStartup < _failUntil;
+        /// <summary>Show <paramref name="english"/> on the multiplayer screens for a few seconds.</summary>
+        internal static void Flash(string english)
+        {
+            _flash = english;
+            _flashUntil = Time.realtimeSinceStartup + FlashSec;
+        }
 
-        private static string FailureLabel(string status, string fallback)
+        private static void ClearFlash()
+        {
+            _flash = null;
+        }
+
+        /// <summary>The current short-lived line, or null.</summary>
+        internal static string FlashLine =>
+            !string.IsNullOrEmpty(_flash) && Time.realtimeSinceStartup < _flashUntil ? _flash : null;
+
+        /// <summary>A failed HOST/JOIN status in plain words.</summary>
+        private static string FailureText(string status, string fallback)
         {
             if (string.IsNullOrEmpty(status))
                 return fallback;
             if (status.IndexOf("bind", StringComparison.OrdinalIgnoreCase) >= 0)
-                return "PORT IN USE";
-            if (status.IndexOf("unavailable", StringComparison.OrdinalIgnoreCase) >= 0)
-                return "STEAM NOT READY";
+                return "The port is already in use";
+            if (status.IndexOf("unavailable", StringComparison.OrdinalIgnoreCase) >= 0
+                || status.IndexOf("not initialized", StringComparison.OrdinalIgnoreCase) >= 0
+                || status.IndexOf("not logged on", StringComparison.OrdinalIgnoreCase) >= 0)
+                return "Steam is not running";
             if (status.IndexOf("Invalid", StringComparison.OrdinalIgnoreCase) >= 0)
-                return "BAD LOBBY ID";
+                return "That is not a Steam lobby id";
             if (status.IndexOf("lobby", StringComparison.OrdinalIgnoreCase) >= 0)
-                return "LOBBY MISSING";
+                return "The Steam lobby is gone";
             return fallback;
-        }
-
-        private static void ShowTransientFailure(GameObject button, string text, string restoreText)
-        {
-            if (button == null || !button)
-                return;
-            ClearFailureLabel();
-            _failBtn = button;
-            _failRestore = restoreText;
-            _failUntil = Time.realtimeSinceStartup + FailureLabelSec;
-            SetLabel(button, text);
-        }
-
-        private static void ClearFailureLabel()
-        {
-            if (_failBtn != null && _failBtn)
-                SetLabel(_failBtn, _failRestore);
-            _failBtn = null;
-            _failRestore = null;
-        }
-
-        /// <summary>Called from RefreshSessionButtons: put the label back once the timer is up.</summary>
-        private static void ExpireFailureLabel()
-        {
-            if (_failBtn == null)
-                return;
-            if (_failBtn && Time.realtimeSinceStartup < _failUntil)
-                return;
-            ClearFailureLabel();
         }
     }
 }

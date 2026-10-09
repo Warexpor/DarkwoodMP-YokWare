@@ -2,6 +2,8 @@
 # Pack the two loader builds into versioned release zips under artifacts/:
 #   DarkwoodMP-YokWare-<version>-BepInEx.zip
 #   DarkwoodMP-YokWare-<version>-MelonLoader.zip
+# plus the optional manual-saves add-on (F3) for each loader:
+#   YokWare-ManualSaves-<addon version>-<loader>.zip
 # Each holds DarkwoodMP.Mod.dll + LiteNetLib.dll (+ LICENSE and an INSTALL.txt generated from
 # PluginInfo.cs, so the text can never drift from the shipped version/protocol). The BepInEx zip is
 # flat (both DLLs go to BepInEx/plugins); the MelonLoader zip mirrors the game folder (Mods/ for the
@@ -41,6 +43,9 @@ if [[ "$NO_BUILD" -eq 0 ]]; then
   dotnet build DarkwoodMP.Mod -c Release -p:Loader=BepInEx -p:SkipDeploy=true --nologo
   echo "== Build MelonLoader =="
   dotnet build DarkwoodMP.Mod -c Release -p:Loader=MelonLoader -p:SkipDeploy=true --nologo
+  echo "== Build manual-saves add-on =="
+  dotnet build DarkwoodMP.ManualSaves -c Release -p:Loader=BepInEx -p:SkipDeploy=true --nologo
+  dotnet build DarkwoodMP.ManualSaves -c Release -p:Loader=MelonLoader -p:SkipDeploy=true --nologo
   echo "== Path B tests =="
   dotnet test DarkwoodMP.PathB.Tests -c Release --nologo
 fi
@@ -85,9 +90,9 @@ Wire protocol $PROTOCOL: every player in a session must run the same version.
 
 1. Install $( [[ "$loader" == "BepInEx" ]] && echo "BepInEx 5.x" || echo "MelonLoader 0.7.x" ) for Darkwood (one loader per game install).
 2. $step2
-3. Launch Darkwood. F2 opens the multiplayer window (HOST / JOIN are also on the title
-   screen). F3 manual save, F4 spectate, Ctrl+C chat. The F2 title should read
-   "YokWare Branch $VERSION / Path B" and the footer proto=$PROTOCOL.
+3. Launch Darkwood. MULTIPLAYER on the title screen and in the pause menu hosts, joins
+   and holds the settings; its screen shows "YokWare Branch $VERSION" at the bottom.
+   F4 spectate, Ctrl+C chat. Manual save slots (F3) are a separate optional add-on.
 4. Config file (created on first launch): $cfg
 License: GPLv3 (see LICENSE)
 TXT
@@ -101,8 +106,48 @@ TXT
   echo "  $zip"
 }
 
+make_addon_zip() {
+  local loader="$1"
+  local src="$ROOT/DarkwoodMP.ManualSaves/bin/Release/$loader/YokWare.ManualSaves.dll"
+  local addon_version
+  addon_version="$(grep -E 'const string Version *=' "$ROOT/DarkwoodMP.ManualSaves/PluginInfo.cs" | sed -E 's/.*"([^"]+)".*/\1/')"
+  local stage="$ART/stage-saves-$loader"
+  local zip="$ART/YokWare-ManualSaves-$addon_version-$loader.zip"
+  [[ -f "$src" ]] || { echo "error: missing $src (build the add-on first)" >&2; exit 1; }
+  mkdir -p "$stage"
+  local where
+  if [[ "$loader" == "BepInEx" ]]; then
+    cp "$src" "$stage/"
+    where="Darkwood/BepInEx/plugins/, next to DarkwoodMP.Mod.dll"
+  else
+    mkdir -p "$stage/Mods"
+    cp "$src" "$stage/Mods/"
+    where="Darkwood/Mods/, next to DarkwoodMP.Mod.dll"
+  fi
+  [[ -f "$ROOT/LICENSE" ]] && cp "$ROOT/LICENSE" "$stage/"
+  cat > "$stage/INSTALL.txt" <<TXT
+YokWare Manual Saves $addon_version - optional add-on to YokWare Branch $VERSION, $loader build
+
+Ten extra save slots per profile. F3 in the world opens them in the pause menu.
+Needs YokWare Branch installed. In co-op only the host saves; loading a slot needs
+the session left first (Multiplayer > Disconnect).
+
+Copy YokWare.ManualSaves.dll into $where.
+License: GPLv3 (see LICENSE)
+TXT
+  if command -v zip >/dev/null 2>&1; then
+    (cd "$stage" && zip -q -r "$zip" .)
+  else
+    (cd "$stage" && python3 -m zipfile -c "$zip" ./*)
+  fi
+  rm -rf "$stage"
+  echo "  $zip"
+}
+
 make_zip BepInEx
 make_zip MelonLoader
+make_addon_zip BepInEx
+make_addon_zip MelonLoader
 
 echo "Packed:"
 ls -l "$ART"/*.zip

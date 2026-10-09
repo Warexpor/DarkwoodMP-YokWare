@@ -52,38 +52,44 @@ points to the section with the full check.
 ## 2. Deploy and version
 
 - [ ] `md5sum` of `DarkwoodMP.Mod.dll` (and `LiteNetLib.dll`) matches on every box.
-- [ ] The F2 title reads **YokWare Branch &lt;version&gt; / Path B** and the footer shows
-      `proto=&lt;protocol&gt;` on every box, as in the README table. The log banner shows
-      the same `Protocol=`.
+- [ ] The bottom of the MULTIPLAYER screen reads **YokWare Branch &lt;version&gt;** on every
+      box, as in the README table. The log banner shows the `Protocol=` of the table.
 - [ ] The startup log has `Harmony: N patch classes applied, 0 critical / ...`. With a
       critical failure, HOST and JOIN show "Multiplayer disabled" and refuse.
 - [ ] A client on a different DLL is refused with a protocol mismatch, not half-joined.
 
 ## 3. Hosting and joining
 
-- [ ] The host loads a save and enters the chapter. The client's JOIN LAN goes through
-      CONNECTING, WAIT HOST (until the host is in the world), DOWNLOADING, CHOOSE SLOT
-      and ENTER WORLD.
-- [ ] Slot picker: an empty slot is used without asking; an occupied slot asks to
-      confirm, and Cancel clears the confirm; a slot from another campaign shows
-      `[DIFFERENT CAMPAIGN]`; a second connect does not show an old confirm.
+- [ ] The host loads a save and enters the chapter. The client's Join > Connect shows
+      "Connecting…", "waiting for the host to enter the game" (until the host is in the
+      world), the download percentage, then the profile picker opens by itself, then
+      Enter world.
+- [ ] Profile picker: an empty profile is used without asking; an occupied one asks in
+      the vanilla yes/no box (Overwrite / Cancel); one from another campaign is marked
+      "another campaign"; Back asks to leave the game.
+- [ ] Host this game (pause menu, single player): the world is opened to others in place
+      and a client joining from the title gets it.
 - [ ] A client claiming a world from another campaign is refused with WRONG SAVE.
 - [ ] A third player joins an active session; all three see each other.
 - [ ] A third player joins at night, during a fight and while another player is in a
       location: the night state, the creatures and that player's location are right.
-- [ ] Host start failure (a second host on the same port) shows PORT IN USE on the
-      button. JOIN STEAM with no lobby id shows SET LOBBY ID.
-- [ ] F2 fields: typing a port does not save per keystroke; closing the window saves;
-      a Steam lobby id the host just created is not overwritten by stale text.
+- [ ] Host start failure (a second host on the same port) shows "The port is already in
+      use" on the screen. Join the lobby with no lobby id asks for one.
+- [ ] Menu text fields: click, type, Enter keeps it, Esc drops it, a click elsewhere keeps
+      it; typing does not move the character, switch the hotbar or key the mic. A Steam
+      lobby id the host just created shows under Join.
+- [ ] Esc on any multiplayer screen goes back one screen (the confirm box first), never
+      straight out of the menu.
 - [ ] With `HostPassword` set on the host, a client with the wrong password is
       refused (LAN and Steam).
 - [ ] `MaxPlayers`: a player beyond the limit is refused.
 
 ## 4. Saving, leaving and rejoining
 
-- [ ] F3 on the host saves the world, and every client's copy and character are saved
-      at the same moment (`SaveSync` lines on both logs). F3 on a client refuses
-      ("only the host can save"). F3 Load refuses during a session.
+- [ ] With the manual-saves add-on: F3 on the host opens Saves; Save saves the world, and
+      every client's copy and character are saved at the same moment (`SaveSync` lines on
+      both logs). On a client Save is greyed out (only the host saves). Load is greyed out
+      during a session. Without the add-on F3 does nothing.
 - [ ] A client quits and rejoins: it gets its own bag, skills, level and position back,
       not the host's character.
 - [ ] A client drops briefly (pull the cable or kill the network for a few seconds):
@@ -138,7 +144,7 @@ points to the section with the full check.
       (creatures, clock, flares stop; the menu music plays). Any one closes it: the
       world runs again for everyone. A player joining while the others are paused
       unpauses the world.
-- [ ] **Pause menu, session paths:** the host presses F3 while the client sits in Esc
+- [ ] **Pause menu, session paths:** the host saves (F3 add-on, or the game's own save) while the client sits in Esc
       (the client's save still follows); the client quits to the title from Esc (its
       character is backed up, `[Backup]` lines on both logs); the client keeps
       sending its position while in Esc (its body does not freeze for the host).
@@ -343,7 +349,7 @@ points to the section with the full check.
 - [ ] Same look: stand host and client side by side in the open world, in a location
       the client entered first, in a dream, and next to a dog or spider pack the host
       spawned. Ground decals, bushes, tree tints and flips, dead-body twitches and
-      flickering fire animations match. Then the host reloads (F3, quit, load) and a
+      flickering fire animations match. Then the host reloads (save, quit, load) and a
       third player joins late: still the same. Each save writes `savcos.dat` next to
       `sav.dat` (host log: `[Cosmetic] roll seeds saved: N`; a load logs
       `[Cosmetic] roll seeds from save: N`).
@@ -383,10 +389,10 @@ Listen on the player who did not cause the sound.
 
 (Needs two real Steam accounts; the GOG install cannot use Steam.)
 
-- [ ] HOST STEAM creates a lobby and shows its id in F2. A friend joins from the invite
-      overlay; the 35 s join timeout applies.
+- [ ] Host > Steam creates a lobby; Multiplayer > Invite friends copies its id and opens
+      the invite overlay. A friend joins from the invite; the 35 s join timeout applies.
 - [ ] Launching the game from a pending invite (`+connect_lobby`) joins the same way.
-- [ ] A failed join (bad lobby id, Steam not ready) shows a button label, then reverts.
+- [ ] A failed join (bad lobby id, Steam not ready) shows a status line, then clears.
 - [ ] A Steam client is killed and rejoins the same lobby: one player, not two; with a
       host password set, the rejoin still has to pass it.
 

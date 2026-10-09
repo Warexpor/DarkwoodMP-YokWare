@@ -2,54 +2,29 @@ using System;
 using System.Collections.Generic;
 using DWMPHorde.Logging;
 using UnityEngine;
+using YokWare.VanillaMenu;
 
 namespace DWMPHorde
 {
     /// <summary>
-    /// Native tk2d title MULTIPLAYER button. Host/Join doors lead to LAN or Steam.
-    /// Presentation: clone quitBtn → strip LocalizedText/sprites → tk2dTextMesh from CurrentVersion.
+    /// The MULTIPLAYER entry of the title and pause menus (pixel-art button in the vanilla stack)
+    /// and the multiplayer screens behind it (<see cref="MultiplayerScreens"/>), plus the join flow
+    /// that runs while the player waits on the title screen.
     /// </summary>
     public static partial class MainMenuMultiplayerInject
     {
-        private enum PanelView
-        {
-            Root,
-            Host,
-            Join
-        }
-
         private const string MpButtonName = "YokWare_MultiplayerBtn";
-        private const string PanelName = "YokWare_MenuPanel";
         private const string LabelName = "YokWare_Label";
         private const string TagKindMp = "mp";
-        private const string TagKindPanel = "panel";
-        private const string TagKindRow = "row";
 
         private const float RowSpacing = 60f;
-        /// <summary>HOST/JOIN panel rows use tighter spacing than the title.</summary>
-        private const float PanelRowSpacing = 46f;
-        /// <summary>Panel tk2d labels vs Video/Profiles native size.</summary>
-        private const float PanelLabelScale = 0.70f;
         private const int UiPollInterval = 15;
         private const float JoinTimeoutSec = 15f;
         private const float SteamJoinTimeoutSec = 35f;
 
         private static MainMenu _menu;
         private static GameObject _mpButton;
-        private static GameObject _panel;
 
-        private static GameObject _hostDoorBtn;
-        private static GameObject _joinDoorBtn;
-        private static GameObject _settingsBtn;
-        private static GameObject _disconnectButton;
-        private static GameObject _backRootBtn;
-        private static GameObject _hostLanBtn;
-        private static GameObject _hostSteamBtn;
-        private static GameObject _joinLanBtn;
-        private static GameObject _joinSteamBtn;
-        private static GameObject _backSubBtn;
-
-        private static PanelView _panelView = PanelView.Root; // process-scoped: menu UI state
         private static bool _joinViaSteam; // process-scoped: menu UI state
         private static bool _hostingHint; // process-scoped: menu UI state
 
@@ -66,12 +41,12 @@ namespace DWMPHorde
         private static int _lastScreenH; // process-scoped: menu UI state
         private static bool _menu0WasActive; // process-scoped: menu UI state
         private static bool _launchLobbyTried; // process-scoped: launch-lobby connect is tried once per process
-
-        private static GameObject ActiveJoinButton =>
-            _joinViaSteam ? _joinSteamBtn : _joinLanBtn;
+        private static bool _wasAtTitle; // process-scoped: menu UI state
 
         public static void OnUpdate()
         {
+            // The mod's text follows the game's language (Options > Language), checked every frame.
+            Loc.SetLanguage(GameSettings.GetString("LanguageCode"));
             try
             {
                 TryConsumeSteamLaunchLobby();
@@ -80,6 +55,7 @@ namespace DWMPHorde
                     PollJoinState();
                 else
                     PollPostHandshakeWorldWait();
+                MultiplayerScreens.AutoOpen();
             }
             catch (Exception ex)
             {
@@ -117,7 +93,7 @@ namespace DWMPHorde
         {
             if (!Core.mainMenu)
             {
-                ResetTitleStack();
+                ResetMenuStack();
                 SoftClearMenuCache();
                 _menu0WasActive = false;
                 return;
@@ -127,17 +103,17 @@ namespace DWMPHorde
                 return;
 
             bool menu0Active = _menu.Menu0 != null && _menu.Menu0.activeInHierarchy;
-            bool panelActive = _panel != null && _panel && _panel.activeSelf;
-
-            if (panelActive && menu0Active)
+            bool atTitle = GameScreen.AtTitle;
+            if (atTitle != _wasAtTitle)
             {
-                _panel.SetActive(false);
-                panelActive = false;
+                // Title ↔ pause menu: the stack and the button row are different.
+                _wasAtTitle = atTitle;
+                ResetMenuStack();
             }
 
             if (menu0Active)
             {
-                ApplyTitleStack();
+                ApplyMenuStack();
                 bool becameActive = !_menu0WasActive;
                 int menu0Id = _menu.Menu0.GetInstanceID();
                 bool menuRebuilt = menu0Id != _boundMenu0Id;
@@ -147,6 +123,8 @@ namespace DWMPHorde
                     EnsureMultiplayerButton(forceRebuild: menuRebuilt || !IsOwnedInteractive(_mpButton, TagKindMp));
                 else if (resChanged)
                     RelayoutMultiplayerButton();
+                else
+                    SetRow(_mpButton, MultiplayerRowOffsetY());
 
                 _menu0WasActive = true;
             }
@@ -154,33 +132,13 @@ namespace DWMPHorde
             {
                 _menu0WasActive = false;
             }
-
-            if (panelActive)
-                RefreshSessionButtons();
         }
 
         private static void SoftClearMenuCache()
         {
             if (_mpButton != null && !_mpButton)
                 _mpButton = null;
-            if (_panel != null && !_panel)
-                ClearPanelRefs();
             _menu = null;
-        }
-
-        private static void ClearPanelRefs()
-        {
-            _panel = null;
-            _hostDoorBtn = null;
-            _joinDoorBtn = null;
-            _settingsBtn = null;
-            _disconnectButton = null;
-            _backRootBtn = null;
-            _hostLanBtn = null;
-            _hostSteamBtn = null;
-            _joinLanBtn = null;
-            _joinSteamBtn = null;
-            _backSubBtn = null;
         }
 
         private static bool ResolveMenu()
@@ -197,7 +155,8 @@ namespace DWMPHorde
 
             if (!forceRebuild && IsOwnedInteractive(_mpButton, TagKindMp))
             {
-                WireButton(_mpButton, OpenPanel);
+                WireButton(_mpButton, MultiplayerScreens.OpenRoot);
+                SetRow(_mpButton, MultiplayerRowOffsetY());
                 return;
             }
 
@@ -220,8 +179,7 @@ namespace DWMPHorde
         {
             if (!IsOwnedInteractive(_mpButton, TagKindMp) || _menu?.Menu0 == null)
                 return;
-            float y = TitleMultiplayerOffsetY();
-            SetRow(_mpButton, y);
+            SetRow(_mpButton, MultiplayerRowOffsetY());
             FitButtonHitbox(_mpButton);
             _lastScreenW = Screen.width;
             _lastScreenH = Screen.height;
@@ -251,69 +209,32 @@ namespace DWMPHorde
                 roots.Add(_menu.Menu0.transform);
             if (_menu?.quitBtn != null && _menu.quitBtn.transform.parent != null)
                 roots.Add(_menu.quitBtn.transform.parent);
-            if (_menu?.Menu0 != null && _menu.Menu0.transform.parent != null)
-                roots.Add(_menu.Menu0.transform.parent);
 
             var seen = new HashSet<int>();
             for (int r = 0; r < roots.Count; r++)
             {
                 Transform root = roots[r];
-                if (root == null)
-                    continue;
-                int rid = root.GetInstanceID();
-                if (!seen.Add(rid))
+                if (root == null || !seen.Add(root.GetInstanceID()))
                     continue;
 
                 var kill = new List<GameObject>(8);
-                CollectOurNodes(root, kill);
+                Transform[] all = root.GetComponentsInChildren<Transform>(true);
+                for (int i = 0; i < all.Length; i++)
+                {
+                    Transform t = all[i];
+                    if (t != null && t.name == MpButtonName)
+                        kill.Add(t.gameObject);
+                }
                 for (int i = 0; i < kill.Count; i++)
                 {
                     if (kill[i] == null || !kill[i])
                         continue;
-                    try
-                    {
-                        UnityEngine.Object.DestroyImmediate(kill[i]);
-                        n++;
-                    }
-                    catch
-                    {
-                        try { UnityEngine.Object.Destroy(kill[i]); n++; }
-                        catch { /* ignore */ }
-                    }
+                    UnityEngine.Object.DestroyImmediate(kill[i]);
+                    n++;
                 }
             }
-
-            ClearPanelRefs();
             return n;
         }
-
-        private static void CollectOurNodes(Transform root, List<GameObject> kill)
-        {
-            if (root == null)
-                return;
-            YokWareUiTag[] tags = root.GetComponentsInChildren<YokWareUiTag>(true);
-            for (int i = 0; i < tags.Length; i++)
-            {
-                if (tags[i] == null || tags[i].gameObject == null)
-                    continue;
-                if (tags[i].Kind == TagKindMp || tags[i].Kind == TagKindPanel)
-                    kill.Add(tags[i].gameObject);
-            }
-
-            Transform[] all = root.GetComponentsInChildren<Transform>(true);
-            for (int i = 0; i < all.Length; i++)
-            {
-                Transform t = all[i];
-                if (t == null)
-                    continue;
-                if (t.name != MpButtonName && t.name != PanelName)
-                    continue;
-                if (t.GetComponent<YokWareUiTag>() != null)
-                    continue;
-                kill.Add(t.gameObject);
-            }
-        }
-
 
         private sealed class YokWareUiTag : MonoBehaviour
         {
@@ -322,27 +243,29 @@ namespace DWMPHorde
             public string LabelEn;
         }
 
-        private static string _labelLanguage; // process-scoped: language the panel labels were last written in
+        private static string _labelLanguage; // process-scoped: language the menu was last written in
 
-        /// <summary>The game's language changed in Options: write every mod label again in it.</summary>
+        /// <summary>The game's language changed in Options: write the mod's menu again in it.</summary>
         private static void RelabelOnLanguageChange()
         {
             if (_labelLanguage == Loc.Language)
                 return;
+            bool first = _labelLanguage == null;
             _labelLanguage = Loc.Language;
-            var roots = new List<Transform>(2);
-            if (_mpButton != null && _mpButton) roots.Add(_mpButton.transform);
-            if (_panel != null && _panel) roots.Add(_panel.transform);
-            for (int r = 0; r < roots.Count; r++)
+            if (first)
+                return;
+            if (_mpButton != null && _mpButton)
             {
-                YokWareUiTag[] tags = roots[r].GetComponentsInChildren<YokWareUiTag>(true);
-                for (int i = 0; i < tags.Length; i++)
+                YokWareUiTag tag = _mpButton.GetComponent<YokWareUiTag>();
+                tk2dTextMesh tm = _mpButton.GetComponentInChildren<tk2dTextMesh>(true);
+                if (tag != null && tm != null && !string.IsNullOrEmpty(tag.LabelEn))
                 {
-                    if (tags[i] != null && !string.IsNullOrEmpty(tags[i].LabelEn))
-                        SetLabel(tags[i].gameObject, tags[i].LabelEn);
+                    tm.text = Loc.T(tag.LabelEn);
+                    tm.Commit();
+                    FitButtonHitbox(_mpButton);
                 }
             }
+            Vm.Current?.Rebuild();
         }
-
     }
 }

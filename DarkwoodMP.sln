@@ -9,6 +9,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DarkwoodMP.PathB.Tests", "D
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DarkwoodMP.EntitySpawner", "DarkwoodMP.EntitySpawner\DarkwoodMP.EntitySpawner.csproj", "{77EF8F05-6786-6F41-AF01-2245155EE1FE}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DarkwoodMP.ManualSaves", "DarkwoodMP.ManualSaves\DarkwoodMP.ManualSaves.csproj", "{1DD3ACDE-C43E-4A95-A782-13500B7200A3}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -47,6 +49,18 @@ Global
 		{77EF8F05-6786-6F41-AF01-2245155EE1FE}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{77EF8F05-6786-6F41-AF01-2245155EE1FE}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{77EF8F05-6786-6F41-AF01-2245155EE1FE}.Release|Any CPU.Build.0 = Release|Any CPU
+		{1DD3ACDE-C43E-4A95-A782-13500B7200A3}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{1DD3ACDE-C43E-4A95-A782-13500B7200A3}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{1DD3ACDE-C43E-4A95-A782-13500B7200A3}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{1DD3ACDE-C43E-4A95-A782-13500B7200A3}.Debug|x64.Build.0 = Debug|Any CPU
+		{1DD3ACDE-C43E-4A95-A782-13500B7200A3}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{1DD3ACDE-C43E-4A95-A782-13500B7200A3}.Debug|x86.Build.0 = Debug|Any CPU
+		{1DD3ACDE-C43E-4A95-A782-13500B7200A3}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{1DD3ACDE-C43E-4A95-A782-13500B7200A3}.Release|Any CPU.Build.0 = Release|Any CPU
+		{1DD3ACDE-C43E-4A95-A782-13500B7200A3}.Release|x64.ActiveCfg = Release|Any CPU
+		{1DD3ACDE-C43E-4A95-A782-13500B7200A3}.Release|x64.Build.0 = Release|Any CPU
+		{1DD3ACDE-C43E-4A95-A782-13500B7200A3}.Release|x86.ActiveCfg = Release|Any CPU
+		{1DD3ACDE-C43E-4A95-A782-13500B7200A3}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

@@ -352,11 +352,17 @@ namespace DWMPHorde
             // Entity spawner is a separate plugin: YokWare.EntitySpawner.
             root.AddComponent<CursorConfineFocusGuard>();
 
-            MultiplayerMenu.EnsureExists();
+            // Automatic saves stop the moment the game quits (OnApplicationQuit runs before any OnDestroy).
+            WorldSaveGuards.EnsureQuitHook();
+            root.AddComponent<WorldSaveQuitWatcher>();
+
+            // Menu screens (ours and the add-ons') speak the game's language and hold gameplay
+            // input while a field is typed in.
+            YokWare.VanillaMenu.Vm.Translate = Loc.T;
+            YokWare.VanillaMenu.Vm.EditLock = held => UiInputLock.Set("menu-edit", held);
+
             ChatHud.EnsureExists();
             Spectator.SpectatorModeController.EnsureExists();
-            ManualSaveGUI.EnsureExists();
-            JoinWorldSlotPicker.EnsureExists();
         }
 
         /// <summary>

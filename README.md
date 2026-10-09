@@ -5,7 +5,7 @@ join it: the same forest, the same nights, the same story, played together.
 
 | | |
 |--|--|
-| Product | YokWare Branch **0.8.180** |
+| Product | YokWare Branch **0.8.181** |
 | Wire | Horde protocol **47** |
 | Players | Up to 8 by default (`MaxPlayers`, host included) |
 | Transport | LAN (LiteNetLib) or Steam lobby (SteamNetworkingSockets) |
@@ -78,9 +78,8 @@ yourself (see [Building from source](#building-from-source)).
    `Darkwood/UserLibs/`.
 3. Launch Darkwood.
 
-To check the install, press **F2** in game: the window title shows
-`YokWare Branch <version> / Path B` and the footer shows the protocol, both as in
-the table above.
+To check the install, open **MULTIPLAYER** on the title screen: the bottom of the
+screen shows `YokWare Branch <version>`, as in the table above.
 
 ---
 
@@ -88,26 +87,28 @@ the table above.
 
 ### Host and join
 
-The title screen has a **MULTIPLAYER** button with **HOST**, **JOIN** and
-**SETTINGS** (LAN or Steam for each). The **F2** window in game has the same
-options.
+**MULTIPLAYER** sits under PLAY on the title screen and under OPTIONS in the pause
+menu. Its screens look and work like the game's own menus (Esc goes back):
 
-- **Host:** choose HOST LAN or HOST STEAM, then load or start a campaign and enter
-  a chapter. Players can join once the host is in the world; until then they see
-  "WAIT HOST".
-- **Join over LAN:** set the host's IP address (default port 7788) in SETTINGS or
-  F2, then JOIN LAN.
-- **Join over Steam:** accept the host's Steam invite, or set the lobby id in
-  SETTINGS and press JOIN STEAM. The host chooses the lobby type (friends, public or
-  private).
-- **Password:** optional. If the host sets `HostPassword`, every player needs the
-  same one.
+- **Host:** Host > Local network or Steam, then choose a profile and play. Players
+  can join once the host is in the world. In the pause menu, **Host this game**
+  opens the game you are playing to other players.
+- **Join over LAN:** Join, type the host's address (default port 7788) and, if the
+  host set one, the password, then **Connect**.
+- **Join over Steam:** accept the host's Steam invite, or type the lobby id under
+  Join and press **Join the lobby**. The host chooses the lobby type in Settings
+  (friends only, public or invite only).
+- **Settings:** your name, text and voice chat, push-to-talk key, voice and
+  footstep volume; the host's friendly fire, extra loot, player count, Steam lobby
+  type, port and password.
+- **In the pause menu:** Invite friends (Steam host), Send the world again (host),
+  Restore my character (client, when the automatic restore missed), Disconnect.
 
-When you join, you download the host's world, **CHOOSE SLOT** (one of your 5 save
-slots for your copy of it) and **ENTER WORLD**. Empty slots are safe; an occupied slot asks before it is
-overwritten, and a slot from a different campaign is marked
-`[DIFFERENT CAMPAIGN]`. Your other saves are not touched. Your character (bag,
-skills, level) is saved separately and comes back when you rejoin.
+When you join, you download the host's world and choose which of your 5 profiles
+keeps your copy of it, then **Enter world**. Empty profiles are safe; an occupied
+one asks before it is overwritten, and one from a different campaign is marked
+"another campaign". Your other saves are not touched. Your character (bag, skills,
+level) is saved separately and comes back when you rejoin.
 
 Only the host saves the world. When the host saves, every player's copy and
 character are saved with it.
@@ -118,8 +119,8 @@ A GOG copy of Darkwood has no Steam, so a GOG player joins over LAN.
 
 | Key | Action |
 |-----|--------|
-| **F2** | Multiplayer window (host, join, settings, session status) |
-| **F3** | Save (host only) |
+| **Esc** | Pause menu, with **MULTIPLAYER** (session, settings) |
+| **F3** | Save slots, with the optional manual-saves add-on |
 | **F4** | Spectate other players; also used while dead at night |
 | **Ctrl+C** | Text chat (Enter sends, Esc closes) |
 | **V** | Push-to-talk voice chat (needs a logged-in Steam client) |
@@ -132,7 +133,8 @@ Settings live in one INI file, created on first launch:
 - BepInEx: `Darkwood/BepInEx/config/com.yokware.branch.cfg`
 - MelonLoader: `UserData/YokWare/com.yokware.branch.cfg`
 
-Edit it with the game closed. The gameplay settings (friendly fire, loot sharing,
+The common ones are also in **Multiplayer > Settings**; edit the file itself with
+the game closed. The gameplay settings (friendly fire, loot sharing,
 party scaling) are the host's and apply to everyone. Every key and its default is
 in [CONFIG.md](DarkwoodMP.Mod/docs/CONFIG.md).
 
@@ -150,7 +152,7 @@ capture: [LOGGING.md](DarkwoodMP.Mod/docs/LOGGING.md).
 - Runtime verification of a full campaign with two and three players is still in
   progress. The per-area status is in
   [COOP_COVERAGE.md](DarkwoodMP.Mod/docs/COOP_COVERAGE.md).
-- The wrong-save warnings (slot picker, overwrite confirm, `WRONG SAVE` on join)
+- The wrong-save warnings (profile picker, overwrite confirm, `WRONG SAVE` on join)
   are in code; the multi-slot experience still needs a playtest.
 - There is no exclusive lock on containers or the workbench. Two players can have
   the same one open; the host settles any race and refunds the loser exactly.
@@ -236,6 +238,15 @@ install keeps its saves in its own `Darkwood_Second` folder automatically; set
 `SaveRootOverride` if both still share one. On Linux with Wayland and a
 Wine/Proton client, set `FreeCursorForDualBox = true` in both installs' config
 (it is off by default).
+
+### Manual saves (optional add-on)
+
+`DarkwoodMP.ManualSaves` builds `YokWare.ManualSaves.dll`, an optional add-on: ten
+extra save slots per profile, opened with **F3** in the world (a Saves screen in the
+pause menu). It needs the co-op mod next to it. In co-op only the host saves (every
+player's copy is saved with it), and loading a slot needs the session left first.
+Build it with `dotnet build DarkwoodMP.ManualSaves -c Release` (it deploys like the
+mod); the release ships it as its own zip.
 
 ### Entity spawner (optional)
 

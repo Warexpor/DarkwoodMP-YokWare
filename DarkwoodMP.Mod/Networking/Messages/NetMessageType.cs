@@ -367,7 +367,7 @@ namespace DWMPHorde.Networking
         /// <summary>
         /// Host→client: gameplay settings every peer must agree on (friendly fire, loot-share
         /// mode, double items, party multiplier). Sent after the handshake, on roster changes
-        /// and when the host changes them in the F2 menu.
+        /// and when the host changes them in Multiplayer > Settings.
         /// </summary>
         [HostOnly] SessionSettings = 146,
         /// <summary>

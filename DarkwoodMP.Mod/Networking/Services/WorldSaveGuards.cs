@@ -6,8 +6,8 @@ using UnityEngine;
 namespace DWMPHorde.Networking
 {
     /// <summary>
-    /// When the local world may be written to the profile. The manual F3 save and every automatic
-    /// host save (leave checkpoint, SaveSync apply) ask the same question here.
+    /// When the local world may be written to the profile. Every automatic host save (leave
+    /// checkpoint, SaveSync apply) and the optional manual-saves plugin ask the same question here.
     /// </summary>
     internal static class WorldSaveGuards
     {
@@ -71,6 +71,15 @@ namespace DWMPHorde.Networking
             return GetWorldSaveBlockReason();
         }
     }
+
+    /// <summary>Feeds <see cref="WorldSaveGuards.NoteQuitting"/> from OnApplicationQuit, which runs before any OnDestroy.</summary>
+    internal sealed class WorldSaveQuitWatcher : MonoBehaviour
+    {
+        private void OnApplicationQuit()
+        {
+            WorldSaveGuards.NoteQuitting();
+        }
+    }
 }
 
 namespace DWMPHorde.Patches
@@ -84,4 +93,5 @@ namespace DWMPHorde.Patches
         internal static bool IsChapterTransitionActive =>
             _chapterLoadPending || _hostAckCollecting || _hostCommitWaitRunning;
     }
+
 }
