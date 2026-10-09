@@ -3,8 +3,11 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.175**. The current Horde wire protocol is **45** (held for 0.8.171 to 0.8.175, bumped in 0.8.170:
-`Handshake` gains `WorldGeneratedLocally`, same DLL on both installs).
+**0.8.176**. The current Horde wire protocol is **46** (bumped in 0.8.176: `NightDeathState` gains
+the rejoin resume and its position, `PlayerDied` gains the dying player's home, the entity
+snapshot's second flag byte gains the in-sight bit; same DLL on every install).
+45 held for 0.8.171 to 0.8.175, bumped in 0.8.170:
+`Handshake` gains `WorldGeneratedLocally`.
 44 held for 0.8.166 to 0.8.169, bumped in 0.8.165: `ScenarioEventFired` gains the
 scenario name; `GameEventsFired` gains the scene-piece flag in 0.8.167.
 43 held for 0.8.162 to 0.8.164, bumped in 0.8.162: new `MapPinRequest` (166) and
@@ -37,6 +40,123 @@ removed), `ShadowEvent` its end and owner, `PlayerEffectSync` health, darkness a
 This file is a public ship log. Code-only status and runtime status are called
 out separately. A runtime item is not considered verified until it has been
 tested in the game.
+
+---
+
+## 0.8.176 — Nights, deaths, blood, skills and every creature with three players
+
+On top of 0.8.175. Protocol **46**. Three-player pilot runs of nights (deaths, spectating,
+a player quitting and rejoining while dead, the morning release), blood on the floor
+compared splat by splat on every machine, the skills that touch other players, and a sweep
+of the creatures (spawned beside a client and set on it; each game records the sounds it
+plays, the sweep lists what one game heard and another did not, where each sees the
+creature, and whether the client's blows land). New pilot commands: `spawn`, `aggro`,
+`kill <radius> all`, `comps`, `audio` / `audiodump` (a sound tap on
+`AudioController.PlayAudioItem`, pilot runs only), `perk` / `useskill`, `face … away`;
+`chars` shows a creature's sight state, `status` a dead stand-in. Scripts
+`enemy-sweep.sh` and `lone-aggro.sh`. Fixed:
+
+### Blood and gore
+
+- **A creature's hit on a client left two blood splats for everyone else** (one the client
+  placed, one the host added at its own random angle about 20 units off), and the client
+  saw one. A friendly-fire hit or the host's blow on a client did the same the other way:
+  two on the victim's screen. The victim's own getHit splat is now the only one, and it
+  reaches everyone; a blocked hit leaves none, as in vanilla (the host's extra splat
+  ignored blocking). Damage that arrives over the network (`DamagePlayer`, a friendly-fire
+  hit on the host) now forwards its splat too (`HitscanBloodPatch.OwnHitDepth`); the host
+  splats in `HandleEnemyHitConfirm`, the host-melee-on-stand-in path and
+  `BroadcastFriendlyFireBlood` are gone. Verified: three chomper bites, three splats, the
+  same positions on all three games.
+- Bleeding leaves no drips in this game build (vanilla's `waitToBleed` asks the FX pool for
+  `BleedSplat`, which the pool does not have, and stops there), so there is no trail to
+  share; nothing changed.
+
+### Creatures
+
+- **A swamper's spit never left its puddle on clients.** The landing spawns a trap prefab
+  (`swamper_splatSpawner_chain_*`), sent by name; the client looked for it everywhere but
+  `Traps/`, logged "NOT FOUND", and its splats' events waited 60 s and were dropped. The
+  same lookup lost a thrown bottle's broken glass. `Traps/` is searched now; the puddle
+  chain is in the same 16 spots on every game.
+- **The human spider's watched state existed only on the host.** It slows and stops its
+  glow while any player watches it and starts a creeping loop when nobody does
+  (`InSightOfPlayer`, decided on the host from every player's view); a client's copy has
+  its own sight check off, so it never glowed down nor played the loop. The host's state
+  travels in the entity snapshot and the copy runs the same step
+  (`CreatureSightState`).
+- **A creature's first sounds were lost on clients** (a crawling hand's birth cry, a fresh
+  dog's sniff): the host plays them before the creature's first snapshot has made the
+  client's copy, and the client dropped them ("no char/sounds"). They wait up to 1.5 s for
+  the copy now (`WorldFxNetHandlers.TickEarlySounds`).
+- **A creature checking out a house went for a random room when it hunted a client.**
+  Vanilla sends it to the waypoint nearest the player it hunts when that player is indoors,
+  reading the host only; for a client's stand-in it now does the same
+  (`HostCheckOutLocationPatch`).
+- Checked and matching on all three games (positions, the attacks landing on the client,
+  every sound): human spider (the thrown hand, the crawling hand, their sounds),
+  centipede, banshee and her babies, kamikaze (runs at its target and blows up; its blast
+  damages the client), wolfman, dogs, mutated dog, black and red chompers, swamper,
+  redneck with thrown rocks, redneck with the reach attack, villagers (plain, pitchfork,
+  torch, burning), banshee babies, deer, pig, raven, the bride chomper, the half chomper,
+  night worms, the worm swarm, the big mutant pig, the crawling hand on its own. Creature
+  loops (a dog's growl, a chomper's idle and aggressive breathing) play on every game.
+  Hard-night worms came for a client out in the dark and killed it while the two players
+  in the lit hideout were left alone.
+
+### Players
+
+- **A stand-in could stay behind its player for good.** It follows by physics, so after a
+  short move across something (a teleport under the 150-unit snap, a respawn, a corpse or
+  wall between) it stuck on the obstacle while the player stood still: the host fought the
+  wrong spot and refused the player's blows as out of range. A stand-in more than 40
+  units off its player for half a second now jumps to it.
+
+### Deaths and nights
+
+- **Quitting and rejoining undid a night death.** The host forgot a leaver's death, so a
+  player who died at night came back alive and fighting. The host keeps this night's
+  deaths by lasting identity (Steam id or install key); a rejoiner is down again until
+  morning (spectating, dead for the others, counted for the all-dead morning). Verified:
+  died, quit, rejoined mid-night, spectating; released at dawn.
+- **A client's day death cleared the host's hideout, not the client's.** The dying client
+  now sends its home, and the host returns creatures and clears traps and infection there.
+  Verified: a client homed at another hideout died; the host cleared that hideout.
+- **Worms:** the host in a dream stopped every player's worms, and a player in a dream got
+  worms placed around the far-off dream pad. Each player is checked on its own now.
+- **Dreamers who all died with the host outside the dream spectated forever** (the all-dead
+  check required the host to have died in it).
+- A night-dead spectator follows a living player out in the night before one in a dream.
+- **A player down until morning reported full health** (the spectator mode restores the
+  body), which "the player's health" story checks and the desync check read. It reports 0.
+- Verified as before: a night death spectates (others see the body dead), two of three dead
+  wait for the survivor, morning releases everyone home.
+
+### Skills
+
+- **A returning client kept the host's perks.** Its restore cleared the host's chosen flags
+  but not their effects (shaky hands, weak regeneration, far sight, less stamina, the
+  shadows flag) nor the activated-skill lists. The host's perks are now taken off the
+  vanilla way before the client's own go on.
+- Checked: a client's ninja hides it from the host's creatures (a chomper beside it never
+  picked it; visible, it did at once), a client's scary face sends the host's creatures
+  running and the others see the face.
+
+### Verified in the pilot / code only
+
+Verified with three players: the blood, the swamper puddles, the spider's sight state, the
+early creature sounds, the stand-in catch-up, the night death rejoin, the day-death home
+clear, the returning client's perks (the host's shaky hands and weak regeneration stayed
+off it, its own runner kept), a downed player's 0 health. Code only, not run in a game: the
+per-player worm dream check, the all-dead dream end with the host outside it, the
+spectator's preference for a player outside a dream, and the house check-out toward a
+client.
+
+### Balance (unchanged, by design)
+
+Night monsters come at vanilla's pace and count per hideout with a player in it, not per
+player; worms and shadow waves are per player; the night type is one for the world.
+Creature health and damage are not scaled. See `HOW_COOP_WORKS.md` section 18.
 
 ---
 

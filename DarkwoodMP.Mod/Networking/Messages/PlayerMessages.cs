@@ -409,6 +409,12 @@ namespace DWMPHorde.Networking
         /// only of such deaths is a coordinated game over.
         /// </summary>
         public bool PermadeathEligible;
+        /// <summary>
+        /// Where the dying player gets up again (its home hideout's spawn; none: no home). The
+        /// host clears that hideout for a day death, not its own. Protocol 46.
+        /// </summary>
+        public bool HasHome;
+        public float HomeX, HomeY, HomeZ;
 
         public void Serialize(NetWriter w)
         {
@@ -416,6 +422,8 @@ namespace DWMPHorde.Networking
             w.Put(IsNight);
             w.Put(HasDropBag);
             w.Put(PermadeathEligible);
+            w.Put(HasHome);
+            w.Put(HomeX); w.Put(HomeY); w.Put(HomeZ);
         }
         public static PlayerDiedMessage Deserialize(NetReader r) => new PlayerDiedMessage
         {
@@ -424,7 +432,9 @@ namespace DWMPHorde.Networking
             PosZ = r.GetFloat(),
             IsNight = r.GetBool(),
             HasDropBag = r.GetBool(),
-            PermadeathEligible = r.GetBool()
+            PermadeathEligible = r.GetBool(),
+            HasHome = r.GetBool(),
+            HomeX = r.GetFloat(), HomeY = r.GetFloat(), HomeZ = r.GetFloat()
         };
     }
 

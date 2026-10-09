@@ -94,7 +94,8 @@ namespace DWMPHorde.Networking
 
             if (_net.Role == NetworkRole.Host)
             {
-                DeathStateTracker.HostClearHomeForRespawn();
+                DeathStateTracker.HostClearHomeForRespawn(msg.HasHome
+                    ? new Vector3(msg.HomeX, msg.HomeY, msg.HomeZ) : (Vector3?)null);
                 RequestRemoteDeathSave();
             }
         }
@@ -177,10 +178,20 @@ namespace DWMPHorde.Networking
 
         internal void HandleNightDeathState(NightDeathStateMessage msg)
         {
+            int hostId = _net.HostPlayerId > 0 ? _net.HostPlayerId : 1;
+            if (msg.ResumeDead)
+            {
+                // Host: this player died this night before it left; it is down until the morning.
+                if (_net.Role != NetworkRole.Client || _net.CurrentReceivePlayerId != hostId
+                    || DeathStateTracker.LocalNightDeath)
+                    return;
+                ModRuntime.LegacyInfo("[Death] Rejoined after dying this night — spectating until morning");
+                DeathStateTracker.OnLocalNightDeath(new Vector3(msg.PosX, msg.PosY, msg.PosZ));
+                Patches.NightDeathSkipDayPatch.EnterNightDeathSpectator();
+                return;
+            }
             if (!msg.AllDeadTrigger && !msg.PartyWipe)
                 return;
-
-            int hostId = _net.HostPlayerId > 0 ? _net.HostPlayerId : 1;
 
             // Host is sole AllDeadTrigger emitter (DeathStateTracker.TryResolveNightMorning).
             if (_net.Role == NetworkRole.Host)

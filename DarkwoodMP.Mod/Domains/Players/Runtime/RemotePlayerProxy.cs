@@ -16,6 +16,9 @@ namespace DWMPHorde.Players
         private Vector3 _targetPosition;
         private float _targetRotationY;
         private Vector3 _pushOffset;
+        private float _blockedTime;
+        private const float BlockedLagDistance = 40f;
+        private const float BlockedSnapSeconds = 0.5f;
         private bool _hasState;
         private bool _firstState = true;
         private Rigidbody _rb;

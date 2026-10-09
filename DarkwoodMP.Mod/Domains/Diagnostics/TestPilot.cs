@@ -46,6 +46,15 @@ namespace DWMPHorde.Sync
         private static readonly Dictionary<string, int> _decisionTurns = new Dictionary<string, int>(); // process-scoped: next branch per decision
         private static string[] _atCmd;             // process-scoped: "at" command waiting for its moment
         private static long _atMs;                  // process-scoped: when (Unix ms) it runs
+        private static readonly List<KeyValuePair<string, Vector3>> _sounds = new List<KeyValuePair<string, Vector3>>(); // process-scoped: "audio" recording
+        private static float _soundsUntil;          // process-scoped: "audio" recording end
+
+        /// <summary>A sound started (PilotAudioTap), kept while "audio" records.</summary>
+        internal static void NoteSound(string name, Vector3 at)
+        {
+            if (Time.realtimeSinceStartup < _soundsUntil && _sounds.Count < 20000)
+                _sounds.Add(new KeyValuePair<string, Vector3>(name ?? "?", at));
+        }
 
         /// <summary>Each distinct Unity error or exception: the first three with their stack, then a count.</summary>
         private static void OnUnityLog(string message, string stack, LogType type)
@@ -531,6 +540,34 @@ namespace DWMPHorde.Sync
                     Out("  " + a[1] + "=" + f.GetValue(p.skills));
                     return;
                 }
+                case "perk":
+                case "useskill":
+                {
+                    // "perk <name> [0]": take (or drop) a level-up skill as the skills menu's confirm
+                    // does (PlayerSkill.initialize). "useskill <name>": press its skill key (activate).
+                    PlayerSkill sk = null;
+                    foreach (PlayerSkill s in p.skills.progressionSkills)
+                        if (s != null && string.Equals(s.gameObject.name, a[1], StringComparison.OrdinalIgnoreCase))
+                            sk = s;
+                    if (sk == null) { Out("  no skill " + a[1]); return; }
+                    if (a[0] == "perk")
+                        sk.initialize(destBool: a.Length < 3 || a[2] != "0");
+                    else
+                        sk.activate();
+                    Out("  " + sk.gameObject.name + " chosen=" + sk.chosen + " used=" + sk.timesUsed + "/" + sk.maxUses
+                        + " skills=" + p.skills.skills.Count + " invisible=" + p.invisible + " handling=" + p.handlingModifier
+                        + " maxHp=" + Mathf.RoundToInt(p.maxHealth));
+                    return;
+                }
+                case "effect":
+                {
+                    // "effect <CharacterEffectType> <seconds> [magnitude]": put an effect on this
+                    // player, as a sensor's effects list does (bleeding, poison...).
+                    var type = (CharacterEffectType)Enum.Parse(typeof(CharacterEffectType), a[1], ignoreCase: true);
+                    p.effects.activate(type, F(a[2]), a.Length > 3 ? F(a[3]) : 0f);
+                    Out("  " + type + " on, bleeding=" + p.bleeding + " hp=" + Mathf.RoundToInt(p.health));
+                    return;
+                }
                 case "shadows":
                     // The Shadows perk's night step (a night scene's tryToSpawnShadow on this player).
                     p.tryToSpawnShadow();
@@ -594,7 +631,7 @@ namespace DWMPHorde.Sync
                 }
                 case "face":
                 {
-                    // "face <name>": turn toward the nearest object of that name, as the cursor would.
+                    // "face <name> [away]": turn toward (or away from) the nearest object of that name, as the cursor would.
                     Transform best = null;
                     float bestD = float.MaxValue;
                     foreach (Transform t in UnityEngine.Object.FindObjectsOfType<Transform>())
@@ -606,6 +643,8 @@ namespace DWMPHorde.Sync
                     }
                     if (best == null) { Out("  nothing named like " + a[1]); return; }
                     Vector3 dir = best.position - p.transform.position;
+                    if (a.Length > 2 && a[2] == "away")
+                        dir = -dir;
                     p.transform.rotation = Quaternion.Euler(90f, Mathf.Atan2(dir.x, dir.z) * Mathf.Rad2Deg, 0f);
                     Out("  facing " + best.name + " d=" + bestD.ToString("0", CultureInfo.InvariantCulture));
                     return;
@@ -681,6 +720,7 @@ namespace DWMPHorde.Sync
                             + " hp=" + (cb != null ? Mathf.RoundToInt(cb.health) : -1) + " target=" + tgt
                             + " beh=" + c.behaviour + " sleep=" + c.sleeping + " isActive=" + c.isActive
                             + " seen=" + c.canSeeEnemyFar + " enabled=" + c.enabled
+                            + (CreatureSightState.Of(c) is InSightOfPlayer isp ? " sight=" + (isp.firedInSight ? "in" : "out") : "")
                             + (c.AIpath != null ? " path(move=" + c.AIpath.canMove + " search=" + c.AIpath.canSearch
                                 + " on=" + c.AIpath.enabled + " to=" + (c.AIpath.target != null ? c.AIpath.target.name : Pos(c.AIpath.targetPos))
                                 + " reached=" + c.AIpath.TargetReached + " v=" + Mathf.RoundToInt(c.GetComponent<Rigidbody>() != null ? c.GetComponent<Rigidbody>().velocity.magnitude : -1) + ")" : " nopath");
@@ -720,10 +760,106 @@ namespace DWMPHorde.Sync
                             && c.GetComponent<RemotePlayerProxy>() == null && c.gameObject != p.gameObject)
                             list.Add(c);
                     }
+                    if (a.Length > 2 && a[2] == "all")
+                    {
+                        // "kill <radius> all": every creature within it (a sweep's clean slate).
+                        float r = F(a[1]);
+                        int killed = 0;
+                        foreach (Character c in list)
+                            if (Flat(p.transform.position, c.transform.position) <= r)
+                            {
+                                c.die();
+                                killed++;
+                            }
+                        Out("  killed " + killed);
+                        return;
+                    }
                     Character target = Nearest(list, a.Length > 1 ? F(a[1]) : 15f);
                     if (target == null) { Out("  nothing alive near"); return; }
                     target.die();
                     Out("  killed " + target.name + "@" + Pos(target.transform.position));
+                    return;
+                }
+                case "spawn":
+                {
+                    // "spawn <type> [dist] [count] [attack]": creatures from Characters/ beside this
+                    // player, as a night event's CharacterSpawner.spawnCharacterAround does (attack 1:
+                    // attackPlayer, the host).
+                    if (net.Role == NetworkRole.Client) { Out("  host or offline only"); return; }
+                    float dist = a.Length > 2 ? F(a[2]) : 150f;
+                    int count = a.Length > 3 ? int.Parse(a[3], CultureInfo.InvariantCulture) : 1;
+                    bool attack = a.Length > 4 && a[4] == "1";
+                    CharacterSpawner spawner = Singleton<CharacterSpawner>.Instance;
+                    for (int i = 0; i < count; i++)
+                    {
+                        Vector3 at = p.transform.position + new Vector3(dist, 0f, 40f * i);
+                        Character c = spawner.spawnCharacterAround(p.gameObject, at, 1f, a[1], nocturnal: false, attackPlayer: attack);
+                        if (c == null) { Out("  spawn " + a[1] + " failed"); return; }
+                        CharacterTracker.TryGetStableId(c, out short sid);
+                        Out("  spawned " + c.name + " id=" + sid + "@" + Pos(c.transform.position));
+                    }
+                    return;
+                }
+                case "aggro":
+                {
+                    // "aggro <name> <me|player id> [radius]": the nearest creature of that name attacks
+                    // that player (Character.attackCharacter, what seeing them does).
+                    float radius = a.Length > 3 ? F(a[3]) : 2000f;
+                    Transform target = a[2] == "me" ? p.transform
+                        : net.GetProxy(int.Parse(a[2], CultureInfo.InvariantCulture)) is RemotePlayerProxy tp ? tp.transform : null;
+                    if (target == null) { Out("  no player " + a[2]); return; }
+                    int n = CharacterTracker.CopyAll(out Character[] buf);
+                    var list = new List<Character>(n);
+                    for (int i = 0; i < n; i++)
+                        if (buf[i] != null && buf[i].gameObject != p.gameObject && buf[i].GetComponent<RemotePlayerProxy>() == null
+                            && buf[i].name.IndexOf(a[1], StringComparison.OrdinalIgnoreCase) >= 0)
+                            list.Add(buf[i]);
+                    Character who = Nearest(list, radius);
+                    if (who == null) { Out("  no " + a[1] + " near"); return; }
+                    who.attackCharacter(target);
+                    Out("  " + who.name + "@" + Pos(who.transform.position) + " attacks " + target.name + " beh=" + who.behaviour);
+                    return;
+                }
+                case "comps":
+                {
+                    // "comps <Type> [radius]": every live component of that game type near (gore,
+                    // projectiles, decals...), switched off ones excluded.
+                    Type t = AccessTools.TypeByName(a[1]);
+                    if (t == null || !typeof(Component).IsAssignableFrom(t)) { Out("  no component type " + a[1]); return; }
+                    var list = new List<Component>();
+                    foreach (UnityEngine.Object o in UnityEngine.Object.FindObjectsOfType(t))
+                        if (o is Component c && c != null)
+                            list.Add(c);
+                    ListNear(list, a.Length > 2 ? F(a[2]) : 400f, c => (c.transform.parent != null ? "in " + c.transform.parent.name : "root"));
+                    Out("  " + list.Count + " " + t.Name + " in the scene");
+                    return;
+                }
+                case "audio":
+                    // "audio <seconds>": record every sound started (AudioController.PlayAudioItem).
+                    _sounds.Clear();
+                    _soundsUntil = Time.realtimeSinceStartup + F(a[1]);
+                    Out("  recording sounds for " + a[1] + "s");
+                    return;
+                case "audiodump":
+                {
+                    // "audiodump [radius] [filter]": the recorded sounds near this player, by name.
+                    float radius = a.Length > 1 ? F(a[1]) : float.MaxValue;
+                    string filter = a.Length > 2 ? a[2] : null;
+                    var byName = new SortedDictionary<string, int>(StringComparer.Ordinal);
+                    var where = new Dictionary<string, Vector3>();
+                    foreach (KeyValuePair<string, Vector3> s in _sounds)
+                    {
+                        if (Flat(p.transform.position, s.Value) > radius
+                            || (filter != null && s.Key.IndexOf(filter, StringComparison.OrdinalIgnoreCase) < 0))
+                            continue;
+                        byName.TryGetValue(s.Key, out int c);
+                        byName[s.Key] = c + 1;
+                        if (!where.ContainsKey(s.Key))
+                            where[s.Key] = s.Value;
+                    }
+                    foreach (KeyValuePair<string, int> kv in byName)
+                        Out("  " + kv.Key + " x" + kv.Value + " first@" + Pos(where[kv.Key]));
+                    Out("  " + byName.Count + " sound(s) of " + _sounds.Count + " recorded");
                     return;
                 }
                 case "flag":
@@ -1346,6 +1482,7 @@ namespace DWMPHorde.Sync
                 if (proxy != null)
                     sb.Append(" | p").Append(proxy.PlayerId).Append('@').Append(Pos(proxy.transform.position))
                         .Append(" hp%=").Append(proxy.RemoteHealthPct)
+                        .Append(proxy.CachedCharBase != null && !proxy.CachedCharBase.alive ? " dead" : "")
                         .Append(proxy.RemoteInEpilogue ? " ending" : "");
             Out(sb.ToString());
         }
@@ -1409,6 +1546,20 @@ namespace DWMPHorde.Sync
                     DateTime.Now.ToString("HH:mm:ss", CultureInfo.InvariantCulture) + " " + line + "\n");
             }
             catch (IOException) { }
+        }
+    }
+
+    /// <summary>Pilot runs only: notes each sound started, for "audio" / "audiodump".</summary>
+    [HarmonyPatch(typeof(AudioController), nameof(AudioController.PlayAudioItem))]
+    internal static class PilotAudioTap
+    {
+        private static bool Prepare() => TestPilot.Active;
+
+        private static void Postfix(AudioItem sndItem, Vector3 worldPosition, AudioObject __result)
+        {
+            if (sndItem == null)
+                return;
+            TestPilot.NoteSound(sndItem.Name, __result != null ? __result.transform.position : worldPosition);
         }
     }
 }

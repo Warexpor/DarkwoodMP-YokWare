@@ -492,6 +492,7 @@ namespace DWMPHorde.Networking
                 flier.inFlight = e.InFlight;
                 flier.diving = e.Diving;
             }
+            DWMPHorde.Sync.CreatureSightState.Apply(c, e.InSight);
 
             bool wasAlive = state.alive;
             ApplyAuthoritativeBody(c, e.Index, e.Alive, e.Downed, e.HealthPct, e.Clip, e.ClipFrame, state,

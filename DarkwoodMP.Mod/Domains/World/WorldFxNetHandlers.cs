@@ -33,6 +33,16 @@ namespace DWMPHorde.Networking
             CharacterSounds s = c != null ? c.sounds : null;
             if (s == null)
             {
+                // A creature's first sounds (a crawling hand's birth, a summoned dog's howl) come
+                // before its first snapshot made the copy: held a moment for it, not lost.
+                if (msg.Kind != EntitySoundKind.Death && msg.Kind != EntitySoundKind.GetHit
+                    && _earlySounds.Count < MaxEarlySounds)
+                {
+                    _earlySounds.Add(new KeyValuePair<float, EntitySoundMessage>(Time.unscaledTime, msg));
+                    EntitySyncLog.Reaction("snd:early",
+                        "[EntitySound] held for its copy id=" + msg.HostId + " sound=" + msg.SoundId, 2f);
+                    return;
+                }
                 EntitySyncLog.Reaction("snd:miss",
                     "[EntitySound] no char/sounds id=" + msg.HostId + " kind=" + msg.Kind, 2f);
                 return;
@@ -235,7 +245,37 @@ namespace DWMPHorde.Networking
         private float _nextHeldClaimRetry;
         private const float HoldClaimSec = 20f;
 
-        internal void ClearHeldClaims() => _heldClaims.Clear();
+        internal void ClearHeldClaims()
+        {
+            _heldClaims.Clear();
+            _earlySounds.Clear();
+        }
+
+        private const int MaxEarlySounds = 32;
+        private const float EarlySoundWait = 1.5f;
+        private readonly List<KeyValuePair<float, EntitySoundMessage>> _earlySounds = new List<KeyValuePair<float, EntitySoundMessage>>(8);
+
+        /// <summary>Client: play the held sounds whose creature has its copy now; drop stale ones.</summary>
+        internal void TickEarlySounds()
+        {
+            if (_earlySounds.Count == 0 || _net.Role != NetworkRole.Client)
+                return;
+            float now = Time.unscaledTime;
+            for (int i = _earlySounds.Count - 1; i >= 0; i--)
+            {
+                KeyValuePair<float, EntitySoundMessage> held = _earlySounds[i];
+                if (now - held.Key > EarlySoundWait)
+                {
+                    _earlySounds.RemoveAt(i);
+                    continue;
+                }
+                Character c = CharacterTracker.FindByStableId(held.Value.HostId);
+                if (c == null || c.sounds == null)
+                    continue;
+                _earlySounds.RemoveAt(i);
+                HandleEntitySound(held.Value);
+            }
+        }
 
         internal void TickHeldClaims()
         {

@@ -113,7 +113,7 @@ namespace DWMPHorde.Networking
         public byte Flags;
         /// <summary>
         /// bit0=animating (the host keeps the clip moving), bit1=flier in flight, bit2=flier
-        /// diving, bit3=<see cref="PrevClip"/> follows.
+        /// diving, bit3=<see cref="PrevClip"/> follows, bit4=in sight (InSightOfPlayer).
         /// </summary>
         public byte Flags2;
         /// <summary>
@@ -138,6 +138,8 @@ namespace DWMPHorde.Networking
         public const byte Flag2InFlight = 2;
         public const byte Flag2Diving = 4;
         public const byte Flag2PrevClip = 8;
+        /// <summary>The host's InSightOfPlayer in-sight step has run (Sync.CreatureSightState).</summary>
+        public const byte Flag2InSight = 16;
 
         public bool Sleeping => (Flags & FlagSleeping) != 0;
         public bool Eating => (Flags & FlagEating) != 0;
@@ -147,6 +149,7 @@ namespace DWMPHorde.Networking
         public bool InFlight => (Flags2 & Flag2InFlight) != 0;
         public bool Diving => (Flags2 & Flag2Diving) != 0;
         public bool HasPrevClip => (Flags2 & Flag2PrevClip) != 0;
+        public bool InSight => (Flags2 & Flag2InSight) != 0;
 
         public Character.Behaviour PackedBehaviour
         {

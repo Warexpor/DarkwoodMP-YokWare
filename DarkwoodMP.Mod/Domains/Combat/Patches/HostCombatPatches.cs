@@ -139,31 +139,8 @@ namespace DWMPHorde.Patches
             // No hit sound here: the victim's own getHit plays it (hit, blocked or dodged) and
             // sends it, so the host and every other peer hear it once on the stand-in.
 
-            // Find hit point on proxy
-            Vector3 hitPoint = _collider.ClosestPoint(atkPos);
-
-            // Spawn blood locally — nest-safe apply flag so we do not clobber an
-            // outer NetworkApplyGuard / TraverseHack scope.
-            bool inWater = proxyCB != null && proxyCB.inWater;
-            string bloodPrefab = inWater ? "FX/Bloodsplats/Shotsplat" : "FX/Bloodsplats/Shotsplat_stay";
-            float rotY = __instance.attackerTransform != null ? __instance.attackerTransform.eulerAngles.y : 0f;
-            float rotVariance = Random.Range(-20f, 20f);
-            bool prevHack = TraverseHack.GetExplicitFlag();
-            TraverseHack.SetExplicitFlag(true);
-            try { Core.AddPrefab(bloodPrefab, hitPoint, Quaternion.Euler(90f, rotY + rotVariance, 0f), null); }
-            finally { TraverseHack.SetExplicitFlag(prevHack); }
-
-            ModRuntime.Network?.Broadcast(NetMessageType.BulletImpact, w => new BulletImpactMessage
-            {
-                PrefabName = bloodPrefab,
-                PoolName = "",
-                PosX = hitPoint.x,
-                PosY = hitPoint.y,
-                PosZ = hitPoint.z,
-                RotX = 90f,
-                RotY = rotY + rotVariance,
-                RotZ = 0f
-            }.Serialize(w), DeliveryMethod.ReliableOrdered);
+            // No splat here: the victim's own getHit (DamagePlayer) shows its blood to everyone,
+            // none on a block; one from the host as well doubled it.
 
             var msg = new DamagePlayerMessage
             {

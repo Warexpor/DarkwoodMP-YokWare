@@ -54,6 +54,14 @@ namespace DWMPHorde
 
         private static readonly Dictionary<int, Vector3> _remoteDeathPositions = new Dictionary<int, Vector3>();
 
+        /// <summary>
+        /// Host: this night's dead peers by their lasting identity (Steam id or LAN install key),
+        /// with where they fell. A peer that left and comes back the same night gets a new player
+        /// id; by this it is down again instead of up and fighting.
+        /// </summary>
+        private static readonly Dictionary<string, KeyValuePair<Vector3, bool>> _nightDeadByIdentity =
+            new Dictionary<string, KeyValuePair<Vector3, bool>>();
+
         public static bool AllDeadAtNight => LocalNightDeath && AllRemoteDead;
 
         public static bool RemoteNightDeath => RemoteNightDeathCount > 0;
@@ -156,6 +164,7 @@ namespace DWMPHorde
             _remoteDeathPositions.Clear();
             _remotePermadeathEligible.Clear();
             PartyWipeDeclared = false;
+            _nightDeadByIdentity.Clear();
             _nightParticipantIds.Clear();
             _nightParticipantsCaptured = false;
             _resolvingMorning = false;
@@ -254,6 +263,9 @@ namespace DWMPHorde
             _remoteDeathPositions[playerId] = pos;
             if (permadeathEligible)
                 _remotePermadeathEligible.Add(playerId);
+            string identity = IdentityOf(ModRuntime.Network, playerId);
+            if (identity != null)
+                _nightDeadByIdentity[identity] = new KeyValuePair<Vector3, bool>(pos, permadeathEligible);
             RemoteNightDeathCount = _remoteDeathPositions.Count;
             _armDeathSaveSuppress = true;
             ModLog.Event(LogCat.Death, $"Remote night death for player {playerId} (count={RemoteNightDeathCount}/{TotalRemoteCount})");
@@ -305,6 +317,7 @@ namespace DWMPHorde
             if (playerId <= 0) return false;
 
             bool wasNightDead = _remoteDeathPositions.Remove(playerId);
+            // _nightDeadByIdentity keeps it: the same player rejoining this night is still down.
             _remotePermadeathEligible.Remove(playerId);
             _morningDeadIds.Remove(playerId);
             RemoteNightDeathCount = _remoteDeathPositions.Count;
@@ -440,6 +453,7 @@ namespace DWMPHorde
         {
             if (net == null || net.Role != NetworkRole.Host || targetPlayerId <= 0)
                 return;
+            HostResumeRejoinerDeath(net, targetPlayerId);
             if (!LocalNightDeath && _remoteDeathPositions.Count == 0)
                 return;
 
@@ -451,6 +465,41 @@ namespace DWMPHorde
                     continue;
                 SendDeathReplay(net, targetPlayerId, kv.Key, kv.Value, _remotePermadeathEligible.Contains(kv.Key));
             }
+        }
+
+        /// <summary>A peer's lasting identity on the host (Steam id, else LAN install key), or null.</summary>
+        private static string IdentityOf(LanNetworkManager net, int playerId)
+        {
+            if (net == null || net.Role != NetworkRole.Host || playerId <= 0)
+                return null;
+            if (net.TryGetSteamIdForPlayer(playerId, out ulong steamId) && steamId != 0)
+                return "steam:" + steamId;
+            if (net.TryGetStableClientKeyForPlayer(playerId, out string key) && !string.IsNullOrEmpty(key))
+                return "lan:" + key;
+            return null;
+        }
+
+        /// <summary>
+        /// Host, a joiner's late-join step: a player who died this night, left and came back is
+        /// down again until the morning. It spectates, the others see it dead, and it counts
+        /// toward the all-dead morning as before it left.
+        /// </summary>
+        private static void HostResumeRejoinerDeath(LanNetworkManager net, int joinerId)
+        {
+            string identity = IdentityOf(net, joinerId);
+            if (identity == null || !_nightDeadByIdentity.TryGetValue(identity, out KeyValuePair<Vector3, bool> death))
+                return;
+            if (_remoteDeathPositions.ContainsKey(joinerId))
+                return;
+            OnRemoteNightDeath(joinerId, death.Key, death.Value);
+            Vector3 pos = death.Key;
+            net.SendToPlayer(joinerId, NetMessageType.NightDeathState,
+                w => new NightDeathStateMessage { IsDead = true, ResumeDead = true, PosX = pos.x, PosY = pos.y, PosZ = pos.z }.Serialize(w),
+                LiteNetLib.DeliveryMethod.ReliableOrdered);
+            foreach (int other in net.GetHandshakedPeerIds())
+                if (other != joinerId && other != net.LocalPlayerId)
+                    SendDeathReplay(net, other, joinerId, pos, death.Value);
+            ModLog.Event(LogCat.Death, $"Rejoin: p{joinerId} died this night before leaving — down until morning");
         }
 
         private static void SendDeathReplay(LanNetworkManager net, int targetPlayerId, int deadPlayerId,

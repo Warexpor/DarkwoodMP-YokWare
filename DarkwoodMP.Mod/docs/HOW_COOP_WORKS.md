@@ -371,7 +371,8 @@ code, not yet playtested).
   on your screen, so nothing gets pushed twice.
 - **Night comes to every player, at vanilla's rate.** Each hideout a living player
   is home in gets the night's monsters at vanilla's pace and count, around a player
-  there. Each living, unwarded player gets its own worm, as in vanilla. Wards count
+  there. Each living, unwarded player gets its own worm, as in vanilla; a player in a
+  dream gets none (the host's dream does not spare the players still out in the night). Wards count
   for the player a monster is after. Night events play in every hideout a living
   player stands in; an event that asks about "the player" (the Shadows perk, being
   attacked) plays only where its player qualifies, and a shadow wave is the curse
@@ -405,7 +406,7 @@ code, not yet playtested).
 The player drops their bag where they died (a shared death bag anyone can loot, with
 a map marker if it is inside a location), loses a life on Hard, and respawns at
 their own home oven after vanilla's death sequence. The host clears enemies, traps
-and infection from that home first. Vanilla's "respawn every enemy" step runs only
+and infection from that player's home first (the dying player tells it where that is). Vanilla's "respawn every enemy" step runs only
 when nobody is left alive, so one player's death does not reset the others' fights.
 
 ### Dying at night
@@ -425,6 +426,10 @@ night for players who are still alive, so in co-op:
 - **If everyone dies,** the host resolves one shared morning (day skip and save),
   with no morning reward. If the last living player disconnects, the same happens
   instead of everyone spectating forever.
+- **Leaving does not undo a night death.** A player who died, quit and joins again the
+  same night is down again until morning (the host knows them by their Steam id or
+  install key), spectating, seen dead by the others and counted for the all-dead
+  morning.
 
 ### Difficulty and permadeath
 
@@ -481,6 +486,9 @@ same; the host gets no preference.
   much closer (under 75% of the distance), and at most once every 2.5 seconds.
 - Dead, invisible, ignored and menu-shielded players are not targets.
 - A client hitting a creature draws it to that client.
+- A creature that freezes while watched (the human spider) is watched when any player
+  sees it, and every player sees and hears the same state (its glow, its "out of sight"
+  sound).
 
 ### Defender decides
 
@@ -716,7 +724,7 @@ party events.
   for that level later, or just levels up if none is left. A played dream is never
   repeated for the party. The bunker dream (level 2) is played once per world.
 - **Dying in a dream:** you spectate until it ends. When every dreamer is dead, the
-  dream ends as a death outcome.
+  dream ends as a death outcome, also when the host is not one of the dreamers.
 - **Rewards:** dream outcome items are given to each dreamer. The outcome's world
   events reach every player, including one who died in the dream. A failed or
   abandoned dream gives nothing and is not marked done.
@@ -800,7 +808,11 @@ party events.
 
 - **Stand-ins.** Each remote player appears as a stand-in body that copies their
   position (about 30 updates a second), aim, torso animation, held light and
-  status (burning, invisibility at 30% opacity).
+  status (burning, invisibility at 30% opacity). A stand-in held back by something in
+  its way (a short teleport through a wall) catches up with its player after half a
+  second.
+- **Blood.** A hit player's own game places its blood splat (none on a block) and every
+  other player gets that one splat, in the same spot.
 - **Own camera.** Each player has their own camera and field of view, set up from
   their own skills.
 - **Sounds.** Every sound has one owner, so nothing plays twice. A peer's sounds play

@@ -227,7 +227,9 @@ namespace DWMPHorde.Networking
             TraverseHack.SetExplicitFlag(true);
             try
             {
-                string[] prefixes = { "", "Items/", "FX/", "Environment/", "Particles/", "Dummies/", "Fire/", "Weapons/" };
+                // Traps/: a land spawn can be a trap (a thrown bottle's broken_glass, a swamper spit's
+                // splat spawner); without it those never reached the clients.
+                string[] prefixes = { "", "Items/", "FX/", "Environment/", "Particles/", "Dummies/", "Fire/", "Weapons/", "Traps/" };
                 UnityEngine.Object prefab = null;
                 string foundPath = null;
                 foreach (var prefix in prefixes)

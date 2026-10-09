@@ -248,6 +248,8 @@ namespace DWMPHorde.Networking
                 Sync.TrapLedger.Tick();
                 WorldFxHandlers?.TickHeldClaims();
             }
+            else
+                WorldFxHandlers?.TickEarlySounds();
 
             _effectSyncTimer += Time.deltaTime;
             bool effectKeepalive = _effectSyncTimer >= 2f;

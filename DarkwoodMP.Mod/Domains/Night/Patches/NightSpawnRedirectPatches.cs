@@ -97,8 +97,9 @@ namespace DWMPHorde.Patches
                 var ctrl = Singleton<Controller>.Instance;
                 if (ctrl == null || !ctrl.isHardNight || Core.isDay())
                     continue;
-                if (Singleton<Dreams>.Instance != null && Singleton<Dreams>.Instance.dreaming)
-                    continue;
+                // A dreamer is out of the night (vanilla: no worm while dreaming), each on its own:
+                // the host in a dream spared players still out in the world, and a player in a
+                // dream got worms placed around the far-off dream pad.
                 CollectUnwardedBodies(net);
                 try
                 {
@@ -169,6 +170,7 @@ namespace DWMPHorde.Patches
                 // Vanilla's worm comes for the player anywhere, inside a location too; only
                 // a peer still loading has no body to hunt.
                 if (!net.IsPeerReadyForGameplay(proxy.PlayerId)) continue;
+                if (DWMPHorde.Sync.DreamSyncManager.IsRemoteInDream(proxy.PlayerId)) continue;
                 CharBase cb = proxy.CachedCharBase;
                 if (cb != null && !cb.alive) continue;
                 _bodies.Add(new Body { Pos = proxy.transform.position, Attack = proxy.transform });
@@ -178,6 +180,7 @@ namespace DWMPHorde.Patches
         private static bool HostEligible(Player host)
         {
             if (host.ignoreNightSickness) return false;
+            if (Singleton<Dreams>.Instance != null && Singleton<Dreams>.Instance.dreaming) return false;
             if (DeathStateTracker.LocalNightDeath) return false;
             if (host.effects != null && host.effects.hasEffectType(CharacterEffectType.shadowWard))
                 return false;
