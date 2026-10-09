@@ -23,6 +23,11 @@ namespace DWMPHorde.Sync
         private static float _notBefore;    // reset-in: Reset (NetworkResetRegistry)
         /// <summary>Level slot(s) this request was for (this peer's own level-up).</summary>
         private static byte _levelBits;     // reset-in: Reset (NetworkResetRegistry)
+        /// <summary>
+        /// Asked for straight from a story step (GameEvent startDream with no entry movie: the road
+        /// home's ending), not through the entry transition; it is asked for again the same way.
+        /// </summary>
+        private static bool _direct;        // reset-in: Reset (NetworkResetRegistry)
         /// <summary>A dream is running on the host (this peer sits it out, or its pad failed to load).</summary>
         internal static bool HostDreamRunning; // reset-in: Reset (NetworkResetRegistry)
         /// <summary>
@@ -38,6 +43,7 @@ namespace DWMPHorde.Sync
             _waiting = null;
             _notBefore = 0f;
             _levelBits = 0;
+            _direct = false;
             HostDreamRunning = false;
             _hostWaiting = null;
             _hostNotBefore = 0f;
@@ -121,11 +127,12 @@ namespace DWMPHorde.Sync
         }
 
         /// <summary>The entry transition sent a start request for <paramref name="dreamName"/> ("" = random roll).</summary>
-        internal static void NoteRequest(string dreamName, byte levelBits)
+        internal static void NoteRequest(string dreamName, byte levelBits, bool direct = false)
         {
             _requested = dreamName ?? "";
             _waiting = null;
             _levelBits = levelBits;
+            _direct = direct;
         }
 
         /// <summary>
@@ -222,7 +229,16 @@ namespace DWMPHorde.Sync
 
             string name = _waiting;
             _waiting = null;
-            ModRuntime.LegacyInfo($"[DreamRetry] replay entry for '{name}'");
+            ModRuntime.LegacyInfo($"[DreamRetry] replay entry for '{name}'" + (_direct ? " (story step)" : ""));
+            if (_direct && name.Length > 0)
+            {
+                // As the story step's GameEvent startDream does.
+                Core.forbidInputs = true;
+                p.halt();
+                dreams.wantToDream = true;
+                dreams.StartCoroutine(dreams.prepareDream(name));
+                return;
+            }
             // As SkillsMenu does on a level-up dream.
             dreams.wantToDream = true;
             dreams.startTransition.dreamToTransitionTo = name;

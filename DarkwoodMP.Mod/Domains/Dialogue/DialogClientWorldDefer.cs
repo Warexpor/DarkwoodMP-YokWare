@@ -24,6 +24,16 @@ namespace DWMPHorde.Sync
                 _depth--;
         }
 
+        /// <summary>Lift the defer for a step the speaker runs itself (returns the depth to restore).</summary>
+        public static int Suspend()
+        {
+            int depth = _depth;
+            _depth = 0;
+            return depth;
+        }
+
+        public static void Resume(int depth) => _depth = depth;
+
         public static void Reset()
         {
             _depth = 0;

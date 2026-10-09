@@ -306,9 +306,9 @@ namespace DWMPHorde.Networking
                 Core.AddPrefab("FX/Muzzle/PistolFlash", firePos + aimUp, muzzleRot, null, worldSpace: true);
             }
 
-            // Shot audio: local shooter plays parentless attackSound; peers need it here
-            // (HandlePlayerFiredWeapon is VFX-only otherwise). ApplyingFromNetwork prevents
-            // PlayerAudio re-forward loops.
+            // Shot audio: this is the only path peers hear a gunshot by (the shooter's own play
+            // is not forwarded as PlayerAudio: LocalAudioService.IsCurrentFirearmShotSound).
+            // ApplyingFromNetwork prevents PlayerAudio re-forward loops.
             if (!string.IsNullOrEmpty(itemDef.attackSound))
             {
                 Vector3 shotPos = firePos;

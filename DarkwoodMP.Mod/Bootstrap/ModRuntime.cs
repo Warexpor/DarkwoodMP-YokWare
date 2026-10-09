@@ -217,6 +217,7 @@ namespace DWMPHorde
             NetworkResetRegistry.Register(EventTriggersProxyOccupancy.Reset);
             NetworkResetRegistry.Register(MorningHideoutHold.Reset);
             NetworkResetRegistry.Register(DreamForestSpiritAggro.Reset);
+            NetworkResetRegistry.Register(DreamSyncManager.ResetHostEndClaim);
             NetworkResetRegistry.Register(ItemDoublePickupPatch.Reset);
             NetworkResetRegistry.Register(WorldPickupClaimPending.Reset);
             NetworkResetRegistry.Register(NamedNpcScalePatch.Reset);
@@ -269,7 +270,7 @@ namespace DWMPHorde
             NetworkResetRegistry.Register(ChatHud.Reset);
             NetworkResetRegistry.Register(HostCheckFrequenciesPostfix.Reset);
             NetworkResetRegistry.Register(NightShadowsRateLimit.Reset);
-            NetworkResetRegistry.Register(NightShadowsThresholdPatch.Reset);
+            NetworkResetRegistry.Register(PeerShadows.Reset);
             NetworkResetRegistry.Register(SessionSettings.ResetToLocal);
             NetworkResetRegistry.Register(PlayerAnimLibraryPatch.Reset);
             NetworkResetRegistry.Register(ClientRandomEventGate.Reset);
@@ -301,6 +302,10 @@ namespace DWMPHorde
             NetworkResetRegistry.Register(DreamRetry.Reset);
             NetworkResetRegistry.Register(MenuShield.Reset);
             NetworkResetRegistry.Register(PauseMenuSync.Reset);
+            NetworkResetRegistry.Register(PlayerNames.Reset);
+            NetworkResetRegistry.Register(PauseMenuNoInputPatch.Reset);
+            NetworkResetRegistry.Register(StackedLightProbe.Reset);
+            NetworkResetRegistry.Register(BackgroundFrameRate.Reset);
             NetworkResetRegistry.Register(DescriptionDeck.Reset);
             NetworkResetRegistry.Register(DesyncCheck.Reset);
             NetworkResetRegistry.Register(PerPlayerTransportOneShots.Reset);
@@ -316,6 +321,7 @@ namespace DWMPHorde
             // A host lost mid-share must not leave the client black and locked.
             NetworkResetRegistry.Register(ChapterWaitScreen.Release);
             NetworkResetRegistry.Register(NightEventAnchor.Reset);
+            NetworkResetRegistry.Register(NightHideoutQuota.Reset);
             NetworkResetRegistry.Register(OutsidePadSlots.Reset);
             NetworkResetRegistry.Register(PlayerControlRouter.Reset);
             NetworkResetRegistry.Register(ResetStaticSessionFlags);
@@ -347,11 +353,18 @@ namespace DWMPHorde
             // Entity spawner is a separate plugin: YokWare.EntitySpawner.
             root.AddComponent<CursorConfineFocusGuard>();
 
-            MultiplayerMenu.EnsureExists();
+            // Automatic saves stop the moment the game quits (OnApplicationQuit runs before any OnDestroy).
+            WorldSaveGuards.EnsureQuitHook();
+            root.AddComponent<WorldSaveQuitWatcher>();
+
+            // Menu screens (ours and the add-ons') speak the game's language and hold gameplay
+            // input while a field is typed in.
+            YokWare.VanillaMenu.Vm.Translate = Loc.T;
+            YokWare.VanillaMenu.Vm.EditLock = held => UiInputLock.Set("menu-edit", held);
+
             ChatHud.EnsureExists();
+            Nameplates.EnsureExists();
             Spectator.SpectatorModeController.EnsureExists();
-            ManualSaveGUI.EnsureExists();
-            JoinWorldSlotPicker.EnsureExists();
         }
 
         /// <summary>

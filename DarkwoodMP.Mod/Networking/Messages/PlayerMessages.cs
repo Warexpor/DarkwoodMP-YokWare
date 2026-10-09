@@ -34,6 +34,12 @@ namespace DWMPHorde.Networking
         /// Empty on LAN and host→client.
         /// </summary>
         public string ConnectionKey;
+        /// <summary>
+        /// Client→host: the chapter world this client has loaded was generated here, not received
+        /// from the host (a chapter start shares the empty chapter save, and each machine's vanilla
+        /// load then builds its own random map). The host re-shares its world.
+        /// </summary>
+        public bool WorldGeneratedLocally;
 
         public void Serialize(NetWriter writer)
         {
@@ -45,6 +51,7 @@ namespace DWMPHorde.Networking
             writer.Put(CampaignId ?? string.Empty);
             writer.Put(ChapterId);
             writer.Put(ConnectionKey ?? string.Empty);
+            writer.Put(WorldGeneratedLocally);
         }
 
         public static HandshakeMessage Deserialize(NetReader reader)
@@ -71,6 +78,8 @@ namespace DWMPHorde.Networking
                 msg.ChapterId = reader.GetInt();
             if (reader.AvailableBytes >= 2)
                 msg.ConnectionKey = reader.GetString();
+            if (reader.AvailableBytes >= 1)
+                msg.WorldGeneratedLocally = reader.GetBool();
             return msg;
         }
     }
@@ -105,6 +114,26 @@ namespace DWMPHorde.Networking
         }
     }
 
+    /// <summary>The walkie byte of <see cref="PlayerStateMessage.WalkieState"/>.</summary>
+    public static class WalkieStates
+    {
+        public const byte None = 0;
+        /// <summary>Carried but switched off, or its battery is flat.</summary>
+        public const byte Off = 1;
+        public const byte Pocket = 2;
+        public const byte Hand = 3;
+        private const byte PowerMask = 3;
+        /// <summary>The carrier is underground (a radio barely gets through).</summary>
+        public const byte Underground = 4;
+
+        public static byte Make(byte power, bool underground) => (byte)(power | (underground ? Underground : 0));
+        public static byte Power(byte state) => (byte)(state & PowerMask);
+        /// <summary>The radio is on and has charge: it receives and can play out loud.</summary>
+        public static bool Live(byte state) => Power(state) >= Pocket;
+        public static bool InHand(byte state) => Power(state) == Hand;
+        public static bool IsUnderground(byte state) => (state & Underground) != 0;
+    }
+
     public struct PlayerStateMessage
     {
         public int PlayerId;
@@ -137,6 +166,17 @@ namespace DWMPHorde.Networking
         /// at half volume. Trailer.
         /// </summary>
         public bool Aiming;
+        /// <summary>
+        /// Sender is in a freeze vanilla puts on its own player (dying, dead until morning, the
+        /// Wolf's trap): it does not keep the shared clock running. Trailer.
+        /// </summary>
+        public bool ClockHeld;
+        /// <summary>
+        /// Sender's walkie-talkie (<see cref="WalkieStates"/>): none, off or flat, on in a pocket,
+        /// on in hand; plus whether the sender is underground. A transmission plays from a radio
+        /// that is on for players nearby. Trailer.
+        /// </summary>
+        public byte WalkieState;
         public short CurrentFrame;
 
         // Continuous light state uses a conditional LightFlags payload.
@@ -224,6 +264,8 @@ namespace DWMPHorde.Networking
             writer.Put(InOpenWorld);
             writer.Put(SeesVillager);
             writer.Put(Aiming);
+            writer.Put(ClockHeld);
+            writer.Put(WalkieState);
         }
 
         public static PlayerStateMessage Deserialize(NetReader reader)
@@ -293,6 +335,8 @@ namespace DWMPHorde.Networking
             msg.InOpenWorld = reader.GetBool();
             msg.SeesVillager = reader.GetBool();
             msg.Aiming = reader.GetBool();
+            msg.ClockHeld = reader.GetBool();
+            msg.WalkieState = reader.GetByte();
             return msg;
         }
     }
@@ -400,6 +444,12 @@ namespace DWMPHorde.Networking
         /// only of such deaths is a coordinated game over.
         /// </summary>
         public bool PermadeathEligible;
+        /// <summary>
+        /// Where the dying player gets up again (its home hideout's spawn; none: no home). The
+        /// host clears that hideout for a day death, not its own. Protocol 46.
+        /// </summary>
+        public bool HasHome;
+        public float HomeX, HomeY, HomeZ;
 
         public void Serialize(NetWriter w)
         {
@@ -407,6 +457,8 @@ namespace DWMPHorde.Networking
             w.Put(IsNight);
             w.Put(HasDropBag);
             w.Put(PermadeathEligible);
+            w.Put(HasHome);
+            w.Put(HomeX); w.Put(HomeY); w.Put(HomeZ);
         }
         public static PlayerDiedMessage Deserialize(NetReader r) => new PlayerDiedMessage
         {
@@ -415,7 +467,9 @@ namespace DWMPHorde.Networking
             PosZ = r.GetFloat(),
             IsNight = r.GetBool(),
             HasDropBag = r.GetBool(),
-            PermadeathEligible = r.GetBool()
+            PermadeathEligible = r.GetBool(),
+            HasHome = r.GetBool(),
+            HomeX = r.GetFloat(), HomeY = r.GetFloat(), HomeZ = r.GetFloat()
         };
     }
 

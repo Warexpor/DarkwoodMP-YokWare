@@ -54,6 +54,9 @@ namespace DWMPHorde.Networking
                 return;
             if (msg.End)
             {
+                // Another player's wave ending is not this player's (its cursed state is its own).
+                if (msg.OwnerId != 0 && msg.OwnerId != _net.LocalPlayerId)
+                    return;
                 // Vanilla Player.endShadows. The wave's shadows die on the host (their counter
                 // is the host's), so without this a client kept spawnedShadows set for the rest of
                 // the session, and with it a natural-light lantern that could never be lit again.
@@ -77,7 +80,7 @@ namespace DWMPHorde.Networking
         }
 
         /// <summary>
-        /// Client→host: NightShadows perk wave for the requester only (per-owner curse).
+        /// Client→host: a Shadows wave for the requester only (its own vanilla tryToSpawnShadow).
         /// </summary>
         internal void HandleNightShadowSpawnRequest(NightShadowSpawnRequestMessage msg)
         {
@@ -90,24 +93,12 @@ namespace DWMPHorde.Networking
                 return;
             }
 
-            if (Core.isDay()
-                || Singleton<Controller>.Instance == null
-                || !Singleton<Controller>.Instance.isHardNight
-                || (Singleton<Dreams>.Instance != null && Singleton<Dreams>.Instance.dreaming))
+            // The client's own vanilla tryToSpawnShadow (a Shadows night scene it replayed): vanilla
+            // spawns the wave at night only, with no other check (the scene's requirements chose
+            // the player). Its spawns stop at day on their own, below.
+            if (Core.isDay())
             {
-                ModRuntime.LegacyInfo($"[NightShadow] reject P{requesterId}: not hard night / day / dream");
-                return;
-            }
-
-            if (!_net.RemotePlayers.TryGetValue(requesterId, out var st) || !st.HasNightShadows)
-            {
-                ModRuntime.LegacyInfo($"[NightShadow] reject P{requesterId}: no NightShadows perk");
-                return;
-            }
-
-            if (st.HasLightProtection)
-            {
-                ModRuntime.LegacyInfo($"[NightShadow] reject P{requesterId}: in light");
+                ModRuntime.LegacyInfo($"[NightShadow] reject P{requesterId}: day");
                 return;
             }
 
@@ -136,14 +127,22 @@ namespace DWMPHorde.Networking
         {
             if (_net.Role != NetworkRole.Host || !_net.IsConnected) return;
 
+            // The wave's own start (vanilla tryToSpawnShadow) clears the scene's pause/remove. Its
+            // "cursed" state (spawnedShadows, which keeps natural lights from being lit) and count
+            // are the owner's: a peer's wave counts in PeerShadows and leaves the host's torch alone.
             var cs = Singleton<CharacterSpawner>.Instance;
             if (cs != null)
             {
                 cs.shadowsRemove = false;
                 cs.shadowsPaused = false;
-                cs.spawnedShadows = true;
-                cs.spawnedShadowsAmount = 8;
+                if (ownerPlayerId == _net.LocalPlayerId)
+                {
+                    cs.spawnedShadows = true;
+                    cs.spawnedShadowsAmount = 8;
+                }
             }
+            if (ownerPlayerId != _net.LocalPlayerId)
+                Patches.PeerShadows.BeginWave(ownerPlayerId);
 
             _net.SendShadowEvent(new ShadowEventMessage { OwnerId = (short)ownerPlayerId });
 
@@ -162,9 +161,13 @@ namespace DWMPHorde.Networking
                     Vector3 spawnOrigin = center;
                     if (owner != _net.LocalPlayerId)
                     {
+                        // The owner died or left: vanilla's wave ends with the cursed player's death
+                        // (its shadows die, the count runs out, removeShadows stops the rest).
                         RemotePlayerProxy p = _net.GetProxy(owner);
-                        if (p != null)
-                            spawnOrigin = p.transform.position;
+                        CharBase pcb = p != null ? p.CachedCharBase : null;
+                        if (p == null || (pcb != null && !pcb.alive) || DeathStateTracker.IsRemoteNightDead(owner))
+                            return;
+                        spawnOrigin = p.transform.position;
                     }
 
                     Vector3 position = Core.randomPosAround(spawnOrigin, 400f, 700f,
@@ -203,6 +206,20 @@ namespace DWMPHorde.Networking
 
             if (Core.isDay() || spawner.shadowsRemove)
                 return;
+
+            // The host's shadow appeared somewhere new (vanilla appear): the copy shows up there and
+            // plays its Float clip again, as the host's does.
+            if (_clientShadowLookups != null && _clientShadowLookups.TryGetValue(msg.ShadowId, out ShadowCreature live)
+                && live != null && !live.dead)
+            {
+                live.transform.position = new Vector3(msg.PosX, msg.PosY, msg.PosZ);
+                live.transform.rotation = Quaternion.Euler(90f, msg.RotY, 0f);
+                live.distanceToPlayer = msg.DistanceToPlayer;
+                var floatAnim = live.GetComponent<tk2dSpriteAnimator>();
+                if (floatAnim != null && floatAnim.GetClipByName("Float") != null)
+                    floatAnim.PlayFromFrame("Float", 0);
+                return;
+            }
 
             string prefabPath = msg.ShadowType == 1
                 ? "characters/fakechars/shadow_immortal"

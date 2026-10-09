@@ -115,6 +115,8 @@ namespace DWMPHorde.Networking
         private const float UnmatchedCleanupInterval = 2f;
         private static float _nextUnmatchedCleanupTime;
         private const float CorpseFinalizeDelay = 1.2f;
+        /// <summary>A death clip that never ends (stuck, looping by mistake) still becomes a corpse.</summary>
+        private const float CorpseDeathClipMaxWait = 10f;
 
         /// <summary>
         /// Host entity broadcast radius matches client interest (~1400). Applying far
@@ -407,7 +409,17 @@ namespace DWMPHorde.Networking
 
             if (CharacterTracker.TryGetStableId(c, out short sid)
                 && _deathAnimationPlayed.Contains(sid))
-                return true;
+            {
+                // Vanilla makes the body a corpse (setDeathCollider's Item) when the death clip
+                // completes. An Item added mid-clip hooks the animator, and the clip's remaining
+                // frame events ran as an item's: the banshee's death-scream frame played a clip
+                // named "MeleeAttack1" that it does not have.
+                tk2dSpriteAnimator a = c.animator;
+                bool clipRunning = a != null && a.Playing && a.CurrentClip != null && !IsLoopingWrap(a.CurrentClip.wrapMode);
+                bool waitedLong = _pendingCorpseSince.TryGetValue(c, out float since0)
+                    && Time.unscaledTime - since0 >= CorpseDeathClipMaxWait;
+                return !clipRunning || waitedLong;
+            }
 
             if (_pendingCorpseSince.TryGetValue(c, out float since)
                 && Time.unscaledTime - since >= CorpseFinalizeDelay)

@@ -58,8 +58,10 @@
 
   <ItemGroup>
     <EmbeddedResource Include="Resources\walkie_talkie.png" LogicalName="DWMPHorde.Resources.walkie_talkie.png" />
-    <EmbeddedResource Include="Resources\MenuButtons\multiplayer_idle_sm.png" LogicalName="DWMPHorde.Resources.MenuButtons.multiplayer_idle.png" />
-    <EmbeddedResource Include="Resources\MenuButtons\multiplayer_hover_sm.png" LogicalName="DWMPHorde.Resources.MenuButtons.multiplayer_hover.png" />
+    <EmbeddedResource Include="Resources\MenuButtons\multiplayer_idle.png" LogicalName="DWMPHorde.Resources.MenuButtons.multiplayer_idle.png" />
+    <EmbeddedResource Include="Resources\MenuButtons\multiplayer_hover.png" LogicalName="DWMPHorde.Resources.MenuButtons.multiplayer_hover.png" />
+    <EmbeddedResource Include="Resources\MenuButtons\multiplayer_idle_ru.png" LogicalName="DWMPHorde.Resources.MenuButtons.multiplayer_idle_ru.png" />
+    <EmbeddedResource Include="Resources\MenuButtons\multiplayer_hover_ru.png" LogicalName="DWMPHorde.Resources.MenuButtons.multiplayer_hover_ru.png" />
   </ItemGroup>
 
   <!-- BepInEx: Harmony + plugin core from game install -->
@@ -203,6 +205,9 @@
     <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(SteamPlugins)" Condition="Exists('$(SteamPlugins)')" ContinueOnError="true" />
     <Copy SourceFiles="$(TargetDir)LiteNetLib.dll" DestinationFolder="$(SteamPlugins)" Condition="Exists('$(SteamPlugins)') and Exists('$(TargetDir)LiteNetLib.dll')" ContinueOnError="true" />
     <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(SecondPlugins)" Condition="Exists('$(SecondPlugins)')" ContinueOnError="true" />
+    <!-- Optional third install (a second client for 3-player runs): ThirdPlugins in GamePath.local.props. -->
+    <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(ThirdPlugins)" Condition="'$(ThirdPlugins)' != '' and Exists('$(ThirdPlugins)')" ContinueOnError="true" />
+    <Copy SourceFiles="$(TargetDir)LiteNetLib.dll" DestinationFolder="$(ThirdPlugins)" Condition="'$(ThirdPlugins)' != '' and Exists('$(ThirdPlugins)') and Exists('$(TargetDir)LiteNetLib.dll')" ContinueOnError="true" />
     <Copy SourceFiles="$(TargetDir)LiteNetLib.dll" DestinationFolder="$(SecondPlugins)" Condition="Exists('$(SecondPlugins)') and Exists('$(TargetDir)LiteNetLib.dll')" ContinueOnError="true" />
     <Delete Files="$(SteamPlugins)\DWMP_HordeRemaster.dll" Condition="Exists('$(SteamPlugins)\DWMP_HordeRemaster.dll')" ContinueOnError="true" />
     <Delete Files="$(SecondPlugins)\DWMP_HordeRemaster.dll" Condition="Exists('$(SecondPlugins)\DWMP_HordeRemaster.dll')" ContinueOnError="true" />
@@ -211,10 +216,12 @@
     <Delete Files="$(SecondPlugins)\System.Data.Common.dll;$(SecondPlugins)\System.Diagnostics.StackTrace.dll;$(SecondPlugins)\System.Diagnostics.Tracing.dll;$(SecondPlugins)\System.Globalization.Extensions.dll;$(SecondPlugins)\System.IO.Compression.dll;$(SecondPlugins)\System.Net.Http.dll;$(SecondPlugins)\System.Net.Sockets.dll;$(SecondPlugins)\System.Runtime.Serialization.Primitives.dll;$(SecondPlugins)\System.Security.Cryptography.Algorithms.dll;$(SecondPlugins)\System.Security.SecureString.dll;$(SecondPlugins)\System.Threading.Overlapped.dll;$(SecondPlugins)\System.Xml.XPath.XDocument.dll" ContinueOnError="true" />
   </Target>
 
-  <!-- Optional Melon Mods/ drop -->
+  <!-- Optional Melon drop: the mod into Mods/, its LiteNetLib dependency into UserLibs/
+       (MelonLoader loads UserLibs before any melon; Mods/ is for melons). -->
   <Target Name="DeployMelon" AfterTargets="Build" Condition="'$(Loader)' == 'MelonLoader' and '$(SkipDeploy)' != 'true' and Exists('$(GameDir)\Mods')">
     <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(GameDir)\Mods" ContinueOnError="true" />
-    <Copy SourceFiles="$(TargetDir)LiteNetLib.dll" DestinationFolder="$(GameDir)\Mods" Condition="Exists('$(TargetDir)LiteNetLib.dll')" ContinueOnError="true" />
+    <Copy SourceFiles="$(TargetDir)LiteNetLib.dll" DestinationFolder="$(GameDir)\UserLibs" Condition="Exists('$(TargetDir)LiteNetLib.dll')" ContinueOnError="true" />
+    <Delete Files="$(GameDir)\Mods\LiteNetLib.dll" Condition="Exists('$(GameDir)\Mods\LiteNetLib.dll')" ContinueOnError="true" />
   </Target>
 
 </Project>

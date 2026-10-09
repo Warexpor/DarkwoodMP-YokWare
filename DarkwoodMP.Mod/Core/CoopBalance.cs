@@ -71,6 +71,33 @@ namespace DWMPHorde
             return 1 + net.ConnectedPlayerCount;
         }
 
+        /// <summary>Highest night monster multiplier the host may pick.</summary>
+        public const float MaxNightMonsterMultiplier = 10f;
+
+        /// <summary>
+        /// Host: how many night monsters come to a hideout compared with vanilla (1 = vanilla).
+        /// Only the host spawns them, so only the host's own setting counts; read live, so a change
+        /// in Host settings applies mid-night.
+        /// </summary>
+        public static float NightMonsterMultiplier
+        {
+            get
+            {
+                float v = ModConfig.NightMonsterMultiplier != null ? ModConfig.NightMonsterMultiplier.Value : 1f;
+                if (float.IsNaN(v) || v < 1f)
+                    return 1f;
+                return v > MaxNightMonsterMultiplier ? MaxNightMonsterMultiplier : v;
+            }
+        }
+
+        /// <summary>A night scenario's per-kind count under the multiplier (rounded up, never below vanilla).</summary>
+        public static int ScaledNightAmount(int amount, float mult)
+        {
+            if (amount <= 0 || mult <= 1f)
+                return amount;
+            return Math.Max(amount, (int)Math.Ceiling(amount * mult - 0.0001f));
+        }
+
         public static bool IsUpgradeItemType(string type)
         {
             return !string.IsNullOrEmpty(type) && UpgradeItemTypes.Contains(type);

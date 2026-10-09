@@ -343,6 +343,7 @@ namespace DWMPHorde.Sync
             FinalDreamsceneManager.OnDreamChained();
             DreamSyncManager.NoteLocalDreamPreset(nextPreset);
             DreamSyncManager.ClearDreamEndBroadcastLatch();
+            DreamSyncManager.ResetHostEndClaim();
             ModLog.Event(LogCat.Dream, $"Chained preset → {nextPreset} (session {SessionId})");
         }
 
@@ -449,7 +450,28 @@ namespace DWMPHorde.Sync
         /// A party dream is on. The prologue's dreams are never party dreams (each player plays its
         /// own, <see cref="PersonalPrologue"/>), so joining during the host's prologue is allowed.
         /// </summary>
-        public static bool ShouldRejectNewConnections => IsActive;
+        public static bool ShouldRejectNewConnections => IsActive && !IsEnding;
+
+        /// <summary>
+        /// The ending is on (any epilogue part). Joins are let in and pulled onto its pad by the
+        /// session bulk: a finished game reloads straight into the ending (vanilla saves with the
+        /// dream wanted), so refusing joins there kept friends out of the replayed ending for good.
+        /// </summary>
+        public static bool IsEnding
+        {
+            get
+            {
+                if (IsEpiloguePreset(PresetName))
+                    return true;
+                Dreams d = Dreams.Instance;
+                return d != null && (d.dreaming || d.dreamPrepared)
+                    && (IsEpiloguePreset(d.preset != null ? d.preset.name : null)
+                        || (d.dreamLocation != null && d.dreamLocation.isEpilogueLocation));
+            }
+        }
+
+        private static bool IsEpiloguePreset(string name)
+            => !string.IsNullOrEmpty(name) && name.StartsWith("epilog", System.StringComparison.OrdinalIgnoreCase);
 
         // ── Snapshot (level flags + completed) ───────────────────────────
 

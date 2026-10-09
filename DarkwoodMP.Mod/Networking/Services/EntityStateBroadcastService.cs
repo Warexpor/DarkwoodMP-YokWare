@@ -466,6 +466,7 @@ namespace DWMPHorde.Networking
                 if (flier.inFlight) flags2 |= EntitySnapshotNet.Flag2InFlight;
                 if (flier.diving) flags2 |= EntitySnapshotNet.Flag2Diving;
             }
+            if (DWMPHorde.Sync.CreatureSightState.HostSeen(c)) flags2 |= EntitySnapshotNet.Flag2InSight;
             byte loop = Audio.EntityLoopSync.HostSlot(c);
 
             string prevClip = null;

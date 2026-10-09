@@ -85,13 +85,13 @@ namespace DWMPHorde.Patches
             };
             NpcDialogueLock.HostRenewLeaseForSender(trader, sender);
             NPC npc = DialogOutcomeCloseNetHandlers.FindNpcByNameNear(
-                msg.NpcName, msg.InDream, trader.Pos);
+                msg.NpcName, msg.InDream, trader.Pos, TradeInventorySync.SameTraderRadius, wake: false);
             Inventory stock = npc != null ? npc.inventory : null;
             string why = null;
             if (stock == null)
                 why = "trader not found";
-            else if (NpcDialogueLock.GetOwner(NpcRef.Of(npc)) != sender)
-                why = "not the one trading with it";
+            else if (!DialogMirror.HostInTalk(NpcRef.Of(npc), sender))
+                why = "not in a talk with it";
             else if (!StockHas(stock, msg.Bought))
                 why = "stock lacks the purchase";
 
@@ -157,7 +157,7 @@ namespace DWMPHorde.Patches
             return true;
         }
 
-        private static void RemoveFrom(Inventory inv, TradeEntry e)
+        internal static void RemoveFrom(Inventory inv, TradeEntry e)
         {
             int left = e.Count;
             // First the stack that matches exactly (same wear and magazine), then any.

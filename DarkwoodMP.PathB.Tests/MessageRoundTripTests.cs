@@ -750,4 +750,115 @@ public class MessageRoundTripTests
         Assert.Equal(inDream, back.InDream);
         Assert.Equal(0, r.AvailableBytes);
     }
+
+    private static MapPinWire SamplePin(int id) => new MapPinWire
+    {
+        Id = id, Kind = 3, Color = 2, Chapter = 1, X = -1234.5f, Z = 678.25f, Day = 4,
+        OwnerId = 2, OwnerTag = "a1b2c3d4e5f6", OwnerName = "Anna", Label = "meat here"
+    };
+
+    private static void AssertPin(MapPinWire a, MapPinWire b)
+    {
+        Assert.Equal(a.Id, b.Id);
+        Assert.Equal(a.Kind, b.Kind);
+        Assert.Equal(a.Color, b.Color);
+        Assert.Equal(a.Chapter, b.Chapter);
+        Assert.Equal(a.X, b.X);
+        Assert.Equal(a.Z, b.Z);
+        Assert.Equal(a.Day, b.Day);
+        Assert.Equal(a.OwnerId, b.OwnerId);
+        Assert.Equal(a.OwnerTag, b.OwnerTag);
+        Assert.Equal(a.OwnerName, b.OwnerName);
+        Assert.Equal(a.Label, b.Label);
+    }
+
+    [Fact]
+    public void MapPinRequest_RoundTrips()
+    {
+        var msg = new MapPinRequestMessage
+        {
+            Op = (byte)MapPinOp.SetLabel, PinId = 9, Kind = 1, Chapter = 2, X = 10f, Z = -20f,
+            Label = "trader", OwnerName = "Bo"
+        };
+        var r = new NetReader(Bytes(msg.Serialize));
+        var back = MapPinRequestMessage.Deserialize(r);
+        Assert.Equal(msg.Op, back.Op);
+        Assert.Equal(9, back.PinId);
+        Assert.Equal(1, back.Kind);
+        Assert.Equal(2, back.Chapter);
+        Assert.Equal(10f, back.X);
+        Assert.Equal(-20f, back.Z);
+        Assert.Equal("trader", back.Label);
+        Assert.Equal("Bo", back.OwnerName);
+        Assert.Equal(0, r.AvailableBytes);
+    }
+
+    [Fact]
+    public void MapPinEvent_RoundTrips()
+    {
+        var msg = new MapPinEventMessage { Op = (byte)MapPinOp.Put, Pin = SamplePin(5) };
+        var r = new NetReader(Bytes(msg.Serialize));
+        var back = MapPinEventMessage.Deserialize(r);
+        Assert.Equal((byte)MapPinOp.Put, back.Op);
+        AssertPin(msg.Pin, back.Pin);
+        Assert.Equal(0, r.AvailableBytes);
+    }
+
+    [Fact]
+    public void MapStateSync_RoundTripsPinsAndDiscoveries()
+    {
+        var msg = new MapStateSyncMessage
+        {
+            PinCount = 2,
+            Pins = new[] { SamplePin(1), SamplePin(2) },
+            DiscoveryCount = 2,
+            DiscoveryElementNames = new[] { "big_hideout_03", "med_wolf_01" }
+        };
+        var r = new NetReader(Bytes(msg.Serialize));
+        var back = MapStateSyncMessage.Deserialize(r);
+        Assert.Equal(2, back.PinCount);
+        AssertPin(msg.Pins[0], back.Pins[0]);
+        AssertPin(msg.Pins[1], back.Pins[1]);
+        Assert.Equal(msg.DiscoveryElementNames, back.DiscoveryElementNames);
+        Assert.Equal(0, r.AvailableBytes);
+    }
+
+    [Fact]
+    public void VoiceData_SliceAndSerializeShareOneLayout()
+    {
+        byte[] capture = { 9, 8, 7, 6, 5, 4 };
+        var r = new NetReader(Bytes(w => VoiceDataMessage.WriteSlice(w, 3, 65535, VoiceDataMessage.FlagWalkie, 200, capture, 4)));
+        var back = VoiceDataMessage.Deserialize(r);
+
+        Assert.Equal(3, back.PlayerId);
+        Assert.Equal((ushort)65535, back.Seq);
+        Assert.Equal(VoiceDataMessage.FlagWalkie, back.Flags);
+        Assert.Equal((byte)200, back.Level);
+        Assert.Equal(new byte[] { 9, 8, 7, 6 }, back.Data);
+        Assert.Equal(0, r.AvailableBytes);
+
+        var again = new NetReader(Bytes(back.Serialize));
+        Assert.Equal((byte)200, VoiceDataMessage.Deserialize(again).Level);
+        Assert.Equal(0, again.AvailableBytes);
+    }
+
+    [Theory]
+    [InlineData(WalkieStates.None, false)]
+    [InlineData(WalkieStates.Off, true)]
+    [InlineData(WalkieStates.Pocket, false)]
+    [InlineData(WalkieStates.Hand, true)]
+    public void PlayerState_TrailerKeepsWalkieAndAiming(byte power, bool underground)
+    {
+        byte state = WalkieStates.Make(power, underground);
+        var msg = new PlayerStateMessage { PlayerId = 2, TorsoClip = "t", LegsClip = "l", Aiming = underground, ClockHeld = true, WalkieState = state };
+        var r = new NetReader(Bytes(msg.Serialize));
+        var back = PlayerStateMessage.Deserialize(r);
+
+        Assert.Equal(power, WalkieStates.Power(back.WalkieState));
+        Assert.Equal(underground, WalkieStates.IsUnderground(back.WalkieState));
+        Assert.Equal(power >= WalkieStates.Pocket, WalkieStates.Live(back.WalkieState));
+        Assert.Equal(underground, back.Aiming);
+        Assert.True(back.ClockHeld);
+        Assert.Equal(0, r.AvailableBytes);
+    }
 }

@@ -530,6 +530,8 @@ namespace DWMPHorde.Networking
         public const byte KindPortrait = 9;
         public const byte KindClose = 10;
         public const byte KindBoardDone = 11;
+        /// <summary>Host→listeners: the talking player left; <see cref="OwnerId"/> talks now (that player takes the talk over).</summary>
+        public const byte KindPromote = 12;
         public const byte KindJoin = 20;
         public const byte KindLeave = 21;
         public const byte KindRefused = 22;
@@ -806,19 +808,23 @@ namespace DWMPHorde.Networking
         public string Address;
         /// <summary>Session listen port for promote/reconnect (same for all peers).</summary>
         public int Port;
+        /// <summary>The name this player goes by (empty until the host has heard it). Protocol 48.</summary>
+        public string Name;
 
         public void Serialize(NetWriter w)
         {
             w.Put(PlayerId);
             w.Put(Address ?? "");
             w.Put(Port);
+            w.Put(Name ?? "");
         }
 
         public static PeerRosterEntry Deserialize(NetReader r) => new PeerRosterEntry
         {
             PlayerId = r.GetInt(),
             Address = r.GetString(),
-            Port = r.GetInt()
+            Port = r.GetInt(),
+            Name = r.GetString()
         };
     }
 
@@ -989,8 +995,13 @@ namespace DWMPHorde.Networking
         /// player's own world location). A client replays it only when it stands in one of them.
         /// </summary>
         public string Anchors;
-        public void Serialize(NetWriter w) { w.Put(NightId); w.Put(EventIndex); w.Put(Anchors ?? string.Empty); }
-        public static ScenarioEventFiredMessage Deserialize(NetReader r) => new ScenarioEventFiredMessage { NightId = r.GetInt(), EventIndex = r.GetInt(), Anchors = r.GetString() };
+        /// <summary>
+        /// The night's scenario by name: nightId is not unique (Night_h1_1 and Night_h1_2 both carry
+        /// 0), and the first scenario with the id was taken, another night's event list.
+        /// </summary>
+        public string ScenarioName;
+        public void Serialize(NetWriter w) { w.Put(NightId); w.Put(EventIndex); w.Put(Anchors ?? string.Empty); w.Put(ScenarioName ?? string.Empty); }
+        public static ScenarioEventFiredMessage Deserialize(NetReader r) => new ScenarioEventFiredMessage { NightId = r.GetInt(), EventIndex = r.GetInt(), Anchors = r.GetString(), ScenarioName = r.GetString() };
     }
 
     /// <summary>
@@ -1058,25 +1069,93 @@ namespace DWMPHorde.Networking
         }
     }
 
-    public struct MapMarkerMessage
+    /// <summary>What a party map pin request or event does. <c>Sync.MapPinBoard</c>.</summary>
+    public enum MapPinOp : byte
     {
-        public float PosX, PosY, PosZ;
-        public int PlayerId;
-        public void Serialize(NetWriter w) { w.Put(PosX); w.Put(PosY); w.Put(PosZ); w.Put(PlayerId); }
-        public static MapMarkerMessage Deserialize(NetReader r) => new MapMarkerMessage
+        /// <summary>Request: place a pin. Event: a pin was placed or changed (full pin).</summary>
+        Put = 1,
+        Remove = 2,
+        SetKind = 3,
+        SetLabel = 4,
+        /// <summary>A short-lived ping on the map (not kept on the board).</summary>
+        Ping = 5,
+    }
+
+    /// <summary>One party map pin as the host numbered it.</summary>
+    public struct MapPinWire
+    {
+        public int Id;
+        public byte Kind;
+        /// <summary>Palette slot the host gave the owner (one per owner on the board).</summary>
+        public byte Color;
+        public int Chapter;
+        public float X, Z;
+        /// <summary>In-game day the pin was placed.</summary>
+        public int Day;
+        public int OwnerId;
+        /// <summary>Hash of the owner's install key: same owner across sessions and new player ids.</summary>
+        public string OwnerTag;
+        public string OwnerName;
+        public string Label;
+
+        public void Serialize(NetWriter w)
         {
-            PosX = r.GetFloat(), PosY = r.GetFloat(), PosZ = r.GetFloat(), PlayerId = r.GetInt()
+            w.Put(Id); w.Put(Kind); w.Put(Color); w.Put(Chapter);
+            w.Put(X); w.Put(Z); w.Put(Day); w.Put(OwnerId);
+            w.Put(OwnerTag ?? ""); w.Put(OwnerName ?? ""); w.Put(Label ?? "");
+        }
+
+        public static MapPinWire Deserialize(NetReader r) => new MapPinWire
+        {
+            Id = r.GetInt(), Kind = r.GetByte(), Color = r.GetByte(), Chapter = r.GetInt(),
+            X = r.GetFloat(), Z = r.GetFloat(), Day = r.GetInt(), OwnerId = r.GetInt(),
+            OwnerTag = r.GetString(), OwnerName = r.GetString(), Label = r.GetString()
         };
     }
 
-    public struct MapMarkerRemoveMessage
+    /// <summary>
+    /// Client→host: a player wants to change the party map board. The host numbers, checks and
+    /// applies it, then sends the result to everyone as <see cref="MapPinEventMessage"/>.
+    /// </summary>
+    public struct MapPinRequestMessage
     {
-        public float PosX, PosY, PosZ;
-        public int PlayerId;
-        public void Serialize(NetWriter w) { w.Put(PosX); w.Put(PosY); w.Put(PosZ); w.Put(PlayerId); }
-        public static MapMarkerRemoveMessage Deserialize(NetReader r) => new MapMarkerRemoveMessage
+        public byte Op;
+        public int PinId;
+        public byte Kind;
+        public int Chapter;
+        public float X, Z;
+        public string Label;
+        public string OwnerName;
+
+        public void Serialize(NetWriter w)
         {
-            PosX = r.GetFloat(), PosY = r.GetFloat(), PosZ = r.GetFloat(), PlayerId = r.GetInt()
+            w.Put(Op); w.Put(PinId); w.Put(Kind); w.Put(Chapter);
+            w.Put(X); w.Put(Z); w.Put(Label ?? ""); w.Put(OwnerName ?? "");
+        }
+
+        public static MapPinRequestMessage Deserialize(NetReader r) => new MapPinRequestMessage
+        {
+            Op = r.GetByte(), PinId = r.GetInt(), Kind = r.GetByte(), Chapter = r.GetInt(),
+            X = r.GetFloat(), Z = r.GetFloat(), Label = r.GetString(), OwnerName = r.GetString()
+        };
+    }
+
+    /// <summary>Host→all: a change to the party map board (Put / Remove / Ping), the full pin attached.</summary>
+    public struct MapPinEventMessage
+    {
+        public byte Op;
+        public MapPinWire Pin;
+
+        public void Serialize(NetWriter w)
+        {
+            w.Put(Op);
+            Pin.Serialize(w);
+        }
+
+        public static MapPinEventMessage Deserialize(NetReader r) => new MapPinEventMessage
+        {
+            Op = r.GetByte(),
+            Pin = MapPinWire.Deserialize(r)
         };
     }
 
@@ -1376,23 +1455,16 @@ namespace DWMPHorde.Networking
 
     public struct MapStateSyncMessage
     {
-        public int MarkerCount, DiscoveryCount;
-        public float[] MarkerPosX, MarkerPosY, MarkerPosZ;
-        public int[] MarkerPlayerIds;
-        public string[] MarkerTexts;
+        /// <summary>The whole party map board (replaces the joiner's).</summary>
+        public int PinCount, DiscoveryCount;
+        public MapPinWire[] Pins;
         public string[] DiscoveryElementNames;
 
         public void Serialize(NetWriter w)
         {
-            w.Put(MarkerCount);
-            for (int i = 0; i < MarkerCount; i++)
-            {
-                w.Put(MarkerPosX != null && i < MarkerPosX.Length ? MarkerPosX[i] : 0f);
-                w.Put(MarkerPosY != null && i < MarkerPosY.Length ? MarkerPosY[i] : 0f);
-                w.Put(MarkerPosZ != null && i < MarkerPosZ.Length ? MarkerPosZ[i] : 0f);
-                w.Put(MarkerPlayerIds != null && i < MarkerPlayerIds.Length ? MarkerPlayerIds[i] : 1);
-                w.Put(MarkerTexts?[i] ?? "");
-            }
+            w.Put(PinCount);
+            for (int i = 0; i < PinCount; i++)
+                (Pins != null && i < Pins.Length ? Pins[i] : default(MapPinWire)).Serialize(w);
             w.Put(DiscoveryCount);
             for (int i = 0; i < DiscoveryCount; i++)
                 w.Put(DiscoveryElementNames?[i] ?? "");
@@ -1400,21 +1472,11 @@ namespace DWMPHorde.Networking
 
         public static MapStateSyncMessage Deserialize(NetReader r)
         {
-            var msg = new MapStateSyncMessage { MarkerCount = r.GetInt() };
-            if (msg.MarkerCount < 0 || msg.MarkerCount > 4096) msg.MarkerCount = 0;
-            msg.MarkerPosX = new float[msg.MarkerCount];
-            msg.MarkerPosY = new float[msg.MarkerCount];
-            msg.MarkerPosZ = new float[msg.MarkerCount];
-            msg.MarkerPlayerIds = new int[msg.MarkerCount];
-            msg.MarkerTexts = new string[msg.MarkerCount];
-            for (int i = 0; i < msg.MarkerCount; i++)
-            {
-                msg.MarkerPosX[i] = r.GetFloat();
-                msg.MarkerPosY[i] = r.GetFloat();
-                msg.MarkerPosZ[i] = r.GetFloat();
-                msg.MarkerPlayerIds[i] = r.GetInt();
-                msg.MarkerTexts[i] = r.GetString();
-            }
+            var msg = new MapStateSyncMessage { PinCount = r.GetInt() };
+            if (msg.PinCount < 0 || msg.PinCount > 4096) msg.PinCount = 0;
+            msg.Pins = new MapPinWire[msg.PinCount];
+            for (int i = 0; i < msg.PinCount; i++)
+                msg.Pins[i] = MapPinWire.Deserialize(r);
             msg.DiscoveryCount = r.GetInt();
             if (msg.DiscoveryCount < 0 || msg.DiscoveryCount > 4096) msg.DiscoveryCount = 0;
             msg.DiscoveryElementNames = new string[msg.DiscoveryCount];
@@ -1555,6 +1617,16 @@ namespace DWMPHorde.Networking
         public void Serialize(NetWriter w) => w.Put(Open);
 
         public static PauseMenuStateMessage Deserialize(NetReader r) => new PauseMenuStateMessage { Open = r.GetBool() };
+    }
+
+    /// <summary>Client→host: the name this player goes by.</summary>
+    public struct PlayerNameMessage
+    {
+        public string Name;
+
+        public void Serialize(NetWriter w) => w.Put(Name ?? "");
+
+        public static PlayerNameMessage Deserialize(NetReader r) => new PlayerNameMessage { Name = r.GetString() };
     }
 
     /// <summary>Host→clients: every player is in the pause menu, so the whole world is paused (or no longer is).</summary>

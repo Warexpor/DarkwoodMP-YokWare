@@ -260,6 +260,31 @@ namespace DWMPHorde.Networking
         /// Dream pad and overworld share NPC names. A sole name match is only
         /// the same character when both positions sit in the same place.
         /// </summary>
+        /// <summary>Pilot: the pending host ids and, for each, the local bodies of that name and why they do not match.</summary>
+        internal static string DebugPending()
+        {
+            var sb = new System.Text.StringBuilder();
+            Character[] all = WorldQueryHelper.GetCachedSceneComponents<Character>();
+            foreach (PendingEntry p in _pendingMatches)
+            {
+                sb.Append(" | id=").Append(p.HostId).Append(' ').Append(p.EntityName).Append(" save=").Append(p.SaveId)
+                    .Append(" prefab=").Append(p.PrefabPath ?? "-").Append(" age=").Append((Time.time - p.TimeAdded).ToString("0.0"));
+                foreach (Character c in Resources.FindObjectsOfTypeAll<Character>())
+                {
+                    if (c == null || !c.gameObject.scene.IsValid() || !CharacterTracker.BaseNameEquals(c.name, p.EntityName))
+                        continue;
+                    _matchHostId = p.HostId;
+                    CharacterTracker.TryGetStableId(c, out short sid);
+                    bool inCache = System.Array.IndexOf(all, c) >= 0;
+                    sb.Append(" [local d=").Append(Vector3.Distance(c.transform.position, p.Position).ToString("0"))
+                        .Append(" active=").Append(c.gameObject.activeInHierarchy).Append(" sid=").Append(sid)
+                        .Append(" save=").Append(SaveIdOf(c)).Append(" reject=").Append(RejectOtherSaveTwin(c))
+                        .Append(" cached=").Append(inCache).Append(']');
+                }
+            }
+            return sb.Length == 0 ? " none" : sb.ToString();
+        }
+
         private static bool SamePresentationWorld(Vector3 bodyPos, Vector3 hostPos)
         {
             const float dreamRadiusSq = 5000f * 5000f;

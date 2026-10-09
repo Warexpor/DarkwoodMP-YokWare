@@ -52,6 +52,13 @@ namespace DWMPHorde.Patches
         private static Vector3 _lastBloodForwardPos;
         private static string _lastBloodForwardPrefab;
 
+        /// <summary>
+        /// Inside a player's own getHit run for damage that came over the network (DamagePlayer,
+        /// a friendly-fire hit on the host): that hit's blood is still this game's to show the
+        /// others, though it is applied inside a network message.
+        /// </summary>
+        internal static int OwnHitDepth; // process-scoped: call-scoped, set and restored around one getHit
+
         /// <summary>Session end: forget the last forwarded splat (dedupe window).</summary>
         internal static void Reset()
         {
@@ -68,7 +75,7 @@ namespace DWMPHorde.Patches
         {
             var net = ModRuntime.Network;
             if (net == null || net.Role == NetworkRole.Offline) return;
-            if (TraverseHack.ApplyingFromNetwork) return;
+            if (TraverseHack.ApplyingFromNetwork && OwnHitDepth == 0) return;
             if (string.IsNullOrEmpty(prefab)) return;
             if (!prefab.StartsWith("FX/Bloodsplats/", System.StringComparison.OrdinalIgnoreCase)
                 && !prefab.Equals("Shotsplat1", System.StringComparison.OrdinalIgnoreCase))

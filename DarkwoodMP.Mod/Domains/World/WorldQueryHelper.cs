@@ -365,6 +365,51 @@ namespace DWMPHorde.Sync
         }
 
         /// <summary>Nearest destructible Item by XZ distance (ignore Y drift).</summary>
+        /// <summary>
+        /// An object that is not destructible but whose scene waits for it to be struck (the
+        /// village cellar dream's barricade): its EventTriggers react to being attacked.
+        /// </summary>
+        public static bool HasAttackTrigger(Item item)
+        {
+            if (item == null)
+                return false;
+            EventTriggers et = item.GetComponent<EventTriggers>();
+            if (et == null || et.eventTriggers == null)
+                return false;
+            for (int i = 0; i < et.eventTriggers.Count; i++)
+            {
+                EventTrigger t = et.eventTriggers[i];
+                if (t != null && !t.disabled
+                    && (t.type == EventTrigger.Type.onGetAttackedByPlayer || t.type == EventTrigger.Type.onGetAttacked))
+                    return true;
+            }
+            return false;
+        }
+
+        /// <summary>The struck story object (see <see cref="HasAttackTrigger"/>) nearest on XZ.</summary>
+        public static Item FindStruckStoryItemXz(Vector3 pos, float maxDist)
+        {
+            float bestSq = maxDist * maxDist;
+            Item best = null;
+            Item[] all = GetCachedSceneComponents<Item>();
+            for (int i = 0; i < all.Length; i++)
+            {
+                Item candidate = all[i];
+                if (candidate == null || candidate.destructible || !candidate.gameObject.activeInHierarchy
+                    || !HasAttackTrigger(candidate))
+                    continue;
+                float dx = candidate.transform.position.x - pos.x;
+                float dz = candidate.transform.position.z - pos.z;
+                float dSq = dx * dx + dz * dz;
+                if (dSq < bestSq)
+                {
+                    bestSq = dSq;
+                    best = candidate;
+                }
+            }
+            return best;
+        }
+
         public static Item FindDestructibleItemXz(Vector3 pos, float maxDist)
         {
             float maxSq = maxDist * maxDist;

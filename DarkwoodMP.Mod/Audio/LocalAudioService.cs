@@ -310,6 +310,23 @@ namespace DWMPHorde.Audio
         }
 
         /// <summary>
+        /// The local player's gunshot: the held firearm's attack sound. Peers play it from
+        /// PlayerFiredWeapon (at the shot's pose, every shot); forwarding the shooter's own play
+        /// as well (the fire clip's Attack1Sound frame plays it on the player) doubled every
+        /// shot and its echo tail on the other screens.
+        /// </summary>
+        public static bool IsCurrentFirearmShotSound(string audioID)
+        {
+            if (string.IsNullOrEmpty(audioID))
+                return false;
+            Player p = Player.Instance;
+            if (p == null || InvItemClass.isNull(p.currentItem) || p.currentItem.baseClass == null)
+                return false;
+            InvItem b = p.currentItem.baseClass;
+            return b.isFirearm && IdEquals(audioID, b.attackSound);
+        }
+
+        /// <summary>
         /// True if audioID matches a non-empty SFX field on the local player's current item.
         /// Covers parentless Play(attackSound/reloadSound/…) for all weapons without a name list.
         /// </summary>
@@ -452,6 +469,44 @@ namespace DWMPHorde.Audio
             if (a.Known && a.Spatial)
                 return Mathf.Max(a.MaxDistance, DefaultMaxAudioDistance);
             return DefaultMaxAudioDistance;
+        }
+
+        /// <summary>A sound with any 3D share (it rolls off to silence at its own max distance).</summary>
+        public static bool IsSpatial(string audioID)
+        {
+            Audibility a = GetAudibility(audioID);
+            return a.Known && a.Spatial;
+        }
+
+        /// <summary>
+        /// Inside the area vanilla keeps awake around the listener (<c>WorldGrid.refreshNodes</c>: a
+        /// box of (screen + 500 * resolution modifier) / cameraZoom each way, about 2400 x 1600 at
+        /// 1080p, by whole nodes, so plus half a node). A fully 2D sound has no falloff: vanilla
+        /// plays it at full volume from anything awake in this box, wherever it stands.
+        /// </summary>
+        public static bool InVanillaAwakeArea(Vector3 worldPosition)
+        {
+            Vector3 listen = GetListenPosition();
+            float mod = Mathf.Max(Core.ResolutionWidthModifier, Core.ResolutionHeightModifier);
+            Controller ctrl = Singleton<Controller>.Instance;
+            float zoom = ctrl != null && ctrl.cameraZoom > 0f ? ctrl.cameraZoom : 1f;
+            WorldGrid grid = Singleton<WorldGrid>.Instance;
+            float halfNode = grid != null ? grid.distance * 0.5f : 0f;
+            float bx = (Screen.width + 500f * mod) / zoom + halfNode;
+            float bz = (Screen.height + 500f * mod) / zoom + halfNode;
+            return Mathf.Abs(worldPosition.x - listen.x) <= bx && Mathf.Abs(worldPosition.z - listen.z) <= bz;
+        }
+
+        /// <summary>
+        /// A world (not a peer's own) sound at <paramref name="worldPosition"/> would reach this
+        /// listener in vanilla: a 3D one within its own carry, a fully 2D one from anywhere in the
+        /// area vanilla keeps awake around the player.
+        /// </summary>
+        public static bool WorldSoundAudible(string audioID, Vector3 worldPosition)
+        {
+            return IsSpatial(audioID)
+                ? IsNearListenerPeerBand(worldPosition, AudibleRange(audioID))
+                : InVanillaAwakeArea(worldPosition);
         }
 
         /// <summary>

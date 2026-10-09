@@ -8,174 +8,144 @@ namespace DWMPHorde
 {
     public static partial class MainMenuMultiplayerInject
     {
-        private static void OnHostLanClicked()
+        /// <summary>Start hosting on the local network. False (with a status line) when it did not start.</summary>
+        internal static bool HostLan()
         {
-            MultiplayerMenu.EnsureExists();
-            MultiplayerMenu.PushFieldsToConfig();
-
             var net = ModRuntime.Network;
             if (net == null)
-                return;
+                return false;
             if (net.Role != NetworkRole.Offline)
             {
-                ModLog.Event(LogCat.Session, "Already in a session — use DISCONNECT first.");
-                ShowTransientFailure(_hostLanBtn, "ALREADY ONLINE", "HOST LAN");
-                return;
+                Flash("Already in a game — disconnect first");
+                return false;
             }
 
             int port = ModConfig.GetConnectPort();
-
             net.StartHost(port);
             if (net.Role != NetworkRole.Host)
             {
                 ModLog.Event(LogCat.Session, "Host failed: " + (net.StatusText ?? "bind error"));
-                ShowTransientFailure(_hostLanBtn, FailureLabel(net.StatusText, "HOST FAILED"), "HOST LAN");
-                return;
+                Flash(FailureText(net.StatusText, "Could not start hosting"));
+                return false;
             }
 
             _joinPending = false;
-            _hostingHint = true;
+            _hostingHint = GameScreen.AtTitle;
             ModLog.Event(LogCat.Session,
                 "Hosting LAN on port " + port
-                + " — load a save; clients on JOIN get the world after you are in-chapter.");
-            ClosePanel();
-            if (_menu != null)
-                _menu.displayProfilesMenu();
+                + (GameScreen.AtTitle ? " — load a save; clients get the world once you are in-chapter." : " — in-world; clients get this world."));
+            return true;
         }
 
-        private static void OnHostSteamClicked()
+        /// <summary>Start hosting a Steam lobby. False (with a status line) when it did not start.</summary>
+        internal static bool HostSteam()
         {
-            MultiplayerMenu.EnsureExists();
-            MultiplayerMenu.PushFieldsToConfig();
-
             var net = ModRuntime.Network;
             if (net == null)
-                return;
+                return false;
             if (net.Role != NetworkRole.Offline)
             {
-                ModLog.Event(LogCat.Session, "Already in a session — use DISCONNECT first.");
-                ShowTransientFailure(_hostSteamBtn, "ALREADY ONLINE", "HOST STEAM");
-                return;
+                Flash("Already in a game — disconnect first");
+                return false;
             }
 
             net.StartHostSteam();
             if (net.Role != NetworkRole.Host)
             {
                 ModLog.Event(LogCat.Session, "Steam host failed: " + (net.StatusText ?? "steam error"));
-                ShowTransientFailure(_hostSteamBtn, FailureLabel(net.StatusText, "HOST FAILED"), "HOST STEAM");
-                return;
+                Flash(FailureText(net.StatusText, "Could not start hosting"));
+                return false;
             }
 
             _joinPending = false;
-            _hostingHint = true;
+            _hostingHint = GameScreen.AtTitle;
             ModLog.Event(LogCat.Session,
-                "Hosting Steam lobby — invite via overlay (SETTINGS shows lobby id). "
-                + "Load a save; clients join after you are in-chapter.");
-            ClosePanel();
-            if (_menu != null)
-                _menu.displayProfilesMenu();
+                "Hosting Steam lobby — invite from the multiplayer menu or the Steam overlay. "
+                + (GameScreen.AtTitle ? "Load a save; clients join after you are in-chapter." : "In-world; clients get this world."));
+            return true;
         }
 
-        /// <summary>Test pilot: one press of JOIN LAN (connect, request, enter world as it progresses).</summary>
+        /// <summary>Test pilot: one press of Connect (connect, request, enter world as it progresses).</summary>
         internal static void PilotJoinLan()
         {
             _joinViaSteam = false;
             BeginOrContinueJoin(steam: false);
         }
 
-        private static void OnJoinLanClicked()
+        internal static void JoinLan()
         {
             _joinViaSteam = false;
             BeginOrContinueJoin(steam: false);
         }
 
-        private static void OnJoinSteamClicked()
+        internal static void JoinSteam()
         {
             _joinViaSteam = true;
             BeginOrContinueJoin(steam: true);
         }
 
+        /// <summary>Enter the downloaded host world (the Join screen's "Enter world").</summary>
+        internal static void EnterWorld()
+        {
+            BeginOrContinueJoin(_joinViaSteam);
+        }
+
         private static void BeginOrContinueJoin(bool steam)
         {
-            MultiplayerMenu.EnsureExists();
-            MultiplayerMenu.PushFieldsToConfig();
-
             var net = ModRuntime.Network;
             if (net == null || _joinPending)
                 return;
 
-            var lanReady = net;
-            if (lanReady?.WorldSaveShare != null && lanReady.WorldSaveShare.IsAwaitingSlotPick)
+            var share = net.WorldSaveShare;
+            if (share != null && share.IsAwaitingSlotPick)
             {
-                SetJoinProgress("CHOOSE SLOT");
-                JoinWorldSlotPicker.EnsureExists();
+                MultiplayerScreens.OpenSlotPicker();
                 return;
             }
-            if (lanReady?.WorldSaveShare != null && lanReady.WorldSaveShare.IsAwaitingEnterWorld)
+            if (share != null && share.IsAwaitingEnterWorld)
             {
-                if (lanReady.WorldSaveShare.HasTerminalShareFailure)
+                if (share.HasTerminalShareFailure)
                 {
-                    ModLog.Warn(LogCat.Session,
-                        "ENTER WORLD blocked — " + lanReady.WorldSaveShare.ProgressText);
-                    SetJoinProgress("SHARE FAIL");
+                    ModLog.Warn(LogCat.Session, "ENTER WORLD blocked — " + share.ProgressText);
                     return;
                 }
-                if (lanReady.WorldSaveShare.TryBeginEnterWorld())
-                {
-                    SetJoinProgress("LOADING…");
+                if (share.TryBeginEnterWorld())
                     ModLog.Event(LogCat.Session, "ENTER WORLD — starting offline load (phase 2)");
-                }
                 return;
             }
 
             if (net.Role == NetworkRole.Client && net.IsHandshakeComplete && GameScreen.AtTitle)
             {
-                var lan = net;
-                if (lan?.WorldSaveShare != null && lan.WorldSaveShare.IsClientReceivingOrApplying)
-                {
-                    SetJoinProgress("DOWNLOADING…");
+                if (share != null && share.IsClientReceivingOrApplying)
                     return;
-                }
-                if (lan != null && !lan.ClientSeesHostWorldReady)
+                if (!net.ClientSeesHostWorldReady)
                 {
-                    SetJoinProgress("WAIT HOST…");
                     ModLog.Event(LogCat.Session,
                         "JOIN while connected — host not fully in-world yet; waiting (no download).");
-                    // Still nudge host in case they are ready but signal was missed.
-                    lan.RequestHostWorld("join-button-wait-host");
+                    // Still nudge the host in case they are ready but the signal was missed.
+                    net.RequestHostWorld("join-button-wait-host");
                 }
-                else if (lan != null && lan.RequestHostWorld("join-button"))
-                {
-                    SetJoinProgress("REQUESTING WORLD…");
+                else if (net.RequestHostWorld("join-button"))
                     ModLog.Event(LogCat.Session, "JOIN while connected — WorldRequest sent to host.");
-                }
                 else
-                {
-                    SetJoinProgress(lan != null && lan.ClientSeesHostWorldReady
-                        ? "WAITING…"
-                        : "WAIT HOST…");
                     ModLog.Event(LogCat.Session,
                         "JOIN while connected — request rate-limited or share already in progress.");
-                }
                 return;
             }
 
             if (net.Role != NetworkRole.Offline)
             {
-                ModLog.Event(LogCat.Session, "Already in a session — use DISCONNECT first.");
-                ShowTransientFailure(ActiveJoinButton, "ALREADY ONLINE", steam ? "JOIN STEAM" : "JOIN LAN");
+                Flash("Already in a game — disconnect first");
                 return;
             }
 
             if (steam)
             {
-                string lobby = (ModConfig.SteamLobbyId != null ? ModConfig.SteamLobbyId.Value : "") ?? "";
-                lobby = lobby.Trim();
+                string lobby = ((ModConfig.SteamLobbyId != null ? ModConfig.SteamLobbyId.Value : "") ?? "").Trim();
                 if (string.IsNullOrEmpty(lobby))
                 {
-                    ModLog.Event(LogCat.Session, "JOIN STEAM: set lobby id in SETTINGS (or accept a Steam invite).");
-                    ShowTransientFailure(_joinSteamBtn, "SET LOBBY ID", "JOIN STEAM");
-                    MultiplayerMenu.ShowSettings();
+                    ModLog.Event(LogCat.Session, "JOIN STEAM: no lobby id (type one in, or accept a Steam invite).");
+                    Flash("Type in the Steam lobby id, or accept an invite in Steam");
                     return;
                 }
 
@@ -184,47 +154,44 @@ namespace DWMPHorde
                 {
                     // Bad lobby id / Steam not ready: nothing is connecting, so no join timer.
                     ModLog.Event(LogCat.Session, "JOIN STEAM failed: " + (net.StatusText ?? "steam error"));
-                    ShowTransientFailure(_joinSteamBtn, FailureLabel(net.StatusText, "JOIN FAILED"), "JOIN STEAM");
+                    Flash(FailureText(net.StatusText, "Could not join the lobby"));
                     return;
                 }
                 BeginJoinTimer();
-                SetJoinProgress("STEAM…");
                 ModLog.Event(LogCat.Session, "Connecting Steam lobby " + lobby + " …");
                 return;
             }
 
-            string ip = (ModConfig.ConnectAddress != null ? ModConfig.ConnectAddress.Value : "127.0.0.1") ?? "127.0.0.1";
-            ip = ip.Trim();
+            string ip = ((ModConfig.ConnectAddress != null ? ModConfig.ConnectAddress.Value : "127.0.0.1") ?? "127.0.0.1").Trim();
             if (string.IsNullOrEmpty(ip))
                 ip = "127.0.0.1";
-
             int port = ModConfig.GetConnectPort();
 
             net.ConnectToHost(ip, port);
             BeginJoinTimer();
-            SetJoinProgress("CONNECTING…");
             ModLog.Event(LogCat.Session, "Connecting to " + ip + ":" + port + " …");
         }
 
-        private static void SetJoinProgress(string text)
+        /// <summary>Leave the session (a host hands it to a client when one can take over).</summary>
+        internal static void Disconnect()
         {
-            ResetInactiveJoinLabel();
-            SetLabel(ActiveJoinButton, text);
+            var net = ModRuntime.Network;
+            if (net == null)
+                return;
+            _joinPending = false;
+            _hostingHint = false;
+            if (net.Role == NetworkRole.Host && net.TryGracefulHostLeave())
+            {
+                ModLog.Event(LogCat.Session, "Host disconnect — handing off to elect…");
+                return;
+            }
+            net.StopNetwork();
+            ModLog.Event(LogCat.Session, "Disconnected.");
         }
 
-        private static void ResetInactiveJoinLabel()
-        {
-            if (_joinViaSteam)
-                SetLabel(_joinLanBtn, "JOIN LAN");
-            else
-                SetLabel(_joinSteamBtn, "JOIN STEAM");
-        }
-
-        private static void ResetJoinLabelsIdle()
-        {
-            SetLabel(_joinLanBtn, "JOIN LAN");
-            SetLabel(_joinSteamBtn, "JOIN STEAM");
-        }
+        /// <summary>The host's next step after HOST on the title screen: pick the save to play.</summary>
+        internal static bool HostWaitingForSave =>
+            _hostingHint && GameScreen.AtTitle && ModRuntime.Network != null && ModRuntime.Network.Role == NetworkRole.Host;
 
         private static void PollJoinState()
         {
@@ -237,27 +204,19 @@ namespace DWMPHorde
 
             if (net.Role == NetworkRole.Client && net.IsHandshakeComplete)
             {
-                bool firstReady = _joinPending;
                 _joinPending = false;
-                if (firstReady)
-                {
-                    _handshakeAt = Time.realtimeSinceStartup;
-                    _loggedWaitingWorld = false;
-                    _worldRequest10sSent = false;
-                    _worldRequest25sSent = false;
-                    ModLog.Event(LogCat.Session,
-                        "Connected to host — waiting for host fully in-world, then world share / auto-load…");
-                }
-                UpdateJoinLabelFromShare(net);
-                RefreshSessionButtons();
+                _handshakeAt = Time.realtimeSinceStartup;
+                _loggedWaitingWorld = false;
+                _worldRequest10sSent = false;
+                _worldRequest25sSent = false;
+                ModLog.Event(LogCat.Session,
+                    "Connected to host — waiting for host fully in-world, then world share / auto-load…");
                 return;
             }
 
             if (net.Role == NetworkRole.Host)
             {
                 _joinPending = false;
-                ResetJoinLabelsIdle();
-                RefreshSessionButtons();
                 return;
             }
 
@@ -270,13 +229,14 @@ namespace DWMPHorde
                 _joinPending = false;
                 if (wasTimeout)
                     net.StopNetwork();
-                ResetJoinLabelsIdle();
-                RefreshSessionButtons();
+                Flash(steamJoin
+                    ? "Could not reach the host through Steam"
+                    : "Could not reach the host — check the address, port and password");
                 ModLog.Event(LogCat.Session,
                     wasTimeout
                         ? (steamJoin
                             ? "Steam join timeout — lobby id / password / proto / friends, or SNS relay."
-                            : "Join timeout — check IP/port/password in SETTINGS (and firewall).")
+                            : "Join timeout — check IP/port/password (and firewall).")
                         : "Connection closed.");
             }
         }
@@ -296,8 +256,6 @@ namespace DWMPHorde
                 return;
             }
 
-            UpdateJoinLabelFromShare(net);
-
             if (_handshakeAt <= 0f)
             {
                 // Invite / launch-lobby joins never ran PollJoinState: anchor the wait here.
@@ -310,10 +268,9 @@ namespace DWMPHorde
                 return;
             }
 
-            if (net.WorldSaveShare != null
-                && (net.WorldSaveShare.IsAwaitingSlotPick
-                    || net.WorldSaveShare.IsAwaitingEnterWorld
-                    || net.WorldSaveShare.IsClientReceivingOrApplying))
+            var share = net.WorldSaveShare;
+            if (share != null
+                && (share.IsAwaitingSlotPick || share.IsAwaitingEnterWorld || share.IsClientReceivingOrApplying))
                 return;
 
             float waited = Time.realtimeSinceStartup - _handshakeAt;
@@ -322,42 +279,34 @@ namespace DWMPHorde
             if (!_loggedWaitingWorld && waited > 8f && !receiving)
             {
                 _loggedWaitingWorld = true;
-                bool hostReady = net.ClientSeesHostWorldReady;
                 ModLog.Warn(LogCat.Session,
                     "Still on title 8s after handshake with no world download. "
-                    + (hostReady
+                    + (net.ClientSeesHostWorldReady
                         ? "Host announced ready — waiting for world package. "
                         : "Host not fully in-world yet (loading / title). ")
-                    + "Auto WorldRequest at 10s; or press JOIN again / host F2 Resend.");
+                    + "Auto WorldRequest at 10s/25s; or Connect again / host Send world again.");
             }
 
             if (!receiving && waited >= 10f && !_worldRequest10sSent)
             {
                 _worldRequest10sSent = true;
-                if (net.RequestHostWorld("title-wait-10s"))
-                    SetJoinProgress(net.ClientSeesHostWorldReady
-                        ? "REQUESTING WORLD…"
-                        : "WAIT HOST…");
+                net.RequestHostWorld("title-wait-10s");
             }
             else if (!receiving && waited >= 25f && !_worldRequest25sSent)
             {
                 _worldRequest25sSent = true;
-                if (net.RequestHostWorld("title-wait-25s"))
-                    SetJoinProgress(net.ClientSeesHostWorldReady
-                        ? "REQUESTING WORLD…"
-                        : "WAIT HOST…");
+                net.RequestHostWorld("title-wait-25s");
             }
         }
 
         private static bool IsShareProgressActive(LanNetworkManager net)
         {
-            if (net?.WorldSaveShare == null)
+            var share = net?.WorldSaveShare;
+            if (share == null)
                 return false;
-            if (net.WorldSaveShare.IsClientReceivingOrApplying)
+            if (share.IsClientReceivingOrApplying || share.IsAwaitingSlotPick || share.IsAwaitingEnterWorld)
                 return true;
-            if (net.WorldSaveShare.IsAwaitingSlotPick || net.WorldSaveShare.IsAwaitingEnterWorld)
-                return true;
-            string prog = net.WorldSaveShare.ProgressText ?? "";
+            string prog = share.ProgressText ?? "";
             if (string.IsNullOrEmpty(prog))
                 return false;
             return prog.IndexOf("Receiv", StringComparison.OrdinalIgnoreCase) >= 0
@@ -371,71 +320,38 @@ namespace DWMPHorde
                 || prog.IndexOf("Permanent", StringComparison.OrdinalIgnoreCase) >= 0;
         }
 
-        private static bool IsShareFailureBlocked(LanNetworkManager net)
+        /// <summary>
+        /// What the client is waiting for, in plain words (the Join and Multiplayer screens show it).
+        /// Null when there is nothing to say.
+        /// </summary>
+        internal static string JoinStatusLine()
         {
-            var share = net?.WorldSaveShare;
-            return share != null && share.HasTerminalShareFailure;
-        }
-
-        private static void UpdateJoinLabelFromShare(LanNetworkManager net)
-        {
+            var net = ModRuntime.Network;
             if (net == null)
-                return;
-            if (IsShareFailureBlocked(net))
+                return null;
+            if (_joinPending)
+                return _joinViaSteam || net.IsSteamSession ? "Connecting through Steam…" : "Connecting…";
+            if (net.Role != NetworkRole.Client)
+                return null;
+            if (!net.IsHandshakeComplete)
+                return net.IsSteamSession ? "Connecting through Steam…" : "Connecting…";
+            var share = net.WorldSaveShare;
+            if (share != null)
             {
-                SetJoinProgress("SHARE FAIL");
-                return;
+                if (share.HasTerminalShareFailure)
+                    return string.IsNullOrEmpty(share.ProgressText) ? "The host's world could not be copied" : share.ProgressText;
+                if (share.IsAwaitingSlotPick)
+                    return "Choose the profile that keeps the host's world";
+                if (share.IsAwaitingEnterWorld)
+                    return "The host's world is ready";
+                if (!string.IsNullOrEmpty(share.ProgressText))
+                    return share.ProgressText;
             }
-            if (net.WorldSaveShare != null && net.WorldSaveShare.IsAwaitingSlotPick)
-            {
-                SetJoinProgress("CHOOSE SLOT");
-                return;
-            }
-            if (net.WorldSaveShare != null && net.WorldSaveShare.IsAwaitingEnterWorld)
-            {
-                SetJoinProgress("ENTER WORLD");
-                return;
-            }
-            string prog = net.WorldSaveShare != null ? net.WorldSaveShare.ProgressText : null;
-            if (!string.IsNullOrEmpty(prog))
-            {
-                if (prog.IndexOf("fail", StringComparison.OrdinalIgnoreCase) >= 0
-                    || prog.IndexOf("FAILED", StringComparison.OrdinalIgnoreCase) >= 0)
-                    SetJoinProgress("SHARE FAIL");
-                else if (WrongSaveWarning.IsWrongSaveMessage(prog)
-                    || prog.IndexOf("WRONG SAVE", StringComparison.OrdinalIgnoreCase) >= 0
-                    || prog.IndexOf("DIFFERENT CAMPAIGN", StringComparison.OrdinalIgnoreCase) >= 0)
-                    SetJoinProgress("WRONG SAVE");
-                else if (prog.IndexOf("ENTER WORLD", StringComparison.OrdinalIgnoreCase) >= 0
-                    || prog.IndexOf("Permanent copy", StringComparison.OrdinalIgnoreCase) >= 0
-                    || prog.IndexOf("World ready", StringComparison.OrdinalIgnoreCase) >= 0)
-                    SetJoinProgress("ENTER WORLD");
-                else if (prog.IndexOf("Pick a profile", StringComparison.OrdinalIgnoreCase) >= 0
-                    || prog.IndexOf("permanent", StringComparison.OrdinalIgnoreCase) >= 0)
-                    SetJoinProgress("CHOOSE SLOT");
-                else if (prog.IndexOf("Receiv", StringComparison.OrdinalIgnoreCase) >= 0
-                    || prog.IndexOf("Send", StringComparison.OrdinalIgnoreCase) >= 0
-                    || prog.IndexOf("Writ", StringComparison.OrdinalIgnoreCase) >= 0
-                    || prog.IndexOf("Inflat", StringComparison.OrdinalIgnoreCase) >= 0
-                    || prog.IndexOf("Verif", StringComparison.OrdinalIgnoreCase) >= 0)
-                    SetJoinProgress("DOWNLOADING…");
-                else if (prog.IndexOf("Load", StringComparison.OrdinalIgnoreCase) >= 0
-                         || prog.IndexOf("Appl", StringComparison.OrdinalIgnoreCase) >= 0)
-                    SetJoinProgress("LOADING…");
-                else if (prog.IndexOf("Request", StringComparison.OrdinalIgnoreCase) >= 0)
-                    SetJoinProgress("REQUESTING WORLD…");
-                else
-                    SetJoinProgress("CONNECTED");
-            }
-            else if (net.IsHandshakeComplete)
-            {
-                if (!net.ClientSeesHostWorldReady && GameScreen.AtTitle)
-                    SetJoinProgress("WAIT HOST…");
-                else if (net.ClientSeesHostWorldReady && GameScreen.AtTitle)
-                    SetJoinProgress("HOST READY");
-                else
-                    SetJoinProgress("CONNECTED");
-            }
+            if (!GameScreen.AtTitle)
+                return "Connected";
+            return net.ClientSeesHostWorldReady
+                ? "Connected — asking the host for the world…"
+                : "Connected — waiting for the host to enter the game…";
         }
 
         private static void TryConsumeSteamLaunchLobby()
@@ -458,6 +374,5 @@ namespace DWMPHorde
             _launchLobbyTried = true;
             net.TryConsumePendingSteamLaunchLobby();
         }
-
     }
 }

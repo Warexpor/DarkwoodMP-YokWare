@@ -64,6 +64,8 @@ namespace DWMPHorde.Patches
             ModRuntime.LegacyInfo($"[Death] Client died at {pos}, isNight={isNight}");
 
             bool hasItems = __instance.Inventory != null && __instance.Inventory.getAllItems().Count > 1;
+            Location home = DeathStateTracker.HomeLocation(__instance);
+            Vector3 homeSpawn = home != null ? home.playerSpawn.transform.position : Vector3.zero;
 
             net.Send(NetMessageType.PlayerDied,
                 w => new PlayerDiedMessage
@@ -73,7 +75,9 @@ namespace DWMPHorde.Patches
                     PosZ = pos.z,
                     IsNight = isNight,
                     HasDropBag = hasItems,
-                    PermadeathEligible = permadeathEligible
+                    PermadeathEligible = permadeathEligible,
+                    HasHome = home != null,
+                    HomeX = homeSpawn.x, HomeY = homeSpawn.y, HomeZ = homeSpawn.z
                 }.Serialize(w),
                 DeliveryMethod.ReliableOrdered);
 

@@ -8,8 +8,8 @@ namespace DWMPHorde.Patches
 {
     /// <summary>
     /// Dream bunker forest spirit: vanilla always spawns around + attacks
-    /// <see cref="Player.Instance"/>. When a remote proxy entered the runaway
-    /// volume near the dream, spawn/chase that peer instead. Aggro sticks to the spawn owner
+    /// <see cref="Player.Instance"/>. When a peer's step set the scene off, spawn around and
+    /// chase that peer instead. Aggro sticks to the spawn owner
     /// so a later peer entering the volume cannot steal the chase.
     /// </summary>
     [HarmonyPatch(typeof(Player), "special_spawnDreamForestSpirit")]
@@ -27,10 +27,17 @@ namespace DWMPHorde.Patches
                 return true;
 
             var net = ModRuntime.Network;
-            Transform pad = DreamSyncManager.GetDreamLocationTransform();
-            Transform prefer = pad != null
-                ? ThreatTriggerContext.TryGetRecentProxyNear(pad.position, 2000f, 8f)
-                : null;
+            // The player whose step into the forest set the scene off (the area trigger's actor):
+            // vanilla's "the player". A recent trigger near the pad's origin was guessed before,
+            // within 2000 of it: the forest lies some 8000 out, so the spirit always took the host.
+            Transform prefer = GeFireActorContext.Depth > 0 ? GeFireActorContext.ActorBody() : null;
+            if (prefer == null)
+            {
+                Transform pad = DreamSyncManager.GetDreamLocationTransform();
+                prefer = pad != null ? ThreatTriggerContext.TryGetRecentProxyNear(pad.position, 2000f, 8f) : null;
+            }
+            if (prefer != null && prefer.GetComponentInParent<RemotePlayerProxy>() == null)
+                prefer = null; // the host's own body: the host branch below
             int ownerId;
             Vector3 anchor;
             string who;

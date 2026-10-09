@@ -35,6 +35,11 @@ namespace DWMPHorde.Networking
         /// <summary>This player's home oven (vanilla Player.experienceMachine, also the respawn home).</summary>
         public bool HasHomeOven;
         public float HomeOvenX, HomeOvenY, HomeOvenZ;
+        /// <summary>
+        /// The home oven was lit (vanilla <c>Player.SaveState.examinedExpMachine</c>: the oven's
+        /// first examine lights it and only then offers Cook). 1 lit, 0 not yet, -1 older backup.
+        /// </summary>
+        public int HomeOvenLit = -1;
         public int Day;
         public int GameTimeMinutes;
         public float PosX, PosY, PosZ;
@@ -71,8 +76,8 @@ namespace DWMPHorde.Networking
         /// </summary>
         public List<EffectEntry> ActiveEffects;
         /// <summary>
-        /// Personal blue map pins (MultiplayerMapManager.LocalMarkers). Mod-only;
-        /// NetworkReset clears them on disconnect so cold rejoin needs backup.
+        /// Legacy: this player's map pins from before the party map board (read once and handed to
+        /// the host's board on restore; new backups leave it empty, the host's world keeps the board).
         /// </summary>
         public List<MarkerEntry> LocalMapMarkers;
         /// <summary>

@@ -137,6 +137,11 @@ namespace DWMPHorde.Patches
             string hostPreset = DreamSyncManager.ResolveActivePresetName();
             if (string.IsNullOrEmpty(hostPreset) && __instance.preset != null)
                 hostPreset = __instance.preset.name;
+            if (!DreamSyncManager.TryClaimHostEnd(hostPreset))
+            {
+                ModRuntime.LegacyInfo($"[DreamSession] {hostPreset} is already ending — second story end '{outcome}' dropped");
+                return false;
+            }
             DreamSyncManager.NotifyPeersStoryEndBeginning(hostPreset, outcome);
             return true;
         }

@@ -3,7 +3,28 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.159**. The current Horde wire protocol is **42** (held for 0.8.143 to 0.8.159, bumped in 0.8.142:
+**0.8.195**. The current Horde wire protocol is **52** (held for 0.8.190 to 0.8.195; bumped in 0.8.189: `PlayerState`'s walkie trailer
+becomes a state byte, `WalkieState`: none, off or flat, on in a pocket, on in hand, plus underground;
+same DLL on every install).
+51 held for 0.8.187 to 0.8.188, bumped in 0.8.187: `VoiceData` (129) carries the
+mod's own voice codec instead of Steam Voice.
+50 held for 0.8.186, bumped in 0.8.185: `PlayerState` gains the
+`CarriesWalkie` trailer; same DLL on every install).
+49 held for 0.8.184, bumped there: `VoiceData` (129) gains the talker's loudness byte.
+48 held for 0.8.183, bumped in 0.8.182: new `PlayerName` (168),
+`PeerRoster` entries gain the player's name.
+47 held for 0.8.178 to 0.8.181, bumped in 0.8.177: `PlayerState` gains
+the `ClockHeld` trailer.
+46 held for 0.8.176, bumped there: `NightDeathState` gains
+the rejoin resume and its position, `PlayerDied` gains the dying player's home, the entity
+snapshot's second flag byte gains the in-sight bit.
+45 held for 0.8.171 to 0.8.175, bumped in 0.8.170:
+`Handshake` gains `WorldGeneratedLocally`.
+44 held for 0.8.166 to 0.8.169, bumped in 0.8.165: `ScenarioEventFired` gains the
+scenario name; `GameEventsFired` gains the scene-piece flag in 0.8.167.
+43 held for 0.8.162 to 0.8.164, bumped in 0.8.162: new `MapPinRequest` (166) and
+`MapPinEvent` (167), `MapMarker` (68) and `MapMarkerRemove` (72) retired, `MapStateSync` carries the party map board.
+42 held for 0.8.143 to 0.8.161, bumped in 0.8.142:
 `WorldClock` (165) removed with the 0.8.141 rollback.
 41 held for 0.8.141, bumped there: new `WorldClock` (165).
 40 held for 0.8.140, bumped there: new `CosmeticState` (164), `ExamineObject` gains the drawn pool line, the entity
@@ -33,6 +54,1272 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.195 — The apply-changes question only for changes with consequences
+
+- **Leaving a Multiplayer settings screen asks "Do you wish to apply these changes?" only for
+  a change that matters to others**, not for small adjustments. Asked: your name (everyone
+  sees it), Voice chat off / push to talk / always on (whether your mic goes out to
+  everyone), and, while hosting, the rules (friendly fire, extra loot, night monsters,
+  creatures hear voices), which change the game for everyone at once. Not asked: volumes,
+  keys, microphone device, player names display, text chat, other players' steps, each
+  player's volume, and the host's players / lobby / port / password before hosting. Those
+  are kept on Return as before 0.8.194.
+- No on the question now puts back only the settings it asked about; small adjustments made
+  on the same screen stay.
+- Code: `VmSetting.Ask` in `UI/VanillaMenu/VanillaMenu.cs`; the marks in
+  `MultiplayerScreens.cs` / `MultiplayerScreens.Voice.cs`.
+
+## 0.8.194 — Apply and Revert to default on the Multiplayer settings screens
+
+- **Settings, Voice, Voice > Players and Host settings now have Apply and Revert to default**,
+  on the Return row where vanilla Options has them (Apply at x 0, Revert to default at x 168,
+  the game's own words for both). They work the vanilla Options way: a change still takes
+  effect at once (the mic meter, volumes and host rules show it live), Apply keeps it, and
+  Return or Esc with changes not applied asks the game's "Do you wish to apply these
+  changes?"; No puts back what the screen had when it was opened. Opening a child screen
+  (Voice from Settings, Players from Voice) does not count as leaving. Apply is greyed while
+  nothing changed, Revert to default while every setting on the screen is at its default.
+- **Revert to default** puts the screen's own settings back to the values bound in code
+  (Settings: name, player names, text chat, other players' steps; Voice: mode, the three
+  keys, microphone, both volumes; Players: each listed player back to 1; Host settings: the
+  rules, and players, lobby, port and password only while not hosting, as those rows are
+  locked online). It is not applied until Apply, so No on leaving undoes it too.
+- Code: `VmSettingsPage` / `VmSetting` and `VmBuilder.OptionsButton` / `Enable` in
+  `UI/VanillaMenu/VanillaMenu.cs`, `VmScreen.OnOpen`; `ModSetting<T>` keeps its `Default` and
+  `Id`. No config keys or protocol change.
+
+## 0.8.193 — A hand-painted walkie icon
+
+- **New walkie icon, painted for the mod in the game's inventory style.** 0.8.192's borrowed
+  vanilla icon (`radio_small_01`) is a 25-pixel atlas cell and looked blurry blown up to a
+  slot. The new one is painted at 1024 and shipped at 256: a battered boxy handheld in worn
+  dark metal, lit from the top left like every vanilla item, standing nearly upright with a
+  slight lean as the game stands its boxy items (the 9V battery), a stubby rubber aerial, two
+  ridged knobs, a sunk speaker grille, a push-to-talk bar, a coiled
+  cord, black tape wrapped round the middle (it is made at a bench from scrap), a scratched
+  label plate with screws, a little old blood at the bottom, and the soft dark shadow the atlas
+  icons have. Greyscale with a breath of warm, like the atlas.
+- **The icon no longer shimmers when shrunk.** The old 500 px icon was loaded without mipmaps and
+  drawn at about 50 px, so it jagged. The loader now builds a mip chain with trilinear filtering.
+  The unused fallbacks (a PNG beside the DLL, a second resource name) are gone.
+- The icon is painted by a script, `scripts/paint-walkie-icon.py`, so it can be repainted.
+
+## 0.8.192 — The walkie wears the game's own radio icon
+
+- **Walkie icon from the game.** The inventory atlas (`InventorySprites`) already holds a
+  handheld radio, `radio_small_01`, the icon of the "damaged handheld radio" journal note:
+  grey, diagonal, painted in the same hand as every other item. The walkie now uses it. The
+  mod's own icon (a clean black handset with red buttons, loaded from an embedded PNG onto a
+  copied scrap-metal quad) stood out next to vanilla items and is gone, with its loader and
+  `Resources/walkie_talkie.png`. The atlas also has an unused `walkieTalkie` sprite; at 9 by 25
+  pixels it reads as a sliver, so it was passed over.
+- Nothing is added to the sprite collection any more, so the one-time
+  `FindObjectsOfTypeAll` scan for it is gone too.
+
+## 0.8.191 — Radio talk key rebindable
+
+- **Settings > Voice > Radio talk key** (config `VoiceRadioTalkKey`, default `Mouse1`, right
+  mouse as before). Talking on the walkie was hard-wired to right mouse; it is now any key or
+  mouse button, the side buttons included (`Mouse3`, `Mouse4`). It still keys the radio only
+  with the walkie in hand and only while playing (no menu, container, dialogue, map or chat).
+- Key settings on the Multiplayer screens show mouse buttons by name (Right mouse, Middle
+  mouse, Mouse 4 and Mouse 5 for the side buttons) instead of Unity's `Mouse1`..`Mouse4`.
+- Not tested in game: side buttons reaching the game on Linux and under Wine.
+
+## 0.8.190 — The walkie in the item list
+
+- **Item givers can give the walkie.** The walkie was answered only by `ItemsDatabase.getItem`
+  and `hasItem`, never listed in the database's name list (`itemsDict`), so anything that lists
+  items from it (the vanilla debug Items window, item-giver mods such as Darkwood Item Spawner's
+  Browse Items) did not show it. It is now in that list (re-added after `populateDict`, which
+  clears it). Nothing loads its path: `getItem` still answers for it. Loot is unaffected (loot
+  tables, not this list). `Items/WalkieItem.cs`.
+- Not tested in game: the third-party item spawner's own grant path.
+
+## 0.8.189 — The walkie as a real radio: knob, battery, pocket, range, doubling, feedback, roger beep
+
+- **On/off knob.** `B` (Settings > Voice > Radio on/off key, config `VoiceRadioPowerKey`) turns
+  the walkie on or off, only with it in hand, as a knob on the radio would. On: a click and the
+  speaker hissing alive; off: a click and a short dying hiss. Off, it neither receives nor
+  transmits, nor plays out loud for anyone near, nor makes a sound creatures hear. It stays as
+  set across games.
+- **9V battery.** The walkie runs on the vanilla `battery9v`, the way the flashlight does: its
+  durability bar is the charge, a full battery lasts 25 minutes on (talking drains it faster,
+  a full one about 8 minutes of talk), only while the game runs. Under 10% it chirps twice
+  every 30 s; flat, it dies with a click and counts as off. The vanilla Reload key (`R`) with
+  it in hand swaps in a fresh battery (`InvItemClass.reload`). A crafted walkie comes charged.
+  A walkie crafted before this version keeps whatever charge its old item had: if it reads
+  flat, reload it. `Items/WalkieItem.cs`, `Audio/VoiceChatService.Walkie.cs`.
+- **In hand or in a pocket.** In a pocket a radio plays at 55% and dulled to 2 kHz, for its
+  carrier and for players near them (heard 180 instead of 260 units); creatures hear a pocket
+  radio 100 units around instead of 160.
+- **Range.** The signal between the talker's radio and the receiving one is clear to 3000 units
+  (the map is about 25000 across) and fades to nothing at 9000; each end inside a building counts
+  as 35% farther, each end underground lets 15% through (`whereAmI.inUndergroundLocation`, sent
+  in the walkie byte), and nothing reaches another world (a dream, a loading location). A weak
+  signal is quieter under more static and breaks up in 10-40 ms dropouts, more often the weaker;
+  below 3% the radio does not open at all. Creatures near a radio the signal does not reach hear
+  nothing.
+- **Doubling.** A second talker keying over the one holding the channel was simply not heard on
+  the radios. Now both come through: the holder garbled under a wobbling whistle (two carriers
+  beating), the second one quieter under it, as on a real channel.
+- **Feedback.** Keying within 90 units of another player's live radio feeds back: a howl near
+  2 kHz rising over about a second, drifting and warbling, from that radio for everyone near it
+  and on every radio on the channel, until the talker lets go or the radio is switched off. The
+  talker hears it too. On the host, creatures hear a howling radio up to 420 units away.
+- **Roger beep.** Each transmission ends on the far radios with two short tones (1250 Hz, then
+  900 Hz) before the squelch tail; a radio the signal no longer reaches does not beep.
+- Test pilot: `radio on|off` (the knob), `battery <percent>`; `voice` shows the walkie state,
+  battery, signal quality, doubling and feedback per talker.
+- Box-tested (native host + Wine client, test tone as radio talk): the host's live radio 45
+  units from the keying client howls at full within a second, and not at all once switched
+  off (then only the live voice); 4000 units apart with one end indoors the signal reads 0.59
+  and plays on the host's pocket radio at half volume; 7500 apart nothing gets through;
+  battery at 0% reads as off for the peer too; drain about 1% per 15 s on standby. Not
+  heard (the box has no audio): the knob, chirp, roger beep, whistle and howl themselves.
+- Note: the 0.8.188 Night monsters change was made by another session in this checkout and went
+  into the 0.8.187 commit (`fc53dab`) by mistake; its CHANGELOG entry stands as written.
+
+## 0.8.188 — Night monsters setting for the host (x1 to x10)
+
+- **New: Host settings > Night monsters.** The host picks how many night monsters come to
+  each hideout: x1 (vanilla, the default), x1.5, x2, x3, x4, x5, x7 or x10. It raises how
+  many of each kind of the night's monsters may be out at once (rounded up) and the pace
+  they come at (vanilla places one per spawner tick; x3 places three on average), so a
+  bigger night does not just trickle in slower. Worms, shadows and scripted night events
+  stay vanilla.
+- **Before hosting or mid-game.** Host settings is on the title screen and in the pause
+  menu. Only the host spawns night monsters and it reads the value every tick, so a change
+  applies at once, also in the middle of a night (lowering it lets the extra ones already out
+  stay until they die or morning). No wire change: clients do not need the value.
+- **Solo too.** Above x1 the host's per-hideout night spawner also runs with nobody
+  connected, so the setting works in a game hosted alone or played offline; at x1 with no
+  peers vanilla's own spawner runs, as before.
+- Config key `[Gameplay] NightMonsterMultiplier` (float, 1..10, default 1; a hand-edited
+  value in between works and shows as the step below it). Files:
+  `Domains/Night/Patches/NightSpawnProxyPatch.cs`, `Core/CoopBalance.cs`,
+  `Config/ModConfig.cs`, `UI/MultiplayerScreens.cs`, `Core/Loc.Ru.cs`, docs CONFIG and
+  HOW_COOP_WORKS (sections 6 and 18; the loot-share row now says the first taker carries the
+  whole party's share, which is what the code does).
+
+## 0.8.187 — Voice settings of its own; voice without Steam, on any install
+
+- **Voice no longer needs Steam.** Voice was recorded and decoded by Steam's voice API, which
+  needs a logged-in Steam client on every player (the GOG build and players without Steam had
+  no voice, also over LAN), and which always uses the mic and level set in Steam's own
+  settings, so a game could not offer either. Voice is now recorded through Unity's own
+  `Microphone` (any device the game sees) and sent in the mod's own codec: 16 kHz IMA ADPCM,
+  40 ms a packet, each packet decodable on its own so a lost one costs only itself
+  (`Audio/VoiceCodec.cs`, `Audio/VoiceMic.cs`). 64 kbit/s per talker while talking. It works
+  on every install, LAN or Steam session alike. Protocol 51.
+- **Multiplayer > Settings > Voice**, a screen of its own (Settings keeps one "Voice chat" row
+  that opens it):
+  - Voice chat: Off / Push to talk / Always on.
+  - Push to talk key.
+  - Microphone: Default, then each input device the game lists (config `VoiceMicDevice`). A
+    saved device that is not plugged in falls back to the default.
+  - Microphone volume, 0 to 2 (config `VoiceMicVolume`). It is also how loud you count for
+    how far your voice carries and for the creatures.
+  - Microphone level: a live meter while the screen is open (the mic runs for it on the title
+    screen too), showing when you count as talking.
+  - Voice volume: everyone.
+  - Players: one volume slider per other player in the game, 0 (muted) to 2, kept by the name
+    they go by so it holds across sessions (config `VoicePlayerVolumes`,
+    `Audio/VoicePlayerVolumes.cs`).
+- **Always on** sends only while you speak: a gate that opens 12 dB over the room's own noise
+  floor, which it keeps following (a fan switched on stops counting as speech after a while),
+  with the 40 ms before the gate opened sent first so the first syllable is not cut. Push to
+  talk sends that 40 ms too.
+- Steam's own noise suppression and automatic gain no longer apply; the mic volume is set by
+  hand, with the meter.
+- Tests: codec round trip, packets decoding independently, the loudness scale.
+- Test pilot: `voicetone [sec] [walkie]` sends a 440 Hz tone as if talking (no mic needed),
+  `voice` shows this player's mic and every talker heard here (packets, buffer, underruns,
+  loudness, volume, how they are heard).
+- Box-tested (native host + Wine GOG client, neither with Steam voice): a tone sent each way
+  arrives in order with no underruns, its loudness as sent (0.63 for -23 dBFS), playback
+  buffer steady around 0.1-0.17 s. Settings > Voice and Players lay out like the vanilla
+  Options pages; with no input device (the box has no audio) the meter says "No microphone
+  found" and the log warns once. No exceptions in either log. Not tested: real microphones,
+  device switching, the always-on gate on real speech.
+
+## 0.8.186 — Walkies one way at a time, the talker's click heard around them, indoor echo on voices
+
+- **Radios are half duplex.** A walkie that is transmitting no longer plays what others say:
+  while you hold the key, your own radio is silent, as on a real handheld. And a channel
+  carries one talker at a time: whoever keyed first holds it until they let go (plus a third
+  of a second), and a second talker keying meanwhile is not heard on the radios (only their
+  live voice, by whoever stands near them).
+- **The talker's own radio is heard around them.** Players near someone keying a walkie now
+  hear its click as the key goes down and the short static as it comes up, from the talker's
+  position (full within about 45 units, gone by 260, muffled through walls). Before, only the
+  talker heard those. Standing next to a talker, you hear their live voice and their clicks,
+  and the reply from the far end comes out of their walkie (or out of yours, if you carry one).
+- **Echo indoors.** A voice from inside a building now gets the reverb vanilla puts on any
+  sound made inside (`AudioController` adds a default `AudioReverbFilter` when the source's
+  `CharBase.isInside`): the talker's stand-in for their voice, the carrier for a radio heard
+  nearby, this player for their own radio. Vanilla's reverb zones (underground places, dreams)
+  already reached the voice, which plays through an ordinary 3D source.
+- **Walls muffle a voice the way vanilla muffles sounds**: 0.75 volume and a 1500 Hz cutoff
+  (`AudioController`'s own values), instead of 0.55 and 900, which made a voice through a door
+  far duller than a step through the same door.
+- Not tested in game (voice needs two logged-in Steam clients).
+
+## 0.8.185 — A walkie playing radio talk is heard by the players and creatures around it
+
+- **Radios play out loud.** Radio talk was heard only by whoever carried a walkie themself.
+  Now every walkie plays it from its carrier's pocket: a player standing near someone with a
+  walkie hears the transmission from that player's position (panned toward them, full volume
+  within about 45 units, gone by 260, muffled through a wall), through the same radio sound
+  (narrow band, distortion, squelch, hiss by the distance between the two radios). Carrying
+  your own walkie, you hear it on yours. The talker's own radio stays quiet. Of their voice, the
+  radio in your hands and a radio nearby, the loudest is what you hear, held until another is
+  clearly louder.
+- **Who carries a walkie** travels in `PlayerState` (new `CarriesWalkie` trailer, protocol 50),
+  polled twice a second from the inventory and hotbar, whatever that player's voice settings.
+- **Creatures hear radios.** On the host (Creatures hear voices on), a walkie playing a
+  transmission, whisper or not, is a small sound (160 units) where its carrier stands, twice a
+  second while the talk goes on. The talker's own radio makes none. `Audio/VoiceHearing.cs`.
+- Not tested in game (voice needs two logged-in Steam clients). To check with three players:
+  A talks on the walkie, B carries one, C without one stands next to B and hears it from B's
+  side; a creature near B turns toward the radio.
+
+## 0.8.184 — Voice from where the player stands, as far as they spoke loud; a real-sounding walkie; creatures hear talk
+
+Review of the voice chat. What it did before: every voice played flat in the middle (no left or
+right), at a volume by distance alone, with the same reach for a whisper and a shout; the
+decoded audio was stretched to the mixer's rate by repeating samples (a faint metallic edge);
+each talk spurt waited a quarter second to start; a spurt shorter than that hung until the
+next one; late or repeated network packets played out of order; the radio was a gentle
+600-6800 Hz filter with a 50 ms tick at the end; walls were found with a ray that hit anything,
+floors and triggers aside.
+
+- **Heard from where they stand.** The voice now comes from the player's character: it pans
+  left and right toward them (gently when they stand close, fully from about 300 units out), and
+  keeps the muffle through walls, now tested the way vanilla tests whether a creature hears a
+  sound through something (`Character.heardSound`: one ray on its blocking layers) and eased in
+  and out instead of switching.
+- **As far as they spoke loud.** Each voice packet now carries how loud the talker spoke,
+  measured on the talker's own machine (protocol 49, `VoiceData` gains a loudness byte). A shout
+  carries the full `VoiceMaxDistance` (650), normal speech about three quarters of it, a whisper
+  about a third. The reach rises at once with the voice and falls slowly between words, so it
+  does not pump.
+- **Creatures hear you.** On the host, a player talking louder than a murmur makes a sound
+  where they stand twice a second, through vanilla's own `Character.alertInArea` (the call a
+  step, a door or a shot makes): normal speech about as far as a walking step, a shout farther
+  than running. Creatures stop and listen, and come looking if it goes on. Whispering is safe.
+  Dead players make no sound. Host settings > **Creatures hear voices** (config `[Voice]
+  VoiceAlertsEnemies`, default on). The host needs no Steam for it: the loudness travels with
+  the packet. `Audio/VoiceHearing.cs`.
+- **The walkie sounds like a radio.** A narrow 380-2900 Hz band (two second-order filters
+  instead of one gentle one), driven into a little distortion, under a hiss that grows with
+  the distance between the two radios (worst when the talker is in another location). The far
+  radio opens with a squelch click and closes with a short burst of static, and the talker
+  hears their own radio click when keying and letting go. `Audio/VoiceChatService.Radio.cs`.
+- **Cleaner, quicker voice.** Decoded straight at the mixer's rate (Steam takes up to 48 kHz),
+  with interpolation when the mixer is faster; volume changes ramp across each audio buffer
+  instead of stepping; talk starts after 150 ms of buffer instead of 250; a short spurt plays
+  out instead of waiting; a backlog after a network stall is cut to 200 ms instead of 350.
+  Late or repeated packets are dropped by their sequence number. The voice packet's layout is
+  written by one helper for the send path and the message (`VoiceDataMessage.WriteSlice`) with
+  a round-trip test.
+- Not tested in game: voice needs two logged-in Steam clients, and the test boxes' client is
+  the GOG build. To check: a teammate's voice from the left or right, a whisper fading out
+  sooner than a shout, the radio squelch and hiss, and a creature turning toward a shout.
+
+## 0.8.183 — Names over the head in a softer look; chat fades smoothly; nothing said over the players
+
+- **Chat stays in the chat.** A chat line also popped up as a speech bubble over the speaker,
+  and map pins and pings from others as a remark over the local player. Both are gone: what is
+  said shows only in the chat corner. `UI/ChatHud.cs`, `MapPinBoard.Notify`.
+- **Chat fades out smoothly.** Lines already faded out over 2 s, but closing the chat dropped
+  every line past its time at once (their alpha came from their age). Each line now keeps its
+  own alpha: it shows at once (new line, or the chat opened) and eases out over 2.5 s after its
+  time or when the chat closes.
+- **Names over the head, on hover, softer.** The name moved from under the feet to over the head
+  (the speech bubbles that sat there are gone). By default it now shows only while the cursor is
+  on that player (`ShowPlayerNames` default `pointed`; Always and Off stay in Multiplayer >
+  Settings > Player names). Config files written by 0.8.182 keep their `always` until changed in
+  that menu. The look stays the game's hover-label font (the outlined text over a door), but
+  dimmed to grey, slightly see-through and at three quarters of its size, so it no longer reads
+  as stark as an object label. Names fade in and out over 0.45 s and grow faint with distance
+  (full up to 220 units, gone at 700). Seven looks from the game's own fonts (`FontsDB`) were
+  compared in game; they are kept in `Nameplates.Styles` and the test pilot's `namestyle <n>`
+  switches them live. `UI/Nameplates.cs`, `HudText.Font`.
+- Not tested in game: the final size and the hover default (the test run was stopped).
+
+## 0.8.182 — Player names over the players, chat in the game's own text, pause-menu version label
+
+- **Player names.** Other players' names now show under their character in the game's own
+  hover-label font (the outlined text over a door or an item). A name shows only while you can
+  see that player, by the sight test vanilla uses for enemies (`Player.isInSight`: the view cone
+  or the close circle, no wall in between), so it never gives away someone behind a wall or out
+  in the dark. Names fade in and out and are hidden in menus, the map, dialogues and cutscenes.
+  Multiplayer > Settings > **Player names**: Always (default), When pointed at (cursor on the
+  player), Off; config `[Network] ShowPlayerNames` (`always` / `pointed` / `off`).
+  `UI/Nameplates.cs`, `UI/HudText.cs`.
+- **Names reach everyone.** Until now a name only travelled with chat lines and map pins. A
+  client now tells the host its name after the handshake and whenever it changes (new message
+  `PlayerName`, 168); the host puts every name in the peer roster, so late joiners and a promoted
+  host know them all, and a name edited mid-game updates for everyone at once. Left at the
+  default "Player", a Steam player goes by their Steam name; otherwise unknown names show as
+  "Player N". `Sync/PlayerNames` (`Domains/Players/PlayerNames.cs`), roster in
+  `HostMigration.PeerRoster.cs`. Protocol 48.
+- **Chat.** The chat was a grey Unity IMGUI box with a SEND button and plain IMGUI lines. It is
+  now drawn in the same hover-label font in the lower left, with no box: "Name: text" lines
+  (name in grey), long lines wrapped under their own start, map-pin notes in grey. Lines fade out
+  after 14 s and all come back while typing. Ctrl+C opens a "Say:" line with a blinking caret,
+  Enter sends, Esc closes, Ctrl+V pastes. Text chat can now be turned on and off mid-game (it
+  needed a restart). `UI/ChatHud.cs`.
+- **Settings split in two.** The Settings screen had grown to 12 rows, past what the vanilla
+  Options screens hold. It now has this player's own seven (Name, Player names, Text chat, Voice
+  chat, Push to talk key, Voice volume, Other players' steps), the same count as vanilla Video;
+  what the host decides for everyone (Friendly fire, Extra loot, Players, Steam lobby, Port,
+  Password) moved to a new **Host settings** screen, shown to everyone but a joined client.
+- **Pause-menu version label.** In the pause menu the Darkwood version text sat right under EXIT,
+  because the pause stack (Continue, Help, Options, Multiplayer, Main menu, Exit) is a row longer
+  than the title's and the label moved only half a row. It now keeps the title screen's gap under
+  EXIT. `MainMenuMultiplayerInject.Panel.cs`.
+- Test pilot: `names` (each player's shown name, sight and plate), `setname <name>`.
+- Box-tested (host + one client): names both ways, a live rename on both sides, the name hidden
+  with the client behind a wall, chat both ways with wrapping, the pause menu and both settings
+  screens; no exceptions in either log. Not tested: Steam names, the "When pointed at" mode by
+  hand.
+
+## 0.8.181 — Multiplayer menus as the game's own; F2 removed; manual saves become an add-on
+
+- The multiplayer menus looked bolted on: the HOST/JOIN panel used a different, all-caps font at
+  the wrong size, and the session controls lived in a grey IMGUI window (F2), as did the join
+  profile picker and the F3 save slots. They are now built from the game's own menu pieces, so
+  they look and behave like Options and Profiles: the spaced grey heading and centred entries of
+  Profiles, the Video tab's grey setting names with white values, the Options "Return", the volume
+  slider, and the vanilla yes/no box for every confirm. Hover, click sound and gamepad navigation
+  are vanilla's; Esc / gamepad B goes back one screen (`UI/VanillaMenu/VanillaMenu.cs`).
+- MULTIPLAYER is also in the pause menu now, under OPTIONS (MAIN MENU and EXIT move down a row).
+  Its screens (`UI/MultiplayerScreens.cs`):
+  - Multiplayer: what can be done now. Title: Host, Join, Settings (connected: Join/Enter world,
+    Disconnect; hosting: Choose a profile). Pause menu: Host this game (single player opens the
+    current game to others), Invite friends (Steam host: copies the lobby id, opens the invite
+    overlay), Send the world again (host), Restore my character (client, when its backup exists),
+    Settings, Disconnect. A status line says what the session is doing (hosting and how many joined,
+    connecting, waiting for the host, download progress, failures in plain words); the mod's
+    version is at the bottom.
+  - Host: Local network / Steam (greyed out without a running Steam).
+  - Join: Address, Port and Password typed in place, Connect; Steam lobby id and Join the lobby.
+    While connecting it shows the progress and Cancel; once the world is ready, Enter world.
+  - Settings: name, text chat, voice chat (off / push to talk / always on), push-to-talk key (press
+    a key), voice volume and other players' steps (sliders); for the host friendly fire, extra loot,
+    player count, Steam lobby type, port and password (the last four only while not in a game).
+    Changes apply at once and are written to the config.
+  - The host's world: the profile picker opens by itself when the download is done; occupied
+    profiles ask in the yes/no box, another campaign is marked; Back asks to leave the game.
+- F2 and its window are gone; everything it did is in the screens above. Disconnecting from the
+  pause menu pauses the game again when you are alone, like single player.
+- The push-to-talk key changed in Settings applies at once (it was read once per session).
+- Manual save slots (F3) are no longer part of the co-op mod: they are the optional add-on
+  `YokWare.ManualSaves` (`DarkwoodMP.ManualSaves`, plugin `com.yokware.manualsaves` 1.0.0, needs the
+  co-op mod). F3 in the world opens a Saves screen in the pause menu: ten slots of the current
+  profile with Save and Load and the same co-op rules as before (only the host saves, and every
+  player saves with it; no save during a partial night death, dream or prologue; Load needs the
+  session left). The co-op mod exposes what add-ons may use in `Bootstrap/AddOnApi.cs` (language,
+  session state, save rules, the crash-safe save-set copy, the input lock). The release packs the
+  add-on as its own zip per loader.
+- Messages that named F2 or ENTER WORLD now name the menu entries (WORLD SHARE FAILED asks the host
+  for Multiplayer > Send the world again; "press Enter world"). A promoted host is told the world is
+  saved again at the game's next save (the F3 reminder pointed at a key that is now an add-on).
+- The menu font has no dash or ellipsis glyphs: menu text draws them as "-" and "...".
+- Russian for every new text; `LocTests` also scans the new screens and the add-on (first arguments
+  of the menu calls, the choice lists, returned status lines).
+- Test pilot: `pause`, `menu` (list the shown entries) and `press <label>` drive the menus.
+- Box-tested (host + one client): title screens in English and Russian, pause-menu screens, Send the
+  world again, F3 Save (with the client's SaveSync), Disconnect confirm on both sides, host failing
+  on a busy port, host leaving and hosting again from the pause menu, client rejoining from the title
+  through the picker and Enter world. Not tested: Steam (no Steam in the box), gamepad navigation.
+
+## 0.8.180 — Russian for the mod's own text
+
+- With Russian chosen in Options > Language, everything the mod itself shows is in Russian: the
+  title button (СЕТЕВАЯ ИГРА, pixel art built like the English one from the game's Russian menu
+  glyphs: С from НАСТРОЙКИ, Е from ГЛАВНОЕ, Т from АВТОРЫ, "ВАЯ ИГРА" from НОВАЯ ИГРА), the
+  multiplayer panel buttons and their progress/failure labels, the F2 settings window, the F3
+  manual saves window, the join profile-slot picker, connection and world-share status, the
+  WORLD SHARE FAILED / WRONG SAVE warnings with their reasons, HUD lines (someone already talking,
+  already taken, host promoted, …), the chat box, map pin cards, stamps and chat notices, and the
+  walkie-talkie item's name and description (Рация). Every other language keeps the English text.
+- Text stays English in the code and is translated where it is shown (`Core/Loc.cs`,
+  `Core/Loc.Ru.cs`: whole-string entries plus patterns for lines with numbers or a nested reason),
+  so status matching keeps working and an English reason sent by the host reaches a Russian client
+  in Russian. A language change in Options rewrites the panel labels and swaps the title art at once.
+- Tests: every literal the code hands to a display sink must have a Russian entry; the patterns
+  keep their numbers and nested reasons (`LocTests`).
+- Removed the F2 window's never-shown "host next step" hint (dead code).
+- The title MULTIPLAYER button sat below the version text, in the dark bottom band of the menu's
+  vignette overlay, at about half the brightness of PLAY/EXIT. It now takes the row right under
+  PLAY; OPTIONS, CREDITS and EXIT each move down one row (60 units, vanilla's spacing) and the
+  version / player-id labels half a row, so the version text stays close under EXIT. The shift is taken from the vanilla offsets, re-applied when vanilla resets
+  EXIT on menu open, and undone when leaving the title; pause-menu-only rows are untouched
+  (`ApplyTitleStack` / `ResetTitleStack`).
+- The title art's letters sat 2 texels low in their canvas (cropped at a faint shadow pixel above
+  them), 4 px off the row; they now sit on the vanilla sprite rows, so the stack is evenly spaced.
+
+## 0.8.179 — MULTIPLAYER title button redrawn as vanilla pixel art
+
+- The title-screen MULTIPLAYER button was an AI-generated picture (bevelled letters, blurry glow,
+  sized by a guessed fraction of the row) and looked foreign next to PLAY/OPTIONS/EXIT. It is now
+  real pixel art on the vanilla grid: the idle state is assembled pixel for pixel from the vanilla
+  menu atlas glyphs (M, U, I from MAIN MENU; P, L, A from PLAY; E, T from EXIT; R from CREDITS; Y
+  from the Turkish YARDIM, the form every other vanilla Y uses, since PLAY's Y leans left), each letter
+  with its own soft edge column,
+  and the lit state is made with the same idle-to-rollover look vanilla uses for its `_0` → `_1`
+  sprites (fitted on PLAY/EXIT/CREDITS, cross-checked against them at about 1% error).
+- The art is drawn point-filtered at exactly one texel of the cloned EXIT sprite, so its letters are
+  the same height and pixel size as the vanilla buttons at every resolution. Idle and lit share one
+  canvas, so the letters no longer jump on hover.
+- Files: `Resources/MenuButtons/multiplayer_idle.png`, `multiplayer_hover.png` (the old `_sm` copies
+  are gone), `UI/MenuButtonArt.cs`.
+
+## 0.8.178 — The village at night, with three players
+
+On top of 0.8.177. Protocol **47** (unchanged). Three-player pilot runs of the chapter-1 village
+night (`NightVillage`): two players in the village, the third out in the world keeping the clock
+running, then the third walking in late.
+
+**Verified in game, unchanged:** at the "night is coming" warning the villagers stay while anyone
+looks at them and leave together once nobody does, on every machine; a player walking in after
+that finds them gone; the worm killed the host standing outdoors in the village (spectating until
+morning) and never touched the client sheltering in the brother's house (vanilla's shadow ward
+on it); at dawn the dead host was released and the villagers came back unseen. The village is a
+location: with all three inside, the clock stops and night does not come (section 5 rule).
+
+**Fixed:**
+- **A villager stayed invisible on a client for good.** A location pad loaded after the world
+  gives its bodies save ids in each machine's own load order, so the village woodcutter's id on the
+  client was the id of a different host villager. The client's matcher refused him as "that
+  villager's save twin", fell back to spawning a prefab that does not exist, and logged a spawn
+  error every half second while he stood invisible in front of the client. A body now counts as
+  another host body's save twin only under that body's name, as the save-twin lookup itself
+  requires (`ClientEntityInterpolationService.SaveTwin.cs`). This covers every pad, not only the
+  village.
+- **The sick villagers left at night too.** Every villager is `villagerNeutral`, so the
+  "friendly villagers" picked by faction included the sick lying in the houses, against the
+  documented rule ("the crazy / infected villagers stay"). Villagers already standing on an
+  indoor floor (vanilla's ground test, 6 of 30) now stay; the ones outdoors (the crazy man in the
+  pig cottage's yard, one sick villager lying outside) go home like the rest; the list is built only once the pad's floors are live, so every
+  machine picks the same ones (`NightVillage.cs`).
+
+Pilot: `chars` shows faction, save id and an away villager; `status` shows `ward`,
+`villagersAway` and `nightDead`; new `match <name>` explains a client's pending body match.
+
+## 0.8.177 — Where time stands still, with three players
+
+On top of 0.8.176. Protocol **47**. Three-player pilot runs of every place and moment where
+vanilla stops the clock: a location (the bunker), a player dying, the Wolf's trap in chapter 2
+(its personal `timeFreeze`), a player dead until morning, the morning hold, and a dream.
+
+**Verified in game, unchanged:** host inside the bunker with the clients outside, the clock
+runs; all three inside, it stops; one client out, it runs; the host out with both clients in,
+it runs. The morning holds the clock for everyone until the hideout is empty (a client walking
+out with the host still home keeps it; the host walking out ends it). A dream started by a client
+holds the clock for everyone and the world time comes back where it was.
+
+**Fixed:**
+- **The host dying stopped everyone's clock.** Vanilla `Player.die` turns the clock off until the
+  respawn, so for about seven seconds the clients' world stood still, while a client dying
+  stopped nothing. The Wolf's trap did the same: the host caught in it froze time for the whole
+  party, a client caught in it froze nobody. Now a player's own freeze (dying, dead until
+  morning, the trap's `timeFreeze`) only takes that player out of the count, like being inside a
+  location: the clock runs while any player is in the open world and not held, and stops when
+  nobody is. A host dead at night and spectating no longer keeps the clock running alone either
+  (both clients in the bunker: held; one walks out: it runs). World-wide holds (the morning, the
+  day-1 prologue wait, a load) still stop it for everyone.
+- Each client reports its own freeze on `PlayerState` (`ClockHeld`, new trailer, protocol 47).
+
+Files: `ClientTimeAuthorityPatches.cs` (`HostSharedClockPatch` rewritten around
+`CoopTimePolicy.SharedClockSteps`, `LocalPersonalHold`), `PersonalProloguePatches.cs` (the
+day-1 hold is readable per step), `PlayerMessages.cs`, `RemotePlayerState.cs`,
+`PlayerStateNetHandlers.cs`, `LanNetworkManager.Tick.cs`, `CoopPolicy.cs`. Pilot: `effect <type> off`.
+
+## 0.8.176 — Nights, deaths, blood, skills and every creature with three players
+
+On top of 0.8.175. Protocol **46**. Three-player pilot runs of nights (deaths, spectating,
+a player quitting and rejoining while dead, the morning release), blood on the floor
+compared splat by splat on every machine, the skills that touch other players, and a sweep
+of the creatures (spawned beside a client and set on it; each game records the sounds it
+plays, the sweep lists what one game heard and another did not, where each sees the
+creature, and whether the client's blows land). New pilot commands: `spawn`, `aggro`,
+`kill <radius> all`, `comps`, `audio` / `audiodump` (a sound tap on
+`AudioController.PlayAudioItem`, pilot runs only), `perk` / `useskill`, `face … away`;
+`chars` shows a creature's sight state, `status` a dead stand-in. Scripts
+`enemy-sweep.sh` and `lone-aggro.sh`. Fixed:
+
+### Blood and gore
+
+- **A creature's hit on a client left two blood splats for everyone else** (one the client
+  placed, one the host added at its own random angle about 20 units off), and the client
+  saw one. A friendly-fire hit or the host's blow on a client did the same the other way:
+  two on the victim's screen. The victim's own getHit splat is now the only one, and it
+  reaches everyone; a blocked hit leaves none, as in vanilla (the host's extra splat
+  ignored blocking). Damage that arrives over the network (`DamagePlayer`, a friendly-fire
+  hit on the host) now forwards its splat too (`HitscanBloodPatch.OwnHitDepth`); the host
+  splats in `HandleEnemyHitConfirm`, the host-melee-on-stand-in path and
+  `BroadcastFriendlyFireBlood` are gone. Verified: three chomper bites, three splats, the
+  same positions on all three games.
+- Bleeding leaves no drips in this game build (vanilla's `waitToBleed` asks the FX pool for
+  `BleedSplat`, which the pool does not have, and stops there), so there is no trail to
+  share; nothing changed.
+
+### Creatures
+
+- **A swamper's spit never left its puddle on clients.** The landing spawns a trap prefab
+  (`swamper_splatSpawner_chain_*`), sent by name; the client looked for it everywhere but
+  `Traps/`, logged "NOT FOUND", and its splats' events waited 60 s and were dropped. The
+  same lookup lost a thrown bottle's broken glass. `Traps/` is searched now; the puddle
+  chain is in the same 16 spots on every game.
+- **The human spider's watched state existed only on the host.** It slows and stops its
+  glow while any player watches it and starts a creeping loop when nobody does
+  (`InSightOfPlayer`, decided on the host from every player's view); a client's copy has
+  its own sight check off, so it never glowed down nor played the loop. The host's state
+  travels in the entity snapshot and the copy runs the same step
+  (`CreatureSightState`).
+- **A creature's first sounds were lost on clients** (a crawling hand's birth cry, a fresh
+  dog's sniff): the host plays them before the creature's first snapshot has made the
+  client's copy, and the client dropped them ("no char/sounds"). They wait up to 1.5 s for
+  the copy now (`WorldFxNetHandlers.TickEarlySounds`).
+- **A creature checking out a house went for a random room when it hunted a client.**
+  Vanilla sends it to the waypoint nearest the player it hunts when that player is indoors,
+  reading the host only; for a client's stand-in it now does the same
+  (`HostCheckOutLocationPatch`).
+- Checked and matching on all three games (positions, the attacks landing on the client,
+  every sound): human spider (the thrown hand, the crawling hand, their sounds),
+  centipede, banshee and her babies, kamikaze (runs at its target and blows up; its blast
+  damages the client), wolfman, dogs, mutated dog, black and red chompers, swamper,
+  redneck with thrown rocks, redneck with the reach attack, villagers (plain, pitchfork,
+  torch, burning), banshee babies, deer, pig, raven, the bride chomper, the half chomper,
+  night worms, the worm swarm, the big mutant pig, the crawling hand on its own. Creature
+  loops (a dog's growl, a chomper's idle and aggressive breathing) play on every game.
+  Hard-night worms came for a client out in the dark and killed it while the two players
+  in the lit hideout were left alone.
+
+### Players
+
+- **A stand-in could stay behind its player for good.** It follows by physics, so after a
+  short move across something (a teleport under the 150-unit snap, a respawn, a corpse or
+  wall between) it stuck on the obstacle while the player stood still: the host fought the
+  wrong spot and refused the player's blows as out of range. A stand-in more than 40
+  units off its player for half a second now jumps to it.
+
+### Deaths and nights
+
+- **Quitting and rejoining undid a night death.** The host forgot a leaver's death, so a
+  player who died at night came back alive and fighting. The host keeps this night's
+  deaths by lasting identity (Steam id or install key); a rejoiner is down again until
+  morning (spectating, dead for the others, counted for the all-dead morning). Verified:
+  died, quit, rejoined mid-night, spectating; released at dawn.
+- **A client's day death cleared the host's hideout, not the client's.** The dying client
+  now sends its home, and the host returns creatures and clears traps and infection there.
+  Verified: a client homed at another hideout died; the host cleared that hideout.
+- **Worms:** the host in a dream stopped every player's worms, and a player in a dream got
+  worms placed around the far-off dream pad. Each player is checked on its own now.
+- **Dreamers who all died with the host outside the dream spectated forever** (the all-dead
+  check required the host to have died in it).
+- A night-dead spectator follows a living player out in the night before one in a dream.
+- **A player down until morning reported full health** (the spectator mode restores the
+  body), which "the player's health" story checks and the desync check read. It reports 0.
+- Verified as before: a night death spectates (others see the body dead), two of three dead
+  wait for the survivor, morning releases everyone home.
+
+### Skills
+
+- **A returning client kept the host's perks.** Its restore cleared the host's chosen flags
+  but not their effects (shaky hands, weak regeneration, far sight, less stamina, the
+  shadows flag) nor the activated-skill lists. The host's perks are now taken off the
+  vanilla way before the client's own go on.
+- Checked: a client's ninja hides it from the host's creatures (a chomper beside it never
+  picked it; visible, it did at once), a client's scary face sends the host's creatures
+  running and the others see the face.
+
+### Verified in the pilot / code only
+
+Verified with three players: the blood, the swamper puddles, the spider's sight state, the
+early creature sounds, the stand-in catch-up, the night death rejoin, the day-death home
+clear, the returning client's perks (the host's shaky hands and weak regeneration stayed
+off it, its own runner kept), a downed player's 0 health. Code only, not run in a game: the
+per-player worm dream check, the all-dead dream end with the host outside it, the
+spectator's preference for a player outside a dream, and the house check-out toward a
+client.
+
+### Balance (unchanged, by design)
+
+Night monsters come at vanilla's pace and count per hideout with a player in it, not per
+player; worms and shadow waves are per player; the night type is one for the world.
+Creature health and damage are not scaled. See `HOW_COOP_WORKS.md` section 18.
+
+---
+
+## 0.8.175 — Dreams played through with three players, the Shadows perk rebuilt
+
+On top of 0.8.174. Protocol **45** unchanged. Every dream was played with three players in the
+pilot (new commands: `dream`, `use` for objects and scene actions, `hit` for creatures and
+objects, `face`, `dstate`, `pending`, `skill`, `shadows`, `shadowlist`, `hold`, `lit`; `chars`
+shows targets and AI state): acid, grave meadow, bunker, church ruins, doctor 1 and 2, home,
+village cellar, one chance and the ending. Clients drove the story steps (talking, lamps,
+areas, objects struck), deaths in a dream (one spectating, then all dead), a player quitting
+mid-dream and rejoining after, and the rewards and world events of each outcome. Fixed:
+
+### Dreams
+
+- **The church ruins dream crashed the host's game.** Its chomper stands indoors; the extra
+  chompers for extra players were placed with vanilla's random-spot helper, which retries
+  itself without end for a spot indoors and overflowed the stack. Extras now look for a spot on
+  the same side of the walls as the original, a bounded search (`NamedNpcScalePatch.SpotNear`).
+- **The extra chompers stood still** until a player came close. They were handed a target
+  before the fight started, so the "join the original's attack" step skipped them as already
+  fighting, but they had no path to it. An extra that does not see the one it chases now joins
+  the original's attack. They also take the scene's own tuning of the original (the grave
+  meadow's is faster and is never cut in half).
+- **Doctor 1 left the clients behind.** Its ending moves on to doctor 2. When a client ended it
+  (talking to the hatted man), the host ran the ending inside the network message handler,
+  where the chain announcement stands down: the host went into doctor 2 alone and every client
+  waited in doctor 1. It now runs as the host's own ending. The same step also reaches the host
+  twice (the client's dialogue outcome fires there too, and the client asks the host to end the
+  dream); the second run ended doctor 2 on its first frame and marked it played. The host now
+  ends a dream once (`TryClaimHostEnd`), and a late request for a dream already left is
+  dropped.
+- **The bunker dream's forest spirit hunted the host** whoever walked into the forest. It looked
+  for a client trigger within 2000 of the dream's origin; the forest is some 8000 out. It now
+  hunts the player whose step set it off (the scene's actor).
+- **A client could not break the village cellar dream's barricade.** The barricade is not
+  destructible: its scene waits for the player's blow. A client's blow on such an object was
+  not sent to the host, so the scene never moved on. Struck story objects now go to the host
+  like destructible ones (`WorldQueryHelper.HasAttackTrigger`).
+- **A reloaded ending now lets friends in.** A finished game reloads straight into the ending;
+  joins are let in there and the host's dream (started before anyone joined) becomes the
+  party's, so they are pulled onto its pad (`DreamSession.IsEnding`,
+  `DreamSyncManager.AdoptSoloDreamForParty`). Tested: host reloaded into the ending, both clients
+  joined into it.
+
+### The Shadows perk
+
+How vanilla works: on a hard night the Shadows night event sends a wave of 8 shadows at the
+player with the perk, and puts out that player's torch and lantern. A shadow blinks in around
+the player every 2 to 6 seconds, closer each time, never on a lit spot; when it appears on a lit
+spot it dies; it swipes up to three times per appearance, and never at a player standing in
+light (a lit spot, a light area or a lantern).
+
+- **A client's wave did no damage and ignored light.** It was driven by a custom orbit: one
+  swipe on the host's copy of the client (which never reached the client), no light check while
+  orbiting, so a torch never killed or kept them away. A client's shadows now run vanilla's own
+  logic measured from that client: they blink in around it, are pushed out of light and die in
+  it, and their swipes reach the client as shadow hits only when it stands in the dark
+  (`PeerShadows`). Tested: alone in the dark the client was killed; next to the host's lit torch
+  the shadows hovered at 150 to 600 and it took no damage; a bystander next to the cursed client
+  took no shadow damage.
+- **A client's wave put out the host's torch.** The host's game marked the host as cursed for
+  any wave, and vanilla does not light a cursed player's torch or lantern. Only the cursed
+  player is marked now, and the end of a wave reaches only its owner. Tested: the host lit a
+  torch during a client's wave.
+- **The wave's light flicker hit the host's hideout** instead of the cursed player's.
+- **Other players now see each shadow appear where it does**, instead of a copy sliding toward it.
+
+Not covered: the doctor 1 hand-off started by the host (not a client), and reading every dream's
+dialogue branches.
+
+## 0.8.174 — The ending with three players
+
+On top of 0.8.173. Protocol **45** unchanged. A pass over how the game ends in co-op, run with
+three players in the pilot (new `epilogue` and `credits` commands start the ending and finish its
+pages). How it works: the ending is a party dream, so everyone alive goes; the story's choice is
+made by whoever makes it first; the credits wait for every reader (2 minutes at most); the
+session ends at the credits and everyone returns to the title. Fixed:
+
+- **Players outside the ending lost the host like a crash.** A player dead at night when the
+  ending began stays in the world. When the others left for the credits, the host simply
+  stopped, and the players left behind ran crash recovery and elected a new host among
+  everyone, including players already on their way to the credits. The host now hands the world
+  over properly to one of the players who stay (`EpilogueNetHandlers.HandWorldToPlayersOutside`,
+  `TryGracefulHostLeave` takes who may be chosen). Players going to the credits no longer try to
+  take the host when the old one stops during the fade (`MarkLeavingSession`). Tested: host and
+  one client to the credits, the dead client took the host and woke at home in the morning.
+- **A host outside the ending was dragged into the credits** when the clients in it finished.
+  It now stays in the world, as a client outside it does.
+- **A client stepping into the ending while the host was dead got stuck in ending mode.** The
+  host waits for its morning before starting a dream, so it refused the start. The client had
+  already loaded the ending's area and switched to ending mode (no UI, no items), and stayed
+  that way: its world view, location and lighting were left on the unused area, and the host
+  kept hearing that it had entered it. A refused start now removes that area and puts the
+  player back where it was (`DreamSyncManager.DropUnstartedLocalPad`), for any dream a client
+  starts straight from a story step.
+- **That refused ending was never asked for again.** Only dreams started through the dream
+  movie were retried; one started straight from a story step (the road home's ending) was
+  dropped. It is now asked for again the same way once the host can take it (`DreamRetry`
+  story-step retry). Tested: the client's ending started for all three at the host's morning.
+
+Not covered by a run: reading the real ending pages, the crawl and the bed/crater choice (the
+pilot skips straight to the last page). Reloading a finished game replays the ending, as in
+vanilla; the host starts inside it and friends cannot join (joins are refused during a dream).
+
+## 0.8.173 — Three-player runs: hidden NPCs, gas fires, a third test install
+
+On top of 0.8.172. Protocol **45** unchanged. The automated pilot now runs three players (the
+host plus two GOG clients) and covered how clients act on each other: doors, items dropped and
+picked up, containers, simultaneous pickups and loots, friendly fire, a client's day and night
+death, a client quitting and rejoining, nights with each player in a different hideout, the
+morning walk-out, a shared dialogue, chapter 2 and a full save, quit and rejoin. All of that
+matched on the three machines. Fixed:
+
+- **Hidden story NPCs showed up on clients.** When the host changed an NPC's portrait or
+  animation set (a story event does this to the act 2 Doctor, who waits switched off in every
+  location), the client's lookup for that NPC switched it on. Every client then saw and could
+  talk to a Doctor the host did not have. The same lookup ran for the host's trader stock (sent
+  for every trader, out or not) and for the NPC id remap, so a hidden trader could appear too.
+  The lookups now leave an NPC as it is. Portrait and animation changes still apply to the
+  hidden NPC, as vanilla does. Trader stock waits until that trader is out on the client.
+  `NpcAttackedIdSync.ResolveNpcNear`, `RemapHostUidToLocal`, `TradeInventorySync.FindNpcByName`,
+  `FindNpcByNameNear(wake:)`.
+- **Gas the host lit stayed unlit on a client.** When the host's ignite reached a client whose
+  copy of the puddle was culled, or not yet in physics (the join-time gas state), the client
+  found no puddle and logged `[GasIgnite] no flammable Liquid found`. The gas then sat there
+  unlit, ready to be lit a second time. That copy is now lit too and burns out on its own, as
+  on the host. `WorldPhysicsSyncService.IgniteGasAtPos`.
+
+Checked and left alone (vanilla behaviour, the same on the host):
+- `NullReferenceException` in `Core.RemovePooledPrefab` from `Character.OnDestroy` at a chapter
+  change or quit. The chapter 2 swamp's Banshees carry an authored `banshee_ambient_01`, and the
+  pool is torn down before them.
+- `FormatException` in `SaveManager.getChapterSave`. Vanilla writes the chapter save as plain
+  text but always decrypts it, then falls back to the static save.
+- `Invalid (or 0 returned) gameObjects for NightEvent_weird_moveMeWiggle_01B` in the chapter 2
+  hideout. The scene finds no waypoints of its kind there. Vanilla also parents it under the
+  big location.
+- Two bodies teleported onto one spot push apart (Unity depenetration). Only the pilot's
+  teleports do this.
+
+Tooling:
+- A third install (`ThirdDarkwood`, GOG under Proton, its own prefix) saves to
+  `LocalLow/.../Darkwood_Third`, the same isolation `SecondDarkwood` has. The build also deploys
+  to `ThirdPlugins` when `GamePath.local.props` sets it. `PersistentDataPathPatch`, csproj.
+- New pilot commands:
+  - `at <unix ms> <cmd>` runs a command at one moment on several games.
+  - `drop`, `pickup`, `ground` handle items on the ground.
+  - `cont` lists containers and `loot` empties the nearest one.
+  - `hitp` lands a friendly-fire hit on a player.
+  - `obj` finds named objects, switched-off ones included.
+  - `attached` lists the objects attached to characters.
+  - `gas`, `ignite`, `liquids` pour, light and list gasoline.
+- `endnight` now works on a client too (it asks the host, as a walk-out would).
+
+## 0.8.172 — Vanilla parity audit: sounds, night spawns, the Shadows perk
+
+On top of 0.8.171. Protocol **45** unchanged. An audit of where the mod blocks or thins out
+vanilla content. Text (thought lines, hints, speech bubbles), the daytime random events, the
+redneck ambush, night location events, weather and the random world sounds were checked and
+already match vanilla per player. Fixed:
+
+- **Far flat sounds were muted.** In a session every world sound past 650 units was cut unless
+  it was 3D. Fully 2D sounds (a redneck's idle mutter, a dog's whimper, spider deaths) have no
+  falloff: vanilla plays them at full volume from anything it keeps awake around the player
+  (the `WorldGrid` node box, about 2400 x 1600 at 1080p). They now play within that box; only
+  what is awake for a far peer alone is cut. The host also sends a creature's 2D sound across
+  the whole client interest range (was 650). `AudioSuppressionPatch`,
+  `LocalAudioService.WorldSoundAudible`, `EntitySoundSyncHelper.Send`, the world-sound and dream
+  sound receive gates.
+- **Hard-night worms came at half rate.** The party worm loop picked one exposed player per
+  5-second tick, so two exposed players each met half of vanilla's worms. It also only took over
+  if a client was already connected when the world loaded; a client joining later got the
+  vanilla loop plus a coin flip that moved half the host's worms to the client. Every living,
+  unwarded player now gets its own worm each tick, and the host's loop is the party one from
+  the start (vanilla's own tick while nobody else is there). `HardNightPartySpawn`.
+- **Hideout night monsters were split between hideouts.** The night's count of each monster
+  (how many may be out at once) was one for the whole party, so players home in two different
+  hideouts each met about half. Each occupied hideout now has its own count at vanilla's pace;
+  a monster that dies or leaves frees its own hideout's slot. Players in the same hideout share
+  it, as one player would. `NightHideoutQuota`, `NightSpawnFlagPatch`.
+- **Scripted spawns "around the player" went to the wrong player.** A scene step spawning a
+  creature around the player body went around the host, or on a coin flip around some far
+  peer. It now goes around the player the scene is for (the host's own scenes keep the host).
+  `SpawnCharacterAroundRedirectPatch`.
+- **The Shadows perk.** Vanilla's perk works through the night event `CEvent_shadowsX4` (needs
+  the perk, 80% chance), whose scene calls `tryToSpawnShadow`. Its requirements read the host's
+  body only, so a client with the perk never got its waves, and the host's copy of a peer's
+  scene spawned a wave around the host. The mod also added a darkness-triggered wave in co-op
+  that vanilla never has (it read `Player.updateVars`' empty branch as the perk's trigger and
+  missed the night event). Now a location event's player requirements (perk, health, attackers)
+  are checked per player: the event is eligible when a player in a world location meets them,
+  and its scene plays only where they are met. The wave is the scene player's own (a client's
+  replay asks the host for it); the host no longer rejects that request for light, hard night
+  or perk, which vanilla's `tryToSpawnShadow` never checks. The darkness wave is removed.
+  `HostLocationEventPlayerRequirementsPatch`, `NightEventAnchor.AnchorPasses`,
+  `CoopStoryPolicy.IsWorldPlayerFunction`, `HandleNightShadowSpawnRequest`.
+- Removed dead redirects for `CharacterSpawner.spawnForestSpirit` (vanilla never calls it).
+
+Kept on purpose (co-op needs them): no world pause while others play; another player's thought
+lines and hints show only on that player's screen; examine description pools are one shared
+deck, so each line is seen once by the party.
+
+---
+
+## 0.8.171 — Desync check false alarms from the story run
+
+On top of 0.8.170. Protocol **45** unchanged. The full story run (new world, chapter 1 crawl
+through every location and its pads, save and rejoin, chapter 2, chapter 2 crawl, rejoin) ran on
+0.8.170 in an omabox: chapter 2 came out the same map on both (the client's own build was
+replaced by the host's, player id kept), the hideout unlock no longer differed, and the client's
+slow-load path stayed clean. What the check still reported were its own misreadings:
+
+**Fixed**
+- An NPC state nobody has touched (alive, no standing) is made when the NPC first loads on a
+  machine, so the side that had been near it listed it and the other did not
+  ("chickenLady: host=dead=0|rep=0 client=<none>", "Doctor_act2", "snail"). It now reads as none,
+  as an unset flag does.
+- A culled (switched off) creature's own inventory was listed as a loose container on the side
+  that had it switched off ("Villager_infected1b_ch2"): the body check now looks through inactive
+  parents.
+- Creatures switched off on both machines were listed by the host only (a swamp camp's villagers,
+  inactive on both at night, read "host=alive client=<none>"). Switched off on both is now the
+  same; switched off on one side still shows.
+- A ground pickup that had woken and was then culled on the host (the host culls away from its own
+  player) read as missing there; pickups are compared culled or not.
+
+**Tooling**
+- `leavepad` (back to the world from a pad), pilot scripts use absolute paths so they run inside an
+  omabox, and `story-run.sh` waits for the client's chapter 2 re-send before comparing the maps.
+
+## 0.8.170 — Chapter 2 is the host's map; story crawl findings
+
+On top of 0.8.169. Protocol **45** (`Handshake` gains `WorldGeneratedLocally`). Found by a new
+unattended story run: a new world, both players walking every NPC dialogue at every location (every
+option, a new branch at each decision, the items an NPC asks for handed over), save and rejoin,
+then chapter 2.
+
+**Fixed**
+- **Chapter 2 was a different map on the client.** A chapter start shares the chapter save before
+  the chapter exists (vanilla makes the new chapter's map at random the first time that save
+  loads), so the host and every client each built their own chapter 2: hideout 5, the locations,
+  all in other places (host 85 locations, client 87). The client now notes that its chapter world
+  was built on its own machine; its reconnect handshake says so and the host re-sends its real
+  chapter world through the existing chapter resync, which the client loads (about 20 s more).
+  The client keeps its player id across that reload (it came back as a new player, p3 to p5).
+  Files: `ChapterProgressionPatches.cs` (`ClientChapterWorld`), `PlayerMessages.cs`,
+  `LanNetworkManager.WorldIdentity.cs`, `LanNetworkManager.SteamPeers.cs`,
+  `WorldSaveShareService.SlotCommit.cs`, `ChapterSessionResume.cs`.
+- **A client who lit a hideout's oven never got that hideout unlocked** (the porter's routes,
+  `player_unlockedHideout_2/3`; desync check: host=1 client=none). The oven is lit when the
+  dialogue closes, inside the last board, where shared flags wait for the host's replay; the host
+  does not replay the lighting (it lights its copy from the oven message, which does not fan flags
+  out). The lighting now writes the unlock on the speaker, and its flag sync carries it to the
+  others. File: `HideoutUpgradePatch.cs`.
+- **A slow client join was cut short.** At 45 s the client forced its loading flag off "as a
+  failed load" while the world was still loading (a busy machine, a Wine window presenting once a
+  second); the rest of the load ran with the flag off ("UniqueIDDict does not contain key" errors,
+  the fresh character's home oven not found). The flag is now cleared only when the save load
+  actually failed (vanilla's "ERROR WHEN LOADING DYNAMIC AND STATIC SAVE", or an exception from
+  `SaveManager`). File: `ChapterSessionResume.cs`.
+
+**Tooling**
+- Pilot commands: `locs`, `npcs`, `talk`/`talkall` (walks dialogues), `talkreset`, `give`, `save`,
+  `chapter N`, `pads`/`padexits` (location pad doors in and out), `vsync 0` (a Wine window on a
+  hidden workspace otherwise runs at one frame a second). Scripts `scripts/pilot/story-soak.sh`
+  (the crawl) and `story-run.sh` (new world, chapter 1 crawl, rejoin, chapter 2, crawl, rejoin).
+
+## 0.8.169 — One morning trader, at the fullest hideout
+
+On top of 0.8.168. Protocol **44** unchanged.
+
+**Fixed**
+- Players greeting the dawn in two hideouts each got a night trader: the host's hideout had
+  vanilla's, and the mod's per-hideout morning spawned another at every peer's hideout, two copies
+  of one man. The morning visitor (the night trader, or the Wolfman on his mornings) now comes to
+  one hideout only: the one with the most living players; a tie goes to the host's hideout, else
+  to the hideout of the lowest player id. If that is not the host's, vanilla's trader (or wolf) is
+  moved there, not destroyed, so vanilla's reputation popup still finds him. Every surviving
+  player at a hideout still gets the morning standing for that hideout (the others walk over to
+  trade). Files: `MorningRepPatch.cs` (`HostAwayMorning`), `CoopPolicy.NpcNight.cs`
+  (`MorningVisitorPolicy`, test added), `HOW_COOP_WORKS.md`.
+
+## 0.8.168 — Desync check: an object on a grid line is one object
+
+On top of 0.8.167. Protocol **44** unchanged. The fourth soak (new world, four nights on 0.8.167:
+both at home, split between two hideouts, both in the second, the musician's house and home)
+showed no missing scene pieces on the client any more and no night state differences. Its only
+report was this.
+
+**Fixed**
+- The desync check keys objects on a half-unit grid; a wardrobe standing right on a grid line was
+  keyed one step apart on the two machines and reported as missing on both sides, then resolved
+  a check later. A host-only and a client-only entry of the same name one step apart that agree
+  are now one object. File: `DesyncEntries.cs` (test added).
+
+**Night soak totals (0.8.165 to 0.8.168)**
+- 24 nights on four new worlds, players together, split between hideouts, in non-hideout
+  locations and out in the forest, with a host death, the banshee's pull and morning walk-outs.
+  Remaining logged errors are vanilla's own for nights spent outside a hideout (no event spots
+  there) and creatures outside any location.
+
+---
+
+## 0.8.167 — Night scene pieces stay with their players and are found where each machine put them
+
+On top of 0.8.166. Protocol **44** (`GameEventsFired` gains a trailing `ScenePiece` flag; both
+installs run the same DLL). From a third soak (new world, five nights on 0.8.166: none of
+0.8.165's or 0.8.166's problems came back). Not playtested yet.
+
+**Fixed**
+- **Pieces a night scene spawns still went to every client.** 0.8.166 sent a scene copy's later
+  fires only to the peers who replayed it, but the pieces its steps spawn sit elsewhere (the
+  knocking visitor at a door, the run-away order at the location): those still went to everyone,
+  and a client in another hideout searched for them a minute. Pieces are now filed with their
+  scene's peers as they spawn. Files: `ScriptedSpawnSync.cs`, `NightEventAnchorPatches.cs`.
+- **A client missed its own copy of a scene piece.** A scene moves to its player; the host
+  places its copy by that player's synced stand-in, the client by its own body, a few dozen units
+  apart, and the client's search for the piece reached 8 units (goreFloor, its check and its
+  removal never ran there). A scene piece's fire is flagged, and the client looks for it within
+  the hideout (150 units). Files: `WorldMessages.cs`, `GameEventsFiredPatch.cs`,
+  `GameEventNetHandlers.Apply.cs`.
+
+---
+
+## 0.8.166 — Second night soak: a hideout's scene stays with its players, creature event pieces on clients, sprung traps kept
+
+On top of 0.8.165. Protocol **44** unchanged (`EntitySpawn` paths may start with `res:`, a
+prefab under the Resources root; both installs run the same DLL). Found by a second unattended
+soak: a new world, ten nights over six spots (both in the first hideout, split between two
+hideouts, both in the second, the musician's house and home, the host in the forest, both at the
+Wolfman's camp, home and the hunter's house, both far hideouts, home and the forest), on 0.8.165.
+Its first two nights were clean on both sides. Not playtested yet.
+
+**Fixed**
+- **A client replaying the host's night scene gave orders to creatures.** The scene's "go for
+  the window / barricade / into the house" steps ran on the client's copy, found none of its own
+  creatures ("Invalid (or 0 returned) gameObjects ... Type character"), or gave a creature copy a
+  second set of orders. The host runs the creatures; the replay now skips those steps
+  (aggressiveness, wake-up, behaviour, add/remove activities). File: `EventCoroutineScope.cs`.
+- **A hideout's scene fired at every client.** A scene copy's later fires (its timers and
+  triggers: knocking, the vortex, gore) went to all clients; those in another hideout had no copy
+  and searched for it a minute ("no GameEvents near ... dropped"). They now go only to the peers
+  who replayed that scene. Files: `NightEventAnchorPatches.cs`, `GameEventsFiredPatch.cs`.
+- **Creature event pieces never reached clients.** A creature's own scripted step spawning an
+  event object (the banshee's attack spawns Banshee_attack_event_01: a sound, a run-away order,
+  more spawns) ran on the host only; a client's copy runs none of its own events, so the host's
+  fire of the piece found nothing and the client missed its sound. The host now sends the spawn
+  (`res:events/subevents/...` on `EntitySpawn`), and its fire lands on the client's copy. Files:
+  `ScriptedSpawnSync.cs`, `LocationEntityTrapNetHandlers.cs`.
+- **A trap the host sprang far away stayed armed on a client.** A trap's state for a location
+  the client had not loaded waited 30 s, then was dropped: a bear trap sprung at the home hideout
+  while the client spent the night elsewhere was still armed there afterwards. A trap's latest
+  state now waits until its location loads (one entry per trap). File: `TrapNetworkId.cs`.
+- **A client's dying creature became a corpse mid-animation.** The client added the corpse item
+  as the death clip started; vanilla does it when the clip ends. The rest of the clip ran its
+  frame events as an item's: the banshee's death-scream frame tried to play a clip "MeleeAttack1"
+  it does not have. It now waits for the clip (at most 10 s). File:
+  `ClientEntityInterpolationService.cs`.
+
+**Seen, vanilla**
+- A night spent outside a hideout (the musician's house, the hunter's house, the Wolfman's camp)
+  logs "Invalid (or 0 returned) gameObjects ... Type waypoint/door/item" and "No activity target":
+  vanilla plays a night's scenes in any location the player is in, and those places lack the
+  hideouts' event spots. The same as single player there.
+
+---
+
+## 0.8.165 — Night soak fixes: the right night on clients, creatures of a peer's hideout, the morning a host death ended
+
+On top of 0.8.164. Protocol **44** (`ScenarioEventFired` carries the scenario's name). Found by an
+unattended night soak (new world, prologue skipped, both players invulnerable, five nights with
+the players together, split between hideouts, and out in the forest). Not playtested yet.
+
+**Fixed**
+- **Clients ran another night's events.** Night scenarios share their `nightId` (Night_h1_1,
+  Night_h1_2 and the chapter's other nights all carry 0), and the client looked a fired event up
+  by that id: the first scenario with it, Night_h1_1, replaced the night the host sent at dusk.
+  From the second night on the client played the wrong event lists (index out of range), never
+  built the scenes the host's events played in (no knocking visitor, no vortex, no gore, dozens of
+  "no GameEvents near" per night), and its night state never matched. The event now names its
+  scenario; the host's resend guard goes by scenario too. Files: `SyncMessages.cs`,
+  `ScenarioRandomEventSyncPatches.cs`, `NightNetHandlers.Scenario.cs`.
+- **Night creatures of a peer's hideout went for the host's.** Vanilla gives a spawned
+  creature its door, window or barricade from `Player.Instance`'s location, and "closest to the
+  player" measures from the host. A scene the host played in a client's hideout got a target
+  across the map, or none with the host out in the forest ("Player location not found for
+  spawned character", "No activity target"), and the creature idled outside. Targets now come
+  from the player the scene plays for (the acting player, else the nearest living player in a
+  world location). File: `NightSceneTargetPatches.cs` (new).
+- **The host dying in the morning ended it for everyone.** Vanilla `Player.resetState` (death,
+  respawn) ends the morning; with a client still in its hideout that ended the freeze and the
+  trader's visit for it. It now stays while the hideout is occupied, as when the host walks out.
+- **A creature's loot could land in a nearby chest.** The host rolls a night spawn's inventory as
+  it spawns, before the creature reaches the client; the client then fell back to the nearest
+  container by position. It now waits for the creature (a story NPC the client never maps still
+  gets it where it stands). File: `ContainerPendingNetHandlers.cs`.
+- Host out in the forest: vanilla's location requirement logged "No location for player found"
+  before the co-op answer replaced it; it no longer runs there.
+- The desync check counted a night-dead host as alive (vanilla's death screen puts the body back
+  up for spectating).
+- A night event's GameEvents not loaded yet (a just-spawned mushroom settles its height the next
+  frame) warned on every retry; it now warns only when it gives up.
+
+**Tooling**
+- Pilot: `oven` (make the nearest oven home, as the first talk's Cook does), `time` sends the clock
+  at once, `status` shows the scenario, current event and home oven. `scripts/pilot/night-soak.sh`
+  (many nights over spots of the world) and `godkeep.sh`.
+
+**Seen, vanilla**
+- "Dodaję aktywność do postaci…" (a scene adds a task to a creature still running one) comes from
+  vanilla `GameEvent` and was logged with one scene per hideout; left as is.
+
+---
+
+## 0.8.164 — Hideout oven offers Cook only after its first examine
+
+On top of 0.8.163. Protocol **43** unchanged. Not playtested yet.
+
+**Fixed**
+- A new world's hideout oven offered Cook from the start, for every player. Vanilla's new-game
+  oven only glows (`setAsDefaultExpMachine`, `isOn` false) until its first examine lights it and
+  offers Cook. On join the client's hideout-oven bulk "relit" its own home whenever it was unlit,
+  which turned the unexamined oven fully on (`enable`), and sent that to the host and every peer.
+  The bulk no longer relights; the client's own backup puts back a lit home only if this player
+  had lit it (new backup field `HomeOvenLit`, vanilla's `examinedExpMachine`; older backups go by
+  the per-player `player_firstOvenInteraction` flag). An unexamined home comes back glowing, as
+  in vanilla, and the join's stand-in oven no longer keeps glowing when the home is elsewhere.
+  Files: `BulkSyncNetHandlers.cs`, `ClientStateBackup*.cs`, `HideoutUpgradePatch.cs`.
+- A world played on 0.8.163 or earlier may already have that oven saved as lit; start a new
+  world to check.
+
+---
+
+## 0.8.163 — Night mushrooms and dawn on clients, shared trading, leaving a shared talk, one trader stock
+
+On top of 0.8.162. Protocol **43** unchanged (the dialogue mirror gains a message kind,
+`KindPromote`, inside `DialogMirror` (160); both installs run the same DLL). Built, 434 unit
+tests pass, deployed for the next playtest; not playtested yet.
+
+**Fixed (from the night playtest logs, 0.8.160)**
+- **Night mushrooms in the hideout were missing on the client.** The night scene's spawn step
+  picks a random waypoint; a client replaying the scene skips item spawns as the host's, and the
+  host never sent the one it spawned. The host now sends every world object a scripted event
+  spawns (prefab path from the save's own prefab table, exact spot) on `EntitySpawn`; the client
+  files it under its location like vanilla, and a client replay skips any such spawn
+  (`ScriptedSpawnSync`).
+- **No dawn on the client.** The client never ran the edges of vanilla `refreshTime`: no white
+  fade, no "Day N" screen, last night's scenario never cleared, its night events never reset at
+  nightfall nor ended on the clock. The client now runs them from the host's clock
+  (`WorldWeatherTimeNetHandlers.ClientNightCycle`): nightfall resets tonight's scenario, a night
+  event ends on the shared clock, dawn plays vanilla's white fade (sound faded, inputs held,
+  invulnerable for its seconds, the host's karma step mirrored) and the "Day N" screen, and the
+  new day clears the scenario. The host flushes its clock at the dawn minute and at nightfall
+  (ordered ahead of the night's events); a late joiner's scenario starts from a clean night.
+- **The trader's stock was not shared.** The morning Wolf at the hideout is spawned by the host
+  and reaches a client a moment after his stock; that stock went to the closest other "wolfman"
+  (another camp) and the hideout one kept a roll of its own, so a client's purchase came out of a
+  different shelf than the host's. Trader stock now only lands on the trader at the host's spot
+  (400 units) and waits until he is there. The host's trader restocks also went out as plain
+  container fills by position, and a client that did not find the trader filled the nearest
+  container: Piotrek's death bag got his 22-item shop. Trader rolls now go only as trader stock.
+- **Closing a trade lost its story trigger** (the host's container lookup never matched a shop):
+  the host now finds the trader's shop and replays `onCloseContainer`.
+- **Joining a talk took two tries.** The listener's view opened from a coroutine on the dialogue
+  window, inactive until a talk opens; Unity dropped it ("Coroutine couldn't be started …
+  DialogueWindow is inactive"). The mirror's waits now run on the controller.
+- **The night "door opens by itself" event opened a different door on the client** (its replay
+  picked its own random door). The client's night-scene replay no longer runs door open/close
+  steps; the host's door change arrives as `DoorOpen`.
+- **The new day's weather roll** (rain today, fog) only reached clients when rain or fog next
+  changed; the host now sends it on the new day.
+- **A hidden game window ran at one frame a second** (vsync on a window the desktop does not
+  present; Hyprland/XWayland here), and Unity's frame-time cap then slowed that game to a third
+  of real time. On the host that was the whole world while the player was on the client window.
+  In a session an unfocused game now runs with vsync off at a 60 fps cap; focus back restores the
+  player's setting (`BackgroundFrameRate`).
+
+**Changed (requested)**
+- **Trading together.** While the talking player is in the trade screen, a player who joins the
+  talk (or is listening when the trade opens) gets its own trading screen on the same trader:
+  its own standing, its own bag, the host's stock. Closing it leaves Trade / Exit options; the
+  mirrored Trade option works too. The host accepts trades from anyone in the talk; goods in a
+  player's own buy tray are held back from its copy of the stock when a snapshot arrives
+  mid-trade, the host resends its stock after closing its own trade with goods in the tray, and
+  the first accepted trade wins (a later one for the same goods is refused and reversed).
+- **Trader standing is personal for the Wolf ("wolfman") and Piotrek**, as for the night and
+  morning traders. The Doctor stays shared (his chapter 2 story state is his reputation). The
+  host replaying a peer's dialogue no longer moves its own standing, and a scripted standing
+  change goes to the player the event is about.
+- **Leaving a shared talk.** A listener leaves with Esc or the mirrored Exit option without
+  touching the talk. When the talking player leaves while others listen, the talk is handed to
+  the next of them (lock, its own main options, or its own trade goes on), the rest listen to
+  it, and the NPC's close events wait for the last player in the talk.
+
+**Diagnostics** (0.8.161, `[LightStack]`) ship in this build too.
+
+**Not changed:** vanilla's own "Uwaga, próbuję usunąć element boarda" (a typing line finishing
+in the frame its board was replaced) is vanilla's.
+
+---
+
+## 0.8.162 — Party map board: shared map pins with stamps, colours, labels and pings
+
+On top of 0.8.161. **Protocol 42 → 43.** Product **0.8.161 → 0.8.162**. Built and unit-tested,
+**not deployed, not playtested**.
+
+The co-op map pins are rebuilt as one board for the whole party, owned by the host.
+
+**New for players** (world map, any chapter; not the prologue map):
+
+- **Stamps.** Six pin types drawn in the map's own ink: Mark (X), Danger (skull), Loot
+  (rifle), Shelter (house in a ring), Camp (campfire), Grave (cross). The mouse wheel picks
+  the stamp; a faint preview follows the cursor. The wheel over a pin restyles it.
+- **Owner colours.** Each pin sits on a glow in its owner's colour (8 colours, no red, which
+  vanilla uses for "you are here" and death bags). A player keeps the same colour.
+- **Hover card.** Stamp, label, who placed it ("you" for your own) and the in-game day.
+- **Labels.** Double-click a pin to write a label (up to 40 characters), shown under it.
+  Enter saves, Esc cancels the label without closing the map.
+- **Pings.** Middle click (or Shift + right click) pulses a red crosshair on everyone's map
+  for 25 s; a player with the map closed gets "<name> pinged the map" over their head.
+- **Chat lines.** `[Map] <name> marked Danger "label" on the map.` / `[Map] <name> pinged the map.`
+- **Kept with the world.** The host's board is saved next to its save
+  (`prof{n}/dwmp_map_pins.json`, stamped with the campaign id) and comes back when the world
+  is hosted again. Every player keeps a copy, so a player promoted by host migration (or later
+  hosting that copy) still has the pins. Right click on any pin erases it for everyone.
+- A strip at the bottom of the open map lists the controls.
+
+**Bugs fixed in the old pins:**
+
+- **Pins landed off the click on screens above 1080p** (and drifted further toward the map's
+  edges). The click was turned into a map spot without the map's resolution scale. It now goes
+  through the icon holder's own transform.
+- **Erasing a pin could erase the wrong one on the other machines.** Removal matched the first
+  pin within a radius computed from the receiver's map scale, so with two pins close together a
+  peer erased its neighbour; the drawn sprites were also matched by list index and fell out of
+  step when a sprite failed to build (and could throw). Pins now have host-assigned ids.
+- **Pins doubled after a rejoin.** Pins were filed under the player id; a rejoin with a new id
+  re-sent the backup's pins under it while the old copies stayed under the old id (on the host
+  and in every late-join sync). Owners are now a hash of the install key; the host refuses a pin
+  of the same owner on the same spot.
+- **Every peer's pins were the same green** (a tint over dark ink), so with 3+ players nobody
+  could tell whose was whose.
+- **The host's pins were lost when the game closed** (memory only); a client's lived in its
+  backup only.
+- **Pins were not filed per map.** A pin placed on the prologue map and the world map's pins were
+  drawn on each other's map, and chapter 1 pins on chapter 2's. Pins are world-map only now and
+  filed per chapter.
+- New pins draw above vanilla's icons and carry no collider: vanilla's hover takes the topmost map
+  element, so a pin with one would hide the name of a location under it. Hover over pins is by
+  screen distance (nearest pin wins).
+- **Typing in chat (or a pin label) opened the map or the journal.** `InputScript` reads the Map
+  and Journal keys whatever `Core.forbidInputs` says. `Map.tryOpenClose` and
+  `Journal.tryOpenClose` are skipped while an overlay holds the keyboard (`UiInputLock`).
+
+**Wire / code:**
+
+- `MapPinRequest` (166, client→host: place, erase, restyle, label, ping; the sender is the
+  socket's) and `MapPinEvent` (167, host-only: put, remove, ping with the full pin).
+  `MapStateSync` carries the whole board (pins replace the old position/owner arrays).
+  `MapMarker` (68) and `MapMarkerRemove` (72) retired.
+- `Domains/Map/Pins/`: `MapPinBoard` (board, host authority, seeding), `MapPinStore` (world file,
+  written 2 s after a change: by the host into the world it loaded the board from, by a client only
+  while it plays in the host's world), `MapPinView` (drawing and input), `MapPinOverlay` (labels,
+  hover card, controls strip, label field). The marker code in `MultiplayerMapManager` is gone;
+  discoveries are unchanged.
+- Client backups no longer store pins. An older backup's pins are sent to the host's board once
+  on restore (as Mark pins).
+- `ChatHud.AddSystemLine` for mod lines; `UiInputLockMapKeyPatch` / `UiInputLockJournalKeyPatch`.
+- Docs: `HOW_COOP_WORKS.md` (pins moved from personal to shared, new "Party map board" section),
+  `PLAYTEST.md` (board checklist), `COOP_COVERAGE.md`, `ARCHITECTURE.md` example.
+
+## 0.8.161 — Stacked light check (diagnostic)
+
+On top of 0.8.160. **Protocol 42 (unchanged).** Product **0.8.160 → 0.8.161**. Built, not deployed,
+not playtested.
+
+- **Why:** a playtest suspicion that every light looks too bright. A code review found no global
+  cause: both installs run gamma 0.7 and light quality 1, the mod never touches gamma, brightness
+  or the light camera, and the client's ambient colour follows the host clock through vanilla's
+  `updateAmbientLight` with the same night table. Darkwood draws each `Light2D` as its own mesh,
+  added into the light buffer, so a spot only gets brighter when two lights draw there: a light
+  spawned twice, or two lights sharing one mesh (a live light copied by `Instantiate`).
+- **New:** `Logging/StackedLightProbe.cs`, ticked from the network update on both peers while in
+  the world. Every 5 s it scans the drawn lights. Each new stack is logged once as a warning:
+  `[LightStack] <role> N lights drawn on one spot` (same position, radius, cone and facing) or
+  `N lights share one mesh`, with each light's path, radius, intensity, colour and position.
+  Every 60 s it logs a `[LightStack]` summary of total and drawn lights at the player's position,
+  so host and client counts in the same place can be compared. Reset on session end.
+
+## 0.8.160 — Gas bomb gas on clients, health bars after a client hit, no hover labels behind the pause menu, single gunshots, whole stand-up
+
+On top of 0.8.159. **Protocol 42 (unchanged).** Product **0.8.159 → 0.8.160**. Built and
+unit-tested; **runtime is not playtested**.
+
+- **A player getting up (respawn after death, loading a save) no longer starts halfway on the
+  other screens.** Vanilla starts the get-up clip (`Sleep`, also `GetUpFromBed`) while the
+  player is still loading or respawning. A client sends no state until its load ends, so the
+  watcher's first packet was already mid-clip, and the proxy jumped to the sender's frame: the
+  stand-up started late and cut in the middle. The proxy now plays these play-once clips from
+  their first frame at their own rate, and does not restart one it already finished while the
+  sender is still on its tail (`SecondPlayerAnimController.IsGetUpClip`).
+- **A gunshot sounds once on the other screens, not stacked.** Peers played the shot from
+  `PlayerFiredWeapon`, and the shooter also forwarded its own play of the same sound (the
+  fire clip's `Attack1Sound` frame plays the firearm's attack sound on the player) as
+  `PlayerAudio`, so every pistol shot and its echo tail played twice, slightly apart. The
+  shooter no longer forwards its held firearm's attack sound
+  (`LocalAudioService.IsCurrentFirearmShotSound`, checked in `PlayerAudioHelper.ForwardSound`
+  and the parentless `Play` forward); `PlayerFiredWeapon` is the one path, every shot, at the
+  shot's pose. Both directions (host shooting, client shooting) use the same send filter.
+- **A gas bomb leaves its gas on the clients too, whoever throws it.** The gas cloud
+  (`Gas_flamable`) is the bomb's `ThrownItem.prefabToSpawnOnLand`, spawned by its landing after
+  the `Explodes` activation, not one of the `Explodes` secondaries. Every peer's copy of a throw
+  is muted (no land spawn, so no second cloud), and the host sends only the secondaries spawned
+  inside `Explodes.onActivate`, so the host's cloud never went out and the clients had none.
+  The host now sends a thrown item's land spawn as `ExplosionSpawnObject` while its landing runs
+  (`ThrownItemLandScope`); the late-join gas state already carried such clouds.
+- **Hover labels no longer show through the pause menu while the world runs.** Vanilla's menu
+  pauses the game, and `Player.Update` reads no input while paused; in co-op the world keeps
+  going until every player is in the menu, so the input step went on under the menu and the
+  cursor still picked world objects. While the pause menu is open the player's input step
+  (`FindInput` / `FindInputController`) is skipped as vanilla's pause would, the walk input is
+  zeroed (a key held as the menu opened kept walking), and the object under the cursor and the
+  aim are let go as the menu opens (`PauseMenuNoInputPatch`). Movement and animation still run.
+- **A joiner waiting on the title no longer gets the host's container fills.** From the logs: a
+  client connected while the host generated a new world received every container the host's
+  world generation and first location activations filled (326 `ContainerStateSync`), with no
+  world to put them in: 328 "no inventory at" warnings, each after a full inventory scan. The
+  host now sends container fills only to peers playing in the world
+  (`LanNetworkManager.SendToPeersInWorld`: sent in-world PlayerState, not loading), and a
+  client drops one while it has no world (`ClientCanApplyWorldBulk`). The world package carries
+  the contents, and opening a container asks the host for its state as before.
+- **Health and durability bars on a client show the host's numbers after a hit.** Vanilla
+  shows the enemy health bar inside `getHit`, after the damage. A client's hit lands on the
+  host, so the client shows the bar from its own swing or shot with the health before the hit,
+  and the host's result was then written straight into the fields with no refresh: a dog the
+  client killed kept a full bar (the dead-body path returned before the refresh), a door or
+  barricade the client broke kept its pre-hit "almost broken" bar. Every place a peer's health
+  lands now refreshes the bar if it shows that object (`HealthBarRefresh.IfShowing`): creature
+  health and death, doors, barricades, windows, destructible items, chains.
+- **The host no longer gets a health bar for a client's hit.** The host applies a client's
+  attack as a player hit (`byPlayer`), and vanilla shows the bar to whoever hit, so the bar
+  popped up on the host's screen for a creature the client hit far away. The host now applies
+  it without the bar, and refreshes one it already shows for that creature.
+- Checked from the logs, no change: one pistol shot killing a dog is vanilla (pistol damage 20,
+  dog health 20), and dogs eating a corpse that ignore the shooter are vanilla too (very hungry
+  eating dogs skip their enemy-near reaction).
+- **MelonLoader: `LiteNetLib.dll` goes to `UserLibs/`, not `Mods/`.** MelonLoader 0.7 loads
+  `UserLibs/` before any melon and treats `Mods/` as the melon folder; a plain library there
+  happened to load (it is scanned and added to the resolver) but is not where the loader
+  expects one. The Melon deploy target copies it to `UserLibs/` and removes a stale
+  `Mods/LiteNetLib.dll`; the MelonLoader release zip now mirrors the game folder
+  (`Mods/DarkwoodMP.Mod.dll`, `UserLibs/LiteNetLib.dll`) so it extracts straight into
+  `Darkwood/`; README and INSTALL.txt say so (`pack-release.sh`/`.ps1`). The BepInEx zip is
+  unchanged.
+- **Log and config hints name the running loader.** The startup banner listed BepInEx paths
+  with a Melon aside, and the F2 footer showed only the config file name. Both now show the
+  build's own paths (`ModLog.LoaderLogPath` / `ConfigPathHint`: `BepInEx/LogOutput.log` and
+  `BepInEx/config/…cfg`, or `MelonLoader/Latest.log` and `UserData/YokWare/…cfg`). Removed
+  the unused `HostLogHint`/`ClientLogHint` constants.
+- Checked, no change: the Melon build needs no counterpart to BepInEx's `DiskLogFlush`.
+  MelonLoader 0.7 writes `Latest.log` from its bootstrap through a `StreamWriter` with
+  `AutoFlush = true` (every line on disk at once), and the managed logger hands each line
+  over synchronously, so the tail before a quit or crash is not lost.
+- The MelonLoader build is still not playtested; one dual-box session on it (both boxes) is
+  needed before calling it as stable as BepInEx.
 
 ## 0.8.159 — Bear traps, rebuilt furniture, no prologue chat line
 

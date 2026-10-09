@@ -121,4 +121,36 @@ namespace DWMPHorde
             return proxyCount > handshakedRemoteCount ? proxyCount : handshakedRemoteCount;
         }
     }
+
+    /// <summary>
+    /// The morning visitor (the night trader or the Wolfman) is one man: with players greeting
+    /// the dawn in several hideouts he comes to one of them. The hideout with the most players
+    /// gets him; a tie goes to the host's hideout, else to the one holding the lowest player id.
+    /// </summary>
+    public static class MorningVisitorPolicy
+    {
+        /// <summary>Index of the hideout the visitor comes to, or -1 when there is none.</summary>
+        /// <param name="playerCounts">Players greeting the dawn in each hideout.</param>
+        /// <param name="lowestPlayerIds">The lowest player id in each hideout.</param>
+        /// <param name="hostIndex">The host's hideout, or -1 when the host is not home.</param>
+        public static int Pick(int[] playerCounts, int[] lowestPlayerIds, int hostIndex)
+        {
+            int best = -1;
+            for (int i = 0; i < playerCounts.Length; i++)
+            {
+                if (playerCounts[i] <= 0)
+                    continue;
+                if (best < 0 || playerCounts[i] > playerCounts[best])
+                {
+                    best = i;
+                    continue;
+                }
+                if (playerCounts[i] < playerCounts[best] || best == hostIndex)
+                    continue;
+                if (i == hostIndex || lowestPlayerIds[i] < lowestPlayerIds[best])
+                    best = i;
+            }
+            return best;
+        }
+    }
 }

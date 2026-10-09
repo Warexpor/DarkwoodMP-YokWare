@@ -30,7 +30,6 @@ namespace DWMPHorde.Patches
             CoreAddPrefabPhysicsSyncPatch.OnAddPrefab(__result, prefab, position, quaternion);
             AddPrefabRecordPathPatch.OnAddPrefab(__result, prefab);
             ShadowCaptureOnSpawnPatch.OnAddPrefab(__result, prefab);
-            NightWormPostSpawnPatch.OnAddPrefab(__result, prefab);
         }
     }
 
@@ -52,6 +51,7 @@ namespace DWMPHorde.Patches
         {
             GasolineTrailObjectSpawnPatch.OnAddPrefab(__result, __0, __1);
             ExplosionObjectSpawnSyncPatch.OnAddPrefab(__result, __0, __1, __2);
+            ScriptedSpawnSync.OnAddPrefab(__result, __0);
             DefenderAttackContext.NoteSpawned(__result);
         }
     }

@@ -20,6 +20,7 @@ Keep **machine paths** here so post-compact agents do not re-ask.
 | **Host plugin deploy** | `…/Darkwood/BepInEx/plugins/DarkwoodMP.Mod.dll` |
 | **Client plugin deploy** | `…/SecondDarkwood/Darkwood/BepInEx/plugins/DarkwoodMP.Mod.dll` |
 | **Host launch** | `darkwood-host` / `scripts/run-darkwood-host.sh` → `./run_bepinex.sh` — **or** Steam Play with Launch Options `./run_bepinex.sh %command%` (bare Steam Play skips Doorstop; mod will not load). Steam Play has no TTY: do **not** `exec` the Doorstop script into a terminal (breaks SteamLaunch / LD_PRELOAD). Game-dir `run_bepinex.sh` instead opens a background **foot** that `tail -F`s `BepInEx/LogOutput.log` on the Steam entry only. Re-apply after BepInEx reinstall: `scripts/install-host-console-wrap.sh`. `DARKWOOD_NO_FOOT=1` skips. Prefer `darkwood-host` for a real BepInEx console TTY. |
+| **Third box (2nd client)** | `/home/warexpor/Work/MyProjects/ThirdDarkwood/Darkwood` (copy of the GOG install, PlayerName `Player3`), Proton prefix `…/steamapps/compatdata/thirddarkwood`, saves auto-isolate to `LocalLow/…/Darkwood_Third`. Deploy via `ThirdPlugins` in `GamePath.local.props`. Launch: `SECOND_DARKWOOD_DIR=<third dir> STEAM_COMPAT_DATA_PATH=<thirddarkwood prefix> scripts/run-seconddarkwood.sh`; pilot: `CLIENTS=2 scripts/pilot/pilot-run.sh`, `pcmd.sh c2 …` |
 | **Client launch** | `seconddarkwood` / `scripts/run-seconddarkwood.sh` (Steam **Proton Experimental** as Wine runtime + `WINEDLLOVERRIDES=winhttp=n,b`; system `wine` optional if you install it later) |
 
 **Dual-box cursor (machine note):** `FreeCursorForDualBox` defaults to **false** (vanilla confine). On this Linux box (Hyprland/Wayland + Wine/Proton client) both installs' `BepInEx/config/com.yokware.branch.cfg` must set `FreeCursorForDualBox = true`, or the Confined cursor traps the mouse and the Wine window can freeze on blur. Existing cfg files keep their old value; only fresh files get the new default.
@@ -76,6 +77,7 @@ Sync path is **GameEventsFired** (host fires leave-door GE → clients apply), p
   ```bash
   dotnet build DarkwoodMP.Mod -c Release
   # csproj DeployToGameDirs → Steam + SecondDarkwood plugins when present
+  dotnet build DarkwoodMP.ManualSaves -c Release   # optional F3 save-slot add-on (also builds + deploys the mod)
   ```
 - **GameDir props:** `DarkwoodMP.Mod/GamePath.local.props` → Steam `GameDir` + `SecondPlugins` (gitignored)
 
@@ -133,7 +135,7 @@ The host runs the world. A client should barely notice they are not the host: en
 - **Shared world.** Items are unique (no per-player copies); anything one player opens is open for all; 3+ players must really work.
 - **"Works" = dual-box playtest**, not a green build. Check both `LogOutput.log` files.
 - **Git:** commit locally at each deploy; push only playtest-confirmed batches (one push per confirmed set). The GitHub account was flagged before for frequent activity.
-- **Subagents:** read-only digging (surveys, decompile/log lookups, report-only audits) on Sonnet; code-writing on Opus. Worktree workers start on stale `master`: reset to `dev` first.
+- **Subagents:** read-only digging (surveys, decompile/log lookups, report-only audits) on Sonnet; code-writing on Opus. Worktree workers start on a stale base: reset to the working branch `dev` first (`main` holds merged, playtest-confirmed batches).
 - No emojis in replies.
 - **Playtest loop:** user playtests → agent reads both `LogOutput.log` files (user reports bugs, if any) → fix, build/deploy, md5-check both plugin DLLs, CHANGELOG, local commit → next playtest. The user quits the game right when something goes wrong, so the bug sits at the **end** of the logs: read the tails first. An abrupt log end is the user quitting, not a crash, unless an exception shows. BepInEx overwrites `LogOutput.log` on every launch, so read it before the next run.
 

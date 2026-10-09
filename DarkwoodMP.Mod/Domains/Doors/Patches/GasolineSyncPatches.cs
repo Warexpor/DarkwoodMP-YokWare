@@ -19,8 +19,8 @@ namespace DWMPHorde.Patches
         /// on a client that fire was refused, Liquid.startBurning's delayed spawn read
         /// <c>.transform</c> off null (NullReferenceException in Liquid.&lt;startBurning&gt;b__11_0)
         /// and every lit trail burned with no flames; the host sent each fire as a new trail.
-        /// Do NOT treat Gas_flamable (Explodes secondary) as a trail either: that one still uses
-        /// ExplosionSpawnObject so the correct prefab lands on clients.
+        /// Do NOT treat Gas_flamable (the gas bomb's land spawn) as a trail either: that one uses
+        /// ExplosionSpawnObject so the correct prefab lands on clients (ThrownItemLandScope).
         /// </summary>
         internal static bool IsGasolineTrailPrefab(Object prefab)
         {

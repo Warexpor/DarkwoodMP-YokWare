@@ -71,10 +71,12 @@ namespace DWMPHorde.Patches
             var net = ModRuntime.Network;
             if (net == null) return;
 
-            // Prefer living remotes, stable order by PlayerId (3+ cycling via F4).
+            // Prefer living remotes out in the night over one inside a dream (its body is on the
+            // far-off dream pad), then a stable order by PlayerId (3+ cycling via F4).
             Transform followTarget = net.GetAllProxies()
                 .Where(p => p != null && p.GetComponent<CharBase>()?.alive != false)
-                .OrderBy(p => p.PlayerId)
+                .OrderBy(p => DWMPHorde.Sync.DreamSyncManager.IsRemoteInDream(p.PlayerId) ? 1 : 0)
+                .ThenBy(p => p.PlayerId)
                 .Select(p => p.transform)
                 .FirstOrDefault();
 

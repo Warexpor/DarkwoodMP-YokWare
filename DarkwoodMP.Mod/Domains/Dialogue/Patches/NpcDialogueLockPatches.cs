@@ -38,7 +38,7 @@ namespace DWMPHorde.Patches
                         if (Player.Instance != null)
                         {
                             PersonalFlavorHud.BeginBypass();
-                            try { Player.Instance.displayMessage("Someone is already talking to them…"); }
+                            try { Player.Instance.displayMessage(Loc.T("Someone is already talking to them…")); }
                             finally { PersonalFlavorHud.EndBypass(); }
                         }
                     }
@@ -60,7 +60,7 @@ namespace DWMPHorde.Patches
                     if (Player.Instance != null)
                     {
                         PersonalFlavorHud.BeginBypass();
-                        try { Player.Instance.displayMessage("Someone is already talking to them…"); }
+                        try { Player.Instance.displayMessage(Loc.T("Someone is already talking to them…")); }
                         finally { PersonalFlavorHud.EndBypass(); }
                     }
                 }

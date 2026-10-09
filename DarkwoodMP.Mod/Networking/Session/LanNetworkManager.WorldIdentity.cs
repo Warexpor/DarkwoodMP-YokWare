@@ -91,7 +91,8 @@ namespace DWMPHorde.Networking
                 return PeerWorldVerdict.Reject;
             }
 
-            if (hostChapter > 0 && handshake.ChapterId > 0 && handshake.ChapterId != hostChapter)
+            bool otherChapter = hostChapter > 0 && handshake.ChapterId > 0 && handshake.ChapterId != hostChapter;
+            if (otherChapter || handshake.WorldGeneratedLocally)
             {
                 string key = ClientStateBackup.SanitizeStableClientKey(handshake.StableClientKey)
                     ?? "p" + playerId;
@@ -102,7 +103,9 @@ namespace DWMPHorde.Networking
                         + hostChapter + " — leave and rejoin from the title screen");
                     return PeerWorldVerdict.Reject;
                 }
-                reason = "client chapter " + handshake.ChapterId + " != host chapter " + hostChapter;
+                reason = otherChapter
+                    ? "client chapter " + handshake.ChapterId + " != host chapter " + hostChapter
+                    : "client chapter " + handshake.ChapterId + " world was generated on the client, not shared";
                 return PeerWorldVerdict.ResyncChapter;
             }
 
@@ -110,8 +113,13 @@ namespace DWMPHorde.Networking
         }
 
         /// <summary>Host: tell one peer to expect a world share for the host's chapter and load it on its own.</summary>
-        private void SendPeerWorldResync(int playerId, int hostChapter)
+        private void SendPeerWorldResync(int playerId, int hostChapter, string rawStableKey)
         {
+            // The peer drops the link to load the world and comes back: it keeps its PlayerId
+            // (it came back as a new player, p3 → p5, after a chapter re-send).
+            string key = ClientStateBackup.SanitizeStableClientKey(rawStableKey);
+            if (!string.IsNullOrEmpty(key))
+                _resumePlayerIdByKey[key] = playerId;
             SendToPlayer(playerId, NetMessageType.ChapterTransition, w => new ChapterTransitionMessage
             {
                 ChapterId = hostChapter,

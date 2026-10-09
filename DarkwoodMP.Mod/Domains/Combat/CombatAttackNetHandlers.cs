@@ -147,7 +147,13 @@ namespace DWMPHorde.Networking
             float hpBefore = target.Health;
             HostApplyGuard.Run(() =>
             {
-                target.getHit(damage, attackerT, msg.CanCutInHalf, byPlayer: true, canInterrupt: true);
+                // byPlayer (a player's hit: aggro, saturation, kill count) but not the bar: vanilla
+                // shows it to the player who hit, which is the client (it shows its own). Here it
+                // popped up on the host's screen for a hit far away; a bar the host already has
+                // on this target is refreshed below, as vanilla refreshes it.
+                target.getHit(damage, attackerT, msg.CanCutInHalf, byPlayer: true, canInterrupt: true,
+                    dontShowHealthBar: true);
+                HealthBarRefresh.IfShowing(target.gameObject);
                 // Vanilla MeleeSensor: after getHit, each weapon effect goes to character.effects.activate.
                 SensorEffectCodec.Apply(target.effects, msg.Effects, "HandlePlayerAttack");
             });
@@ -243,14 +249,20 @@ namespace DWMPHorde.Networking
                 SensorEffectCodec.Apply(local.effects, msg.Effects, "DamagePlayer");
                 return;
             }
-            local.getHit(
-                damage,
-                null,
-                msg.CanCutInHalf,
-                byPlayer: false,
-                canInterrupt: msg.CanInterrupt,
-                normalHit: msg.NormalHit,
-                showRedScreen: msg.ShowRedScreen);
+            // The victim's own getHit blood (none on a block) is the one splat everyone sees.
+            Patches.HitscanBloodPatch.OwnHitDepth++;
+            try
+            {
+                local.getHit(
+                    damage,
+                    null,
+                    msg.CanCutInHalf,
+                    byPlayer: false,
+                    canInterrupt: msg.CanInterrupt,
+                    normalHit: msg.NormalHit,
+                    showRedScreen: msg.ShowRedScreen);
+            }
+            finally { Patches.HitscanBloodPatch.OwnHitDepth--; }
             // Vanilla MeleeSensor: after getHit, each sensor effect goes to Player.effects.activate.
             SensorEffectCodec.Apply(local.effects, msg.Effects, "DamagePlayer");
         }
@@ -384,18 +396,13 @@ namespace DWMPHorde.Networking
             {
                 Player host = Player.Instance;
                 if (host == null) return;
-                host.getHit(damage, atkTransform, msg.CanCutInHalf, byPlayer: true, canInterrupt: true);
+                // The host's own getHit blood goes to everyone (one splat, none on a block).
+                Patches.HitscanBloodPatch.OwnHitDepth++;
+                try { host.getHit(damage, atkTransform, msg.CanCutInHalf, byPlayer: true, canInterrupt: true); }
+                finally { Patches.HitscanBloodPatch.OwnHitDepth--; }
                 SensorEffectCodec.Apply(host.effects, msg.Effects, "FriendlyFire");
                 EntitySyncLog.Damage(
                     "[FriendlyFire] host took " + damage + " from p" + atkPlayerId);
-
-                Vector3 hitPoint = host.transform.position;
-                Vector3 toHost = (host.transform.position - atkPos).normalized;
-                float dist = Vector3.Distance(atkPos, host.transform.position) + 0.5f;
-                if (Physics.Raycast(atkPos, toHost, out RaycastHit hostHit, dist, GameplayConstants.HitscanLayerMask))
-                    hitPoint = hostHit.point;
-
-                BroadcastFriendlyFireBlood(hitPoint, host.inWater, host.transform.eulerAngles.y);
             }
             else
             {
@@ -417,38 +424,7 @@ namespace DWMPHorde.Networking
                         Effects = msg.Effects
                     }.Serialize(w);
                 }, DeliveryMethod.ReliableOrdered);
-
-                // Blood on victim proxy so all peers see the hit (not only host self-hit path).
-                RemotePlayerProxy victimProxy = _net.GetProxy(victimPlayerId);
-                if (victimProxy != null)
-                {
-                    CharBase vicCb = victimProxy.CachedCharBase;
-                    bool inWater = vicCb != null && vicCb.inWater;
-                    BroadcastFriendlyFireBlood(victimProxy.transform.position, inWater, victimProxy.transform.eulerAngles.y);
-                }
             }
-        }
-
-        private void BroadcastFriendlyFireBlood(Vector3 hitPoint, bool inWater, float baseRotY)
-        {
-            string bloodPrefab = inWater ? "FX/Bloodsplats/Shotsplat" : "FX/Bloodsplats/Shotsplat_stay";
-            float rotY = baseRotY + UnityEngine.Random.Range(-40f, 40f);
-            bool prevHack = TraverseHack.GetExplicitFlag();
-            TraverseHack.SetExplicitFlag(true);
-            try { Core.AddPrefab(bloodPrefab, hitPoint, Quaternion.Euler(90f, rotY, 0f), null); }
-            finally { TraverseHack.SetExplicitFlag(prevHack); }
-
-            _net.Broadcast(NetMessageType.BulletImpact, w => new BulletImpactMessage
-            {
-                PrefabName = bloodPrefab,
-                PoolName = "",
-                PosX = hitPoint.x,
-                PosY = hitPoint.y,
-                PosZ = hitPoint.z,
-                RotX = 90f,
-                RotY = rotY,
-                RotZ = 0f
-            }.Serialize(w), DeliveryMethod.ReliableOrdered);
         }
     }
 }

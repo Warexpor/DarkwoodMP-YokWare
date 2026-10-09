@@ -59,6 +59,52 @@ namespace DWMPHorde.Networking
         {
             _pendingContainerRemoves.Clear();
             _pendingTakePreCounts.Clear();
+            _pendingEntityStates.Clear();
+        }
+
+        private const float PendingEntityStateMaxAge = 30f;
+
+        /// <summary>
+        /// A creature's inventory sent before the creature reached this client (the host rolls a
+        /// night spawn's loot as it spawns; the entity follows on the next snapshot), by host id.
+        /// </summary>
+        private readonly Dictionary<int, KeyValuePair<float, ContainerStateSyncMessage>> _pendingEntityStates =
+            new Dictionary<int, KeyValuePair<float, ContainerStateSyncMessage>>();
+
+        private readonly List<int> _entityStateScratch = new List<int>();
+
+        /// <summary>Client tick: fill a waiting creature's inventory once the creature is here.</summary>
+        internal void TryFlushPendingEntityStates()
+        {
+            if (_pendingEntityStates.Count == 0 || _net.Role != NetworkRole.Client)
+                return;
+            float now = Time.unscaledTime;
+            _entityStateScratch.Clear();
+            _entityStateScratch.AddRange(_pendingEntityStates.Keys);
+            foreach (int hash in _entityStateScratch)
+            {
+                var entry = _pendingEntityStates[hash];
+                if (CharacterTracker.FindByStableId((short)hash) != null)
+                {
+                    _pendingEntityStates.Remove(hash);
+                    HandleContainerStateSync(entry.Value);
+                }
+                else if (now - entry.Key > PendingEntityStateMaxAge)
+                {
+                    _pendingEntityStates.Remove(hash);
+                    // A character this client never maps to the host's id (a story NPC standing at
+                    // its own spot) is still found where it stands; a container is not one.
+                    ContainerStateSyncMessage msg = entry.Value;
+                    Inventory at = WorldQueryHelper.FindInventoryByPos(new Vector3(msg.PosX, msg.PosY, msg.PosZ));
+                    if (at != null && at.GetComponent<Character>() != null)
+                    {
+                        msg.EntityHash = 0;
+                        HandleContainerStateSync(msg);
+                    }
+                    else
+                        ModRuntime.LegacyInfo($"[Container] entity {hash} never arrived; its inventory state dropped");
+                }
+            }
         }
 
         /// <summary>
@@ -167,6 +213,9 @@ namespace DWMPHorde.Networking
         internal void HandleContainerStateSync(ContainerStateSyncMessage msg)
         {
             if (_net.Role != NetworkRole.Client) return;
+            // On the title or mid-load there is no container to fill: the world package carries the
+            // contents, and opening one asks the host again.
+            if (!LanNetworkManager.ClientCanApplyWorldBulk()) return;
 
             ModRuntime.LegacyInfo($"[Container] HandleContainerStateSync: hash={msg.EntityHash} pos=({msg.PosX:F1},{msg.PosY:F1},{msg.PosZ:F1}) slotCount={msg.SlotCount}");
 
@@ -185,7 +234,11 @@ namespace DWMPHorde.Networking
                 }
                 else
                 {
-                    ModRuntime.LegacyInfo($"[Container] HandleContainerStateSync: entity hash {msg.EntityHash} not found, falling back to position");
+                    // Not here yet: wait for it. Its inventory is its own, and the position fallback
+                    // filled whatever container it stood beside (a wardrobe, a death bag).
+                    _pendingEntityStates[msg.EntityHash] = new KeyValuePair<float, ContainerStateSyncMessage>(Time.unscaledTime, msg);
+                    ModRuntime.LegacyInfo($"[Container] HandleContainerStateSync: entity {msg.EntityHash} not here yet — waiting for it");
+                    return;
                 }
             }
 

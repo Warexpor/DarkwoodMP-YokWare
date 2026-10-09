@@ -380,7 +380,7 @@ namespace DWMPHorde.Patches
                 if (Player.Instance != null && !GameScreen.AtTitle && !Core.loadingGame)
                 {
                     PersonalFlavorHud.BeginBypass();
-                    try { Player.Instance.displayMessage(message); }
+                    try { Player.Instance.displayMessage(Loc.T(message)); }
                     finally { PersonalFlavorHud.EndBypass(); }
                 }
             }

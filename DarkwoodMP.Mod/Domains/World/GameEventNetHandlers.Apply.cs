@@ -12,6 +12,8 @@ namespace DWMPHorde.Networking
     internal sealed partial class GameEventNetHandlers
     {
         /// <returns>True when the event is resolved (fired, already fired, or intentionally skipped).</returns>
+        private const float ScenePieceMatchRadius = 150f;
+
         private bool ApplyGameEventsFired(GameEventsFiredMessage msg, bool queueIfMissing)
         {
             Vector3 pos = new Vector3(msg.PosX, msg.PosY, msg.PosZ);
@@ -98,7 +100,9 @@ namespace DWMPHorde.Networking
             // Only the pad's own events are held to the pad: an overworld or outside-location
             // event fired during a dream (the cellar's dream start, oneChance's dream end) never
             // resolved under the pad root.
-            float softMax = (onDreamPad || padCoords) ? 250f : 8f;
+            // A scene piece: this machine's own copy of the scene, placed by its own player (the
+            // host placed its copy by the synced stand-in), within the hideout.
+            float softMax = (onDreamPad || padCoords) ? 250f : msg.ScenePiece ? ScenePieceMatchRadius : 8f;
             if (!string.IsNullOrEmpty(msg.EventName))
             {
                 best = SoftMatchGameEvents(msg.EventName, pos, onDreamPad ? dreamRoot : null, softMax);
@@ -123,13 +127,10 @@ namespace DWMPHorde.Networking
                     return true;
                 }
 
+                // Not here yet (a just-spawned object settles its height in its Start, the frame
+                // after the spawn): queued, and the flush retries until it ages out, which warns.
                 if (queueIfMissing)
-                {
                     QueuePendingGameEvent(msg);
-                    return false;
-                }
-                ModLog.WarnRate(LogCat.Session, "ge-none-near:" + msg.EventName,
-                    $"[GameEventsSync] no GameEvents near {pos} name='{msg.EventName}'");
                 return false;
             }
 
@@ -458,6 +459,8 @@ namespace DWMPHorde.Networking
                 float maxAge = dreamish ? PendingDreamGameEventsMaxAge : PendingGameEventsMaxAge;
                 if (now - _pendingGameEventQueuedAt[key] > maxAge)
                 {
+                    ModLog.WarnRate(LogCat.Session, "ge-none-near:" + msg.EventName,
+                        $"[GameEventsSync] no GameEvents near ({msg.PosX:F1},{msg.PosY:F1},{msg.PosZ:F1}) name='{msg.EventName}' after {maxAge:F0}s, dropped");
                     _pendingGameEvents.RemoveAt(i);
                     _pendingGameEventQueuedAt.Remove(key);
                     continue;

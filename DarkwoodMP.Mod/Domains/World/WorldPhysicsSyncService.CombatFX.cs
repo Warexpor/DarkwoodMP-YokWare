@@ -313,10 +313,27 @@ namespace DWMPHorde.Sync
                 // If packet reordering hid the trail, spawn it before igniting under the apply flag.
                 SpawnGasTrail(pos);
                 liquid = FindFlammableLiquidNear(pos, 2.25f);
-                if (liquid != null && !liquid.burning)
+                if (liquid != null)
                 {
-                    liquid.startBurning();
-                    ModRuntime.LegacyInfo($"[GasIgnite] spawned+ignited trail at {pos}");
+                    if (!liquid.burning)
+                    {
+                        liquid.startBurning();
+                        ModRuntime.LegacyInfo($"[GasIgnite] spawned+ignited trail at {pos}");
+                    }
+                    return;
+                }
+                // This peer's copy is culled (its area is asleep here, so the physics search does
+                // not see it and the trail spawn skipped it). Light it all the same: vanilla burning
+                // runs on the puddle's own routines, so it burns on and goes out once its area
+                // wakes, as it did on the host. Left unlit, the gas waited there to be lit a second time.
+                liquid = FindLiquidInScene(pos, 2.25f, null);
+                if (liquid != null)
+                {
+                    if (!liquid.burning)
+                    {
+                        liquid.startBurning();
+                        ModRuntime.LegacyInfo($"[GasIgnite] ignited culled {liquid.name} at {pos}");
+                    }
                     return;
                 }
                 ModRuntime.Log?.LogWarning("[GasIgnite] no flammable Liquid found at " + pos + " (even after spawning)");
@@ -377,17 +394,27 @@ namespace DWMPHorde.Sync
         /// late-join gas state laid a second copy on each one it had from the save.
         /// </summary>
         private static bool HasLiquidInScene(Vector3 pos, float radius, string name)
+            => FindLiquidInScene(pos, radius, name) != null;
+
+        /// <summary>The nearest flammable puddle here on the ground plane, culled ones included.</summary>
+        private static Liquid FindLiquidInScene(Vector3 pos, float radius, string name)
         {
             Liquid[] all = WorldQueryHelper.GetCachedSceneComponents<Liquid>();
-            float rSq = radius * radius;
+            Liquid best = null;
+            float bestSq = radius * radius;
             for (int i = 0; i < all.Length; i++)
             {
                 Liquid liquid = all[i];
                 if (liquid == null || !liquid.flammable) continue;
                 if (name != null && NormalizeObjectName(liquid.gameObject.name) != name) continue;
-                if (XzDistSq(liquid.transform.position, pos) <= rSq) return true;
+                float dSq = XzDistSq(liquid.transform.position, pos);
+                if (dSq <= bestSq)
+                {
+                    bestSq = dSq;
+                    best = liquid;
+                }
             }
-            return false;
+            return best;
         }
 
         /// <summary>

@@ -380,10 +380,28 @@ namespace DWMPHorde.Networking
             }
             if (home == null)
                 return;
-            player.experienceMachine = home;
-            if (!home.isOn)
-                Patches.OvenHomes.RelightOwnHomeNextFrame();
-            ModRuntime.LegacyInfo("[ClientBackup] restored home oven at " + pos);
+            // Lit only once this player examined it (vanilla examinedExpMachine): lighting a home
+            // never examined offered Cook from the start, and told every peer the oven was lit.
+            bool lit = data.HomeOvenLit > 0
+                || (data.HomeOvenLit < 0 && Singleton<Flags>.Instance != null
+                    && Singleton<Flags>.Instance.isFlagTrue("player_firstOvenInteraction"));
+            ExperienceMachine prev = player.experienceMachine;
+            // The join's stand-in home only glows (vanilla setAsDefaultExpMachine); vanilla moving
+            // home puts it out. One a peer lit stays lit (its isOn is the world's).
+            if (prev != null && prev != home && !prev.isOn)
+                prev.disable();
+            if (lit || home.isOn)
+            {
+                player.experienceMachine = home;
+                if (!home.isOn)
+                    Patches.OvenHomes.RelightOwnHomeNextFrame();
+            }
+            else
+            {
+                player.experienceMachine = null;
+                home.setAsDefaultExpMachine();
+            }
+            ModRuntime.LegacyInfo("[ClientBackup] restored home oven at " + pos + " lit=" + lit);
         }
 
         private static void RestorePosition(ClientStateBackupData data)
@@ -489,8 +507,8 @@ namespace DWMPHorde.Networking
         /// <summary>
         /// Re-apply chosen progression skills from backup (mirrors vanilla
         /// PlayerSkills.SaveState.loadValues without touching host peers).
-        /// Unsets host LessHealth1/MoreHealth1 first — co-op restores onto the
-        /// host-loaded Player, unlike vanilla load onto a fresh instance.
+        /// Takes the host's perks off first — co-op restores onto the host-loaded
+        /// Player, unlike vanilla load onto a fresh instance.
         /// </summary>
         private static void RestoreSkills(ClientStateBackupData data)
         {
@@ -506,20 +524,21 @@ namespace DWMPHorde.Networking
 
             try
             {
-                // Host-sav left LessHealth1/MoreHealth1 true (setters: maxHealth −50 / +25).
-                // Vanilla loadValues only clears chosen — fine on a fresh Player; co-op
-                // restores onto the host-loaded Player. Unset before client initialize so
-                // we neither keep the host trait nor double-apply when chosen was cleared
-                // then initialize(true) sets the property again. Runs after
-                // ReconcileVitalUpgradePools (upgrade deltas are independent additives).
-                if (ps.LessHealth1)
-                    ps.LessHealth1 = false;
-                if (ps.MoreHealth1)
-                    ps.MoreHealth1 = false;
-
-                // Clear chosen flags on all progression skills (vanilla loadValues).
+                // The Player is the host's, loaded from its save: every perk the host chose is
+                // applied on it (its setters ran: shaky hands, weak regeneration, far sight,
+                // less stamina, the shadows flag, more or less health), and its activated
+                // skills sit in the activation lists. Take each off the way vanilla does
+                // (initialize(false) runs the setter back), then clear the lists; only then
+                // the client's own choices go on. Clearing the chosen flags alone left the
+                // host's perks working on the client.
                 if (ps.progressionSkills != null)
                 {
+                    for (int i = 0; i < ps.progressionSkills.Count; i++)
+                    {
+                        PlayerSkill sk = ps.progressionSkills[i];
+                        if (sk != null && sk.chosen)
+                            sk.initialize(destBool: false);
+                    }
                     for (int i = 0; i < ps.progressionSkills.Count; i++)
                     {
                         PlayerSkill sk = ps.progressionSkills[i];
@@ -527,6 +546,14 @@ namespace DWMPHorde.Networking
                             sk.chosen = false;
                     }
                 }
+                for (int i = 0; i < ps.skills.Count; i++)
+                {
+                    PlayerSkill sk = ps.skills[i];
+                    if (sk != null && sk.chosen)
+                        sk.initialize(destBool: false);
+                }
+                ps.manuallyActivatedSkills.Clear();
+                ps.automaticActivatedSkills.Clear();
 
                 ps.skills.Clear();
                 if (data.Skills != null)

@@ -36,6 +36,9 @@ namespace DWMPHorde.Networking
             PollSteamBackend();
             Sync.TestPilot.Tick(this);
             Sync.PauseMenuSync.Tick(this);
+            Sync.PlayerNames.Tick(this);
+            StackedLightProbe.Tick(this);
+            BackgroundFrameRate.Tick(this);
             Sync.DialogHandInArbiter.TickClient(this);
             Audio.VoiceChatService.Tick();
             if (perf) ClientPerfProbe.MarkPoll();
@@ -50,8 +53,10 @@ namespace DWMPHorde.Networking
             LocationEnterExitHandlers?.TryFlushPendingForceAnnounce();
             JournalHandlers.TryFlushPendingJournal();
             Sync.MultiplayerMapManager.TryFlushPendingDiscoveries();
+            Sync.MapPinBoard.Tick();
             BulkSyncHandlers?.TryFlushPendingHideoutState();
             ContainerLootHandlers?.TryFlushPendingHideoutUpgrades();
+            ContainerPendingHandlers?.TryFlushPendingEntityStates();
             TradeHandlers.TryFlushPendingTradeInventories();
             LockHandlers.TryFlushPendingConstructibles();
             StationHandlers.TryFlushPendingSawStates();
@@ -244,6 +249,8 @@ namespace DWMPHorde.Networking
                 Sync.TrapLedger.Tick();
                 WorldFxHandlers?.TickHeldClaims();
             }
+            else
+                WorldFxHandlers?.TickEarlySounds();
 
             _effectSyncTimer += Time.deltaTime;
             bool effectKeepalive = _effectSyncTimer >= 2f;
@@ -286,8 +293,10 @@ namespace DWMPHorde.Networking
                 HasNightShadows = local.skills != null && local.skills.NightShadows,
                 AfterNightActive = Singleton<Controller>.Instance != null && Singleton<Controller>.Instance.isAfterNight,
                 InOpenWorld = Patches.HostSharedClockPatch.LocalInOpenWorld(),
+                ClockHeld = Patches.HostSharedClockPatch.LocalPersonalHold(),
                 SeesVillager = Sync.NightVillage.LocalSeesVillager,
                 Aiming = local.aiming,
+                WalkieState = Audio.VoiceChatService.LocalWalkieState,
                 TrapNetId = local.inBearTrap ? Sync.LocalBearTrap.CurrentId(hostMint: _role == NetworkRole.Host) : 0
             };
 

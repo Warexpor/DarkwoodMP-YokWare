@@ -34,6 +34,20 @@ namespace DWMPHorde.Patches
         }
     }
 
+    /// <summary>
+    /// Host new day: vanilla rolls whether it rains today and the fog schedule. Nothing was sent
+    /// until rain or fog next changed, so clients spent the day on yesterday's roll.
+    /// </summary>
+    [HarmonyPatch(typeof(Rain), "onNewDay")]
+    public static class RainNewDaySyncPatch
+    {
+        private static void Postfix()
+        {
+            if (!NetGuard.Host(out var net)) return;
+            net.SendWeatherSync();
+        }
+    }
+
     [HarmonyPatch(typeof(Rain), "stopRain")]
     public static class RainStopPatch
     {

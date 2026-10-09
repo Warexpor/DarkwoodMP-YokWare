@@ -237,11 +237,10 @@ namespace DWMPHorde.Sync
             for (int i = Pending.Count - 1; i >= 0; i--)
             {
                 var p = Pending[i];
-                if (Time.time - p.QueuedAt > 30f)
-                {
-                    Pending.RemoveAt(i);
-                    continue;
-                }
+                // No age limit: this is the trap's latest state, and its location may load much
+                // later (a trap the host sprang at its hideout while this player spent the night in
+                // another: dropped after 30 s, it stayed armed here for good). One entry per trap,
+                // MaxPending caps the list.
 
                 GameObject go = FindById(p.NetId);
                 if (go == null)

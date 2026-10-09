@@ -26,11 +26,17 @@ namespace DWMPHorde.Networking
         /// <summary>Peer is in the open world (PlayerState trailer): the shared clock runs for it.</summary>
         public bool InOpenWorld;
 
+        /// <summary>Peer is dying, dead until morning or in the Wolf's trap (PlayerState trailer): it does not run the clock.</summary>
+        public bool ClockHeld;
+
         /// <summary>Peer sees a villager in the village (PlayerState trailer): villagers stay put.</summary>
         public bool SeesVillager;
 
         /// <summary>Peer is aiming (PlayerState trailer): its walking steps are quiet and alert nobody.</summary>
         public bool Aiming;
+
+        /// <summary>Peer's walkie (PlayerState trailer, <see cref="WalkieStates"/>): radio talk plays from it for whoever stands near.</summary>
+        public byte WalkieState;
 
         // Dreams
         public bool IsDeadInDream;

@@ -70,6 +70,41 @@ namespace DWMPHorde.Networking
             return best;
         }
 
+        /// <summary>Pilot: why the pending rows of this name do not find a local body.</summary>
+        internal static string DebugMatch(string entityName)
+        {
+            var sb = new System.Text.StringBuilder();
+            Character[] all = WorldQueryHelper.GetCachedSceneComponents<Character>();
+            int named = 0;
+            foreach (Character c in all)
+                if (c != null && CharacterTracker.BaseNameEquals(c.name, entityName))
+                    named++;
+            sb.Append("registry=").Append(all.Length).Append(" named=").Append(named);
+            foreach (PendingEntry p in _pendingMatches)
+            {
+                if (!CharacterTracker.BaseNameEquals(p.EntityName, entityName))
+                    continue;
+                sb.Append(" | pending id=").Append(p.HostId).Append(" save=").Append(p.SaveId)
+                    .Append(" at ").Append(p.Position.x.ToString("F0")).Append(',').Append(p.Position.z.ToString("F0"));
+                _matchHostId = p.HostId;
+                foreach (Character c in all)
+                {
+                    if (c == null || !CharacterTracker.BaseNameEquals(c.name, entityName)) continue;
+                    float dx = c.transform.position.x - p.Position.x, dz = c.transform.position.z - p.Position.z;
+                    bool hasId = CharacterTracker.TryGetStableId(c, out short sid);
+                    sb.Append(" [cand d=").Append(Mathf.Sqrt(dx * dx + dz * dz).ToString("F0"))
+                        .Append(" id=").Append(hasId ? sid.ToString() : "-")
+                        .Append(" synced=").Append(hasId && _hostSyncedIds.Contains(sid))
+                        .Append(" phantom=").Append(hasId && _spawnedPhantomIds.Contains(sid))
+                        .Append(" rejectTwin=").Append(RejectOtherSaveTwin(c))
+                        .Append(" save=").Append(SaveIdOf(c)).Append(']');
+                }
+                Character twin = FindSaveTwin(p.HostId, p.SaveId, p.EntityName, p.Position);
+                sb.Append(" twin=").Append(twin != null ? twin.name : "-");
+            }
+            return sb.ToString();
+        }
+
         /// <summary>Prefab path (under Resources/Prefabs) → its background load, held so the prefab stays loaded.</summary>
         private static readonly Dictionary<string, ResourceRequest> _phantomPrefabWarm = new Dictionary<string, ResourceRequest>(16); // process-scoped: creature prefabs, loaded once per run
 

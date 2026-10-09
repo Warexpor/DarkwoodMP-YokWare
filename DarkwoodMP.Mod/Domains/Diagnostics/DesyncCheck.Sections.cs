@@ -205,8 +205,13 @@ namespace DWMPHorde.Sync
             {
                 if (n == null || string.IsNullOrEmpty(n.name))
                     continue;
-                // Night traders keep a standing per player (ReputationSyncUtil); their death is shared.
-                bool own = nightTrader.TryGetValue(n.name, out bool nt) ? nt : DialogApplyPolicy.IsPerPlayerReputationNpcName(n.name);
+                // Traders keep a standing per player (ReputationSyncUtil); their death is shared.
+                bool own = (nightTrader.TryGetValue(n.name, out bool nt) && nt) || DialogApplyPolicy.IsPerPlayerReputationNpcName(n.name);
+                // A state is made when its NPC first loads on that machine; an untouched one (alive,
+                // no standing) reads the same as none, as with flags. Only the host had been to
+                // the village: "chickenLady: host=dead=0|rep=0 client=<none>".
+                if (!n.dead && (own || n.reputation == 0))
+                    continue;
                 string rep = own ? "own" : I(n.reputation);
                 Add(into, n.name, "dead=" + B(n.dead) + "|rep=" + rep);
             }
@@ -224,7 +229,9 @@ namespace DWMPHorde.Sync
                 float maxHp = local.maxHealth > 0f ? local.maxHealth : 1f;
                 int hp = Mathf.Clamp(Mathf.RoundToInt(local.health / maxHp * 100f), 0, 100);
                 CharBase cb = local.GetComponent<CharBase>();
-                Add(into, "p" + I(ctx.Net.LocalPlayerId), PlayerValue(local.alive, hp,
+                // Down until morning after a night death: vanilla's death screen puts the body back
+                // up (alive) for spectating, while every peer's stand-in for it lies dead.
+                Add(into, "p" + I(ctx.Net.LocalPlayerId), PlayerValue(local.alive && !DeathStateTracker.LocalNightDeath, hp,
                     cb != null && cb.poisoned, cb != null && cb.bleeding,
                     WorldProxyEffectNetHandlers.LearnedSkillNames(local)));
             }
@@ -366,7 +373,10 @@ namespace DWMPHorde.Sync
                 // TryGetStableId only: the check never mints an id (it must not change what it reads).
                 if (!CharacterTracker.TryGetStableId(c, out short id))
                     id = 0;
-                if (!ctx.Host && !c.gameObject.activeInHierarchy)
+                // Switched off on both is the same (a camp's villagers inactive at night on both
+                // machines read "host=alive client=<none>" while the host listed its inactive ones);
+                // on only one side it shows as missing there.
+                if (!c.gameObject.activeInHierarchy)
                     continue;
                 CharBase cb = c.GetComponent<CharBase>();
                 bool alive = cb == null || cb.alive;
@@ -462,7 +472,10 @@ namespace DWMPHorde.Sync
                     continue;
                 Vector3 p = it.transform.position;
                 int dist = NearDist(ctx, p, NearRadius);
-                if (dist < 0 || !it.gameObject.activeInHierarchy || it.GetComponent<DroppedItemIdentifier>() != null)
+                // Switched off or not: each machine culls the ground away from its own player, so a
+                // pickup by the client stood inactive on the host and read as missing there
+                // ("Meat: host=<none> client=d=299").
+                if (dist < 0 || it.GetComponent<DroppedItemIdentifier>() != null)
                     continue;
                 Inventory inv = it.GetComponent<Inventory>();
                 InvItemClass stack = inv != null && inv.slots != null && inv.slots.Count > 0 ? inv.slots[0].invItem : null;
@@ -526,8 +539,11 @@ namespace DWMPHorde.Sync
                 Item asItem = inv.GetComponent<Item>();
                 if (asItem != null && asItem.isDroppedItem)
                     continue; // a ground stack (Pickups / Drops), not a container
-                if (inv.GetComponentInParent<Character>() != null)
-                    continue; // a body's loot: the body lies where each machine's ragdoll left it
+                // A body's loot: the body lies where each machine's ragdoll left it. includeInactive:
+                // a culled (inactive) creature's own inventory was listed as a loose container on
+                // whichever side had it switched off ("Villager_infected1b_ch2: host=... client=<none>").
+                if (inv.GetComponentInParent<Character>(true) != null)
+                    continue;
                 parts.Clear();
                 for (int s = 0; s < inv.slots.Count; s++)
                 {

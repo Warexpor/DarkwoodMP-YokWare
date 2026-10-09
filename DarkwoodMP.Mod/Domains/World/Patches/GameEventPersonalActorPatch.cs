@@ -156,8 +156,12 @@ namespace DWMPHorde.Patches
                 case GameEvent.Type.returnToWorld:
                     return true;
                 case GameEvent.Type.modifyCharacter:
+                    // A trader's standing is each player's own: a step that changes it is a reward
+                    // for the player the event is about, not for everyone who sees it replayed.
                     return ge.characterModifyType == GameEvent.CharacterModify.player_tweenShadow
-                        || TargetsPlayerBody(ge);
+                        || TargetsPlayerBody(ge)
+                        || (ge.characterModifyType == GameEvent.CharacterModify.reputation
+                            && ReputationSyncUtil.IsPerPlayerReputationNpcName(ge.Value));
                 case GameEvent.Type.runFunction:
                     // SendMessage to the Player: a step aimed at the player body moves, animates,
                     // dresses or equips the body that set the scene off (dive into the water, fake

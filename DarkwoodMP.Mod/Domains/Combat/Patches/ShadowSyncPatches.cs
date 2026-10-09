@@ -36,6 +36,8 @@ namespace DWMPHorde.Patches
         public byte ShadowType; // 0 = regular, 1 = immortal
         /// <summary>Perk/ambient owner player id — damage only hits this player.</summary>
         public int OwnerPlayerId;
+        /// <summary>Host: where this shadow's last appearance was sent to the other players.</summary>
+        public Vector3 LastAnnounced;
     }
 
     /// <summary>
@@ -64,7 +66,7 @@ namespace DWMPHorde.Patches
             var net = ModRuntime.Network;
             if (net == null || net.Role != NetworkRole.Host || !net.IsConnected)
                 return;
-            net.SendShadowEvent(new ShadowEventMessage { End = true });
+            net.SendShadowEvent(new ShadowEventMessage { End = true, OwnerId = (short)net.LocalPlayerId });
         }
     }
 
@@ -95,34 +97,15 @@ namespace DWMPHorde.Patches
             info.ShadowType = (byte)(prefab == "characters/fakechars/shadow_immortal" ? 1 : 0);
             info.OwnerPlayerId = ownerId;
 
-            // Client-owned waves: retarget AI to that proxy (vanilla always uses Player.Instance).
+            // A peer's wave: vanilla ShadowCreature measured from that peer's body (PeerShadows).
             if (ownerId != net.LocalPlayerId)
             {
                 RemotePlayerProxy proxy = net.GetProxy(ownerId);
-                if (proxy != null)
+                if (proxy != null && __result.GetComponent<ProxyShadowController>() == null)
                 {
-                    var scProxy = __result.GetComponent<ShadowCreature>();
-                    if (scProxy != null)
-                    {
-                        scProxy.distanceToPlayer = Vector3.Distance(
-                            __result.transform.position, proxy.transform.position);
-                    }
-
-                    if (__result.GetComponent<ProxyShadowController>() == null)
-                    {
-                        var ctrl = __result.AddComponent<ProxyShadowController>();
-                        ctrl.TargetProxy = proxy.transform;
-                        if (scProxy != null)
-                        {
-                            // Vanilla Update must not cruise toward the host. The
-                            // controller still needs the prefab speeds to close.
-                            ctrl.CruiseSpeed = scProxy.speed;
-                            ctrl.AggroSpeed = scProxy.speedAggressive;
-                            ctrl.SpeedsOverridden = true;
-                            scProxy.speed = 0f;
-                            scProxy.speedAggressive = 0f;
-                        }
-                    }
+                    var ctrl = __result.AddComponent<ProxyShadowController>();
+                    ctrl.TargetProxy = proxy.transform;
+                    ctrl.OwnerPlayerId = ownerId;
                 }
             }
 
@@ -131,6 +114,7 @@ namespace DWMPHorde.Patches
                 net.Shadows.Register(info.ShadowId, sc);
 
             Vector3 pos = __result.transform.position;
+            info.LastAnnounced = pos;
             float rotY = __result.transform.rotation.eulerAngles.y;
             net.SendShadowSpawn(new ShadowSpawnMessage
             {

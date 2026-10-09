@@ -113,7 +113,7 @@ namespace DWMPHorde.Networking
         public byte Flags;
         /// <summary>
         /// bit0=animating (the host keeps the clip moving), bit1=flier in flight, bit2=flier
-        /// diving, bit3=<see cref="PrevClip"/> follows.
+        /// diving, bit3=<see cref="PrevClip"/> follows, bit4=in sight (InSightOfPlayer).
         /// </summary>
         public byte Flags2;
         /// <summary>
@@ -138,6 +138,8 @@ namespace DWMPHorde.Networking
         public const byte Flag2InFlight = 2;
         public const byte Flag2Diving = 4;
         public const byte Flag2PrevClip = 8;
+        /// <summary>The host's InSightOfPlayer in-sight step has run (Sync.CreatureSightState).</summary>
+        public const byte Flag2InSight = 16;
 
         public bool Sleeping => (Flags & FlagSleeping) != 0;
         public bool Eating => (Flags & FlagEating) != 0;
@@ -147,6 +149,7 @@ namespace DWMPHorde.Networking
         public bool InFlight => (Flags2 & Flag2InFlight) != 0;
         public bool Diving => (Flags2 & Flag2Diving) != 0;
         public bool HasPrevClip => (Flags2 & Flag2PrevClip) != 0;
+        public bool InSight => (Flags2 & Flag2InSight) != 0;
 
         public Character.Behaviour PackedBehaviour
         {
@@ -740,12 +743,19 @@ namespace DWMPHorde.Networking
         /// 0 = late-join bulk / unknown → world effects only.
         /// </summary>
         public int ActorPlayerId;
+        /// <summary>
+        /// Part of a night scene copy (NightEventAnchor): each machine placed its own copy (a scene
+        /// moves to its player, the host by that player's synced stand-in), so the receiver's copy
+        /// can stand a few dozen units off the host's.
+        /// </summary>
+        public bool ScenePiece;
 
         public void Serialize(NetWriter w)
         {
             w.Put(PosX); w.Put(PosY); w.Put(PosZ);
             w.Put(EventName ?? "");
             w.Put(ActorPlayerId);
+            w.Put(ScenePiece);
         }
         public static GameEventsFiredMessage Deserialize(NetReader r) => new GameEventsFiredMessage
         {
@@ -753,7 +763,8 @@ namespace DWMPHorde.Networking
             PosY = r.GetFloat(),
             PosZ = r.GetFloat(),
             EventName = r.GetString(),
-            ActorPlayerId = r.GetInt()
+            ActorPlayerId = r.GetInt(),
+            ScenePiece = r.GetBool()
         };
     }
 

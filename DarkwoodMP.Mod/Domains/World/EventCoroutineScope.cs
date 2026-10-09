@@ -180,17 +180,41 @@ namespace DWMPHorde.Sync
             // reaches this peer through its own sync; a second local one was a phantom creature
             // or an extra pickup. Plain props and decor still spawn here.
             Transform spawned = __instance.targetTransform;
+            // A world object the save keeps (the night mushroom) is the host's too: it sends the
+            // one it spawned at its own spot (ScriptedSpawnSync).
             bool scriptedSpawn = __instance.type == GameEvent.Type.gameObject
                 && __instance.gameObjectModifyType == GameEvent.GameObjectModify.spawn
                 && spawned != null
-                && (spawned.GetComponent<Character>() != null || spawned.GetComponent<Item>() != null);
-            if (!relativeFlag && !relativeSharedRep && !characterSpawn && !scriptedHit && !scriptedSpawn)
+                && (spawned.GetComponent<Character>() != null || spawned.GetComponent<Item>() != null
+                    || ScriptedSpawnSync.IsWorldObject(spawned));
+            // The night scene's door step ("a door opens by itself") picks a random door of the
+            // location: the replay opened a different door here. The host's open reaches this
+            // peer as DoorOpen. Only the night scene: elsewhere (the dialogue doors) the replay
+            // is the door's own path.
+            bool sceneDoor = ClientRandomEventGate.PlayingHostLocationEvent
+                && __instance.type == GameEvent.Type.modifyDoor
+                && (__instance.doorModifyType == GameEvent.DoorModify.open
+                    || __instance.doorModifyType == GameEvent.DoorModify.close);
+            // The night scene's orders to its creatures (go for the window, wake up, attack): the
+            // creatures are the host's, which runs their AI and sends where they go. The replay
+            // found none of its own in the location ("Invalid (or 0 returned) gameObjects ...
+            // Type character") or gave a copy a second set of orders.
+            bool sceneCreatureOrder = ClientRandomEventGate.PlayingHostLocationEvent
+                && __instance.type == GameEvent.Type.modifyCharacter
+                && (__instance.characterModifyType == GameEvent.CharacterModify.aggressiveness
+                    || __instance.characterModifyType == GameEvent.CharacterModify.wakeup
+                    || __instance.characterModifyType == GameEvent.CharacterModify.behaviour
+                    || __instance.characterModifyType == GameEvent.CharacterModify.addActivity
+                    || __instance.characterModifyType == GameEvent.CharacterModify.removeActivities);
+            if (!relativeFlag && !relativeSharedRep && !characterSpawn && !scriptedHit && !scriptedSpawn && !sceneDoor
+                && !sceneCreatureOrder)
                 return true;
             __result = DWMPHorde.Harmony.HarmonyCoroutineUtil.Empty();
             return false;
         }
 
-        private static void Postfix(ref IEnumerator __result) => __result = EventCoroutineScope.Wrap(__result);
+        private static void Postfix(GameEvent __instance, GameObject thisGO, ref IEnumerator __result)
+            => __result = EventCoroutineScope.Wrap(ScriptedSpawnSync.WrapHost(__instance, __result, thisGO));
     }
 
     [HarmonyPatch(typeof(EventTrigger), nameof(EventTrigger.fire))]

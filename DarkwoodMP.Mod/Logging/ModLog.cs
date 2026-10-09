@@ -49,11 +49,17 @@ namespace DWMPHorde.Logging
         public static LogPreset CurrentPreset => _preset;
         public static LogLevel MinLevel => _minLevel;
 
-        /// <summary>Host LogOutput path (Steam install).</summary>
-        public const string HostLogHint = @"…\Steam\steamapps\common\Darkwood\BepInEx\LogOutput.log";
-
-        /// <summary>Typical second-install client log path for dual testing.</summary>
-        public const string ClientLogHint = @"…\SecondDarkwood\Darkwood\BepInEx\LogOutput.log";
+#if MELONLOADER
+        /// <summary>This loader's log file, relative to the game folder.</summary>
+        public const string LoaderLogPath = "MelonLoader/Latest.log";
+        /// <summary>This loader's config file, relative to the game folder.</summary>
+        public const string ConfigPathHint = "UserData/YokWare/" + PluginInfo.Guid + ".cfg";
+#else
+        /// <summary>This loader's log file, relative to the game folder.</summary>
+        public const string LoaderLogPath = "BepInEx/LogOutput.log";
+        /// <summary>This loader's config file, relative to the game folder.</summary>
+        public const string ConfigPathHint = "BepInEx/config/" + PluginInfo.Guid + ".cfg";
+#endif
 
         public static void Init(IModLogger log)
         {
@@ -333,12 +339,10 @@ namespace DWMPHorde.Logging
                     + " | RedactPath=" + _redactPaths);
                 Event(LogCat.Core, "  Unity=" + Application.unityVersion
                     + " | " + SystemInfo.operatingSystem);
-                Event(LogCat.Core, "  Config: BepInEx/config/" + PluginInfo.Guid + ".cfg"
-                    + " (Melon: UserData/YokWare/" + PluginInfo.Guid + ".cfg)");
-                Event(LogCat.Core, "  Title: MULTIPLAYER | F2=settings F3=save F4=spectate | F5=spawner");
-                Event(LogCat.Core, "  Host log:  BepInEx/LogOutput.log or MelonLoader/Latest.log");
-                Event(LogCat.Core, "  Client log: second install's loader log");
-                Event(LogCat.Core, "  Bug report: quit cleanly, send BOTH host+client loader logs");
+                Event(LogCat.Core, "  Config: " + ConfigPathHint);
+                Event(LogCat.Core, "  Title/pause: MULTIPLAYER | F4=spectate | add-ons: F3=saves F5=spawner");
+                Event(LogCat.Core, "  Log: " + LoaderLogPath + " in each player's game folder");
+                Event(LogCat.Core, "  Bug report: quit cleanly, send every player's " + LoaderLogPath);
                 Event(LogCat.Core, "  Quiet logs: set [Logging] LogPreset=Public (max capture: Trace)");
                 Event(LogCat.Core, "  Path B: Horde host-authoritative sync | GPLv3 | " + PluginInfo.Authors);
                 Event(LogCat.Core, "  Docs: DarkwoodMP.Mod/docs/CONFIG.md + LOGGING.md + PLAYTEST.md");

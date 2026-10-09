@@ -18,7 +18,7 @@ namespace DWMPHorde.Sync
 
             Vector3 pos = new Vector3(msg.PosX, msg.PosY, msg.PosZ);
             if (pos != Vector3.zero
-                && !LocalAudioService.IsNearListenerPeerBand(pos, LocalAudioService.AudibleRange(msg.AudioID)))
+                && !LocalAudioService.WorldSoundAudible(msg.AudioID, pos))
                 return;
 
             float vol = msg.Volume <= 0f ? 1f : Mathf.Clamp01(msg.Volume);

@@ -130,13 +130,11 @@ namespace DWMPHorde.Networking
         GameEventsFired = 65,
         /// <summary>Either peer: an ExperienceMachine (hideout oven) was enabled.</summary>
         [Forwardable] HideoutUpgrade = 66,
-        /// <summary>Either peer: a player placed a marker on the map at a world position.</summary>
-        [Forwardable] MapMarker = 68,
+        // 68 retired (MapMarker): party map pins go through the host (MapPinRequest 166, MapPinEvent 167).
         /// <summary>Either peer: a MapElement was discovered (isOnMap set to true).</summary>
         [Forwardable] MapElementDiscovered = 69,
         // 70, 71 retired (OxygenTankStash, CompressorTankConvert): replaced by OxygenTankTier (157).
-        /// <summary>Either peer: a player removed a map marker.</summary>
-        [Forwardable] MapMarkerRemove = 72,
+        // 72 retired (MapMarkerRemove): see MapPinRequest (166).
         /// <summary>Host->Client: bulk-sync all journal entries on connection.</summary>
         [HostOnly] JournalBulkSync = 73,
         /// <summary>Host->Client: continuous state update for a shadow (position, distanceToPlayer, alive/dead).</summary>
@@ -369,7 +367,7 @@ namespace DWMPHorde.Networking
         /// <summary>
         /// Host→client: gameplay settings every peer must agree on (friendly fire, loot-share
         /// mode, double items, party multiplier). Sent after the handshake, on roster changes
-        /// and when the host changes them in the F2 menu.
+        /// and when the host changes them in Multiplayer > Settings.
         /// </summary>
         [HostOnly] SessionSettings = 146,
         /// <summary>
@@ -459,7 +457,22 @@ namespace DWMPHorde.Networking
         /// <c>Sync.CosmeticRolls</c>, <c>Sync.DescriptionDeck</c>. Protocol 40.
         /// </summary>
         [HostOnly] CosmeticState = 164,
+        // 165 retired (WorldClock).
+        /// <summary>
+        /// Client→host: place, erase, restyle or label a party map pin, or ping the map. The host
+        /// numbers and applies it and answers everyone with <see cref="MapPinEvent"/>.
+        /// <c>Sync.MapPinBoard</c>. Protocol 43.
+        /// </summary>
+        MapPinRequest = 166,
+        /// <summary>Host→clients: one change to the party map board, or a ping. <c>Sync.MapPinBoard</c>. Protocol 43.</summary>
+        [HostOnly] MapPinEvent = 167,
+        /// <summary>
+        /// Client→host: the name this player goes by (Multiplayer > Settings > Name), sent after the
+        /// handshake and whenever it changes. The host hands every name out in <see cref="PeerRoster"/>.
+        /// <c>Sync.PlayerNames</c>. Protocol 48.
+        /// </summary>
+        PlayerName = 168,
         /// <summary>Highest used message type ID.</summary>
-        _Highest = 164
+        _Highest = 168
     }
 }

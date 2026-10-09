@@ -39,6 +39,28 @@ namespace DWMPHorde.Sync
 
         private static DialogueWindow Window => Singleton<UI>.Instance != null ? Singleton<UI>.Instance.dialogueWindow : null;
 
+        /// <summary>
+        /// Runs the mirror's waits on the controller. The dialogue window's own GameObject is
+        /// inactive until a talk opens: a listener's open started there was dropped by Unity
+        /// ("Coroutine couldn't be started … DialogueWindow is inactive"), so joining took a
+        /// second try.
+        /// </summary>
+        private static void Run(IEnumerator routine)
+        {
+            MonoBehaviour host = Singleton<Controller>.Instance;
+            if (host == null || !host.isActiveAndEnabled)
+                host = ModRuntime.Network as MonoBehaviour;
+            if (host != null)
+                host.StartCoroutine(routine);
+        }
+
+        /// <summary>Marks a mirrored option's vanilla Button.function in its Target (options have no DialogueButton).</summary>
+        private const string FunctionMark = "fn:";
+
+        /// <summary>The options a listener may use itself: leave, and open its own trade.</summary>
+        internal static bool IsListenerFunction(string function)
+            => function == "exitDialogue" || function == "showTrading";
+
         internal static void Reset()
         {
             // Session end: a listener's window goes with it.
@@ -67,6 +89,9 @@ namespace DWMPHorde.Sync
             _sessions.Clear();
             _ownerOpen = false;
             _ownerDoneSent = false;
+            _openAsOwner = false;
+            _autoTradeDone = false;
+            HandingOver = false;
         }
 
         private static string KindName(byte kind)
@@ -327,7 +352,12 @@ namespace DWMPHorde.Sync
                 e.Target = db.destDialogueName ?? "";
             Button b = t.GetComponent<Button>();
             if (b != null)
+            {
                 e.Menu = (short)dw.menuOptions.IndexOf(b);
+                // Exit and Trade work for a listener too (its own leave, its own trade).
+                if (db == null && IsListenerFunction(b.function))
+                    e.Target = FunctionMark + b.function;
+            }
             return true;
         }
 
@@ -392,7 +422,7 @@ namespace DWMPHorde.Sync
                     HostJoin(net, sender, RefOf(m));
                 else if (m.Kind == DialogMirrorMessage.KindLeave)
                     HostLeave(sender);
-                else if (m.Kind < DialogMirrorMessage.KindJoin)
+                else if (m.Kind < DialogMirrorMessage.KindJoin && m.Kind != DialogMirrorMessage.KindPromote)
                     OnOwnerEvent(net, sender, m);
                 return;
             }
@@ -404,9 +434,17 @@ namespace DWMPHorde.Sync
             m.OwnerId = ownerId;
             if (m.Kind == DialogMirrorMessage.KindOpen)
             {
-                // A new talk of this player: whoever watched its last one is done.
+                // A new talk of this player: whoever watched its last one is done. A talk just
+                // handed to it (no screen yet, same NPC) keeps its listeners: that is this talk.
                 if (_sessions.TryGetValue(ownerId, out Session old))
+                {
+                    if (!old.Screen.HasValue && old.Npc.Matches(RefOf(m)))
+                    {
+                        old.Portrait = m.Index;
+                        return;
+                    }
                     CloseListeners(net, ownerId, old);
+                }
                 _sessions[ownerId] = new Session { Npc = RefOf(m), Portrait = m.Index };
                 return;
             }
@@ -441,6 +479,9 @@ namespace DWMPHorde.Sync
                     s.Portrait = m.Index;
                     break;
                 case DialogMirrorMessage.KindClose:
+                    // Someone still listens in: the talk goes on with them.
+                    if (HandOver(net, ownerId, s))
+                        return;
                     CloseListeners(net, ownerId, s);
                     _sessions.Remove(ownerId);
                     return;
@@ -493,10 +534,70 @@ namespace DWMPHorde.Sync
                 kv.Value.Listeners.Remove(listenerId);
         }
 
-        /// <summary>Host: a peer left. Its talk ends for its listeners; it stops listening.</summary>
+        /// <summary>Host: this player talks to this NPC or listens in on its talk.</summary>
+        internal static bool HostInTalk(NpcRef npc, int playerId)
+        {
+            if (NpcDialogueLock.GetOwner(npc) == playerId)
+                return true;
+            foreach (var kv in _sessions)
+                if (kv.Value.Npc.Matches(npc) && (kv.Key == playerId || kv.Value.Listeners.Contains(playerId)))
+                    return true;
+            return false;
+        }
+
+        /// <summary>Host: someone listens in on this player's talk.</summary>
+        internal static bool HostHasListeners(int ownerId)
+            => _sessions.TryGetValue(ownerId, out Session s) && s.Listeners.Count > 0;
+
+        /// <summary>
+        /// Host: this player's talk lock is being released (it closed its window). When someone
+        /// listens in, the talk is handed to them instead and the NPC's close events wait for the
+        /// last player in it. True when handed over.
+        /// </summary>
+        internal static bool HostHandOverTalk(LanNetworkManager net, int ownerId)
+            => _sessions.TryGetValue(ownerId, out Session s) && HandOver(net, ownerId, s);
+
+        /// <summary>
+        /// The talking player left while others listen in: the first of them takes the talk over
+        /// (its own lock, its own options from here on; no second onEnterDialogue, the NPC is
+        /// already talking), and the rest listen to it. One player's Exit no longer closes the
+        /// window for everyone else in the talk.
+        /// </summary>
+        private static bool HandOver(LanNetworkManager net, int ownerId, Session s)
+        {
+            if (net == null || s == null || s.Listeners.Count == 0)
+                return false;
+            int next = int.MaxValue;
+            foreach (int id in s.Listeners)
+                if (id < next)
+                    next = id;
+            s.Listeners.Remove(next);
+            _sessions.Remove(ownerId);
+
+            NpcDialogueLock.HostRelease(net, s.Npc, ownerId);
+            NpcDialogueLock.HostTryGrant(net, s.Npc, next, fireEnterDialogue: false);
+
+            var taken = new Session { Npc = s.Npc, Portrait = s.Portrait };
+            foreach (int id in s.Listeners)
+                taken.Listeners.Add(id);
+            _sessions[next] = taken;
+            ModLog.Event(LogCat.Session,
+                $"[DialogMirror] p{ownerId} left the talk at {s.Npc}: p{next} talks now, {taken.Listeners.Count} still listening");
+
+            var promote = new DialogMirrorMessage { Kind = DialogMirrorMessage.KindPromote, OwnerId = next, Index = s.Portrait };
+            Stamp(ref promote, s.Npc);
+            Deliver(net, next, promote);
+            _scratchIds.Clear();
+            _scratchIds.AddRange(taken.Listeners);
+            for (int i = 0; i < _scratchIds.Count; i++)
+                Deliver(net, _scratchIds[i], promote);
+            return true;
+        }
+
+        /// <summary>Host: a peer left. Its talk goes to a listener (or ends); it stops listening.</summary>
         internal static void HostPeerLeft(LanNetworkManager net, int playerId)
         {
-            if (_sessions.TryGetValue(playerId, out Session s))
+            if (_sessions.TryGetValue(playerId, out Session s) && !HandOver(net, playerId, s))
             {
                 CloseListeners(net, playerId, s);
                 _sessions.Remove(playerId);
@@ -535,6 +636,16 @@ namespace DWMPHorde.Sync
         private static int _pendingPortrait = -1; // reset-in: Reset
         private static int _portraitOverride = -1; // reset-in: Reset
         private static int _renderFrame = -1; // reset-in: Reset
+        /// <summary>The talk was handed to this player before its view had opened: open it as its own.</summary>
+        private static bool _openAsOwner; // reset-in: Reset
+        /// <summary>This listener's own trade already opened for the talking player's current trade.</summary>
+        private static bool _autoTradeDone; // reset-in: Reset
+
+        /// <summary>Host: its own talk closes while others listen in (the talk goes on: no close triggers).</summary>
+        internal static bool HandingOver; // reset-in: Reset
+
+        /// <summary>A listener in its own trading screen (the talking player's screens wait until it closes).</summary>
+        internal static bool InOwnTrade => SpectatorActive && Player.Instance != null && Player.Instance.inShop;
 
         /// <summary>This player's own talk the host turned down (someone else got there first).</summary>
         internal static NPC DeniedNpc; // reset-in: Reset
@@ -553,7 +664,7 @@ namespace DWMPHorde.Sync
                 return;
             }
             DeniedNpc = talked;
-            dw.StartCoroutine(CloseDenied(dw, talked));
+            Run(CloseDenied(dw, talked));
         }
 
         private static IEnumerator CloseDenied(DialogueWindow dw, NPC talked)
@@ -613,6 +724,11 @@ namespace DWMPHorde.Sync
                 }
                 return;
             }
+            if (m.Kind == DialogMirrorMessage.KindPromote)
+            {
+                OnPromote(m);
+                return;
+            }
             if (m.Kind == DialogMirrorMessage.KindOpen)
             {
                 if (!_pendingJoin || SpectatorActive || _npc == null)
@@ -627,6 +743,8 @@ namespace DWMPHorde.Sync
             DialogueWindow dw = Window;
             if (dw == null)
                 return;
+            // Shown live only while the view is open and this player is not in its own trade.
+            bool live = _viewReady && !InOwnTrade;
 
             switch (m.Kind)
             {
@@ -637,11 +755,14 @@ namespace DWMPHorde.Sync
                     _pendingScreen = m;
                     _pendingDone = false;
                     _pendingSelect = -1;
-                    if (_viewReady)
+                    // A new trade of the talking player opens this player's own again.
+                    if (m.Kind != DialogMirrorMessage.KindTrade)
+                        _autoTradeDone = false;
+                    if (live)
                         RenderPending(dw);
                     break;
                 case DialogMirrorMessage.KindTextStart:
-                    if (!_viewReady)
+                    if (!live)
                     {
                         if (_pendingScreen.HasValue && _pendingScreen.Value.Kind == DialogMirrorMessage.KindBoard)
                         {
@@ -655,20 +776,20 @@ namespace DWMPHorde.Sync
                     break;
                 case DialogMirrorMessage.KindSpeedup:
                 case DialogMirrorMessage.KindBoardDone:
-                    if (_viewReady)
+                    if (live)
                         FinishBoard(dw);
                     else
                         _pendingDone = true;
                     break;
                 case DialogMirrorMessage.KindSelect:
-                    if (_viewReady)
+                    if (live)
                         Select(dw, m.Index);
                     else
                         _pendingSelect = m.Index;
                     break;
                 case DialogMirrorMessage.KindPortrait:
-                    if (_viewReady)
-                        dw.StartCoroutine(ChangePortrait(dw, m.Index, m.Flag));
+                    if (live)
+                        Run(ChangePortrait(dw, m.Index, m.Flag));
                     else
                         _pendingPortrait = m.Index;
                     break;
@@ -690,7 +811,7 @@ namespace DWMPHorde.Sync
             _pendingSelect = -1;
             _pendingPortrait = -1;
             _portraitOverride = portrait;
-            dw.StartCoroutine(OpenWhenIdle(dw));
+            Run(OpenWhenIdle(dw));
         }
 
         /// <summary>The window may still be closing (a denied talk of this player's own): open after it.</summary>
@@ -700,17 +821,115 @@ namespace DWMPHorde.Sync
             while (SpectatorActive && Time.realtimeSinceStartup < until
                    && (dw.opened || dw.tweening || (Player.Instance != null && Player.Instance.inDialogue)))
                 yield return null;
-            if (!SpectatorActive)
+            bool asOwner = _openAsOwner;
+            _openAsOwner = false;
+            if (!SpectatorActive && !asOwner)
                 yield break;
             if (_npc == null || dw.opened || dw.tweening || Player.Instance == null || Player.Instance.inDialogue)
             {
                 SpectatorActive = false;
-                SendLeave();
+                if (asOwner)
+                    GiveUpHandedTalk();
+                else
+                    SendLeave();
                 yield break;
             }
-            ModLog.Event(LogCat.Session, $"[DialogMirror] listening in on p{_ownerId} at {_npcRef}");
+            ModLog.Event(LogCat.Session, asOwner
+                ? $"[DialogMirror] talking to {_npcRef} (handed over before the view opened)"
+                : $"[DialogMirror] listening in on p{_ownerId} at {_npcRef}");
             Player.Instance.closePopups();
+            // As its own talk: the lock is already this player's, the welcome is its own.
             dw.initiateDialogue(_npc);
+        }
+
+        /// <summary>
+        /// Host's KindPromote: the talking player left. The named player takes the talk over;
+        /// any other listener now listens to it.
+        /// </summary>
+        private static void OnPromote(DialogMirrorMessage m)
+        {
+            if (!NetGuard.Connected(out LanNetworkManager net))
+                return;
+            if (m.OwnerId != net.LocalPlayerId)
+            {
+                if (SpectatorActive && _npcRef.Matches(RefOf(m)))
+                {
+                    _ownerId = m.OwnerId;
+                    ModLog.Event(LogCat.Session, $"[DialogMirror] p{m.OwnerId} talks to {_npcRef} now; still listening");
+                }
+                return;
+            }
+            if (!SpectatorActive && !_pendingJoin)
+                return;
+            DialogueWindow dw = Window;
+            bool ready = _viewReady && dw != null && dw.npc != null && dw.opened;
+            SpectatorActive = false;
+            _pendingJoin = false;
+            _viewReady = false;
+            _pendingScreen = null;
+            _pendingDone = false;
+            _pendingSelect = -1;
+            _pendingPortrait = -1;
+            _portraitOverride = -1;
+            _autoTradeDone = false;
+            _ownerOpen = true;
+            _ownerDoneSent = false;
+            _lastHighlightSent = -2;
+            ModLog.Event(LogCat.Session, $"[DialogMirror] p{_ownerId} left; this player talks to {_npcRef} now");
+            _ownerId = -1;
+            if (!ready)
+            {
+                // Still opening (or about to): it opens as this player's own talk.
+                _openAsOwner = _npc != null;
+                return;
+            }
+            dw.dontSaveOnExit = false;
+            NpcDialogueLock.BeginLeaseRenewal(dw.npc);
+            // In its own trade: that goes on (and whoever still listens opens theirs); closing it
+            // shows its own options (vanilla closeTrade).
+            if (Player.Instance != null && Player.Instance.inShop)
+            {
+                OwnerSimple(dw, DialogMirrorMessage.KindTrade);
+                return;
+            }
+            ShowOwnOptions(dw);
+        }
+
+        private static readonly System.Action<DialogueWindow> ShowMainOptions =
+            AccessTools.MethodDelegate<System.Action<DialogueWindow>>(AccessTools.Method(typeof(DialogueWindow), "showMainOptions"));
+
+        /// <summary>The window held the other player's screen: show this player's own main options.</summary>
+        private static void ShowOwnOptions(DialogueWindow dw)
+        {
+            dw.currentBoardElements.Clear();
+            dw.displayingDialogue = false;
+            dw.currentDialogue = null;
+            dw.needsDecision = false;
+            dw.boardFinished = true;
+            dw.currentMenu = DialogueWindow.CurrentMenu.main;
+            dw.dialogue.DestroyChildren();
+            dw.showItems.DestroyChildren();
+            try { ShowMainOptions(dw); }
+            catch (System.Exception ex) { ModLog.Warn(LogCat.Session, "[DialogMirror] own options: " + ex.Message); }
+        }
+
+        /// <summary>A talk handed over that could not open here: give the lock back (as a close would).</summary>
+        private static void GiveUpHandedTalk()
+        {
+            if (!NetGuard.Connected(out LanNetworkManager net) || !_npcRef.IsValid)
+                return;
+            _ownerOpen = true;
+            OwnerClosed();
+            int localId = net.LocalPlayerId;
+            if (net.Role == NetworkRole.Host)
+            {
+                NpcDialogueLock.HostRelease(net, _npcRef, localId);
+                return;
+            }
+            NpcRef released = NpcDialogueLock.Release(_npcRef, localId);
+            net.Send(NetMessageType.DialogNpcLock,
+                w => NpcDialogueLock.BuildMessage(released, localId, granted: true, release: true).Serialize(w),
+                DeliveryMethod.ReliableOrdered);
         }
 
         /// <summary>setPortrait Prefix: the listener's view opens on the talking player's current portrait.</summary>
@@ -733,7 +952,7 @@ namespace DWMPHorde.Sync
             {
                 int p = _pendingPortrait;
                 _pendingPortrait = -1;
-                dw.StartCoroutine(ChangePortrait(dw, p, false));
+                Run(ChangePortrait(dw, p, false));
             }
             if (_pendingScreen.HasValue)
                 RenderPending(dw);
@@ -760,13 +979,14 @@ namespace DWMPHorde.Sync
                         RenderPanel(dw, dw.showItems, m, DialogueWindow.CurrentMenu.showItems);
                         break;
                     case DialogMirrorMessage.KindTrade:
-                        // The trading screen is the talking player's own; the listener keeps the portrait.
-                        dw.menuOptions.Clear();
-                        dw.currentBoardElements.Clear();
-                        dw.displayingDialogue = false;
-                        dw.options.gameObject.SetActive(false);
-                        dw.showItems.gameObject.SetActive(false);
-                        dw.dialogue.gameObject.SetActive(false);
+                        // The talking player trades: so does this one, on its own screen (its own
+                        // standing and bag, the host's stock). Closed again, it gets Trade / Exit.
+                        RenderTradeChoice(dw);
+                        if (!_autoTradeDone)
+                        {
+                            _autoTradeDone = true;
+                            Run(OpenTradeWhenIdle(dw));
+                        }
                         break;
                 }
             }
@@ -779,6 +999,82 @@ namespace DWMPHorde.Sync
                 FinishBoard(dw);
             if (select >= 0)
                 Select(dw, select);
+        }
+
+        /// <summary>While the talking player trades: this player's own Trade and Exit options.</summary>
+        private static void RenderTradeChoice(DialogueWindow dw)
+        {
+            dw.menuOptions.Clear();
+            dw.currentlySelectedMenuOption = 0;
+            dw.currentBoardElements.Clear();
+            dw.displayingDialogue = false;
+            dw.currentDialogue = null;
+            dw.currentMenu = DialogueWindow.CurrentMenu.main;
+            dw.dialogue.gameObject.SetActive(false);
+            dw.showItems.gameObject.SetActive(false);
+            dw.options.gameObject.SetActive(true);
+            dw.options.DestroyChildren();
+            const float rowHeight = 45f;
+            string[] functions = { "showTrading", "exitDialogue" };
+            string[] keys = { "trade", "exitDialogue" };
+            for (int i = 0; i < functions.Length; i++)
+            {
+                GameObject go = Core.AddPrefab(PrefabRoot + "DialogueOption", new Vector3(0f, 5f, -i * rowHeight),
+                    Quaternion.Euler(90f, 0f, 0f), dw.options.gameObject);
+                if (go == null)
+                    continue;
+                go.transform.localScale = Vector3.one;
+                tk2dTextMesh tm = go.GetComponent<tk2dTextMesh>();
+                if (tm != null)
+                    tm.text = Language.Get(keys[i], "Dialogue");
+                Button b = go.GetComponent<Button>();
+                if (b != null)
+                {
+                    b.function = functions[i];
+                    dw.menuOptions.Add(b);
+                }
+            }
+            PositionMe pm = dw.options.GetComponent<PositionMe>();
+            if (pm != null)
+            {
+                pm.offset = new Vector2(pm.offset.x, functions.Length * rowHeight / 2f);
+                pm.init();
+            }
+        }
+
+        /// <summary>vanilla openTrade refuses while the window tweens (it does on opening).</summary>
+        private static IEnumerator OpenTradeWhenIdle(DialogueWindow dw)
+        {
+            float until = Time.realtimeSinceStartup + 4f;
+            while (SpectatorActive && dw.tweening && Time.realtimeSinceStartup < until)
+                yield return null;
+            if (!SpectatorActive || !_viewReady || dw.npc == null || dw.tweening || InOwnTrade)
+                yield break;
+            // The talking player may have left the trade meanwhile.
+            if (!_pendingScreen.HasValue || _pendingScreen.Value.Kind != DialogMirrorMessage.KindTrade)
+                yield break;
+            if (!dw.npc.trader)
+                yield break;
+            ModLog.Event(LogCat.Session, $"[DialogMirror] own trade at {_npcRef} (p{_ownerId} trades)");
+            dw.openTrade();
+        }
+
+        /// <summary>closeTrade Postfix on a listener: back to the talking player's current screen.</summary>
+        internal static void AfterOwnTradeClosed(DialogueWindow dw)
+        {
+            if (!SpectatorActive || dw == null || !_viewReady)
+                return;
+            dw.options.gameObject.SetActive(false);
+            dw.showItems.gameObject.SetActive(false);
+            dw.dialogue.gameObject.SetActive(false);
+            if (_pendingPortrait >= 0)
+            {
+                int p = _pendingPortrait;
+                _pendingPortrait = -1;
+                Run(ChangePortrait(dw, p, false));
+            }
+            if (_pendingScreen.HasValue)
+                RenderPending(dw);
         }
 
         private static GameObject Spawn(byte kind, DialogMirrorElement e, Transform parent)
@@ -829,12 +1125,19 @@ namespace DWMPHorde.Sync
                         if (tm == null)
                             sp.color = color;
                     }
+                    string target = e.Target ?? "";
+                    bool function = target.StartsWith(FunctionMark, System.StringComparison.Ordinal);
                     DialogueButton db = go.GetComponent<DialogueButton>();
-                    if (db != null)
-                        db.destDialogueName = e.Target ?? "";
+                    if (db != null && !function)
+                        db.destDialogueName = target;
                     Button b = go.GetComponent<Button>();
-                    if (b != null && e.Menu >= 0)
-                        buttons[e.Menu] = b;
+                    if (b != null)
+                    {
+                        // Only Exit and Trade do anything on a listener (DialogMirrorButtonClickPatch).
+                        b.function = function ? target.Substring(FunctionMark.Length) : "";
+                        if (e.Menu >= 0)
+                            buttons[e.Menu] = b;
+                    }
                 }
             }
             dw.menuOptions.AddRange(buttons.Values);
@@ -950,7 +1253,7 @@ namespace DWMPHorde.Sync
             // highlighting them now would make the highlight their base colour.
             if (Time.frameCount == _renderFrame)
             {
-                dw.StartCoroutine(SelectNextFrame(dw, index));
+                Run(SelectNextFrame(dw, index));
                 return;
             }
             Driving = true;
@@ -1003,7 +1306,7 @@ namespace DWMPHorde.Sync
                 Singleton<UI>.Instance.tweenBlackScreenTop(new Color(0f, 0f, 0f, 0f), 1f);
             };
             if (AccessTools.Method(typeof(DialogueWindow), "setPortrait")?.Invoke(dw, new object[] { done }) is IEnumerator it)
-                dw.StartCoroutine(it);
+                Run(it);
         }
 
         /// <summary>The listener leaves (Esc), or the talk ended for it.</summary>
@@ -1019,7 +1322,7 @@ namespace DWMPHorde.Sync
                 SpectatorActive = false;
                 return;
             }
-            dw.StartCoroutine(CloseWhenIdle(dw));
+            Run(CloseWhenIdle(dw));
         }
 
         private static IEnumerator CloseWhenIdle(DialogueWindow dw)
@@ -1085,19 +1388,28 @@ namespace DWMPHorde.Sync
             net.Send(NetMessageType.DialogMirror, w => m.Serialize(w), DeliveryMethod.ReliableOrdered);
         }
 
-        /// <summary>A button of the listener's view (its mouse and clicks do nothing there).</summary>
+        /// <summary>
+        /// A button of the listener's mirrored panels (its mouse and clicks do nothing there, but
+        /// for Exit and Trade). Its own trading screen is its own.
+        /// </summary>
         internal static bool IsViewButton(Button b)
         {
             DialogueWindow dw = Window;
-            return b != null && dw != null && b.transform.IsChildOf(dw.transform);
+            if (b == null || dw == null)
+                return false;
+            Transform t = b.transform;
+            return t.IsChildOf(dw.options) || t.IsChildOf(dw.showItems) || t.IsChildOf(dw.dialogue);
         }
+
+        /// <summary>A listener's mouse and clicks act on this view button (Exit, Trade).</summary>
+        internal static bool IsListenerAction(Button b) => b != null && IsListenerFunction(b.function);
 
         private static void Say(string text)
         {
             if (Player.Instance == null)
                 return;
             Patches.PersonalFlavorHud.BeginBypass();
-            try { Player.Instance.displayMessage(text); }
+            try { Player.Instance.displayMessage(Loc.T(text)); }
             catch { /* HUD mid-teardown */ }
             finally { Patches.PersonalFlavorHud.EndBypass(); }
         }

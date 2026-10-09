@@ -37,33 +37,45 @@ namespace DWMPHorde.Sync
         /// </summary>
         internal static bool AllowDeathEndPass;
 
-        /// <summary>True when every peer who is actually in the dream is dead.</summary>
+        /// <summary>
+        /// True when every peer who is actually in the dream is dead. A host outside the dream
+        /// (the party's dream went on without it) is not one of them: it used to be required to
+        /// have died in the dream, so the dreamers that all died spectated with no end.
+        /// </summary>
         public static bool AllDead
         {
             get
             {
-                if (!_isActive || !_localDeadInDream)
+                if (!_isActive)
+                    return false;
+                bool localInDream = _localDeadInDream || DreamSyncManager.IsLocalDreamActive
+                    || (Singleton<Dreams>.Instance != null && Singleton<Dreams>.Instance.dreaming);
+                if (localInDream && !_localDeadInDream)
                     return false;
                 var net = ModRuntime.Network;
                 if (net == null)
-                    return true;
+                    return localInDream;
+                int deadRemotes = 0;
+                var seen = new HashSet<int>();
                 foreach (int id in net.GetHandshakedPeerIds())
                 {
-                    if (id <= 0 || id == net.LocalPlayerId)
+                    if (id <= 0 || id == net.LocalPlayerId || !seen.Add(id))
                         continue;
                     if (!DreamSyncManager.IsRemoteInDream(id))
                         continue;
                     if (!_deadPlayerIds.Contains(id) && !DeathStateTracker.IsRemoteNightDead(id))
                         return false;
+                    deadRemotes++;
                 }
                 foreach (var proxy in net.GetAllProxies())
                 {
-                    if (proxy == null || proxy.PlayerId <= 0)
+                    if (proxy == null || proxy.PlayerId <= 0 || !seen.Add(proxy.PlayerId))
                         continue;
                     if (!DreamSyncManager.IsRemoteInDream(proxy.PlayerId))
                         continue;
                     if (!_deadPlayerIds.Contains(proxy.PlayerId) && !DeathStateTracker.IsRemoteNightDead(proxy.PlayerId))
                         return false;
+                    deadRemotes++;
                 }
                 // Noted in the dream but not connected (yet): a survivor rejoining a promoted host.
                 foreach (int id in DreamSyncManager.RemoteDreamParticipantIds())
@@ -73,7 +85,8 @@ namespace DWMPHorde.Sync
                     if (DreamSyncManager.IsRemoteInDream(id) && !_deadPlayerIds.Contains(id))
                         return false;
                 }
-                return true;
+                // Somebody was in it: the local dead dreamer, or the remote ones.
+                return localInDream || deadRemotes > 0;
             }
         }
 

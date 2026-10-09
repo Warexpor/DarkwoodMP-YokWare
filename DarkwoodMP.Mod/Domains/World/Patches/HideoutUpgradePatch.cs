@@ -53,8 +53,9 @@ namespace DWMPHorde.Patches
         private const float SameOvenSq = 1f;
 
         /// <summary>
-        /// The local player's home oven is out (a world bulk or the host's world save put it out):
-        /// light it again next frame, outside any apply scope, so peers hear it.
+        /// The local player's lit home oven is out (the host's world save, which holds the host's
+        /// home): light it again next frame, outside any apply scope, so peers hear it. Only for a
+        /// home this player already lit: an oven never examined stays unlit, as in vanilla.
         /// </summary>
         internal static void RelightOwnHomeNextFrame()
         {
@@ -105,6 +106,23 @@ namespace DWMPHorde.Patches
                 machine.setAsDefaultExpMachine();
             return false;
         }
+    }
+
+    /// <summary>
+    /// Lighting an oven unlocks its hideout for the porter (<c>player_unlockedHideout_2/3</c>, set
+    /// in <c>enable()</c>). A client lights it itself when its dialogue closes, and that close runs
+    /// inside the last board, where shared flags wait for the host's replay of the board. The host
+    /// does not replay the lighting (it is the speaker's own move; the host lights its copy from
+    /// the oven message, a remote apply that does not fan flags out), so the speaker never got the
+    /// unlock: desync check "player_unlockedHideout_3: host=1 client=none". The speaker's own
+    /// lighting writes it, and its flag sync carries it to the others.
+    /// </summary>
+    [HarmonyPatch(typeof(ExperienceMachine), "enable")]
+    public static class OvenEnableWritesUnlockPatch
+    {
+        private static void Prefix(out int __state) => __state = Sync.DialogClientWorldDefer.Suspend();
+
+        private static void Finalizer(int __state) => Sync.DialogClientWorldDefer.Resume(__state);
     }
 
     [HarmonyPatch(typeof(ExperienceMachine), "enable")]

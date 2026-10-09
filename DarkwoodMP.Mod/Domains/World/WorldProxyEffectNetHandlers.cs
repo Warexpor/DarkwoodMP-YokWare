@@ -112,7 +112,12 @@ namespace DWMPHorde.Networking
                 InPrologue = Sync.PersonalPrologue.LocalInPrologue
             };
             float maxHp = local.maxHealth > 0f ? local.maxHealth : 1f;
-            msg.HealthPct = (byte)Mathf.Clamp(Mathf.RoundToInt(local.health / maxHp * 100f), 0, 100);
+            // A player down until morning (or dead in a dream) spectates with a body the spectator
+            // restored to full: it reported full health, which "the player's health" story checks
+            // and the desync check read for a dead player.
+            bool down = DeathStateTracker.LocalNightDeath || Sync.FinalDreamsceneManager.IsLocalDead;
+            msg.HealthPct = down ? (byte)0
+                : (byte)Mathf.Clamp(Mathf.RoundToInt(local.health / maxHp * 100f), 0, 100);
             msg.DarknessPct = (byte)Mathf.Clamp(Mathf.RoundToInt(local.darknessCounter * 100f), 0, 100);
             string skills = LearnedSkillNames(local);
             bool skillsChanged = !string.Equals(skills, _lastSkills, System.StringComparison.Ordinal);

@@ -159,13 +159,18 @@ namespace DWMPHorde.Patches
     [HarmonyPriority(Priority.First)]
     public static class PrologueDayOneHoldPatch
     {
+        /// <summary>This FixedUpdate step is held for a prologue (read by <see cref="HostSharedClockPatch"/>).</summary>
+        internal static bool Holding; // process-scoped: rewritten every FixedUpdate step
+
         private static void Prefix(Controller __instance, out bool __state)
         {
             __state = false;
+            Holding = false;
             if (__instance == null)
                 return;
             // Counted every step (TimeSync carries it, and the "day 1 waits" line goes out once).
             bool hold = PersonalPrologue.HoldDayOne(out _);
+            Holding = hold;
             if (!hold || !__instance.DoUpdateTime)
                 return;
             __instance.DoUpdateTime = false;

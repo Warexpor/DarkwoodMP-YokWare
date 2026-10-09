@@ -47,12 +47,16 @@ state without changing existing players' state.
 | Entity AI and snapshots | `EntityStateBroadcastService` (20 Hz near remotes, host clock), `ClientEntityInterpolationService` (host-timeline interpolation), `DefenderAttackPatches` + `EnemyAttackNetHandlers` (enemy attacks judged by the defender), `ClientAIDisablePatches`, `BirdAreaSyncPatches` (host birds + proxy presence), `PorterSpawnerSyncPatches` (host porter + multi-avatar `InSightOfPlayer`), `CharacterSpawnPointSyncPatches` (host actuallySpawn) | Code covered; runtime pending |
 | Physics and world objects | `WorldPhysicsSyncService`, door, generator, trap, drag, ChainParent (`ChainState` 134), ShadowArmor (`ShadowArmorState` 135), world Burn (`WorldBurnState` 137), Infection via `EntitySpawn` 86, RandomObject/Object/ObjectPool/SpawnPrefab/RandomSpawnArea/CharacterSpawnPoint host-auth, `GameEventsBulk` destroyOnFire latch, early-gen `WorldGenerator`/`WorldChunk`/`ObjectPoolSpawnerController` host-auth, EventTriggers sight `AnyInSight` | Code covered; runtime pending |
 | Locations and grids | `LocationEnter` / `LocationExit`, location visibility patches | Code covered; split-map runtime pending |
-| Map markers and discoveries | Live msg 69 + late-join `MapStateSync` (`isOnMap` scan) | Code covered; runtime pending |
+| Map discoveries | Live msg 69 + late-join `MapStateSync` (`isOnMap` scan) | Code covered; runtime pending |
+| Party map board (pins, pings) | `MapPinRequest` (166) → host → `MapPinEvent` (167); late join in `MapStateSync`; `Sync.MapPinBoard` | Code covered; runtime pending |
 | Inventory and containers | container, dropped-item, death-bag, journal, trade, UniqueItemSpawner TeddyBear, InventoryRandom, Feeder **116** / Lure **117**, ExperienceMachine (hideout oven) enable + flags | Code covered; runtime pending |
 | Combat and threats | combat handlers, proxy damage, projectiles, shadows, night death, mid-fight ShadowArmor HP, Flame/molotov world Burn (137; Character/Player still 41/44), client gasoline pour (`GasTrailSpawn`) + client torch/melee ignite (`GasIgnite`), night scenario late-join latch (`ScenarioStateBulk` 138) | Code covered; runtime pending |
 | Story and dialogue | `DialogOutcome`, `DialogTreeState`, `GameEventsFired` + late-join `GameEventsBulk` (136), Examinable **110** (host onExamine; DescriptionPool draw personal) | Code covered; runtime pending |
 | Dreams and epilogue | `DreamSession`, `DreamSyncManager`, dream door and scene paths, `EpilogueNetHandlers` | Code covered (all-dead grace, chain roster, epilogue gate); runtime pending |
 | Audio and spectator mode | player/entity audio, culling, spectator listener and grid | Code covered; runtime pending |
+| Voice and walkie | `VoiceData` (129) with the mod's codec, `VoiceMic`, `VoiceChatService` (proximity, radio channel, walkie speakers, feedback), `PlayerState` `WalkieState` byte, `VoiceAlertsEnemies` on the host | Code covered; runtime pending |
+| Names and chat | `PlayerName` (168), `PeerRoster` names, `Nameplates` (sight-tested), chat relayed and stamped by the host | Code covered; runtime pending |
+| Multiplayer menus | `MultiplayerScreens` on `UI/VanillaMenu` (Host, Join, Settings, Voice, Host settings, world-copy picker), Apply / Revert to default | Code covered; runtime pending |
 | Balance features | loot sharing and allowlisted dream NPC presence | Code covered; runtime pending |
 
 ---

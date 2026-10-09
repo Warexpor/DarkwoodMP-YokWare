@@ -172,7 +172,7 @@ namespace DWMPHorde.Networking
         }
 
         /// <summary>
-        /// Host only: manual F2 resend. Force-save, then push; a user-initiated hitch is acceptable.
+        /// Host only: Multiplayer > Send the world again. Force-save, then push; a user-initiated hitch is acceptable.
         /// </summary>
         public void ScheduleHostResend()
         {

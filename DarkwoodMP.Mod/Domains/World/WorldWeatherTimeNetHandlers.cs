@@ -250,11 +250,14 @@ namespace DWMPHorde.Networking
                 ApplyClientSurvivedNight(ctrl, prevDay);
 
             if (!dreamClock)
+            {
                 PlayClientNightCues(ctrl, (int)prevTime, appliedTime);
+                ClientNightCycle(ctrl, (int)prevTime, appliedTime, prevDay, msg.Day);
+            }
 
-
-            // Clear soft invuln from suppressed startBeforeDay if still set.
-            if (Player.Instance != null && Player.Instance.invulnerable
+            // Clear soft invuln from suppressed startBeforeDay if still set (not while this
+            // client's own dawn sequence still runs: it clears it on vanilla's schedule).
+            if (Player.Instance != null && Player.Instance.invulnerable && !ClientDawnActive
                 && !msg.IsAfterNight && Core.isDay())
             {
                 // Leave invuln if something else set it; only clear after morning settle.
@@ -323,6 +326,119 @@ namespace DWMPHorde.Networking
                 p.displayMessage(Language.Get("Playermsg_nightMustLightOven", "UI"));
             if (CoopTimePolicy.LiveStepCrossedMinute(prevTime, newTime, 1360))
                 AudioController.Play("endOfNight_pre");
+        }
+
+        private static float _dawnUntil; // process-scoped: one dawn sequence's end, realtime
+
+        /// <summary>This client's dawn sequence (white fade, inputs held, invulnerable) is running.</summary>
+        internal static bool ClientDawnActive => Time.realtimeSinceStartup < _dawnUntil;
+
+        private static readonly System.Action<Controller> ShowDayNotifier =
+            HarmonyLib.AccessTools.MethodDelegate<System.Action<Controller>>(
+                HarmonyLib.AccessTools.Method(typeof(Controller), "showDayNotifier"));
+
+        /// <summary>
+        /// The night edges of vanilla <c>refreshTime</c>, which never runs on a client (the host's
+        /// clock is the only one): tonight's scenario starts fresh at nightfall (vanilla
+        /// <c>setMe</c>), a night event ends on the shared clock (vanilla <c>checkFrequencies</c>,
+        /// fed by refreshTime's onUpdateTime), dawn plays this player's white fade and the
+        /// "Day N" screen, and the night's scenario is cleared at the new day. Without them a
+        /// client kept last night's events started, never ended its current one, and woke up with
+        /// no transition at all while the host had the flash and the day screen.
+        /// </summary>
+        private static void ClientNightCycle(Controller ctrl, int prevTime, int newTime, int prevDay, int newDay)
+        {
+            NightScenarios ns = Singleton<NightScenarios>.Instance;
+            NightScenario sc = ns != null ? ns.currentScenario : null;
+            int night = (int)ctrl.nightTime;
+            int dawn = (int)ctrl.dayTime;
+            try
+            {
+                if (sc != null && newDay == prevDay && CoopTimePolicy.LiveStepCrossedMinute(prevTime, newTime, night))
+                {
+                    sc.setMe();
+                    ModRuntime.LegacyInfo($"[DayNight] client night start: '{sc.name}' events reset");
+                }
+                if (sc != null && sc.currentEvent != null && !Core.isDay() && sc.currentEvent.shouldEnd())
+                {
+                    sc.currentEvent = null;
+                    sc.setLastTimeCheckedForEvents();
+                }
+                bool oneNight = newDay == prevDay || newDay == prevDay + 1;
+                if (oneNight && ctrl.isHardNight && CoopTimePolicy.LiveStepCrossedMinute(prevTime, newTime, dawn - 1))
+                    ClientBeforeDay(ctrl);
+                if (newDay == prevDay + 1 && ns != null)
+                {
+                    // Vanilla startDay: the night's scenario is spent; onDayStart resets them all.
+                    if (ns.currentScenario != null)
+                        ns.currentScenario.alreadyChosen = true;
+                    ns.resetScenarios();
+                }
+                if (oneNight && newDay > 1 && CoopTimePolicy.LiveStepCrossedMinute(prevTime, newTime, dawn + 1))
+                {
+                    if (Player.Instance != null)
+                        Player.Instance.fedToday = false;
+                    if (ShowDayNotifier != null && ctrl.dayNotifier != null)
+                        ShowDayNotifier(ctrl);
+                }
+            }
+            catch (System.Exception ex)
+            {
+                ModLog.WarnRate(LogCat.Session, "client-night-cycle", "[DayNight] client night cycle: " + ex.Message, 30f);
+            }
+        }
+
+        /// <summary>
+        /// Vanilla <c>startBeforeDay</c>'s presentation for this player: the white fade with the
+        /// sound faded out, inputs held and the player invulnerable for its five seconds, menus
+        /// closed. Its world half (karma, the next scenario, survived-night) is the host's; the
+        /// karma the host adds is mirrored so this copy of the flags matches. A player dead at
+        /// dawn gets none of it, as in vanilla (its skipDay passes the minute).
+        /// </summary>
+        private static void ClientBeforeDay(Controller ctrl)
+        {
+            Player p = Player.Instance;
+            UI ui = Singleton<UI>.Instance;
+            if (p == null || !p.alive || ui == null || ClientDawnActive)
+                return;
+            // Ends in its last step (paused time stretches it); the cap only covers a session ending mid-way.
+            _dawnUntil = Time.realtimeSinceStartup + 30f;
+            Core.forbidInputs = true;
+            if (p.dragging)
+            {
+                if (p.itemBeingDragged != null)
+                    p.itemBeingDragged.stopDragging(force: true);
+                p.stopDragging();
+            }
+            Singleton<InventoryController>.Instance?.itemPopup?.hide();
+            p.deselectObject(force: true);
+            ui.blackScreen.GetComponent<tk2dBaseSprite>().color = new Color(1f, 1f, 1f, 0f);
+            ui.tweenBlackScreen(new Color(1f, 1f, 1f, 1f), 0.8f);
+            ctrl.fadeAudio(fadeOut: true, 4f, musicToo: false);
+            ctrl.Invoke(delegate
+            {
+                ui.activeSkillsMenu.hide();
+                ui.controllerMenu.close();
+                p.cursor.doAction("Close", force: true);
+                p.onReleaseAim();
+            }, 0.8f, timeScaleDependent: true);
+            ctrl.Invoke(delegate
+            {
+                ui.tweenBlackScreen(new Color(1f, 1f, 1f, 0f), 1.5f);
+                ctrl.fadeAudio(fadeOut: false, 2.5f, musicToo: false);
+                Core.forbidInputs = false;
+                ctrl.Invoke(delegate
+                {
+                    ui.tweenBlackScreen(new Color(0f, 0f, 0f, 0f), 0.1f);
+                    p.invulnerable = false;
+                    _dawnUntil = 0f;
+                }, 1.6f, timeScaleDependent: true);
+            }, 5f, timeScaleDependent: true);
+            Flags flags = Singleton<Flags>.Instance;
+            if (flags != null)
+                flags.karmaPoints += 20;
+            p.invulnerable = true;
+            ModRuntime.LegacyInfo("[DayNight] client dawn (white fade, invulnerable 6.6s)");
         }
 
         /// <summary>

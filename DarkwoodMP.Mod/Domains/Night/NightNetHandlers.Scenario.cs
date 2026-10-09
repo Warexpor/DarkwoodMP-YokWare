@@ -75,6 +75,9 @@ namespace DWMPHorde.Networking
             }
 
             ns.currentScenario = scenario;
+            // Start from a clean night (vanilla setMe at nightfall): this copy may still carry
+            // events started in an earlier night or session, which the list below never clears.
+            scenario.setMe();
 
             if (msg.EventIndices != null && msg.FiredCount > 0)
             {
@@ -172,20 +175,13 @@ namespace DWMPHorde.Networking
             var ns = Singleton<NightScenarios>.Instance;
             if (ns == null) return;
 
-            NightScenario scenario = null;
-            for (int i = 0; i < ns.scenarios.Count; i++)
-            {
-                if (ns.scenarios[i] != null && ns.scenarios[i].nightId == msg.NightId)
-                {
-                    scenario = ns.scenarios[i];
-                    break;
-                }
-            }
-
+            // By name: nightId is not unique (Night_h1_1 and Night_h1_2 both carry 0), and the
+            // first scenario with the id put the client on another night's event list.
+            NightScenario scenario = string.IsNullOrEmpty(msg.ScenarioName) ? null : ns.getScenario(msg.ScenarioName);
             if (scenario == null)
             {
                 ModLog.WarnRate(LogCat.World, "scenario-event-night",
-                    $"[ScenarioEventFired] unknown nightId {msg.NightId}");
+                    $"[ScenarioEventFired] unknown scenario '{msg.ScenarioName}' (nightId {msg.NightId})");
                 return;
             }
 
@@ -207,7 +203,7 @@ namespace DWMPHorde.Networking
             if (ns.currentScenario != scenario)
                 ns.currentScenario = scenario;
 
-            ModRuntime.LegacyInfo($"[ScenarioEventFired] host fired event index {msg.EventIndex} in nightId {msg.NightId}");
+            ModRuntime.LegacyInfo($"[ScenarioEventFired] host fired event index {msg.EventIndex} in '{msg.ScenarioName}'");
 
             CustomEvent ce = scenario.customEventAndInts[msg.EventIndex].customEvent;
             bool locationEvent = ce.theEvent != null && ce.theEvent.type == RandomEvent.Type.locationEvent;

@@ -198,7 +198,7 @@ namespace DWMPHorde.Networking
                 if (Player.Instance != null)
                 {
                     DWMPHorde.Patches.PersonalFlavorHud.BeginBypass();
-                    try { Player.Instance.displayMessage("Already taken…"); }
+                    try { Player.Instance.displayMessage(Loc.T("Already taken…")); }
                     finally { DWMPHorde.Patches.PersonalFlavorHud.EndBypass(); }
                 }
             }
@@ -254,7 +254,7 @@ namespace DWMPHorde.Networking
                 if (Player.Instance != null)
                 {
                     DWMPHorde.Patches.PersonalFlavorHud.BeginBypass();
-                    try { Player.Instance.displayMessage("Could not place — returned to bag"); }
+                    try { Player.Instance.displayMessage(Loc.T("Could not place — returned to bag")); }
                     finally { DWMPHorde.Patches.PersonalFlavorHud.EndBypass(); }
                 }
             }

@@ -4,78 +4,22 @@ using DWMPHorde;
 using DWMPHorde.Harmony;
 using DWMPHorde.Networking;
 using DWMPHorde.Players;
+using DWMPHorde.Sync;
 using HarmonyLib;
 using UnityEngine;
 
 namespace DWMPHorde.Patches
 {
+    // ─── spawnCharacterAround: around the player the step is for ──────
+
     /// <summary>
-    /// Redirects Forest Spirit to also spawn around a remote proxy when
-    /// it is far from the host, so clients experience these night events
-    /// near their position.
+    /// A scripted step that spawns a creature around "the player" (GameEvent spawnCharacter on the
+    /// player body; a night scene's visitor) comes around the player the scene plays for, as in that
+    /// player's own game: the peer's stand-in when the host runs a peer's scene. It used to go
+    /// around the host, or on a coin flip around some far peer, whoever the scene was for, so each
+    /// player met about half of what vanilla sends it. The redneck ambush picks its own player
+    /// (<see cref="HostRedneckPartyPatch"/>) and the hideout's night monsters their hideout.
     /// </summary>
-
-    internal static class NightSpawnConstants
-    {
-        /// <summary>Minimum distance from host for a proxy to be considered "far" for night spawn redirection.</summary>
-        public const float FarProxyMinDist = 1000f;
-    }
-
-    // ─── Forest Spirit redirect ────────────────────────────────────────
-
-    [HarmonyPatch(typeof(CharacterSpawner), "spawnForestSpirit")]
-    public static class ForestSpiritRedirectPatch
-    {
-        // spawnForestSpirit is IEnumerator; return false without __result → StartCoroutine(null).
-        [HarmonyPriority(Priority.Last)]
-        private static bool Prefix(CharacterSpawner __instance, ref IEnumerator __result)
-        {
-            if (!ShouldRedirect())
-                return true;
-
-            var net = ModRuntime.Network;
-            if (net == null) return true;
-
-            var farProxies = NightSpawnFarProxies.Fill(net, Player.Instance.transform.position);
-            if (farProxies.Count == 0) return true;
-
-            // Same coin as the other night redirects. Always stealing the
-            // spirit meant the host never saw it when the party was split.
-            if (Random.value >= 0.5f)
-                return true;
-
-            RemotePlayerProxy target = farProxies[Random.Range(0, farProxies.Count)];
-            Transform proxyT = target.transform;
-
-            Vector3 vector = Random.onUnitSphere * 300f;
-            vector.y = 0f;
-            Vector3 destPosition = proxyT.position + vector;
-
-            Core.AddPooledPrefab("FX", "ForestSpirit_fastSpawnEff", destPosition, Quaternion.identity);
-            __instance.StartCoroutine(DelayedSpawnForestSpirit(destPosition));
-
-            __result = HarmonyCoroutineUtil.Empty();
-            return false;
-        }
-
-        private static System.Collections.IEnumerator DelayedSpawnForestSpirit(Vector3 pos)
-        {
-            yield return new WaitForSeconds(Random.Range(7f, 9f));
-            Core.AddPrefab("Characters/ForestSpirit2", pos, Quaternion.Euler(90f, 0f, 0f), null);
-        }
-
-        private static bool ShouldRedirect()
-        {
-            if (ModRuntime.Network?.Role != NetworkRole.Host) return false;
-            if (!PlayerPositionManager.HasRemotePlayer) return false;
-            if (Player.Instance == null) return false;
-            if (ModRuntime.Network == null) return false;
-            return NightSpawnFarProxies.Fill(ModRuntime.Network, Player.Instance.transform.position).Count > 0;
-        }
-    }
-
-    // ─── spawnCharacterAround redirect (covers spawnRedneck, etc.) ────
-
     [HarmonyPatch(typeof(CharacterSpawner), "spawnCharacterAround")]
     public static class SpawnCharacterAroundRedirectPatch
     {
@@ -83,27 +27,18 @@ namespace DWMPHorde.Patches
         {
             if (ModRuntime.Network?.Role != NetworkRole.Host) return;
             if (NightSpawnGetFreeSpotPatch.InsideNightSpawn) return;
-            // The redneck ambush already picked a player out on the road.
             if (HostRedneckPartyPatch.Placing) return;
             if (!PlayerPositionManager.HasRemotePlayer) return;
 
-            if (Player.Instance == null) return;
-
+            Player host = Player.Instance;
+            if (host == null) return;
             GameObject destGO = (GameObject)__args[0];
-            if (destGO != Player.Instance.gameObject) return;
+            if (destGO != host.gameObject) return;
 
-            var net = ModRuntime.Network;
-            if (net == null) return;
-
-            var farProxies = NightSpawnFarProxies.Fill(net, Player.Instance.transform.position);
-            if (farProxies.Count == 0) return;
-
-            if (Random.value < 0.5f)
-            {
-                RemotePlayerProxy target = farProxies[Random.Range(0, farProxies.Count)];
-                __args[0] = target.gameObject;
-                ModRuntime.LegacyInfo($"[NightSpawnRedirect] spawnCharacterAround → proxy P{target.PlayerId} at {target.transform.position}");
-            }
+            Transform actor = GeFireActorContext.ActorBody();
+            if (actor == null || actor.gameObject == host.gameObject) return;
+            __args[0] = actor.gameObject;
+            ModRuntime.LegacyInfo($"[NightSpawnRedirect] spawnCharacterAround → actor P{GeFireActorContext.PeekOr(0)} at {actor.position}");
         }
 
         /// <summary>
@@ -122,44 +57,16 @@ namespace DWMPHorde.Patches
         }
     }
 
-    // ─── NightWorm redirect (post-spawn reposition) ───────────────────
-
-    /// <remarks>Applied from <see cref="CoreAddPrefabStringPatch"/> (one detour for all features).</remarks>
-    public static class NightWormPostSpawnPatch
-    {
-        internal static void OnAddPrefab(GameObject __result, string prefab)
-        {
-            if (__result == null || prefab != "characters/fakechars/NightWorms_01")
-                return;
-            if (HardNightPartySpawn.Placing)
-                return;
-            if (ModRuntime.Network?.Role != NetworkRole.Host)
-                return;
-            if (!PlayerPositionManager.HasRemotePlayer)
-                return;
-
-            if (Player.Instance == null) return;
-
-            var net = ModRuntime.Network;
-            if (net == null) return;
-
-            var farProxies = NightSpawnFarProxies.Fill(net, Player.Instance.transform.position);
-            if (farProxies.Count == 0) return;
-            if (Random.value > 0.5f) return;
-
-            RemotePlayerProxy target = farProxies[Random.Range(0, farProxies.Count)];
-            Transform proxyT = target.transform;
-
-            Vector3 newPos = Core.randomPosAround(proxyT.position, 1500f, 2000f, canBeInside: true, mustBeInsideGraph: false);
-            __result.transform.position = newPos;
-
-            ModRuntime.LegacyInfo($"[NightWormRedirect] moved worm to proxy area ({newPos.x:F0},{newPos.z:F0})");
-        }
-    }
+    // ─── Hard-night worms: one per exposed player ──────────────────────
 
     /// <summary>
-    /// Hard-night worm: vanilla gates on the host body only. Pick one living
-    /// player without shadow ward (host or proxy) and attack that body.
+    /// Hard-night worms (vanilla <c>CharacterSpawner.waitToSpawnWorm</c>): every 5 seconds of hard
+    /// night a worm comes for the player unless it is warded. With peers every living, unwarded
+    /// player gets its own, at vanilla's rate. Vanilla looks at the host body only (a warded host
+    /// spared an exposed client, and every worm hunted the host); the old party loop picked one
+    /// player per tick, so with two exposed players each met half as many. Runs as the host's worm
+    /// loop from the start, since a client usually joins after the world loaded; with no peer a
+    /// tick is vanilla's own.
     /// </summary>
     public static class HardNightPartySpawn
     {
@@ -171,81 +78,109 @@ namespace DWMPHorde.Patches
             public Transform Attack;
         }
 
+        private static readonly List<Body> _bodies = new List<Body>(4); // process-scoped: scratch, filled and emptied within one tick
+
         public static IEnumerator WormLoop(CharacterSpawner spawner)
         {
             var wait = new WaitForSeconds(5f);
             while (spawner != null)
             {
                 yield return wait;
+                // A host that became a client (host migration): the new host spawns them.
+                if (ClientWorldHelper.IsClient)
+                    continue;
+                if (!NetGuard.ConnectedHost(out LanNetworkManager net) || !PlayerPositionManager.HasRemotePlayer)
+                {
+                    VanillaTick(spawner);
+                    continue;
+                }
                 var ctrl = Singleton<Controller>.Instance;
                 if (ctrl == null || !ctrl.isHardNight || Core.isDay())
                     continue;
-                if (Singleton<Dreams>.Instance != null && Singleton<Dreams>.Instance.dreaming)
-                    continue;
-                if (!TryPickUnwardedBody(out Body body))
-                    continue;
-
-                Vector3 position = Core.randomPosAround(body.Pos, 1500f, 2000f, canBeInside: true, mustBeInsideGraph: false);
-                GameObject go;
-                Placing = true;
+                // A dreamer is out of the night (vanilla: no worm while dreaming), each on its own:
+                // the host in a dream spared players still out in the world, and a player in a
+                // dream got worms placed around the far-off dream pad.
+                CollectUnwardedBodies(net);
                 try
                 {
-                    go = Core.AddPrefab(
-                        "characters/fakechars/NightWorms_01",
-                        position,
-                        Quaternion.Euler(90f, Random.Range(0, 360), 0f),
-                        null);
+                    for (int i = 0; i < _bodies.Count; i++)
+                        SpawnFor(spawner, _bodies[i]);
                 }
                 finally
                 {
-                    Placing = false;
+                    _bodies.Clear();
                 }
-
-                if (go == null) continue;
-                Character component = go.GetComponent<Character>();
-                if (component != null && body.Attack != null)
-                    PlayerTargetArbiter.Commit(component, body.Attack, "nightWorms");
-                if (spawner.nocturnalCharacters != null)
-                    spawner.nocturnalCharacters.Add(go);
             }
         }
 
-        private static bool TryPickUnwardedBody(out Body picked)
+        /// <summary>Vanilla <c>waitToSpawnWorm</c>'s loop body.</summary>
+        private static void VanillaTick(CharacterSpawner spawner)
         {
-            picked = default;
-            var choices = new List<Body>();
+            Player p = Player.Instance;
+            if (p == null || p.ignoreNightSickness || !Singleton<Controller>.Instance.isHardNight || Core.isDay()
+                || p.effects.hasEffectType(CharacterEffectType.shadowWard) || Singleton<Dreams>.Instance.dreaming)
+                return;
+            Vector3 position = Core.randomPosAround(p._transform.position, 1500f, 2000f, canBeInside: true, mustBeInsideGraph: false);
+            Character component = Core.AddPrefab("characters/fakechars/NightWorms_01", position,
+                Quaternion.Euler(90f, Random.Range(0, 360), 0f), null).GetComponent<Character>();
+            component.attackPlayer();
+            spawner.nocturnalCharacters.Add(component.gameObject);
+        }
 
+        private static void SpawnFor(CharacterSpawner spawner, Body body)
+        {
+            Vector3 position = Core.randomPosAround(body.Pos, 1500f, 2000f, canBeInside: true, mustBeInsideGraph: false);
+            GameObject go;
+            Placing = true;
+            try
+            {
+                go = Core.AddPrefab(
+                    "characters/fakechars/NightWorms_01",
+                    position,
+                    Quaternion.Euler(90f, Random.Range(0, 360), 0f),
+                    null);
+            }
+            finally
+            {
+                Placing = false;
+            }
+
+            if (go == null) return;
+            Character component = go.GetComponent<Character>();
+            if (component != null && body.Attack != null)
+                PlayerTargetArbiter.Commit(component, body.Attack, "nightWorms");
+            if (spawner.nocturnalCharacters != null)
+                spawner.nocturnalCharacters.Add(go);
+        }
+
+        private static void CollectUnwardedBodies(LanNetworkManager net)
+        {
+            _bodies.Clear();
             Player host = Player.Instance;
             if (host != null && HostEligible(host))
             {
                 Transform t = host._transform != null ? host._transform : host.transform;
-                choices.Add(new Body { Pos = t.position, Attack = t });
+                _bodies.Add(new Body { Pos = t.position, Attack = t });
             }
 
-            var net = ModRuntime.Network;
-            if (net != null)
+            foreach (RemotePlayerProxy proxy in net.GetAllProxies())
             {
-                foreach (RemotePlayerProxy proxy in net.GetAllProxies())
-                {
-                    if (proxy == null || proxy.RemoteHasShadowWard) continue;
-                    if (DeathStateTracker.IsRemoteNightDead(proxy.PlayerId)) continue;
-                    // Vanilla's worm comes for the player anywhere, inside a location too; only
-                    // a peer still loading has no body to hunt.
-                    if (!net.IsPeerReadyForGameplay(proxy.PlayerId)) continue;
-                    CharBase cb = proxy.CachedCharBase;
-                    if (cb != null && !cb.alive) continue;
-                    choices.Add(new Body { Pos = proxy.transform.position, Attack = proxy.transform });
-                }
+                if (proxy == null || proxy.RemoteHasShadowWard) continue;
+                if (DeathStateTracker.IsRemoteNightDead(proxy.PlayerId)) continue;
+                // Vanilla's worm comes for the player anywhere, inside a location too; only
+                // a peer still loading has no body to hunt.
+                if (!net.IsPeerReadyForGameplay(proxy.PlayerId)) continue;
+                if (DWMPHorde.Sync.DreamSyncManager.IsRemoteInDream(proxy.PlayerId)) continue;
+                CharBase cb = proxy.CachedCharBase;
+                if (cb != null && !cb.alive) continue;
+                _bodies.Add(new Body { Pos = proxy.transform.position, Attack = proxy.transform });
             }
-
-            if (choices.Count == 0) return false;
-            picked = choices[Random.Range(0, choices.Count)];
-            return true;
         }
 
         private static bool HostEligible(Player host)
         {
             if (host.ignoreNightSickness) return false;
+            if (Singleton<Dreams>.Instance != null && Singleton<Dreams>.Instance.dreaming) return false;
             if (DeathStateTracker.LocalNightDeath) return false;
             if (host.effects != null && host.effects.hasEffectType(CharacterEffectType.shadowWard))
                 return false;

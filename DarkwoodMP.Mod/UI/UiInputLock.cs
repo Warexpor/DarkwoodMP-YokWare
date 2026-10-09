@@ -5,8 +5,8 @@ using UnityEngine;
 namespace DWMPHorde
 {
     /// <summary>
-    /// Keeps vanilla gameplay input quiet while one of our IMGUI overlays has the keyboard
-    /// (chat, F2 settings, F3 saves, join slot picker). Vanilla gates movement, hotbar keys,
+    /// Keeps vanilla gameplay input quiet while one of our overlays has the keyboard
+    /// (chat, a menu text field being typed in, add-on screens). Vanilla gates movement, hotbar keys,
     /// inventory, attacks and the controller on <c>Core.forbidInputs</c> (Player.ProcessMovement,
     /// InputScript.handleHotbar, InventoryController), so the lock drives that flag rather than
     /// fighting Rewired. The world is never paused: only local input is held.
@@ -168,5 +168,21 @@ namespace DWMPHorde
     internal static class UiInputLockEscPatch
     {
         private static bool Prefix() => !UiInputLock.SwallowEsc;
+    }
+
+    /// <summary>
+    /// The Map and Journal keys are read by <c>InputScript</c> whatever <c>Core.forbidInputs</c> says,
+    /// so a letter typed into chat or a map pin label opened or closed the map or the journal.
+    /// </summary>
+    [HarmonyPatch(typeof(Map), nameof(Map.tryOpenClose))]
+    internal static class UiInputLockMapKeyPatch
+    {
+        private static bool Prefix() => !UiInputLock.IsHeld;
+    }
+
+    [HarmonyPatch(typeof(Journal), nameof(Journal.tryOpenClose))]
+    internal static class UiInputLockJournalKeyPatch
+    {
+        private static bool Prefix() => !UiInputLock.IsHeld;
     }
 }

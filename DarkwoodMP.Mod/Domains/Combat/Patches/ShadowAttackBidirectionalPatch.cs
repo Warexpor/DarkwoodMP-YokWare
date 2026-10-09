@@ -10,11 +10,15 @@ namespace DWMPHorde.Patches
     {
         private const float LightProtectionSyncRange = 150f;
 
-        private static bool Prefix(ShadowCreature __instance)
+        private static bool Prefix(ShadowCreature __instance, int _id)
         {
-            // Proxy-driven shadows use ProxyShadowController.SpawnAttackSensor (own light check).
-            if (__instance != null && __instance.GetComponent<ProxyShadowController>() != null)
+            // A peer's wave: vanilla's swipe with that peer as the player (its light spares it).
+            ProxyShadowController ctrl = PeerShadows.Of(__instance);
+            if (ctrl != null)
+            {
+                PeerShadows.Swipe(__instance, ctrl, _id);
                 return false;
+            }
 
             if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected)
                 return true;

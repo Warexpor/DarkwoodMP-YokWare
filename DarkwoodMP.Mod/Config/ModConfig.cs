@@ -18,8 +18,8 @@ namespace DWMPHorde.Config
         /// <summary>Steam lobby visibility: friends | public | private.</summary>
         public static ModSetting<string> SteamLobbyType { get; private set; }
         /// <summary>
-        /// Override Unity LocalLow save root. Empty = default, except SecondDarkwood install
-        /// auto-uses sibling folder Darkwood_Second (dual-box isolation).
+        /// Override Unity LocalLow save root. Empty = default, except a SecondDarkwood / ThirdDarkwood install
+        /// auto-uses sibling folder Darkwood_Second / Darkwood_Third (multi-box isolation).
         /// </summary>
         public static ModSetting<string> SaveRootOverride { get; private set; }
         /// <summary>Last profile slot used for a permanent co-op world copy (1-5). 0 means none.</summary>
@@ -28,6 +28,8 @@ namespace DWMPHorde.Config
         public static ModSetting<string> PlayerName { get; private set; }
         /// <summary>Master switch for the Ctrl+C co-op chat HUD (see <see cref="ChatHud"/>).</summary>
         public static ModSetting<bool> ChatEnabled { get; private set; }
+        /// <summary>When other players' names show over them: always | pointed | off (see <see cref="Nameplates"/>).</summary>
+        public static ModSetting<string> ShowPlayerNames { get; private set; }
         public static ModSetting<bool> FriendlyFireEnabled { get; private set; }
         public static ModSetting<bool> DoubleItemsEnabled { get; private set; }
         public static ModSetting<string> LootShareModeSetting { get; private set; }
@@ -56,6 +58,8 @@ namespace DWMPHorde.Config
         public static ModSetting<int> MaxPlayers { get; private set; }
         public static ModSetting<bool> AllowJoinDuringDream { get; private set; }
         public static ModSetting<int> MaxPeerDamage { get; private set; }
+        /// <summary>Host: night monsters per hideout compared with vanilla (1..10).</summary>
+        public static ModSetting<float> NightMonsterMultiplier { get; private set; }
         public static ModSetting<float> PeerMovementVolume { get; private set; }
         /// <summary>
         /// On host crash/timeout, survivors elect lowest player id as new host (LAN + Steam).
@@ -70,6 +74,12 @@ namespace DWMPHorde.Config
         public static ModSetting<float> VoiceFullVolumeDistance { get; private set; }
         public static ModSetting<float> VoiceMaxDistance { get; private set; }
         public static ModSetting<string> WalkieItemName { get; private set; }
+        public static ModSetting<bool> VoiceAlertsEnemies { get; private set; }
+        public static ModSetting<string> VoiceMicDevice { get; private set; }
+        public static ModSetting<string> VoiceRadioPowerKey { get; private set; }
+        public static ModSetting<string> VoiceRadioTalkKey { get; private set; }
+        public static ModSetting<float> VoiceMicVolume { get; private set; }
+        public static ModSetting<string> VoicePlayerVolumes { get; private set; }
 
         /// <summary>
         /// LiteNetLib connection key shared by host accept and client connect.
@@ -166,16 +176,18 @@ namespace DWMPHorde.Config
                 "Steam host lobby visibility: friends | public | private.");
             SaveRootOverride = config.Bind("Saves", "SaveRootOverride", "",
                 "Optional absolute path for save data (1_4Save/profs). Empty = Unity default. "
-                + "SecondDarkwood install auto-isolates to LocalLow/.../Darkwood_Second when empty. "
+                + "SecondDarkwood install auto-isolates to LocalLow/.../Darkwood_Second when empty (ThirdDarkwood to Darkwood_Third). "
                 + "Set manually if dual-box still shares a tree.");
             PreferredCoopCopySlot = config.Bind("Saves", "PreferredCoopCopySlot", 0,
                 "Last local profile slot (1-5) used for a permanent co-op world copy. 0 = none. "
                 + "Join picker highlights this; empty slots are still preferred when free.");
             PlayerName = config.Bind("Network", "PlayerName", "Player",
-                "Name shown in co-op chat (Ctrl+C) and speech bubbles.");
+                "Name the other players see: under your character, in chat (Ctrl+C) and on map pins. Left at Player, a Steam player goes by their Steam name.");
             ChatEnabled = config.Bind("Network", "ChatEnabled", true,
                 "Co-op text chat: Ctrl+C opens the input, Enter sends, Esc closes. "
-                + "Gameplay input is locked while typing. Restart after change.");
+                + "Gameplay input is locked while typing.");
+            ShowPlayerNames = config.Bind("Network", "ShowPlayerNames", "pointed",
+                "When other players' names show over them: pointed (cursor on them, default) | always (while you can see them) | off.");
             MaxPlayers = config.Bind("Network", "MaxPlayers", 8, "Maximum players including host.");
             AllowJoinDuringDream = config.Bind("Network", "AllowJoinDuringDream", false, "If false, reject joins during dream session.");
             FriendlyFireEnabled = config.Bind("Gameplay", "FriendlyFireEnabled", true, "Players can damage each other.");
@@ -189,12 +201,14 @@ namespace DWMPHorde.Config
                 "Comma-separated character short names scaled in dreams only (not night hideout trash).");
             MaxPeerDamage = config.Bind("Gameplay", "MaxPeerDamage", 200,
                 "Host clamps peer-reported attack/FF damage to this max per hit (anti-grief). A per-peer budget (20 hits/s, burst 40; 1000 damage/s, burst 3000) caps sustained spam while multi-hit bursts like shotgun pellets still apply in full.");
+            NightMonsterMultiplier = config.Bind("Gameplay", "NightMonsterMultiplier", 1f,
+                "Host: how many night monsters come to each hideout compared with vanilla (1 = vanilla, up to 10). Raises how many of each kind may be out at once and how fast they come. Also in Host settings, mid-game too.");
             PeerMovementVolume = config.Bind("Gameplay", "PeerMovementVolume", 0.85f,
                 "Volume of other players' movement here (footsteps, clothes, dodge and landing steps), 0..1. Their other sounds (shots, hits, tools) stay at full volume.");
             HostMigrationEnabled = config.Bind("Network", "HostMigrationEnabled", true,
                 "If true, host crash/timeout elects lowest remaining player id as new host (LAN n+). Peers reconnect to elected listen port.");
             VoiceEnabled = config.Bind("Voice", "VoiceEnabled", true,
-                "Steam Voice proximity/walkie chat when Steam client is logged on.");
+                "Proximity and walkie voice chat (the game's own microphone input; no Steam needed).");
             VoiceMode = config.Bind("Voice", "VoiceMode", "ptt",
                 "ptt = push-to-talk (VoicePttKey). open = always transmit while connected.");
             VoicePttKey = config.Bind("Voice", "VoicePttKey", "V",
@@ -202,14 +216,26 @@ namespace DWMPHorde.Config
             VoiceVolume = config.Bind("Voice", "VoiceVolume", 1f,
                 "Playback volume multiplier for remote voice.");
             VoiceGain = config.Bind("Voice", "VoiceGain", 1.4f,
-                "Gain applied after Steam DecompressVoice.");
+                "Gain applied to received voice.");
             // Game units, like every other range here (a body is about 40 across).
             VoiceFullVolumeDistance = config.Bind("Voice", "VoiceFullVolumeDistance", 150f,
-                "Distance (game units) within which proximity voice is at full volume.");
+                "Distance (game units) within which a shout is at full volume (quieter speech a shorter way).");
             VoiceMaxDistance = config.Bind("Voice", "VoiceMaxDistance", 650f,
-                "Distance (game units) beyond which proximity voice is silent (same as other peer sounds).");
+                "Distance (game units) a shout carries before it is silent (same as other peer sounds). Normal speech carries about three quarters of it, a whisper about a third, muffled through walls.");
             WalkieItemName = config.Bind("Voice", "WalkieItemName", "walkie_talkie",
-                "InvItem type for walkie radio (hold + RMB to TX; inventory enables radio RX).");
+                "InvItem type for walkie radio (hold + VoiceRadioTalkKey to TX; switched on and charged, it receives anywhere it is carried).");
+            VoiceRadioTalkKey = config.Bind("Voice", "VoiceRadioTalkKey", "Mouse1",
+                "Unity KeyCode name for talking on the walkie, held with the walkie in hand (Mouse1 = right mouse; Mouse3/Mouse4 are the side buttons).");
+            VoiceRadioPowerKey = config.Bind("Voice", "VoiceRadioPowerKey", "B",
+                "Unity KeyCode name for the walkie's on/off knob (works with the walkie in hand).");
+            VoiceMicDevice = config.Bind("Voice", "VoiceMicDevice", "",
+                "Microphone to talk into, by the name the game lists it under (Multiplayer > Settings > Voice). Empty: the system default.");
+            VoiceMicVolume = config.Bind("Voice", "VoiceMicVolume", 1f,
+                "Microphone volume, 0..4 (1 as recorded). Also how loud you count for how far your voice carries.");
+            VoicePlayerVolumes = config.Bind("Voice", "VoicePlayerVolumes", "",
+                "How loud each other player is heard, by name: name=volume entries (0 muted .. 2) separated by |. Set in Multiplayer > Settings > Voice > Players.");
+            VoiceAlertsEnemies = config.Bind("Voice", "VoiceAlertsEnemies", true,
+                "Host: creatures hear players talk. Normal speech carries about as far as a walking step, a shout farther than running; a whisper is not heard.");
             // Entity spawner moved to standalone plugin YokWare.EntitySpawner.
 
             // Support = join/session/combat Events without Legacy flood ([Perf] via Debug.PerfProbe).

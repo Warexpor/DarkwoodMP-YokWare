@@ -45,7 +45,12 @@ namespace DWMPHorde.Networking
 
             try
             {
-                GameObject go = Core.AddPrefab(msg.PrefabPath, pos, rot, null);
+                string path = msg.PrefabPath;
+                GameObject go = path.StartsWith(ScriptedSpawnSync.ResourcesRootMark, System.StringComparison.Ordinal)
+                    ? Core.AddPrefab(Resources.Load(path.Substring(ScriptedSpawnSync.ResourcesRootMark.Length)), pos, rot, null)
+                    : Core.AddPrefab(path, pos, rot, null);
+                if (go != null && _net.Role == NetworkRole.Client)
+                    ScriptedSpawnSync.OnClientSpawned(go, msg.PrefabPath);
                 if (go != null)
                 {
                     if (ModRuntime.VerboseLogging)

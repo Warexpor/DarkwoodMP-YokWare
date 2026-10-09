@@ -306,6 +306,27 @@ namespace DWMPHorde.Players
             // Use velocity so Unity physics naturally handles entity pushing (XZ only)
             _rb.velocity = delta / Time.fixedDeltaTime;
 
+            // The player's own game already walked this position. A stand-in held back by
+            // something between (a wall or a corpse it slides through on the player's side, a
+            // short teleport, a respawn under the snap distance) stayed behind for as long as the
+            // player stood still: creatures fought the wrong spot and the player's blows were
+            // refused as out of range.
+            Vector3 behind = _rb.position - _targetPosition;
+            behind.y = 0f;
+            if (behind.sqrMagnitude > BlockedLagDistance * BlockedLagDistance)
+            {
+                _blockedTime += Time.fixedDeltaTime;
+                if (_blockedTime >= BlockedSnapSeconds)
+                {
+                    _rb.position = _targetPosition;
+                    _rb.velocity = Vector3.zero;
+                    _pushOffset = Vector3.zero;
+                    _blockedTime = 0f;
+                }
+            }
+            else
+                _blockedTime = 0f;
+
             // Decay push force gradually
             _pushOffset = Vector3.Lerp(_pushOffset, Vector3.zero, Time.fixedDeltaTime * 10f);
 

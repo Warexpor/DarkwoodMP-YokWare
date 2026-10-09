@@ -167,6 +167,30 @@ namespace DWMPHorde
             player.teleportTo(home.playerSpawn.transform.position, Quaternion.Euler(90f, 0f, 0f));
         }
 
+        /// <summary>The hideout whose player spawn is at this point (a peer's reported home).</summary>
+        private static Location HideoutAt(Vector3 spawn)
+        {
+            var wg = Singleton<WorldGenerator>.Instance;
+            if (wg == null || wg.locations == null)
+                return null;
+            Location best = null;
+            float bestD = 50f * 50f;
+            for (int i = 0; i < wg.locations.Count; i++)
+            {
+                Location loc = wg.locations[i];
+                if (loc == null || loc.playerSpawn == null)
+                    continue;
+                Vector3 d = loc.playerSpawn.transform.position - spawn;
+                d.y = 0f;
+                if (d.sqrMagnitude < bestD)
+                {
+                    bestD = d.sqrMagnitude;
+                    best = loc;
+                }
+            }
+            return best;
+        }
+
         /// <summary>The hideout a player respawns in (vanilla: its oven's location), else any hideout.</summary>
         internal static Location HomeLocation(Player player)
         {
@@ -199,13 +223,17 @@ namespace DWMPHorde
         /// traps within 100 of the spawn cleared), run on the world everyone shares. Vanilla
         /// destroys infection without its own sync, so peers are told here.
         /// </summary>
-        internal static void HostClearHomeForRespawn()
+        /// <param name="peerSpawn">The dying peer's own home spawn (each player has its own
+        /// hideout); null: an old report without one, the host's home as before.</param>
+        internal static void HostClearHomeForRespawn(Vector3? peerSpawn)
         {
             if (!Core.worldGenFinished() || !Core.randomGeneration)
                 return;
             Player host = Player.Instance;
-            Location home = HomeLocation(host);
-            if (host == null || home == null)
+            if (host == null)
+                return;
+            Location home = peerSpawn.HasValue ? HideoutAt(peerSpawn.Value) : HomeLocation(host);
+            if (home == null)
                 return;
             Vector3 spawn = home.playerSpawn.transform.position;
             home.returnCharactersAroundMeToSpawnPoint();
@@ -221,7 +249,7 @@ namespace DWMPHorde
                 net.SendWorldObjectRemoved(new WorldObjectRemovedMessage { PosX = p.x, PosY = p.y, PosZ = p.z, ObjectName = "infection_splat" });
             }
             host.removeDangerousStuffToPlayerAround(spawn, 100f);
-            ModLog.Event(LogCat.Death, "Peer respawned home — home area cleared on the host");
+            ModLog.Event(LogCat.Death, "Peer respawned home — " + home.name + " cleared on the host");
         }
     }
 }

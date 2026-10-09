@@ -276,7 +276,7 @@ namespace DWMPHorde.Networking
                 _enterProfileId = matchSlot;
                 _enterChapterId = chapterId;
 
-                ProgressText = "Same world already on Profile " + matchSlot + " — press ENTER WORLD";
+                ProgressText = "Same world already on Profile " + matchSlot + " — press Enter world";
                 if (_net != null)
                     _net.StatusText = ProgressText;
                 if (Patches.ChapterTransitionHelpers.ChapterShareExpected)

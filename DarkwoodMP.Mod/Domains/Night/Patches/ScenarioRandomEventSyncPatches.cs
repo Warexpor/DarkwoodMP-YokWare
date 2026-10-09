@@ -29,13 +29,13 @@ namespace DWMPHorde.Patches
     {
         // Host was re-broadcasting the same event index every tick while currentEvent
         // stayed set → client ScenarioEventFired spam + GameEvents queue thrash (fps~3).
-        private static int _lastSentNightId = int.MinValue;
+        private static NightScenario _lastSentScenario;
         private static int _lastSentEventIndex = int.MinValue;
 
         /// <summary>Session boundary: a new world's first event must not match the old world's last one.</summary>
         public static void Reset()
         {
-            _lastSentNightId = int.MinValue;
+            _lastSentScenario = null;
             _lastSentEventIndex = int.MinValue;
         }
 
@@ -57,11 +57,12 @@ namespace DWMPHorde.Patches
                 var cei = __instance.customEventAndInts[i];
                 if (cei.customEvent == __instance.currentEvent)
                 {
-                    if (__instance.nightId == _lastSentNightId && i == _lastSentEventIndex)
+                    // By scenario, not nightId: two nights share an id.
+                    if (__instance == _lastSentScenario && i == _lastSentEventIndex)
                         return;
-                    _lastSentNightId = __instance.nightId;
+                    _lastSentScenario = __instance;
                     _lastSentEventIndex = i;
-                    net.SendScenarioEventFired(__instance.nightId, i, NightEventAnchor.TakeFiredAnchors());
+                    net.SendScenarioEventFired(__instance.name, __instance.nightId, i, NightEventAnchor.TakeFiredAnchors());
                     return;
                 }
             }

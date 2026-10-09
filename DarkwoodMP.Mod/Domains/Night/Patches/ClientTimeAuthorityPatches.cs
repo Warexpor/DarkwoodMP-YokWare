@@ -59,16 +59,21 @@ namespace DWMPHorde.Patches
 
     /// <summary>
     /// Host shared clock. Vanilla <c>FixedUpdate</c> skips <c>CurrentTime++ / refreshTime</c>
-    /// while the local player is inside an outside location, so the whole party's clock
-    /// stopped whenever the host was in the village, even with peers out in the forest.
-    /// When the host is inside but a ready peer reports the open world, run the same step
-    /// vanilla would have run (<see cref="CoopTimePolicy.SharedClockRuns"/>).
+    /// while the local player is inside an outside location, dying, or under a personal
+    /// <c>timeFreeze</c> (the Wolf's trap), so the whole party's clock stopped whenever the
+    /// host was in the village or dying, even with peers out in the forest, while a peer's
+    /// own freezes stopped nothing. The clock steps while any player counts
+    /// (<see cref="CoopTimePolicy.SharedClockSteps"/>): the host adds the step vanilla
+    /// skipped, or holds the one it would take for a host who no longer counts (dead until
+    /// morning) when nobody else does either.
     /// </summary>
     [HarmonyPatch(typeof(Controller), "FixedUpdate")]
     public static class HostSharedClockPatch
     {
         private static readonly AccessTools.FieldRef<Controller, float> LastTimeUpdatedTime =
             AccessTools.FieldRefAccess<Controller, float>("lastTimeUpdatedTime");
+
+        private const byte None = 0, Step = 1, Held = 2;
 
         /// <summary>
         /// Where vanilla would run this player's clock: in the world, not inside an outside
@@ -90,16 +95,33 @@ namespace DWMPHorde.Patches
             return !Sync.PersonalPrologue.LocalInPrologue;
         }
 
-        private static void Prefix(Controller __instance, out bool __state)
+        /// <summary>
+        /// A freeze vanilla puts on this one player: dying (Player.die stops the clock until the
+        /// respawn), dead until morning, or a <c>timeFreeze</c> effect that is not the morning's
+        /// (the Wolf's trap). Sent on PlayerState as <c>ClockHeld</c>.
+        /// </summary>
+        internal static bool LocalPersonalHold()
         {
-            __state = false;
-            if (__instance == null || !__instance.DoUpdateTime)
+            Player p = Player.Instance;
+            if (p == null)
+                return false;
+            if (p.dying || !p.alive || DeathStateTracker.LocalNightDeath)
+                return true;
+            Controller ctrl = Singleton<Controller>.Instance;
+            return ctrl != null && !ctrl.isAfterNight && p.effects != null
+                && p.effects.hasEffectType(CharacterEffectType.timeFreeze);
+        }
+
+        private static void Prefix(Controller __instance, out byte __state)
+        {
+            __state = None;
+            if (__instance == null)
                 return;
             var net = ModRuntime.Network;
             if (net == null || net.Role != NetworkRole.Host)
                 return;
             var ol = Singleton<OutsideLocations>.Instance;
-            if (ol == null || !ol.playerInOutsideLocation)
+            if (ol == null)
                 return;
             var dreams = Singleton<Dreams>.Instance;
             if (dreams != null && dreams.dreaming)
@@ -107,24 +129,51 @@ namespace DWMPHorde.Patches
             // Same interval gate as vanilla; vanilla updates the stamp, the postfix only steps.
             if (UnityEngine.Time.time - LastTimeUpdatedTime(__instance) < __instance.timeChangeInterval)
                 return;
-            __state = CoopTimePolicy.SharedClockRuns(true, AnyPeerInOpenWorld(net));
+            bool personal = LocalPersonalHold();
+            // DoUpdateTime off for a reason that is not this player's own (a load, a scripted
+            // world freeze) holds everyone, as do the morning and the day-1 prologue wait.
+            bool worldHeld = PrologueDayOneHoldPatch.Holding || __instance.isAfterNight || Core.loadingGame
+                || (!__instance.DoUpdateTime && !personal);
+            if (worldHeld)
+                return;
+            bool vanillaSteps = __instance.DoUpdateTime && !ol.playerInOutsideLocation;
+            bool hostCounts = !personal && LocalInOpenWorld();
+            bool steps = CoopTimePolicy.SharedClockSteps(false, hostCounts, AnyPeerCounts(net));
+            if (steps && !vanillaSteps)
+            {
+                __state = Step;
+            }
+            else if (!steps && vanillaSteps)
+            {
+                // Vanilla would step for a host who is dead until morning, spectating.
+                __instance.DoUpdateTime = false;
+                __state = Held;
+            }
         }
 
-        private static void Postfix(Controller __instance, bool __state)
+        private static void Postfix(Controller __instance, byte __state)
         {
-            if (!__state)
+            if (__state != Step)
                 return;
             __instance.CurrentTime++;
             __instance.refreshTime();
         }
 
-        private static bool AnyPeerInOpenWorld(LanNetworkManager net)
+        /// <summary>Hand back the step held above, also when FixedUpdate throws.</summary>
+        private static System.Exception Finalizer(Controller __instance, byte __state, System.Exception __exception)
+        {
+            if (__state == Held && __instance != null)
+                __instance.DoUpdateTime = true;
+            return __exception;
+        }
+
+        private static bool AnyPeerCounts(LanNetworkManager net)
         {
             foreach (int id in net.EnumeratePeerIds())
             {
                 if (id == net.LocalPlayerId || !net.IsPeerReadyForGameplay(id))
                     continue;
-                if (net.RemotePlayers.TryGetValue(id, out RemotePlayerState st) && st.InOpenWorld)
+                if (net.RemotePlayers.TryGetValue(id, out RemotePlayerState st) && st.InOpenWorld && !st.ClockHeld)
                     return true;
             }
             return false;

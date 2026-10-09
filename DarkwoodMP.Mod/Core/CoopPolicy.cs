@@ -21,12 +21,14 @@ namespace DWMPHorde
 
         /// <summary>
         /// Vanilla stops the clock while the player is inside an outside location (village,
-        /// bunker, basement). The shared clock runs while anyone is in the open world and
-        /// stops only when nobody is. A peer counts only on its own report: one still loading
-        /// or in the opening movie does not run the clock.
+        /// bunker, basement). One shared clock step: a world-wide hold (the morning, the day-1 prologue wait, a
+        /// load) stops it for everyone. Otherwise it runs while any player counts: in the open
+        /// world and not in a freeze vanilla puts on that one player (dying, dead until morning,
+        /// the Wolf's trap). A peer counts only on its own report: one still loading or in the
+        /// opening movie does not run the clock.
         /// </summary>
-        public static bool SharedClockRuns(bool hostInOutsideLocation, bool anyRemoteInOpenWorld)
-            => !hostInOutsideLocation || anyRemoteInOpenWorld;
+        public static bool SharedClockSteps(bool worldHeld, bool hostCounts, bool anyRemoteCounts)
+            => !worldHeld && (hostCounts || anyRemoteCounts);
 
         public const int MinutesPerDay = 1440;
 
@@ -273,13 +275,26 @@ namespace DWMPHorde
         /// </summary>
         private static readonly string[] NightTraderNpcNames = { "nightTrader", "theThree", "soldier_underground" };
 
-        /// <summary>Morning traders keep per-player standing.</summary>
+        /// <summary>
+        /// <c>NPC.name</c> of the other traders whose standing is only what a player has to spend
+        /// with them (trades and quest rewards): the Wolf (every "wolfman": the camps, the hideout
+        /// mornings, the Doctor's house) and Piotrek. The Doctor trades too but is left out: his
+        /// chapter 2 story keeps its state in his reputation (setDoctorState_A/B/C_act2).
+        /// </summary>
+        private static readonly string[] OwnStandingTraderNpcNames = { "wolfman", "piotrek" };
+
+        /// <summary>Traders whose standing is each player's own (night and morning traders, the Wolf, Piotrek).</summary>
         public static bool IsPerPlayerReputationNpcName(string npcName)
         {
             if (string.IsNullOrEmpty(npcName)) return false;
             for (int i = 0; i < NightTraderNpcNames.Length; i++)
             {
                 if (string.Equals(npcName, NightTraderNpcNames[i], System.StringComparison.OrdinalIgnoreCase))
+                    return true;
+            }
+            for (int i = 0; i < OwnStandingTraderNpcNames.Length; i++)
+            {
+                if (string.Equals(npcName, OwnStandingTraderNpcNames[i], System.StringComparison.OrdinalIgnoreCase))
                     return true;
             }
             return false;
@@ -330,9 +345,10 @@ namespace DWMPHorde
         {
             switch (fn)
             {
-                // Night shadow event: CharacterSpawner flags, shadow spawns and the generator
-                // lights of the location (host-run wave, see the night shadow patches).
-                case "tryToSpawnShadow":
+                // Night shadow event: CharacterSpawner flags and the generator lights of the
+                // location. Its wave (tryToSpawnShadow) is the player's own: it comes around the
+                // player the scene plays for (a client's replay asks the host for it), so the host
+                // running a peer's scene does not get one around its own body.
                 case "pauseShadows":
                 case "unpauseShadows":
                 case "removeShadows":

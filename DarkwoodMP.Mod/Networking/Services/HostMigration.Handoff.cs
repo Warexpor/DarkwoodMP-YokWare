@@ -34,10 +34,20 @@ namespace DWMPHorde.Networking
         }
 
         /// <summary>
-        /// Host UI / graceful leave: elect a survivor, announce handoff, release port, then clean stop.
-        /// Returns true if a handoff was started (async finish).
+        /// This player leaves the session on purpose (the credits): the host going away meanwhile
+        /// is not a crash, so it does not take the host.
         /// </summary>
-        public bool TryGracefulHostLeave()
+        internal void MarkLeavingSession()
+        {
+            _suppressHostMigration = true;
+        }
+
+        /// <summary>
+        /// Host UI / graceful leave: elect a survivor, announce handoff, release port, then clean stop.
+        /// <paramref name="eligible"/> limits who may take the host (the credits hand the world to a
+        /// player who stays in it). Returns true if a handoff was started (async finish).
+        /// </summary>
+        public bool TryGracefulHostLeave(Func<int, bool> eligible = null)
         {
             if (_role != NetworkRole.Host || !IsConnected)
                 return false;
@@ -47,7 +57,7 @@ namespace DWMPHorde.Networking
             var survivors = new List<int>(8);
             foreach (int id in _session.Link.Handshaked)
             {
-                if (id > 0 && id != _localPlayerId)
+                if (id > 0 && id != _localPlayerId && (eligible == null || eligible(id)))
                     survivors.Add(id);
             }
             if (survivors.Count == 0)

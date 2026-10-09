@@ -148,24 +148,26 @@ namespace DWMPHorde.Networking
         }
 
         /// <summary>
-        /// Repopulate personal blue map pins after NetworkReset cleared LocalMarkers.
-        /// Dedupes + re-broadcasts via MultiplayerMapManager so peers see them again.
+        /// Backups from before the party map board kept this player's pins here. They go to the host
+        /// once as ordinary pins (the host ignores one already on the board at that spot); new
+        /// backups no longer carry pins, the host's world keeps the board.
         /// </summary>
         private static void RestoreLocalMapMarkers(ClientStateBackupData data)
         {
             if (data?.LocalMapMarkers == null || data.LocalMapMarkers.Count == 0)
                 return;
-            var positions = new System.Collections.Generic.List<UnityEngine.Vector3>(data.LocalMapMarkers.Count);
+            int chapter = data.Chapter > 0 ? data.Chapter : Sync.MapPinBoard.CurrentChapter();
+            int sent = 0;
             for (int i = 0; i < data.LocalMapMarkers.Count; i++)
             {
                 MarkerEntry entry = data.LocalMapMarkers[i];
                 if (entry == null) continue;
-                positions.Add(new UnityEngine.Vector3(entry.X, entry.Y, entry.Z));
+                Sync.MapPinBoard.RequestPut(Sync.MapPinKind.Mark, chapter, entry.X, entry.Z);
+                sent++;
             }
-            int added = Sync.MultiplayerMapManager.RestoreLocalMarkersFromBackup(positions);
-            if (added > 0)
-                ModRuntime.LegacyInfo(
-                    $"[ClientBackup] restored local map markers +{added}");
+            data.LocalMapMarkers = null;
+            if (sent > 0)
+                ModRuntime.LegacyInfo($"[ClientBackup] legacy map pins sent to the party board: {sent}");
         }
 
     }

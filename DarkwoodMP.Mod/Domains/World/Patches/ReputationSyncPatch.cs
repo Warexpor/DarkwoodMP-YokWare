@@ -11,7 +11,9 @@ namespace DWMPHorde.Patches
     /// <summary>
     /// Reputation handling:
     /// - Story / village NPCs: shared, live <see cref="ReputationSync"/> + join bulk.
-    /// - Morning traders (<see cref="Character.isNightTrader"/>): per-player; no live or bulk overwrite.
+    /// - Traders whose standing is only currency (<see cref="Character.isNightTrader"/>, the Wolf,
+    ///   Piotrek): per-player; no live or bulk overwrite, and the host replaying a peer's
+    ///   dialogue does not move its own standing with that trader.
     /// </summary>
     [HarmonyPatch(typeof(NPC), "set_reputation", new[] { typeof(int) })]
     public static class ReputationSyncPatch
@@ -22,6 +24,12 @@ namespace DWMPHorde.Patches
 
             if (__instance == null)
                 return true;
+
+            // Host replaying a peer's board (a quest reward from the Wolf): that standing is the
+            // speaker's, which its own board already changed. The host's stayed behind it.
+            if (HostApplyGuard.Active && NetGuard.ConnectedHost(out _)
+                && ReputationSyncUtil.IsPerPlayerReputationNpc(__instance))
+                return false;
 
             // Client board: do not mutate shared NPC reputation (host applies once).
             if (DWMPHorde.Sync.DialogClientWorldDefer.Active
@@ -149,16 +157,14 @@ namespace DWMPHorde.Patches
     internal static class ReputationSyncUtil
     {
         /// <summary>
-        /// True for morning hideout traders whose standing must stay per-player.
-        /// Prefers <see cref="Character.isNightTrader"/>; name fallbacks if the GO is unloaded.
+        /// True for traders whose standing stays per-player: <see cref="Character.isNightTrader"/>
+        /// or a trader of <see cref="DialogApplyPolicy.IsPerPlayerReputationNpcName"/>.
         /// </summary>
         public static bool IsPerPlayerReputationNpc(NPC npc)
         {
             if (npc == null) return false;
             Character ch = npc.GetComponent<Character>();
-            if (ch != null)
-                return ch.isNightTrader;
-            return IsPerPlayerReputationNpcName(npc.name);
+            return (ch != null && ch.isNightTrader) || DialogApplyPolicy.IsPerPlayerReputationNpcName(npc.name);
         }
 
         public static bool IsPerPlayerReputationNpcName(string npcName)
@@ -171,8 +177,8 @@ namespace DWMPHorde.Patches
             {
                 if (all[i] == null || all[i].name != npcName) continue;
                 Character ch = all[i].GetComponent<Character>();
-                if (ch != null)
-                    return ch.isNightTrader;
+                if (ch != null && ch.isNightTrader)
+                    return true;
             }
 
             return DialogApplyPolicy.IsPerPlayerReputationNpcName(npcName);

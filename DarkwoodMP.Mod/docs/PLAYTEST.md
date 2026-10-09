@@ -27,6 +27,25 @@ version and protocol in the README table. The sections follow
 The releases since the last playtest that need a first look, newest first. Each item
 points to the section with the full check.
 
+- [ ] **Settings screens:** Apply, Revert to default, and the apply-changes question
+      only for the name, the voice mode and live host rules (section 18).
+- [ ] **Walkie as a radio:** crafted at the workbench, on/off knob, battery, signal
+      range, one way at a time, feedback, the new icon (section 18).
+- [ ] **Voice without Steam:** 3D proximity voice, the Voice screen (microphone,
+      levels, each player's volume), creatures hearing talk (section 18).
+- [ ] **Names and chat:** names over players on hover, chat only in the chat
+      (section 18).
+- [ ] **Multiplayer menus as the game's own:** the title button under PLAY, the Host,
+      Join and Settings screens, Russian text (section 3).
+- [ ] **Three players:** story NPCs, dreams, the ending, nights, deaths, the village at
+      night (sections 8, 9, 14 and 16).
+- [ ] **Night soak fixes:** night events, the morning trader, chapter 2 on the host's
+      map, the desync checker (sections 8, 15 and 20).
+- [ ] **Host settings > Night monsters:** x2 brings more monsters to each hideout than
+      x1; changed mid-night it takes effect (section 8).
+
+Older, still open:
+
 - [ ] **Same look everywhere:** grass, trees, debris, creature tints, flickering and
       twitching animations and vines look the same for host and client, in a fresh
       world, after a reload, for a late joiner and after a chapter change; examine
@@ -52,38 +71,48 @@ points to the section with the full check.
 ## 2. Deploy and version
 
 - [ ] `md5sum` of `DarkwoodMP.Mod.dll` (and `LiteNetLib.dll`) matches on every box.
-- [ ] The F2 title reads **YokWare Branch &lt;version&gt; / Path B** and the footer shows
-      `proto=&lt;protocol&gt;` on every box, as in the README table. The log banner shows
-      the same `Protocol=`.
+- [ ] The bottom of the MULTIPLAYER screen reads **YokWare Branch &lt;version&gt;** on every
+      box, as in the README table. The log banner shows the `Protocol=` of the table.
 - [ ] The startup log has `Harmony: N patch classes applied, 0 critical / ...`. With a
       critical failure, HOST and JOIN show "Multiplayer disabled" and refuse.
 - [ ] A client on a different DLL is refused with a protocol mismatch, not half-joined.
 
 ## 3. Hosting and joining
 
-- [ ] The host loads a save and enters the chapter. The client's JOIN LAN goes through
-      CONNECTING, WAIT HOST (until the host is in the world), DOWNLOADING, CHOOSE SLOT
-      and ENTER WORLD.
-- [ ] Slot picker: an empty slot is used without asking; an occupied slot asks to
-      confirm, and Cancel clears the confirm; a slot from another campaign shows
-      `[DIFFERENT CAMPAIGN]`; a second connect does not show an old confirm.
+- [ ] MULTIPLAYER sits under PLAY on the title screen and under OPTIONS in the pause
+      menu; its screens look like the game's own (fonts, hover, click sound, Esc goes
+      back, gamepad works), also in Russian.
+
+- [ ] The host loads a save and enters the chapter. The client's Join > Connect shows
+      "Connecting…", "waiting for the host to enter the game" (until the host is in the
+      world), the download percentage, then the profile picker opens by itself, then
+      Enter world.
+- [ ] Profile picker: an empty profile is used without asking; an occupied one asks in
+      the vanilla yes/no box (Overwrite / Cancel); one from another campaign is marked
+      "another campaign"; Back asks to leave the game.
+- [ ] Host this game (pause menu, single player): the world is opened to others in place
+      and a client joining from the title gets it.
 - [ ] A client claiming a world from another campaign is refused with WRONG SAVE.
 - [ ] A third player joins an active session; all three see each other.
 - [ ] A third player joins at night, during a fight and while another player is in a
       location: the night state, the creatures and that player's location are right.
-- [ ] Host start failure (a second host on the same port) shows PORT IN USE on the
-      button. JOIN STEAM with no lobby id shows SET LOBBY ID.
-- [ ] F2 fields: typing a port does not save per keystroke; closing the window saves;
-      a Steam lobby id the host just created is not overwritten by stale text.
+- [ ] Host start failure (a second host on the same port) shows "The port is already in
+      use" on the screen. Join the lobby with no lobby id asks for one.
+- [ ] Menu text fields: click, type, Enter keeps it, Esc drops it, a click elsewhere keeps
+      it; typing does not move the character, switch the hotbar or key the mic. A Steam
+      lobby id the host just created shows under Join.
+- [ ] Esc on any multiplayer screen goes back one screen (the confirm box first), never
+      straight out of the menu.
 - [ ] With `HostPassword` set on the host, a client with the wrong password is
       refused (LAN and Steam).
 - [ ] `MaxPlayers`: a player beyond the limit is refused.
 
 ## 4. Saving, leaving and rejoining
 
-- [ ] F3 on the host saves the world, and every client's copy and character are saved
-      at the same moment (`SaveSync` lines on both logs). F3 on a client refuses
-      ("only the host can save"). F3 Load refuses during a session.
+- [ ] With the manual-saves add-on: F3 on the host opens Saves; Save saves the world, and
+      every client's copy and character are saved at the same moment (`SaveSync` lines on
+      both logs). On a client Save is greyed out (only the host saves). Load is greyed out
+      during a session. Without the add-on F3 does nothing.
 - [ ] A client quits and rejoins: it gets its own bag, skills, level and position back,
       not the host's character.
 - [ ] A client drops briefly (pull the cable or kill the network for a few seconds):
@@ -112,6 +141,17 @@ points to the section with the full check.
       reward. Kill it during the entry video instead: both are back in their world
       with no reward, and migration still completes.
 
+- [ ] **Party map board (3 players if possible):** each player right-clicks a pin on
+      the world map: it shows for everyone at the clicked spot (also on a screen above
+      1080p), each owner in their own colour. The wheel changes the stamp before
+      placing and restyles a hovered pin; a double click labels it (typing M or J in
+      the label does not close the map; Esc cancels the label, not the map). Right
+      click erases a pin for everyone, also two pins placed close together (the right
+      one goes). Middle click pings: pulses on every open map, "pinged the map" over
+      the head of players with the map closed. A pin over a location still shows the
+      location's name on hover. A late joiner gets the whole board; the host quits and
+      hosts again: the pins are back; a client rejoins: its pins are not doubled.
+
 ## 6. Time, menus and the pause menu
 
 - [ ] The host goes into a location while the client stays in the forest: the clock
@@ -127,7 +167,7 @@ points to the section with the full check.
       (creatures, clock, flares stop; the menu music plays). Any one closes it: the
       world runs again for everyone. A player joining while the others are paused
       unpauses the world.
-- [ ] **Pause menu, session paths:** the host presses F3 while the client sits in Esc
+- [ ] **Pause menu, session paths:** the host saves (F3 add-on, or the game's own save) while the client sits in Esc
       (the client's save still follows); the client quits to the title from Esc (its
       character is backed up, `[Backup]` lines on both logs); the client keeps
       sending its position while in Esc (its body does not freeze for the host).
@@ -160,6 +200,8 @@ points to the section with the full check.
 - [ ] One player walks out of the hideout in the morning: the trader stays for the
       others until the hideout is empty.
 - [ ] Generator: a client refuels and switches it; the fuel matches on every machine.
+- [ ] Host settings > Night monsters at x2 and more: more of each kind come to every
+      hideout and sooner; x1 is vanilla. Changed mid-night, the next spawns follow it.
 - [ ] Village at night: friendly villagers go home between the night warning and
       morning, only while nobody sees them (`[NightVillage]` lines count the right
       villagers).
@@ -302,10 +344,22 @@ points to the section with the full check.
       Walking it as a client moves everyone too. A slow client still arrives. Player
       ids and names are unchanged; Steam sessions resume on the same lobby.
 
+- [ ] Shadows perk on a client: in the dark its shadows close in and hurt only it; with
+      another player's lit torch next to it they stay back; the torch can be lit by the
+      other player during the wave; everyone sees the shadows in the same spots.
+- [ ] Doctor 1 ended by a client (the hatted man's talk): everyone goes on to doctor 2
+      together and doctor 2 plays normally.
+- [ ] Village cellar dream: a client breaks the barricade and the chomper comes.
+
 ## 16. Ending
 
 - [ ] Every player in the ending reads their pages; the credits start when all are
       done (or after 2 minutes), and only for players in the ending.
+- [ ] A player dead at night when the ending starts stays in the world: when the others
+      go to the credits, that player takes the host and wakes at home in the morning.
+- [ ] A client walking into the road home while the host is dead at night: no ending
+      yet, the client plays on normally (UI, items, map); at morning the ending starts
+      for everyone.
 
 ## 17. World objects
 
@@ -320,7 +374,7 @@ points to the section with the full check.
 - [ ] Same look: stand host and client side by side in the open world, in a location
       the client entered first, in a dream, and next to a dog or spider pack the host
       spawned. Ground decals, bushes, tree tints and flips, dead-body twitches and
-      flickering fire animations match. Then the host reloads (F3, quit, load) and a
+      flickering fire animations match. Then the host reloads (save, quit, load) and a
       third player joins late: still the same. Each save writes `savcos.dat` next to
       `sav.dat` (host log: `[Cosmetic] roll seeds saved: N`; a load logs
       `[Cosmetic] roll seeds from save: N`).
@@ -345,25 +399,61 @@ Listen on the player who did not cause the sound.
       loop stops when the creature dies. Enemy footsteps move with the enemy and are
       muffled behind a wall.
 - [ ] The Sound volume slider at 0 also silences other players' sounds.
-- [ ] Voice (needs two logged-in Steam clients): a teammate a room away is heard and
-      fades out around the distance of their footsteps; muffled through a wall. A
-      walkie-talkie carries from anywhere. A player who leaves stops being heard.
-- [ ] The walkie transmits only while playing (right mouse with the radio in hand), not
+- [ ] Settings > Voice: the meter moves when you speak, switching Microphone cycles the
+      devices (and back to Default), Microphone volume changes the meter, a player's
+      volume in Players changes only that player, at 0 mutes them.
+- [ ] Multiplayer > Settings, Voice, Players, Host settings: a change lights up Apply. Return
+      asks to apply only after a change to the name, voice mode or (hosting) a rule; No puts
+      those back, Yes keeps them; a volume or key change alone leaves without asking. Revert to default resets
+      only that screen (host settings online: rules only). Voice > Players and back to
+      Voice does not ask.
+- [ ] Voice (any two installs, the GOG one too): a teammate a room away is heard from
+      their side (left or right); a whisper fades out sooner than a shout; muffled
+      through a wall. A walkie-talkie carries from anywhere with a squelch click at the
+      start, a burst of static at the end and more hiss the farther apart. A player who
+      leaves stops being heard.
+- [ ] A creature near a talking player turns toward a shout and comes looking if the
+      talk goes on; a whisper does not draw it. Host settings > Creatures hear voices
+      off stops it.
+- [ ] Three players: A talks on the walkie, B carries one, C without one stands next to B
+      and hears the radio from B's side, fading out a few steps away and muffled through
+      a wall; a creature near B turns toward the radio.
+- [ ] Walkie one way: while A holds the key, A hears nothing on the radio; with A on the air,
+      B keying is not heard on the radios. C next to A hears A's click on and off and the
+      reply from A's walkie. A voice inside a building has an echo.
+- [ ] Walkie crafting: the workbench (level 1) lists the walkie for 2 junk and 1 nail on
+      every player's bench; the made walkie shows the hand-painted icon, sharp at slot
+      size.
+- [ ] Walkie as a device: B with it in hand switches it off and on (click, the speaker
+      coming alive); off, nothing comes through and the talk key sends nothing. Its bar drains while
+      on; under 10% it chirps every 30 s; flat, it dies with a click; R with a 9V battery
+      fills it. In a pocket it plays quieter and duller than in hand.
+- [ ] Signal: far apart the radio hisses and breaks up, and from a cellar or the bunker
+      underground barely anything gets through. Each transmission ends with a roger beep.
+- [ ] A keying next to B's live radio: a rising howl, from B and on every radio; B
+      switching off stops it. A and C keying together: a whistle and garble.
+- [ ] The walkie transmits only while playing (the radio talk key, right mouse by default, with the radio in hand), not
       in the inventory, a container, dialogue, the map, the journal, the pause menu,
       while dead or with chat open.
 - [ ] A client dragging a body or talking on the walkie while doors and pickups happen:
       the drag and the voice stay smooth and the events are not delayed.
-- [ ] Chat: lines and speech bubbles appear for everyone; `ChatEnabled=false` turns it
-      off.
+- [ ] Chat: lines appear for everyone, at once; nothing shows over the players;
+      `ChatEnabled=false` turns it off. Lines sit in the lower left in the game's
+      hover-label font, fade out smoothly after a while (also when the chat is closed)
+      and all come back while typing; a long line wraps under itself.
+- [ ] Player names (default: on hover): pointing the cursor at a player shows their name
+      over them; it fades away when the cursor leaves. Only while you can see them (not
+      behind a wall). A name changed in Multiplayer > Settings updates for everyone at
+      once. "Always" shows every player you can see; "Off" shows none.
 
 ## 19. Steam
 
 (Needs two real Steam accounts; the GOG install cannot use Steam.)
 
-- [ ] HOST STEAM creates a lobby and shows its id in F2. A friend joins from the invite
-      overlay; the 35 s join timeout applies.
+- [ ] Host > Steam creates a lobby; Multiplayer > Invite friends copies its id and opens
+      the invite overlay. A friend joins from the invite; the 35 s join timeout applies.
 - [ ] Launching the game from a pending invite (`+connect_lobby`) joins the same way.
-- [ ] A failed join (bad lobby id, Steam not ready) shows a button label, then reverts.
+- [ ] A failed join (bad lobby id, Steam not ready) shows a status line, then clears.
 - [ ] A Steam client is killed and rejoins the same lobby: one player, not two; with a
       host password set, the rejoin still has to pass it.
 
@@ -385,3 +475,5 @@ The maintainers' machine has an unattended dual-box test pilot (the `TestPilot`
 commands in the mod, driven by scripts under `scripts/pilot/` that are not part of
 this repository). It plays on real profiles: back up both save trees first and
 restore them after. Read its `[Pilot]`, `[Desync]` and Unity error lines in both logs.
+A third install (`ThirdDarkwood`, saves in `Darkwood_Third`) adds a second client for
+three-player runs; then read all three logs.

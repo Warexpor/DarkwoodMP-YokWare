@@ -44,7 +44,7 @@ namespace DWMPHorde.Networking
                 if (reqIp != null && reqIp.IsIPv4MappedToIPv6)
                     reqIp = reqIp.MapToIPv4();
                 bool survivor = reqIp != null && IsMigrationSurvivorAddress(reqIp.ToString());
-                if (!allowDreamJoin && !survivor
+                if (!allowDreamJoin && !survivor && !DreamSession.IsEnding
                     && (DreamSession.ShouldRejectNewConnections
                         || DreamSyncManager.IsDreamActive
                         || DreamSyncManager.IsHostDreamEntryPending))

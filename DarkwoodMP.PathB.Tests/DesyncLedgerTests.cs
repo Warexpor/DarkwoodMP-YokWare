@@ -10,6 +10,19 @@ public class DesyncLedgerTests
         => kv.Select(p => new KeyValuePair<string, string>(p.k, p.v)).ToList();
 
     [Fact]
+    public void Compare_PairsAnObjectOnAGridLine_KeyedOneStepApart()
+    {
+        var host = new Dictionary<string, string> { ["Wardrobe@12056,11,11370"] = "items=a", ["Chest@1,2,3"] = "items=b" };
+        var client = new Dictionary<string, string> { ["Wardrobe@12056,11,11371"] = "items=a", ["Chest@1,2,5"] = "items=b" };
+        var diffs = DesyncEntries.Compare(host, client, DesyncEntries.Exact);
+        // The wardrobe is one object; the chest two steps apart is not.
+        Assert.Equal(2, diffs.Count);
+        Assert.All(diffs, d => Assert.StartsWith("Chest@", d.Key));
+        Assert.False(DesyncEntries.Neighbours("Wardrobe@1,2,3", "Chest@1,2,3"));
+        Assert.True(DesyncEntries.Neighbours("Door@-639,11,23690", "Door@-638,11,23691"));
+    }
+
+    [Fact]
     public void Format_IsOrderIndependent_AndHashesAgree()
     {
         string a = DesyncEntries.Format(E(("b", "1"), ("a", "2")));

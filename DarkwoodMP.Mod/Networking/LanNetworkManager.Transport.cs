@@ -66,7 +66,7 @@ namespace DWMPHorde.Networking
                 SendFramedToFirstPeer(data, length, method, excludePlayerId);
         }
 
-        private enum FanOutFilter { All, SkipLoading, GameplayReady }
+        private enum FanOutFilter { All, SkipLoading, GameplayReady, InWorld }
 
         private bool PassesFanOut(int peerId, FanOutFilter filter, int excludePlayerId)
         {
@@ -78,6 +78,7 @@ namespace DWMPHorde.Networking
             {
                 case FanOutFilter.SkipLoading: return !_session.Link.LoadingWorld.Contains(peerId);
                 case FanOutFilter.GameplayReady: return IsPeerReadyForGameplay(peerId);
+                case FanOutFilter.InWorld: return !_session.Link.LoadingWorld.Contains(peerId) && IsPeerInWorld(peerId);
                 default: return true;
             }
         }
@@ -231,6 +232,20 @@ namespace DWMPHorde.Networking
                 SendToAll(type, writeBody, method, skipLoadingPeers);
             else
                 Send(type, writeBody, method);
+        }
+
+        /// <summary>
+        /// Host: send to the peers playing in the world (sent in-world PlayerState, not loading).
+        /// A peer still on the title, waiting for the host's world, has nothing to apply world
+        /// state to; the world package carries it.
+        /// </summary>
+        public void SendToPeersInWorld(NetMessageType type, Action<NetWriter> writeBody,
+            DeliveryMethod method = DeliveryMethod.ReliableOrdered)
+        {
+            if (_role != NetworkRole.Host || PeerCount == 0) return;
+            if (Sync.PersonalPrologue.HostBlocksSend(type)) return;
+            byte[] data = BuildPacket(type, writeBody);
+            SendFramedToPeers(data, data.Length, method, FanOutFilter.InWorld, 0);
         }
 
         /// <summary>Host: joiner is downloading, applying, or loading a scene.</summary>

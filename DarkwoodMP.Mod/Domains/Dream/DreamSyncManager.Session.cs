@@ -108,6 +108,7 @@ namespace DWMPHorde.Sync
                     }
                 }
                 catch { /* ignore */ }
+                DropUnstartedLocalPad();
                 UnfreezeWorld(restoreTime: false);
                 // No dream came of this entry: the movie's audio fade and paused world sounds stay
                 // unless undone here.
@@ -128,6 +129,81 @@ namespace DWMPHorde.Sync
             _localDreamActive = false;
             _localDreamPreset = null;
             _hostOrderedDreamEnd = false;
+        }
+
+        /// <summary>
+        /// A dream this client prepared itself (a story step's startDream: vanilla loads the pad and
+        /// only then asks the host) that never started: the pad goes, and the ending's mode, which
+        /// vanilla turns on as the epilogue pad spawns, comes off. The host defers an ending asked for
+        /// while it is dead to its morning; the client used to play on in ending mode meanwhile (no
+        /// UI, no items) with the pad left loaded.
+        /// </summary>
+        private static void DropUnstartedLocalPad()
+        {
+            try
+            {
+                Dreams d = Dreams.Instance;
+                if (d == null || d.dreaming)
+                    return;
+                var outs = Singleton<OutsideLocations>.Instance;
+                if (d.preset != null && outs != null && outs.spawnedLocations != null
+                    && outs.spawnedLocations.TryGetValue(d.preset.name, out Location pad)
+                    && pad != null && pad == d.dreamLocation)
+                {
+                    d.destroyDream();
+                    ReturnFromUnstartedPad(d, outs);
+                    ModRuntime.LegacyInfo("[DreamSync] dropped the unstarted pad " + d.preset.name);
+                }
+                Player p = Player.Instance;
+                if (p != null && p.inEpilogue)
+                {
+                    p.inEpilogue = false;
+                    var cam = Singleton<CamMain>.Instance;
+                    if (cam != null && cam.FireMaskCam != null)
+                        cam.FireMaskCam.gameObject.SetActive(false);
+                    Singleton<UI>.Instance?.showVisibleUI();
+                    ModRuntime.LegacyInfo("[DreamSync] ending mode off — the ending did not start");
+                }
+            }
+            catch (Exception ex)
+            {
+                ModRuntime.Log?.LogWarning("[DreamSync] unstarted pad cleanup: " + ex.Message);
+            }
+        }
+
+        /// <summary>
+        /// Vanilla's pad load (transportToLocation, dream branch) already put the player's grid,
+        /// location and camera look on the pad and left the place it stood in; startDreaming never
+        /// came to move the body. Back to where it started dreaming, as endDreaming returns it, so
+        /// culling, the location claim (a LocationExit follows on the next tick) and the light are
+        /// the overworld's again.
+        /// </summary>
+        private static void ReturnFromUnstartedPad(Dreams d, OutsideLocations outs)
+        {
+            Player p = Player.Instance;
+            Location from = d.placeStartedDreaming;
+            string fromName = from != null ? Core.getTrueLocationName(from.name) : null;
+            if (from != null && from.isOutsideLocation && outs.spawnedLocations.TryGetValue(fromName, out Location home) && home != null)
+            {
+                home.enter();
+                Singleton<WorldGrid>.Instance.setGrid(fromName);
+                outs.currentLocationName = fromName;
+                outs.playerInOutsideLocation = true;
+            }
+            else
+            {
+                Singleton<WorldGrid>.Instance.setGrid("World");
+                outs.currentLocationName = "";
+                outs.playerInOutsideLocation = false;
+                Singleton<Rain>.Instance?.unhide();
+                Core.modifyCamEffects(active: false, null);
+            }
+            d.placeStartedDreaming = null;
+            if (p != null)
+                Singleton<WorldGrid>.Instance.refreshPosition(p._transform.position, true, true);
+            outs.applyCamEffects();
+            Singleton<Controller>.Instance?.updateAmbientLight();
+            p?.whereAmI?.checkWhereAmI();
         }
 
         /// <summary>
@@ -305,9 +381,36 @@ namespace DWMPHorde.Sync
             return p != null && !p.alive && (Dreams.Instance == null || !Dreams.Instance.dreaming);
         }
 
+        /// <summary>
+        /// Host: a dream it is already in with no party session. A save made as a dream starts
+        /// (vanilla saves inside prepareDream with the dream wanted; the ending's road home always
+        /// does) reloads straight into that dream before anyone has joined, so it ran as vanilla's
+        /// solo dream and a joiner's session bulk said "no dream": friends stayed in the forest
+        /// while the host was in the ending. The first joiner makes it the party's dream.
+        /// </summary>
+        internal static void AdoptSoloDreamForParty()
+        {
+            Dreams d = Dreams.Instance;
+            if (d == null || !d.dreaming || d.preset == null || string.IsNullOrEmpty(d.preset.name))
+                return;
+            if (DreamSession.IsActive || _localDreamActive)
+                return;
+            string preset = d.preset.name;
+            if (PersonalPrologue.IsPrologueDream(preset))
+                return;
+            if (!DreamSession.TryBegin(preset))
+                return;
+            DreamSession.MarkActive();
+            OnLocalDreamStarted(preset, d.dreamLocation != null ? d.dreamLocation.transform.position : Vector3.zero);
+            if (d.dreamLocation != null)
+                RemapDreamUniqueObjects(d.dreamLocation.transform);
+            DWMPHorde.Logging.ModLog.Event(DWMPHorde.Logging.LogCat.Dream, "[DreamSync] host's own dream " + preset + " is the party's now (first joiner)");
+        }
+
         public static void OnLocalDreamStarted(string presetName, Vector3 locationPosition)
         {
             if (_localDreamActive) return;
+            ResetHostEndClaim();
             // Party-once is enforced in TryBegin and startDreaming; this is the live start path.
             _localDreamActive = true;
             _localDreamPreset = presetName;
@@ -450,6 +553,7 @@ namespace DWMPHorde.Sync
 
         public static void OnLocalDreamEnded()
         {
+            ResetHostEndClaim();
             if (!_localDreamActive && !_hostOrderedDreamEnd) return;
 
             string endedPreset = ResolveActivePresetName();

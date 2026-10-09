@@ -183,7 +183,8 @@ namespace DWMPHorde.Networking
 
         internal static bool TryHitDestructibleItemAt(Vector3 pos, float radius, int damage, Transform attackerT)
         {
-            Item best = WorldQueryHelper.FindDestructibleItemXz(pos, radius);
+            Item best = WorldQueryHelper.FindDestructibleItemXz(pos, radius)
+                ?? WorldQueryHelper.FindStruckStoryItemXz(pos, radius);
             if (best == null) return false;
             DialogHostApplyGuard.RunHostWorldFanout(() =>
                 best.getHit(damage, attackerT, true));
@@ -226,7 +227,9 @@ namespace DWMPHorde.Networking
             TraverseHack.SetExplicitFlag(true);
             try
             {
-                string[] prefixes = { "", "Items/", "FX/", "Environment/", "Particles/", "Dummies/", "Fire/", "Weapons/" };
+                // Traps/: a land spawn can be a trap (a thrown bottle's broken_glass, a swamper spit's
+                // splat spawner); without it those never reached the clients.
+                string[] prefixes = { "", "Items/", "FX/", "Environment/", "Particles/", "Dummies/", "Fire/", "Weapons/", "Traps/" };
                 UnityEngine.Object prefab = null;
                 string foundPath = null;
                 foreach (var prefix in prefixes)

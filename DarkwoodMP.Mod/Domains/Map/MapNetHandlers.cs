@@ -4,7 +4,7 @@ using UnityEngine;
 
 namespace DWMPHorde.Networking
 {
-    /// <summary>Map marker / discovery handlers composed for 0.8.</summary>
+    /// <summary>Party map board and map discovery handlers.</summary>
     internal sealed class MapNetHandlers
     {
         private readonly LanNetworkManager _net;
@@ -15,35 +15,25 @@ namespace DWMPHorde.Networking
         }
 
         /// <summary>
-        /// The host takes the socket-derived sender: the embedded id is client-written, so a peer
-        /// could place or delete markers as someone else. A client trusts the host's relayed id
-        /// (the host stamps the original sender into forwarded packets).
+        /// Host: a client's change to the party map board. The sender is the socket's, never one
+        /// the body claims; the host decides and answers everyone with MapPinEvent.
         /// </summary>
-        private int ResolveSender(int embeddedPlayerId)
+        internal void HandleMapPinRequest(MapPinRequestMessage msg)
         {
-            if (_net.Role == NetworkRole.Host)
-                return _net.CurrentReceivePlayerId;
-            return embeddedPlayerId > 0 ? embeddedPlayerId : _net.CurrentReceivePlayerId;
+            if (_net.Role != NetworkRole.Host)
+                return;
+            int sender = _net.CurrentReceivePlayerId;
+            if (sender <= 0 || sender == _net.LocalPlayerId)
+                return;
+            MapPinBoard.HostApply(_net, sender, msg);
         }
 
-        internal void HandleMapMarker(MapMarkerMessage msg)
+        /// <summary>Client: one change to the party map board from the host.</summary>
+        internal void HandleMapPinEvent(MapPinEventMessage msg)
         {
-            Vector3 pos = new Vector3(msg.PosX, msg.PosY, msg.PosZ);
-            int playerId = ResolveSender(msg.PlayerId);
-            if (playerId <= 0) return;
-            if (playerId == _net.LocalPlayerId) return; // never treat own marker as remote
-            MultiplayerMapManager.AddRemoteMarker(playerId, pos);
-            ModRuntime.LegacyInfo($"[MapMarker] player {playerId} marker at {pos:F1}");
-        }
-
-        internal void HandleMapMarkerRemove(MapMarkerRemoveMessage msg)
-        {
-            Vector3 pos = new Vector3(msg.PosX, msg.PosY, msg.PosZ);
-            int playerId = ResolveSender(msg.PlayerId);
-            if (playerId <= 0) return;
-            if (playerId == _net.LocalPlayerId) return;
-            MultiplayerMapManager.RemoveRemoteMarker(playerId, pos);
-            ModRuntime.LegacyInfo($"[MapMarker] player {playerId} marker removed at {pos:F1}");
+            if (_net.Role != NetworkRole.Client)
+                return;
+            MapPinBoard.Apply(msg);
         }
 
         /// <summary>

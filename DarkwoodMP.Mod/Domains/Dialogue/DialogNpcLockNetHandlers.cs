@@ -34,6 +34,13 @@ namespace DWMPHorde.Networking
                     // speaker; client one-shot GameEvents are blocked, so the bunker door's
                     // onLeaveDoorDialogue never fired on anyone. Replay the trigger on host.
                     int prevOwner = NpcDialogueLock.GetOwner(npc);
+                    // Others listen in: the talk goes on with them (one player's Exit does not end
+                    // it for the rest), so the NPC's close events wait for the last one to leave.
+                    if (prevOwner == owner && DialogMirror.HostHandOverTalk(_net, owner))
+                    {
+                        _net.DialogOutcomeApplyHandlers.AbortWorldOnlyDrainForRelease(npc, owner);
+                        return;
+                    }
                     NpcRef released = NpcDialogueLock.HostRelease(_net, npc, owner);
 
                     // Abort lookKeyhole world-only drain. Waiting for portrait boards caused a
@@ -89,7 +96,7 @@ namespace DWMPHorde.Networking
                 if (Player.Instance != null)
                 {
                     DWMPHorde.Patches.PersonalFlavorHud.BeginBypass();
-                    try { Player.Instance.displayMessage("Someone is already talking to them…"); }
+                    try { Player.Instance.displayMessage(Loc.T("Someone is already talking to them…")); }
                     finally { DWMPHorde.Patches.PersonalFlavorHud.EndBypass(); }
                 }
             }

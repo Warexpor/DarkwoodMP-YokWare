@@ -113,6 +113,26 @@ namespace DWMPHorde.Networking
                 return;
             }
 
+            // A client's story end the host has already run: the client's own story step (a
+            // dialogue's outcome, an area) also fires on the host, so the host can be ending the
+            // same pocket, or have moved on to the next one of a chain, by the time the request
+            // lands. Running it again ended the next pocket at once with this one's outcome
+            // (doctor 2 skipped and marked played on its first frame).
+            if (_net.Role == NetworkRole.Host
+                && !string.IsNullOrEmpty(msg.OutcomeName)
+                && msg.OutcomeName != "playerDeath"
+                && !DreamSession.IsRejectedOutcome(msg.OutcomeName)
+                && (DreamSyncManager.HostStoryEndStarted
+                    || (DreamSession.IsActive && !string.IsNullOrEmpty(msg.PresetName)
+                        && !string.IsNullOrEmpty(DreamSession.PresetName)
+                        && !string.Equals(msg.PresetName, DreamSession.PresetName, StringComparison.OrdinalIgnoreCase)
+                        && DreamSession.IsPresetCompleted(msg.PresetName))))
+            {
+                ModRuntime.LegacyInfo(
+                    $"[DreamSession] p{playerId} story end '{msg.OutcomeName}' for {msg.PresetName} — the host already ran it");
+                return;
+            }
+
             // Client story completion → host runs full initiateEndDreaming (transition + end).
             if (_net.Role == NetworkRole.Host
                 && !string.IsNullOrEmpty(msg.OutcomeName)
@@ -156,8 +176,20 @@ namespace DWMPHorde.Networking
                 // host's whole exit and then played theirs alone. Fan out here.
                 DreamSyncManager.NotifyPeersStoryEndBeginning(
                     DreamSession.PresetName ?? msg.PresetName, msg.OutcomeName);
-                // Vanilla: transition video/fade then endDreaming. Do not hard-cut.
-                Dreams.Instance.initiateEndDreaming();
+                // Vanilla: transition video/fade then endDreaming. Do not hard-cut. Run as the
+                // host's own end, after this handler's apply guard: an outcome that moves on to
+                // the next dream (doctor 1 → 2) prepares it right here, and the chain patch stands
+                // down under the guard, so the host went into the next dream alone, unannounced,
+                // while every client waited in the old one for a pocket that never came.
+                string endingPreset = DreamSession.PresetName;
+                Singleton<Controller>.Instance.waitFramesAndRun(delegate
+                {
+                    // Still that pocket: the host's own copy of the step may have ended it (and
+                    // moved on to the next pocket of a chain) meanwhile.
+                    if (Dreams.Instance != null && Dreams.Instance.dreaming && DreamSession.IsActive
+                        && string.Equals(DreamSession.PresetName, endingPreset, StringComparison.OrdinalIgnoreCase))
+                        Dreams.Instance.initiateEndDreaming();
+                }, 1);
                 return;
             }
 
@@ -498,6 +530,7 @@ namespace DWMPHorde.Networking
         internal void SendDreamSessionBulkTo(int playerId)
         {
             if (_net.Role != NetworkRole.Host || playerId <= 0) return;
+            DreamSyncManager.AdoptSoloDreamForParty();
             var bulk = DreamSessionBulkMessage.FromLocal();
             _net.SendToPlayer(playerId, NetMessageType.DreamSessionBulk,
                 w => bulk.Serialize(w), DeliveryMethod.ReliableOrdered);

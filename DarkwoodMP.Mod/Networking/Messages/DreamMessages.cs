@@ -300,19 +300,30 @@ namespace DWMPHorde.Networking
         /// peer runs the real permadeath outcome instead of a morning respawn.
         /// </summary>
         public bool PartyWipe;
+        /// <summary>
+        /// Host→one rejoining client: it died this night before it left, so it is down again
+        /// until the morning (spectating), at <see cref="PosX"/>/<see cref="PosY"/>/<see cref="PosZ"/>.
+        /// Protocol 46.
+        /// </summary>
+        public bool ResumeDead;
+        public float PosX, PosY, PosZ;
 
         public void Serialize(NetWriter w)
         {
             w.Put(IsDead);
             w.Put(AllDeadTrigger);
             w.Put(PartyWipe);
+            w.Put(ResumeDead);
+            w.Put(PosX); w.Put(PosY); w.Put(PosZ);
         }
 
         public static NightDeathStateMessage Deserialize(NetReader r) => new NightDeathStateMessage
         {
             IsDead = r.GetBool(),
             AllDeadTrigger = r.GetBool(),
-            PartyWipe = r.GetBool()
+            PartyWipe = r.GetBool(),
+            ResumeDead = r.GetBool(),
+            PosX = r.GetFloat(), PosY = r.GetFloat(), PosZ = r.GetFloat()
         };
     }
 

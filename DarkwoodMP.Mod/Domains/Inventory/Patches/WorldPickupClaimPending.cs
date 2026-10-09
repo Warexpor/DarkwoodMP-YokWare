@@ -180,7 +180,7 @@ namespace DWMPHorde.Patches
                 if (Player.Instance != null)
                 {
                     PersonalFlavorHud.BeginBypass();
-                    try { Player.Instance.displayMessage("Already taken…"); }
+                    try { Player.Instance.displayMessage(Loc.T("Already taken…")); }
                     finally { PersonalFlavorHud.EndBypass(); }
                 }
             }

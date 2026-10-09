@@ -111,6 +111,9 @@ namespace DWMPHorde.Sync
 
         private static void OnSceneLoaded(Scene scene, LoadSceneMode mode)
         {
+            // Back at the title: whatever world is loaded next comes from a share or a save.
+            if (string.Equals(scene.name, "Darkwood", System.StringComparison.OrdinalIgnoreCase))
+                Patches.ClientChapterWorld.Reset();
             if (!_pending) return;
             // Back at the title ("Darkwood", Core.returnToMainMenu) instead of the chapter: the
             // transition was abandoned. Kept armed, the resume fired on a later, unrelated chapter
@@ -222,6 +225,7 @@ namespace DWMPHorde.Sync
         private float _nextLogAt;
         private bool _started;
         private bool _loggedWaiting;
+        private bool _loadFailed;
 
         public void Begin(bool wasHost)
         {
@@ -229,6 +233,23 @@ namespace DWMPHorde.Sync
             _started = true;
             _elapsed = 0f;
             _nextLogAt = LogEverySec;
+            _loadFailed = false;
+            Application.logMessageReceived += OnLog;
+        }
+
+        private void OnDestroy() => Application.logMessageReceived -= OnLog;
+
+        /// <summary>
+        /// The save load died: vanilla logs "ERROR WHEN LOADING DYNAMIC AND STATIC SAVE!" and the load
+        /// coroutine then throws, leaving <c>Core.loadingGame</c> set for good.
+        /// </summary>
+        private void OnLog(string message, string stack, LogType type)
+        {
+            if (!Core.loadingGame)
+                return;
+            if ((type == LogType.Exception && stack != null && stack.Contains("SaveManager"))
+                || (message != null && message.StartsWith("ERROR WHEN LOADING DYNAMIC AND STATIC SAVE", System.StringComparison.Ordinal)))
+                _loadFailed = true;
         }
 
         private void Update()
@@ -308,12 +329,14 @@ namespace DWMPHorde.Sync
             // SaveManager.Load NRE leaves loadingGame=true forever (see Player.log
             // "ERROR WHEN LOADING DYNAMIC AND STATIC SAVE"). Unstick so phase-3 can run
             // or user can quit; world may still be broken — host must re-share consistent pair.
-            if (_elapsed >= 45f && Core.loadingGame && Player.Instance != null && !GameScreen.AtTitle)
+            // Only a load that died: a slow one (a busy machine, a Wine client presenting once a
+            // second) was cut at a fixed 45 s while still loading, and the rest of the load ran
+            // with the flag off (UniqueIDDict misses, the fresh character's home oven not found).
+            if (_loadFailed && Core.loadingGame && Player.Instance != null && !GameScreen.AtTitle)
             {
                 ModLog.Warn(LogCat.Session,
-                    "[ChapterResume] loadingGame stuck 45s after scene (likely failed sav/savs load) — clearing flag");
-                try { Core.loadingGame = false; }
-                catch { /* ignore */ }
+                    "[ChapterResume] save load failed (sav/savs) — clearing loadingGame");
+                Core.loadingGame = false;
             }
 
             if (_elapsed >= ClientMaxWaitSec)

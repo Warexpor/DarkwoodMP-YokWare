@@ -218,7 +218,7 @@ namespace DWMPHorde.Networking
             net.Send(NetMessageType.EnemyHitConfirm, w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);
         }
 
-        /// <summary>Host: show a client-confirmed enemy hit on that player's stand-in for the other peers.</summary>
+        /// <summary>Host: a client-confirmed enemy hit on that player (logged; its blood comes from the victim).</summary>
         internal static void HandleEnemyHitConfirm(EnemyHitConfirmMessage m)
         {
             if (!NetGuard.Host(out var net)) return;
@@ -233,36 +233,8 @@ namespace DWMPHorde.Networking
                 return;
             _lastConfirm[pid] = now;
 
-            Vector3 proxyPos = proxy.transform.position;
-            Vector3 hit = new Vector3(m.HitX, m.HitY, m.HitZ);
-            // A report far from the stand-in is not this body's hit; show it on the body.
-            if ((hit - proxyPos).sqrMagnitude > 150f * 150f)
-                hit = proxyPos;
-
-            // The hit sound is the victim's own getHit one, sent as PlayerAudio and relayed to the
-            // other clients; playing it here too doubled it on the host.
-
-            CharBase cb = proxy.CachedCharBase;
-            bool inWater = cb != null && cb.inWater;
-            string blood = inWater ? "FX/Bloodsplats/Shotsplat" : "FX/Bloodsplats/Shotsplat_stay";
-            float rotY = Random.Range(0f, 360f);
-            bool prevHack = TraverseHack.GetExplicitFlag();
-            TraverseHack.SetExplicitFlag(true);
-            try { Core.AddPrefab(blood, hit, Quaternion.Euler(90f, rotY, 0f), null); }
-            finally { TraverseHack.SetExplicitFlag(prevHack); }
-
-            // The victim already sees its own hit.
-            net.SendToAllExcept(pid, NetMessageType.BulletImpact, w => new BulletImpactMessage
-            {
-                PrefabName = blood,
-                PoolName = "",
-                PosX = hit.x,
-                PosY = hit.y,
-                PosZ = hit.z,
-                RotX = 90f,
-                RotY = rotY,
-                RotZ = 0f
-            }.Serialize(w), DeliveryMethod.ReliableOrdered);
+            // No splat here: the victim's own getHit blood (none on a block) reaches every peer
+            // from the victim; a second one from the host doubled it for everyone else.
 
             EntitySyncLog.Damage("[EnemyAttack] p" + pid + " confirmed hit by id=" + m.EntityId
                 + " kind=" + m.Kind + " dmg=" + m.Damage);

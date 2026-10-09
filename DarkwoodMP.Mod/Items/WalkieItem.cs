@@ -9,7 +9,8 @@ using UnityEngine;
 namespace DWMPHorde.Items
 {
     /// <summary>
-    /// Injects craftable walkie_talkie (2 scrap + 1 nail, workbench lvl 1) for radio voice.
+    /// Injects craftable walkie_talkie (2 scrap + 1 nail, workbench lvl 1) for radio voice; it
+    /// runs on a 9V battery (reloaded like the flashlight) and comes off the bench charged.
     /// Ported from friend Melon WalkieItem onto BepInEx Harmony / PatchAll.
     /// </summary>
     public static class WalkieItem
@@ -76,6 +77,29 @@ namespace DWMPHorde.Items
                 {
                     ModLog.Warn(LogCat.Audio, "Walkie localization re-inject: " + ex.Message);
                 }
+            }
+        }
+
+        /// <summary>
+        /// The walkie in the database's name list (<c>itemsDict</c>: type to resource path), so
+        /// item lists built from it, the vanilla debug Items window and item-giver mods, show it
+        /// and can give it. Nothing loads the path: <c>getItem</c> is answered above it
+        /// (<see cref="GetItemPatch"/>). Loot comes from loot tables, not this list.
+        /// </summary>
+        private static void Register(ItemsDatabase db)
+        {
+            if (db != null && db.itemsDict != null && !db.itemsDict.ContainsKey(ItemType))
+                db.itemsDict.Add(ItemType, "YokWare/" + ItemType);
+        }
+
+        /// <summary><c>populateDict</c> clears the list and refills it from the asset: add the walkie back.</summary>
+        [HarmonyPatch(typeof(ItemsDatabase), nameof(ItemsDatabase.populateDict))]
+        private static class PopulateDictPatch
+        {
+            private static void Postfix(ItemsDatabase __instance)
+            {
+                if (_template != null)
+                    Register(__instance);
             }
         }
 
@@ -215,9 +239,18 @@ namespace DWMPHorde.Items
             item.showPopup = true;
             item.rottenItem = null;
             item.rotten = false;
-            item.hasDurability = false;
+            // Runs on a 9V battery like the vanilla flashlight: the durability bar is the charge
+            // (drained by VoiceChatService while switched on), and the vanilla Reload key swaps in
+            // a battery9v (InvItemClass.reload: no ammo, so durability back to full).
+            item.hasDurability = true;
+            item.maxDurability = 100f;
+            item.durabilityDrain = 0f;
+            item.durabilityRegeneration = 0f;
+            item.regeneratesWhenInactive = false;
             item.hasAmmo = false;
-            item.canBeReloaded = false;
+            item.canBeReloaded = true;
+            item.ammoType = "battery9v";
+            item.reloadSound = "pistol_reload";
             item.isFirearm = false;
             item.isMelee = false;
             item.canBeAimed = false;
@@ -253,6 +286,7 @@ namespace DWMPHorde.Items
                 }
             };
             _template = item;
+            Register(db);
             ModLog.Event(LogCat.Audio, "Walkie-Talkie item built (2 scrap + 1 nail, WB lvl 1)");
             return true;
         }
@@ -262,11 +296,13 @@ namespace DWMPHorde.Items
             Dictionary<string, string> sheet = Language.GetAllKeysForSheet("Items");
             if (sheet == null || sheet.ContainsKey("walkie_talkie_name"))
                 return;
-            sheet.Add("walkie_talkie_name", "Walkie-Talkie");
+            // DoSwitch runs before the menu's per-frame language refresh: read the setting now.
+            Loc.SetLanguage(GameSettings.GetString("LanguageCode"));
+            sheet.Add("walkie_talkie_name", Loc.T("Walkie-Talkie"));
             if (!sheet.ContainsKey("walkie_talkie_desc"))
             {
                 sheet.Add("walkie_talkie_desc",
-                    "A crude two-way radio. Carry one each to talk over any distance.");
+                    Loc.T("A crude two-way radio. Carry one each to talk over any distance."));
             }
             if (!_langDone)
             {
@@ -375,6 +411,10 @@ namespace DWMPHorde.Items
             return uvs;
         }
 
+        /// <summary>
+        /// The walkie's painted icon (256 px, embedded). The inventory draws it at 30 units, so it
+        /// gets a mip chain and trilinear filtering: shrunk without mips it shimmers and jags.
+        /// </summary>
         private static Texture2D LoadIconTexture()
         {
             if (_iconTexture != null)
@@ -383,64 +423,42 @@ namespace DWMPHorde.Items
                 return null;
             try
             {
-                byte[] bytes = null;
-                string dir = Path.GetDirectoryName(typeof(WalkieItem).Assembly.Location) ?? ".";
-                string beside = Path.Combine(dir, "walkie_talkie.png");
-                if (File.Exists(beside))
-                    bytes = File.ReadAllBytes(beside);
-                if (bytes == null)
+                byte[] bytes;
+                using (Stream stream = typeof(WalkieItem).Assembly.GetManifestResourceStream(EmbeddedResourceName))
                 {
-                    using (Stream stream = typeof(WalkieItem).Assembly
-                        .GetManifestResourceStream(EmbeddedResourceName))
+                    if (stream == null)
                     {
-                        if (stream != null)
-                        {
-                            bytes = new byte[stream.Length];
-                            int read = 0;
-                            while (read < bytes.Length)
-                            {
-                                int n = stream.Read(bytes, read, bytes.Length - read);
-                                if (n <= 0) break;
-                                read += n;
-                            }
-                        }
+                        _iconTextureFailed = true;
+                        ModLog.Warn(LogCat.Audio, "Walkie sprite missing — keeping scrap icon");
+                        return null;
                     }
-                }
-                if (bytes == null)
-                {
-                    // Fallback logical name from extract
-                    using (Stream stream = typeof(WalkieItem).Assembly
-                        .GetManifestResourceStream("DarkwoodMP.walkie_talkie.png"))
+                    bytes = new byte[stream.Length];
+                    int read = 0;
+                    while (read < bytes.Length)
                     {
-                        if (stream != null)
-                        {
-                            bytes = new byte[stream.Length];
-                            int read = 0;
-                            while (read < bytes.Length)
-                            {
-                                int n = stream.Read(bytes, read, bytes.Length - read);
-                                if (n <= 0) break;
-                                read += n;
-                            }
-                        }
+                        int n = stream.Read(bytes, read, bytes.Length - read);
+                        if (n <= 0) break;
+                        read += n;
                     }
-                }
-                if (bytes == null)
-                {
-                    _iconTextureFailed = true;
-                    ModLog.Warn(LogCat.Audio, "Walkie sprite missing — keeping scrap icon");
-                    return null;
                 }
 
-                var tex = new Texture2D(2, 2, TextureFormat.RGBA32, false);
-                if (!ImageConversion.LoadImage(tex, bytes))
+                var png = new Texture2D(2, 2, TextureFormat.RGBA32, false);
+                if (!ImageConversion.LoadImage(png, bytes))
                 {
                     _iconTextureFailed = true;
                     ModLog.Warn(LogCat.Audio, "Walkie sprite decode failed");
                     return null;
                 }
-                tex.name = "YokWare_WalkieIconTex";
-                tex.wrapMode = TextureWrapMode.Clamp;
+                var tex = new Texture2D(png.width, png.height, TextureFormat.RGBA32, true)
+                {
+                    name = "YokWare_WalkieIconTex",
+                    wrapMode = TextureWrapMode.Clamp,
+                    filterMode = FilterMode.Trilinear,
+                    anisoLevel = 2
+                };
+                tex.SetPixels32(png.GetPixels32());
+                tex.Apply(true, true);
+                UnityEngine.Object.Destroy(png);
                 _iconTexture = tex;
                 return tex;
             }

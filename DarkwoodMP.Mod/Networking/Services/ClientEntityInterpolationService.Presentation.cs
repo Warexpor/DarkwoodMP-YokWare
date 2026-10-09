@@ -457,6 +457,7 @@ namespace DWMPHorde.Networking
             c.dying = true;
             c.alive = false;
             c.Health = 0f;
+            HealthBarRefresh.IfShowing(c.gameObject);
             c.immobilised = false;
             c.cuttingInHalf = string.Equals(hostClip, "Cut_half", System.StringComparison.OrdinalIgnoreCase);
 

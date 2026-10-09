@@ -7,35 +7,63 @@ using UnityEngine;
 namespace DWMPHorde
 {
     /// <summary>
-    /// Embedded title-button art (beveled MULTIPLAYER idle/hover).
-    /// CamUI looks down (Euler 90). UI lives in screen-pixel XZ; size comes from row spacing,
-    /// not BoxCollider AABB.y (near-zero / undersized vs PLAY sprites).
+    /// Embedded title-button art (MULTIPLAYER idle/hover, and СЕТЕВАЯ ИГРА for Russian). Pixel
+    /// art built from the vanilla menu atlas glyphs of that language with the vanilla _0 → _1
+    /// rollover look; both PNGs of a language share one canvas (the hover's glow padding),
+    /// drawn point-filtered at the EXIT sprite's texel size. The art follows the game's
+    /// language setting. CamUI looks down (Euler 90); UI lives in screen-pixel XZ.
     /// </summary>
     internal static class MenuButtonArt
     {
-        private const string IdleResource = "DWMPHorde.Resources.MenuButtons.multiplayer_idle.png";
-        private const string HoverResource = "DWMPHorde.Resources.MenuButtons.multiplayer_hover.png";
-        /// <summary>Title row gap in PositionMe offset units (matches inject RowSpacing).</summary>
-        private const float TitleRowSpacing = 60f;
-        /// <summary>
-        /// Visible letter height vs one title row. Keep under ~0.6 so MULTIPLAYER
-        /// matches PLAY/OPTIONS face size (0.82 overshot and looked huge).
-        /// </summary>
-        private const float LetterHeightFracOfRow = 0.55f;
+        private sealed class ArtSet
+        {
+            public string IdleResource, HoverResource;
+            public Texture2D Idle, Hover;
+            public bool Failed;
+        }
 
-        private static Texture2D _idle; // process-scoped: loaded asset
-        private static Texture2D _hover; // process-scoped: loaded asset
-        private static bool _loadFailed; // process-scoped: loaded asset
+        private static readonly ArtSet English = new ArtSet // process-scoped: loaded asset
+        {
+            IdleResource = "DWMPHorde.Resources.MenuButtons.multiplayer_idle.png",
+            HoverResource = "DWMPHorde.Resources.MenuButtons.multiplayer_hover.png"
+        };
+        private static readonly ArtSet Russian = new ArtSet // process-scoped: loaded asset
+        {
+            IdleResource = "DWMPHorde.Resources.MenuButtons.multiplayer_idle_ru.png",
+            HoverResource = "DWMPHorde.Resources.MenuButtons.multiplayer_hover_ru.png"
+        };
         private static Mesh _quad; // process-scoped: loaded asset
+
+        /// <summary>The art for the game's language (English when the Russian set cannot load).</summary>
+        private static ArtSet Current()
+        {
+            ArtSet set = Loc.Russian ? Russian : English;
+            if (!EnsureLoaded(set) && set != English)
+                set = English;
+            return set.Idle != null ? set : null;
+        }
+
+        private static bool EnsureLoaded(ArtSet set)
+        {
+            if (set.Idle != null)
+                return true;
+            if (set.Failed)
+                return false;
+            set.Idle = Load(set.IdleResource);
+            set.Hover = Load(set.HoverResource);
+            set.Failed = set.Idle == null;
+            return !set.Failed;
+        }
 
         public static bool TryAttachMultiplayerArt(GameObject buttonGo)
         {
             if (buttonGo == null)
                 return false;
-            Texture2D idle = Load(IdleResource, ref _idle);
-            Texture2D hover = Load(HoverResource, ref _hover);
-            if (idle == null)
+            ArtSet set = Current();
+            if (set == null)
                 return false;
+            Texture2D idle = set.Idle;
+            Texture2D hover = set.Hover;
 
             Shader shader = Shader.Find("tk2d/BlendVertexColor")
                 ?? Shader.Find("Sprites/Default")
@@ -46,23 +74,15 @@ namespace DWMPHorde
                 return false;
             }
 
-            float aspect = idle.height > 0 ? (float)idle.width / (float)idle.height : 5.35f;
-            float rowPx = TitleRowSpacing * Core.ResolutionHeightModifier;
-            // Opaque letter band may be shorter than the PNG (hover bloom padding).
-            float contentFrac = EstimateOpaqueHeightFrac(idle);
-            float targetH = rowPx * LetterHeightFracOfRow / contentFrac;
-            float targetW = targetH * aspect;
-
-            // Cap against quit/PLAY mesh face so we never exceed native title letter height.
-            if (TryMeshFace(buttonGo, out _, out float meshH) && meshH > 1f)
+            // One art texel = one texel of the EXIT sprite this button was cloned from, so the
+            // letters land on the same pixel grid as PLAY/OPTIONS/EXIT.
+            if (!TryVanillaTexel(buttonGo, out float texel))
             {
-                float meshLetterH = meshH * 0.72f / contentFrac;
-                if (meshLetterH > 8f && meshLetterH < targetH)
-                {
-                    targetH = meshLetterH;
-                    targetW = targetH * aspect;
-                }
+                ModLog.Warn(LogCat.Session, "Menu button art: no EXIT sprite to size from — falling back to text");
+                return false;
             }
+            float targetW = idle.width * texel;
+            float targetH = idle.height * texel;
 
             if (targetW < 8f || targetH < 8f)
             {
@@ -97,14 +117,12 @@ namespace DWMPHorde
             art.transform.SetParent(buttonGo.transform, true);
 
             var swap = art.AddComponent<MenuButtonArtHover>();
-            swap.Idle = idle;
-            swap.Hover = hover ?? idle;
+            swap.Set = set;
             swap.Button = buttonGo.GetComponent<Button>();
             swap.Renderer = mr;
             swap.Follow = buttonGo.transform;
             swap.Col = col;
-            swap.TargetW = targetW;
-            swap.TargetH = targetH;
+            swap.Texel = texel;
 
             // Hitbox must cover the long MULTIPLAYER glyph, not the short EXIT collider.
             MainMenuMultiplayerInject.FitButtonHitbox(buttonGo);
@@ -112,7 +130,7 @@ namespace DWMPHorde
             ModLog.Event(LogCat.Session,
                 "MULTIPLAYER art attached shader=" + shader.name
                 + " size=" + targetW.ToString("F1") + "x" + targetH.ToString("F1")
-                + " rowPx=" + rowPx.ToString("F1"));
+                + " texel=" + texel.ToString("F2"));
             return true;
         }
 
@@ -124,7 +142,8 @@ namespace DWMPHorde
         {
             u0 = v0 = 0f;
             u1 = v1 = 1f;
-            Texture2D idle = Load(IdleResource, ref _idle);
+            ArtSet set = Current();
+            Texture2D idle = set != null ? set.Idle : null;
             if (idle == null)
                 return false;
             try
@@ -160,6 +179,23 @@ namespace DWMPHorde
             }
         }
 
+        /// <summary>
+        /// World size of one texel of the cloned EXIT sprite: its mesh face height over the
+        /// sprite definition's trimmed height in texels (the menu atlas has texelSize 1).
+        /// </summary>
+        private static bool TryVanillaTexel(GameObject go, out float texel)
+        {
+            texel = 0f;
+            tk2dBaseSprite sprite = go.GetComponent<tk2dBaseSprite>();
+            tk2dSpriteDefinition def = sprite != null ? sprite.GetCurrentSpriteDef() : null;
+            if (def == null || def.boundsData == null || def.boundsData.Length < 2 || def.boundsData[1].y < 1f)
+                return false;
+            if (!TryMeshFace(go, out _, out float meshH))
+                return false;
+            texel = meshH / def.boundsData[1].y;
+            return texel > 0f;
+        }
+
         private static bool TryMeshFace(GameObject go, out float faceW, out float faceH)
         {
             faceW = faceH = 0f;
@@ -173,44 +209,6 @@ namespace DWMPHorde
             if (faceH < 1f && Mathf.Abs(ms.z * lossy.z) > faceH)
                 faceH = Mathf.Abs(ms.z * lossy.z);
             return faceW > 1f && faceH > 1f;
-        }
-
-        /// <summary>
-        /// Fraction of texture height that has visible (non-near-zero alpha) pixels.
-        /// Used so hover bloom padding does not shrink the letter faces.
-        /// </summary>
-        private static float EstimateOpaqueHeightFrac(Texture2D tex)
-        {
-            if (tex == null || tex.height < 2)
-                return 1f;
-            try
-            {
-                Color32[] px = tex.GetPixels32();
-                int w = tex.width;
-                int h = tex.height;
-                int yMin = h, yMax = -1;
-                for (int y = 0; y < h; y++)
-                {
-                    int row = y * w;
-                    for (int x = 0; x < w; x++)
-                    {
-                        if (px[row + x].a > 24)
-                        {
-                            if (y < yMin) yMin = y;
-                            if (y > yMax) yMax = y;
-                            break;
-                        }
-                    }
-                }
-                if (yMax < yMin)
-                    return 1f;
-                float frac = (yMax - yMin + 1) / (float)h;
-                return Mathf.Clamp(frac, 0.35f, 1f);
-            }
-            catch
-            {
-                return 1f;
-            }
         }
 
         private static void PlaceFacingCam(Transform art, Transform follow, Collider col,
@@ -257,37 +255,29 @@ namespace DWMPHorde
             return _quad;
         }
 
-        private static Texture2D Load(string resourceName, ref Texture2D cache)
+        private static Texture2D Load(string resourceName)
         {
-            if (cache != null)
-                return cache;
-            if (_loadFailed)
-                return null;
             try
             {
                 byte[] bytes = ReadResource(resourceName);
                 if (bytes == null)
                 {
-                    _loadFailed = true;
                     ModLog.Warn(LogCat.Session, "Menu button art missing: " + resourceName);
                     return null;
                 }
                 var tex = new Texture2D(2, 2, TextureFormat.RGBA32, false);
                 if (!ImageConversion.LoadImage(tex, bytes))
                 {
-                    _loadFailed = true;
                     ModLog.Warn(LogCat.Session, "Menu button art decode failed: " + resourceName);
                     return null;
                 }
                 tex.name = resourceName;
                 tex.filterMode = FilterMode.Point;
                 tex.wrapMode = TextureWrapMode.Clamp;
-                cache = tex;
-                return cache;
+                return tex;
             }
             catch (Exception ex)
             {
-                _loadFailed = true;
                 ModLog.Warn(LogCat.Session, "Menu button art: " + ex.Message);
                 return null;
             }
@@ -314,14 +304,12 @@ namespace DWMPHorde
 
         private sealed class MenuButtonArtHover : MonoBehaviour
         {
-            public Texture2D Idle;
-            public Texture2D Hover;
+            public ArtSet Set;
             public Button Button;
             public MeshRenderer Renderer;
             public Transform Follow;
             public Collider Col;
-            public float TargetW;
-            public float TargetH;
+            public float Texel;
             private bool _wasHover;
 
             private void LateUpdate()
@@ -332,17 +320,25 @@ namespace DWMPHorde
                     return;
                 }
 
+                // The language changed in Options: the other word, its own width and hitbox.
+                ArtSet now = Current();
+                bool relang = now != null && now != Set;
+                if (relang)
+                    Set = now;
+
                 GameObject camObj = Core.CamUI;
                 Camera cam = camObj != null ? camObj.GetComponent<Camera>() : null;
-                PlaceFacingCam(transform, Follow, Col, cam, TargetW, TargetH);
+                PlaceFacingCam(transform, Follow, Col, cam, Set.Idle.width * Texel, Set.Idle.height * Texel);
+                if (relang)
+                    MainMenuMultiplayerInject.FitButtonHitbox(Follow.gameObject);
 
                 if (Renderer == null || Renderer.sharedMaterial == null)
                     return;
                 bool hover = Button != null && Button.rolledOver && !Button.disabled;
-                if (hover == _wasHover)
+                if (hover == _wasHover && !relang)
                     return;
                 _wasHover = hover;
-                Renderer.sharedMaterial.mainTexture = hover ? Hover : Idle;
+                Renderer.sharedMaterial.mainTexture = hover && Set.Hover != null ? Set.Hover : Set.Idle;
             }
         }
     }

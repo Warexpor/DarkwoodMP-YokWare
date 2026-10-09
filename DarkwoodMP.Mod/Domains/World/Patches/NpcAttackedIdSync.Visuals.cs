@@ -254,14 +254,20 @@ namespace DWMPHorde.Patches
                 $"[RepSync] applied animLibrary '{npc.name}' → '{libraryName}'");
         }
 
+        /// <summary>
+        /// The NPC the host changed, switched off or not. Never woken: vanilla's GameEvent writes
+        /// these onto a hidden NPC and leaves it hidden (the act 2 Doctor waits switched off in
+        /// every location; waking it here put him in front of every client while the host had none).
+        /// </summary>
         private static NPC ResolveNpcNear(ReputationSyncMessage msg)
         {
             Vector3 near = new Vector3(msg.PosX, msg.PosY, msg.PosZ);
             bool dream = DreamSyncManager.IsDreamActive;
             NPC npc = DialogOutcomeCloseNetHandlers.FindNpcByNameNear(
-                msg.NpcName, preferDreamPad: dream, near);
+                msg.NpcName, preferDreamPad: dream, near, wake: false);
             if (npc == null)
-                npc = DialogOutcomeCloseNetHandlers.FindNpcByName(msg.NpcName, preferDreamPad: dream);
+                npc = DialogOutcomeCloseNetHandlers.FindNpcByName(msg.NpcName, preferDreamPad: dream,
+                    strictPad: false, lookupOnly: true);
             return npc;
         }
     }

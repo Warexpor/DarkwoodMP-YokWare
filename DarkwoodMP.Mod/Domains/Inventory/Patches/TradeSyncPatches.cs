@@ -114,6 +114,33 @@ namespace DWMPHorde.Patches
     }
 
     /// <summary>
+    /// Host: its own trade window closed with goods still in the buy tray. Vanilla puts them back
+    /// into the stock; every snapshot sent while they sat in the tray (another player's trade, a
+    /// restock) went out without them, so the others' copies are short until the next one.
+    /// </summary>
+    [HarmonyPatch(typeof(DialogueWindow), nameof(DialogueWindow.closeTrade))]
+    public static class TradeCloseHostResyncPatch
+    {
+        private static void Prefix(DialogueWindow __instance, out NPC __state)
+        {
+            __state = null;
+            if (__instance == null || __instance.npc == null || __instance.exchangeTrader == null)
+                return;
+            if (__instance.exchangeTrader.getAllItems().Count > 0)
+                __state = __instance.npc;
+        }
+
+        private static void Postfix(NPC __state)
+        {
+            if (__state == null || !__state.trader || LanNetworkManager.IsApplyingRemoteState)
+                return;
+            if (!NetGuard.ConnectedHost(out _))
+                return;
+            TradeInventorySync.BroadcastNpcInventory(__state);
+        }
+    }
+
+    /// <summary>
     /// Host is authoritative for morning / new-day trader randomization.
     /// Clients skip local randomize and wait for TradeInventorySync.
     /// </summary>
@@ -307,9 +334,10 @@ namespace DWMPHorde.Patches
             if (string.IsNullOrEmpty(msg.NpcName)) return;
 
             NPC npc = FindNpcByName(msg);
-            if (npc == null)
+            if (npc == null || !npc.gameObject.activeInHierarchy)
             {
-                // NPC may not be streamed yet — queue for flush.
+                // Not here yet, or switched off (a trader the story keeps hidden; the host sends
+                // every trader's stock, out or not): queued, applied once it is out.
                 ModRuntime.Network?.TradeHandlers?.QueuePendingTradeInventory(msg);
                 return;
             }
@@ -384,6 +412,17 @@ namespace DWMPHorde.Patches
             }
 
             var dw = Singleton<UI>.Instance?.dialogueWindow;
+            // This player's own buy tray holds goods taken out of its copy of the stock (vanilla
+            // moves them across, and puts them back when the trade closes). The host's stock still
+            // has them, so they come back in the snapshot: take them out again, or they were on the
+            // shelf twice (a second player trading at the same time sends a snapshot mid-trade).
+            if (dw != null && dw.opened && dw.npc == npc && Player.Instance != null && Player.Instance.inShop
+                && dw.exchangeTrader != null)
+            {
+                TradeEntry[] held = TradeCommit.Capture(dw.exchangeTrader);
+                for (int i = 0; i < held.Length; i++)
+                    TradeCommit.RemoveFrom(inv, held[i]);
+            }
             // The trade window's balance line exists only while this trader's trade is open (vanilla
             // refreshReputation reads the talked-to NPC and the exchange panes).
             if (dw != null && dw.opened && dw.npc == npc && dw.currentMenu == DialogueWindow.CurrentMenu.trade)
@@ -399,17 +438,26 @@ namespace DWMPHorde.Patches
                 $"[TradeSync] applied absolute stock '{msg.NpcName}' types={msg.ItemCount}");
         }
 
+        /// <summary>
+        /// How far a trader may stand from where the host's copy stands and still be the same one.
+        /// Every hideout and camp has its own "wolfman"; the morning one at the hideout is spawned
+        /// by the host and reaches a client a moment after its stock. With no limit that stock went
+        /// to the closest other Wolfman (another camp), and the hideout one kept a stock of its own.
+        /// </summary>
+        internal const float SameTraderRadius = 400f;
+
+        /// <summary>The trader the stock is for, out or not. A lookup never switches it on.</summary>
         public static NPC FindNpcByName(TradeInventorySyncMessage msg)
         {
             if (msg.HasPos)
                 return DialogOutcomeCloseNetHandlers.FindNpcByNameNear(
-                    msg.NpcName, msg.InDream, new Vector3(msg.PosX, msg.PosY, msg.PosZ));
-            return DialogOutcomeCloseNetHandlers.FindNpcByName(msg.NpcName, msg.InDream);
+                    msg.NpcName, msg.InDream, new Vector3(msg.PosX, msg.PosY, msg.PosZ), SameTraderRadius, wake: false);
+            return DialogOutcomeCloseNetHandlers.FindNpcByName(msg.NpcName, msg.InDream, strictPad: false, lookupOnly: true);
         }
 
         public static NPC FindNpcByName(string name)
         {
-            return DialogOutcomeCloseNetHandlers.FindNpcByName(name, preferDreamPad: false);
+            return DialogOutcomeCloseNetHandlers.FindNpcByName(name, preferDreamPad: false, strictPad: false, lookupOnly: true);
         }
     }
 
@@ -425,9 +473,9 @@ namespace DWMPHorde.Patches
             if (msg.ItemCount <= 0 || msg.ItemTypes == null) return;
 
             NPC npc = TradeInventorySync.FindNpcByName(msg.NpcName);
-            if (npc == null)
+            if (npc == null || !npc.gameObject.activeInHierarchy)
             {
-                ModRuntime.Log?.LogWarning($"[TradeSync] NPC '{msg.NpcName}' not found locally");
+                ModRuntime.Log?.LogWarning($"[TradeSync] NPC '{msg.NpcName}' not out here");
                 return;
             }
 

@@ -70,6 +70,7 @@ namespace DWMPHorde.Networking
                         chain.maxHealth = msg.MaxHealth;
 
                     chain.health = Mathf.Max(0f, msg.Health);
+                    HealthBarRefresh.IfShowing(chain.gameObject);
 
                     bool wantAttached = msg.Attached != 0;
                     if (!wantAttached && chain.attached)

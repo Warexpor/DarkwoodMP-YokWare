@@ -171,7 +171,7 @@ namespace DWMPHorde.Networking
             {
                 ModLog.Error(LogCat.Save,
                     "No sav.dat/savs.dat on disk for prof" + profileId
-                    + " — host should quicksave once, then client rejoin / F2 Resend");
+                    + " — host should save once, then client rejoin / host Send the world again");
                 ProgressText = WorldSharePolicy.FormatShareFailure(
                     "no save files for prof" + profileId + " — host: save once then Resend");
                 _net.StatusText = ProgressText;

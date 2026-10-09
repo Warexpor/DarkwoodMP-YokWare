@@ -8,7 +8,7 @@ namespace DWMPHorde
     public static partial class MainMenuMultiplayerInject
     {
         private static GameObject CloneButton(GameObject template, Transform parent,
-            string name, string label, Action onFire, string tagKind, bool useTextLabel = true)
+            string name, string label, Action onFire, string tagKind)
         {
             GameObject go = UnityEngine.Object.Instantiate(template, parent);
             go.name = name;
@@ -45,24 +45,13 @@ namespace DWMPHorde
                 btn.OnFire = () => Guarded(onFire);
             }
 
-            if (useTextLabel)
-            {
-                // Panel rows: same outlined bitmap look as Video / Profiles menus.
-                tk2dTextMesh tm = CreateLabel(go.transform, label, settingsStyle: true);
-                if (tm != null)
-                {
-                    tm.transform.localScale *= PanelLabelScale;
-                    if (btn != null)
-                        ApplySettingsButtonColors(btn, tm);
-                }
-                FitButtonHitbox(go);
-            }
+            YokWareUiTag tag = go.GetComponent<YokWareUiTag>();
+            if (tag != null)
+                tag.LabelEn = label;
             return go;
         }
 
-        /// <summary>
-        /// Vanilla Options hover = idle gray → rollover white. We had forced both to white.
-        /// </summary>
+        /// <summary>Text fallback of the MULTIPLAYER button: Options' idle grey, white on hover.</summary>
         private static void ApplySettingsButtonColors(Button btn, tk2dTextMesh tm)
         {
             if (btn == null || tm == null)
@@ -265,10 +254,14 @@ namespace DWMPHorde
             tk2dTextMesh tm = labelGo.GetComponent<tk2dTextMesh>();
             if (tm == null)
                 return null;
+            YokWareUiTag tag = parent.GetComponent<YokWareUiTag>();
+            if (tag != null)
+                tag.LabelEn = text;
+            string shown = Loc.T(text);
             tm.anchor = TextAnchor.MiddleCenter;
-            if (tm.maxChars < text.Length + 4)
-                tm.maxChars = text.Length + 8;
-            tm.text = text;
+            if (tm.maxChars < shown.Length + 4)
+                tm.maxChars = shown.Length + 8;
+            tm.text = shown;
             // Colors: settingsStyle applied by ApplySettingsButtonColors (idle≠hover).
             // Non-settings fallback keeps source colors.
             tm.Commit();

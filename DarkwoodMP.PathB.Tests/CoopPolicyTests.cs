@@ -20,6 +20,21 @@ public class CoopPolicyTests
     }
 
     [Fact]
+    public void MorningVisitor_GoesToTheFullestHideout_TieToTheHost()
+    {
+        // Most players wins, even over the host's hideout.
+        Assert.Equal(1, MorningVisitorPolicy.Pick(new[] { 1, 2 }, new[] { 1, 2 }, hostIndex: 0));
+        // A tie goes to the host's hideout.
+        Assert.Equal(1, MorningVisitorPolicy.Pick(new[] { 1, 1 }, new[] { 2, 1 }, hostIndex: 1));
+        Assert.Equal(0, MorningVisitorPolicy.Pick(new[] { 1, 1, 1 }, new[] { 1, 2, 3 }, hostIndex: 0));
+        // Host not home: the tie goes to the lowest player id.
+        Assert.Equal(1, MorningVisitorPolicy.Pick(new[] { 1, 1 }, new[] { 4, 3 }, hostIndex: -1));
+        // A tie the host is not part of: lowest id among the fullest.
+        Assert.Equal(2, MorningVisitorPolicy.Pick(new[] { 1, 2, 2 }, new[] { 1, 5, 3 }, hostIndex: 0));
+        Assert.Equal(-1, MorningVisitorPolicy.Pick(new int[0], new int[0], hostIndex: -1));
+    }
+
+    [Fact]
     public void TimePolicy_ClientConnected_SuppressesClock()
     {
         // Also gates Controller.useTimeSkip on connected clients (beds / wait-until-evening).
@@ -28,9 +43,11 @@ public class CoopPolicyTests
         Assert.False(CoopTimePolicy.ShouldSuppressClientClock(isConnected: false, isClient: true));
         Assert.True(CoopTimePolicy.ShouldUseRefreshTimeNoLogicOnClientSync);
         // Shared clock: stops only when the host and every peer are inside.
-        Assert.True(CoopTimePolicy.SharedClockRuns(hostInOutsideLocation: false, anyRemoteInOpenWorld: false));
-        Assert.True(CoopTimePolicy.SharedClockRuns(hostInOutsideLocation: true, anyRemoteInOpenWorld: true));
-        Assert.False(CoopTimePolicy.SharedClockRuns(hostInOutsideLocation: true, anyRemoteInOpenWorld: false));
+        // A host dying or in the Wolf's trap does not stop a peer's clock; a world hold does.
+        Assert.True(CoopTimePolicy.SharedClockSteps(worldHeld: false, hostCounts: false, anyRemoteCounts: true));
+        Assert.False(CoopTimePolicy.SharedClockSteps(worldHeld: false, hostCounts: false, anyRemoteCounts: false));
+        Assert.False(CoopTimePolicy.SharedClockSteps(worldHeld: true, hostCounts: true, anyRemoteCounts: true));
+        Assert.True(CoopTimePolicy.SharedClockSteps(worldHeld: false, hostCounts: true, anyRemoteCounts: false));
         // Village at night: away from the night warning until morning; flips unseen only.
         Assert.True(VillageNightPolicy.IsNearNight(970, 1100, 360));
         Assert.True(VillageNightPolicy.IsNearNight(100, 1100, 360));
@@ -126,14 +143,18 @@ public class CoopPolicyTests
     }
 
     [Fact]
-    public void DialogPolicy_NightTraderReputation_IsPerPlayer()
+    public void DialogPolicy_TraderReputation_IsPerPlayer()
     {
         // NPC.name values from the vanilla data (every Character with isNightTrader: 1).
         Assert.True(DialogApplyPolicy.IsPerPlayerReputationNpcName("nightTrader"));
         Assert.True(DialogApplyPolicy.IsPerPlayerReputationNpcName("theThree"));
         Assert.True(DialogApplyPolicy.IsPerPlayerReputationNpcName("soldier_underground"));
         Assert.True(DialogApplyPolicy.IsPerPlayerReputationNpcName("NightTrader"));
-        Assert.False(DialogApplyPolicy.IsPerPlayerReputationNpcName("wolfman"));
+        // Traders whose standing is only currency.
+        Assert.True(DialogApplyPolicy.IsPerPlayerReputationNpcName("wolfman"));
+        Assert.True(DialogApplyPolicy.IsPerPlayerReputationNpcName("piotrek"));
+        // The Doctor's chapter 2 story state lives in his reputation: shared.
+        Assert.False(DialogApplyPolicy.IsPerPlayerReputationNpcName("doctor"));
         Assert.False(DialogApplyPolicy.IsPerPlayerReputationNpcName("soldier"));
         Assert.False(DialogApplyPolicy.IsPerPlayerReputationNpcName(null));
         Assert.True(DialogApplyPolicy.ShouldDeferSharedReputation(isNightTrader: false));
@@ -155,7 +176,7 @@ public class CoopPolicyTests
     // Every Player function vanilla scenes call with targetUniqueObjects "player" (AssetRipper
     // export scan): world ones run on every peer, the rest only on the scene's own player.
     [Theory]
-    [InlineData("tryToSpawnShadow", true)]
+    [InlineData("tryToSpawnShadow", false)]
     [InlineData("pauseShadows", true)]
     [InlineData("unpauseShadows", true)]
     [InlineData("removeShadows", true)]

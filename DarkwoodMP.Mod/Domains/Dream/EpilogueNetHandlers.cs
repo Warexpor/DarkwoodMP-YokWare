@@ -82,8 +82,41 @@ namespace DWMPHorde.Networking
                 net.Broadcast(NetMessageType.SceneLoad,
                     w => new SceneLoadMessage { SceneName = CreditsSceneName }.Serialize(w),
                     LiteNetLib.DeliveryMethod.ReliableOrdered);
-                ApplySceneLoad(CreditsSceneName, delaySeconds: 8f);
+                // A host outside the ending (dead in the forest when it began) stays in the world,
+                // as a client outside it does.
+                if (IsLocalInEpilogue())
+                {
+                    HandWorldToPlayersOutside(net);
+                    ApplySceneLoad(CreditsSceneName, delaySeconds: 8f);
+                }
+                else
+                    ModRuntime.LegacyInfo("[Epilogue] host not in the ending — stays in the world");
                 Reset();
+            }
+
+            /// <summary>
+            /// Host off to the credits while players outside the ending play on: one of them takes the
+            /// host (graceful handoff) instead of all of them losing it like a crash, and never a
+            /// player bound for the credits.
+            /// </summary>
+            private static void HandWorldToPlayersOutside(LanNetworkManager net)
+            {
+                var inEnding = new System.Collections.Generic.HashSet<int>();
+                bool anyOutside = false;
+                foreach (var proxy in net.GetAllProxies())
+                {
+                    if (proxy == null || proxy.PlayerId <= 0)
+                        continue;
+                    if (proxy.RemoteInEpilogue)
+                        inEnding.Add(proxy.PlayerId);
+                    else
+                        anyOutside = true;
+                }
+                if (!anyOutside)
+                    return;
+                bool started = net.TryGracefulHostLeave(id => !inEnding.Contains(id));
+                ModRuntime.LegacyInfo("[Epilogue] players outside the ending keep the world"
+                    + (started ? " — host handed over" : " — no handoff"));
             }
         }
 
@@ -146,6 +179,8 @@ namespace DWMPHorde.Networking
             _sceneLoadPending = true;
 
             ModRuntime.LegacyInfo($"[Epilogue] SceneLoad scheduled: {sceneName} delay={delaySeconds:F1}s");
+            // Leaving for the credits: the host stopping during the fade is not a host crash.
+            ModRuntime.Network?.MarkLeavingSession();
 
             try
             {

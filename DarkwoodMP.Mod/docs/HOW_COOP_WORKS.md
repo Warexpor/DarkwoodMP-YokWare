@@ -86,7 +86,7 @@ clients.
   what one player takes is gone for everyone. Story flags, NPC states, the journal,
   the workbench level and the clock are shared.
 - **Personal:** the player character. Each player has their own bag and hotbar,
-  health, skills, level, recipes, home oven and respawn point, map pins and trader
+  health, skills, level, recipes, home oven and respawn point, and trader
   standing. A player's progress is not overwritten by the host's.
 
 When a rule is unclear, the first question is: "is this a fact about the world, or a
@@ -177,7 +177,9 @@ the rest of this document easier to read.
 - Trader stock.
 - Doors, barricades, windows, generators and their fuel, lamps, fires.
 - The clock and weather.
-- The map's discovered locations (map pins a player places are personal).
+- The map's discovered locations.
+- The party map board: every pin and ping any player puts on the world map (see
+  "Party map board" below).
 - Game settings that affect balance: difficulty, friendly fire, loot sharing.
 
 ### Personal (each player has their own)
@@ -186,13 +188,32 @@ the rest of this document easier to read.
 - Health, darkness, status effects, burning.
 - Skills, level, level-up dream slots, recipes, craft-limit counters.
 - Home oven and respawn point.
-- Night-trader and morning-trader standing.
-- Personal map pins.
+- Trader standing (night and morning traders, the Wolf, Piotrek; not the Doctor).
 - Per-player flags: anything named `player_in*`, `player_at*` or
   `player_entering*`, help popups, the first oven talk, "survived the night".
 - Hints, thought lines and one-shot "lessons" (recipes or journal pages taught by
   a hideout event): each player gets them once.
 - The prologue.
+
+### Party map board
+
+The world map carries one board of pins for the whole party, kept by the host and
+saved with the host's world (`dwmp_map_pins.json` next to the save; every player
+keeps a copy, so a player promoted by host migration still has it). A pin has a
+stamp (Mark, Danger, Loot, Shelter, Camp, Grave, drawn in the map's own ink), a
+glow in its owner's colour, the day it was placed and an optional label.
+
+- Right click places the chosen stamp, or erases the pin under the cursor (any
+  player may erase any pin: it is one shared map).
+- The mouse wheel picks the stamp, or restyles the pin under the cursor.
+- A double click on a pin writes a label on it.
+- Middle click (or Shift + right click) pings a spot: it pulses on everyone's map
+  for 25 seconds, and players with the map closed see "<name> pinged the map".
+- New pins and pings from others show as a `[Map]` line in the chat (not over the player).
+- Only the world map of the current chapter has pins (not the prologue map).
+  Clients ask the host, the host numbers each pin and tells everyone, so two pins
+  on one spot are never mixed up. An owner is a hash of their install key: the
+  same player keeps their pins and colour across sessions.
 - Camera, field of view, audio listener.
 
 Each client's personal state is saved as a character snapshot on its own disk and
@@ -260,16 +281,17 @@ movie), unless the host sets `AllowJoinDuringDream`.
 
 ### Saving
 
-- **Only the host saves the world.** F3 on the host, or any host save, makes every
-  client save its copy at the same moment and send its character snapshot to the
-  host. F3 on a client refuses ("only the host can save").
+- **Only the host saves the world.** Any host save (the game's own, or a slot of the
+  optional manual-saves add-on) makes every client save its copy at the same moment
+  and send its character snapshot to the host. The add-on's Save is greyed out on a
+  client.
 - A connected client never writes the world to disk on its own, because a
   client-side save could overwrite shared state with a partial picture.
 - Loading a save is refused while in a session.
 - No saves happen during a prologue, a dream, a held night death or a chapter
   change.
 - A host that was promoted by host migration never auto-saves (its world is a
-  client copy); it gets an F3 reminder instead.
+  client copy); it is told the world is saved again at the game's next save.
 - Each save of a co-op world also writes `savcos.dat` next to it: the seed of every cosmetic roll on
   a saved object ([section 16](#16-world-objects-doors-lights-fire-traps)). It is part
   of the world download.
@@ -297,7 +319,10 @@ movie), unless the host sets `AllowJoinDuringDream`.
 ### Chapter change
 
 The host runs the chapter transition. Clients go black, locked and unhurt, receive
-the new chapter's world, confirm it, and load together. A client that never gets the
+the new chapter's world, confirm it, and load together. The new chapter's map does
+not exist yet at that point (vanilla makes it at random on the first load), so a
+client's first load builds a map of its own; on reconnect it says so and the host
+sends its real map, which the client loads. A client that never gets the
 world shows an error and leaves cleanly (it rejoins by hand; see
 [section 20](#20-known-gaps-and-parked-items)).
 
@@ -316,10 +341,11 @@ code, not yet playtested).
 - **The host is the only clock.** Clients never advance time or fire day and night
   edges; they show the host's time.
 - **The clock runs while anyone is in the open world.** Vanilla stops the clock
-  while the player is inside a location (a village, a bunker). With a party, the
-  clock stops only when nobody is in the open world. A player still loading or in
-  their prologue does not count. Vanilla's own freezes (morning, death, scripted
-  events) still stop it.
+  while the player is inside a location (a village, a bunker), while the player is
+  dying, and in the Wolf's trap. With a party, these only take that one player out of
+  the count: the clock stops only when nobody is in the open world and free. A player
+  still loading, in their prologue, or dead until morning does not count. The
+  world-wide freezes (the morning, a dream, the day-1 wait) stop it for everyone.
 - **Day 1 waits for prologues.** On a fresh world the clock holds at 05:00 while
   anyone is still in their prologue, for at most 45 minutes.
 - **Menus do not pause the world.** In single player the map, journal, padlocks,
@@ -345,18 +371,25 @@ code, not yet playtested).
 - **Whoever pushes or drags a thing moves it.** The pusher's own game moves it and
   everyone else sees the result. Other players' bodies pass through pushable things
   on your screen, so nothing gets pushed twice.
-- **Night comes to every player.** Night monsters spawn around every living player
-  who is at home, not only around the host. Players out in the forest get the worm,
-  as in vanilla. Wards count for the player a monster is after. Night events play
-  in every hideout a living player stands in, and a shadow wave is the curse of the
-  one player it targets.
+- **Night comes to every player, at vanilla's rate.** Each hideout a living player
+  is home in gets the night's monsters at vanilla's pace and count, around a player
+  there (times the host's night monster setting, see [section 18](#18-balancing-for-the-party)). Each living, unwarded player gets its own worm, as in vanilla; a player in a
+  dream gets none (the host's dream does not spare the players still out in the night). Wards count
+  for the player a monster is after. Night events play in every hideout a living
+  player stands in; an event that asks about "the player" (the Shadows perk, being
+  attacked) plays only where its player qualifies, and a shadow wave is the curse
+  of that one player: its shadows hunt only that player, as vanilla's do (blinking in
+  closer, never onto light, dying in it), anyone's light protects that player, every
+  player sees them, and only the cursed player's torch and lantern go out. A scripted spawn "around the player" comes around the player
+  the scene is for.
 - **The host does not have to be home.** If the host is away, the night type is
   picked at a peer's hideout, and night events never land inside location pads.
 - **Morning is per hideout and per player.** Every hideout a living player greets
-  the dawn in gets its own morning: the screen effect, the trader, cleared night
-  creatures. Each surviving player standing in a hideout at dawn gets their own
-  reward (trader standing). A player who is not home at dawn, or who died that
-  night, gets none (as in vanilla).
+  the dawn in gets its own morning: the screen effect, cleared night creatures.
+  The trader (or the Wolfman) is one man and comes to one hideout: the one with
+  the most players, a tie going to the host's. Each surviving player standing in
+  a hideout at dawn gets their own reward (trader standing), trader there or not.
+  A player who is not home at dawn, or who died that night, gets none (as in vanilla).
 - **The morning holds until the hideout is empty.** One player walking out does not
   despawn the trader for the others. The trader restocks only when nobody is
   trading with it.
@@ -364,7 +397,10 @@ code, not yet playtested).
   Electrician skill applies at the best rate any player has.
 - **Village nights (co-op only).** Vanilla never needed this: friendly villagers go
   home between the "night is coming" warning and morning, but only while nobody
-  sees them. Village houses give the shadow ward to a player standing inside.
+  sees them. The ones already indoors (the sick) stay. Village houses give the
+  shadow ward to a player standing inside; outdoors the worm comes as anywhere else.
+  The village is a location, so night only comes there while someone is out in the
+  open world (the clock rule in section 5).
 
 ---
 
@@ -375,7 +411,7 @@ code, not yet playtested).
 The player drops their bag where they died (a shared death bag anyone can loot, with
 a map marker if it is inside a location), loses a life on Hard, and respawns at
 their own home oven after vanilla's death sequence. The host clears enemies, traps
-and infection from that home first. Vanilla's "respawn every enemy" step runs only
+and infection from that player's home first (the dying player tells it where that is). Vanilla's "respawn every enemy" step runs only
 when nobody is left alive, so one player's death does not reset the others' fights.
 
 ### Dying at night
@@ -395,6 +431,10 @@ night for players who are still alive, so in co-op:
 - **If everyone dies,** the host resolves one shared morning (day skip and save),
   with no morning reward. If the last living player disconnects, the same happens
   instead of everyone spectating forever.
+- **Leaving does not undo a night death.** A player who died, quit and joins again the
+  same night is down again until morning (the host knows them by their Steam id or
+  install key), spectating, seen dead by the others and counted for the all-dead
+  morning.
 
 ### Difficulty and permadeath
 
@@ -451,6 +491,9 @@ same; the host gets no preference.
   much closer (under 75% of the distance), and at most once every 2.5 seconds.
 - Dead, invisible, ignored and menu-shielded players are not targets.
 - A client hitting a creature draws it to that client.
+- A creature that freezes while watched (the human spider) is watched when any player
+  sees it, and every player sees and hears the same state (its glow, its "out of sight"
+  sound).
 
 ### Defender decides
 
@@ -567,7 +610,11 @@ again.
 Trader stock is shared and owned by the host. A client's trade is sent as "what I
 bought and what I sold"; if the host's stock no longer has the goods, the trade is
 refused and reversed on the client. A trader restocks only when nobody is trading
-with it. Standing with the night trader is personal.
+with it. Several players can trade with the same trader at once, each from their own
+screen; goods sitting in one player's buy tray are held back from that player's view
+of the stock, and the first accepted trade wins. Standing with a trader is personal:
+the night and morning traders, the Wolf and Piotrek. The Doctor's standing is shared,
+because his chapter 2 story keeps its state in it.
 
 ### Crafting, upgrades and the workbench
 
@@ -642,8 +689,13 @@ The chapter transition is a world event that only the host runs. See
 - **Listening in.** Talking to an NPC someone else is already talking to opens a
   read-only copy of their dialogue window: the same portrait, the same lines typing
   out at the same speed, the same options and the option they are pointing at. Only
-  the speaker chooses; Esc leaves. The trading screen, the cooking menu after a talk
-  and journal pages opened by a talk are not shown to listeners.
+  the speaker chooses; a listener leaves with Esc or the Exit option without touching
+  the talk. While the speaker trades, each listener gets its own trading screen on
+  the same trader (and can open it from Trade). The cooking menu after a talk and
+  journal pages opened by a talk are not shown to listeners.
+- **Leaving a shared talk.** When the speaker leaves while others listen in, the
+  talk is handed to the next of them (its own options from there); the NPC's close
+  events wait until the last player in the talk leaves.
 - **Who gets what.** Items a dialogue gives are personal to the speaker. Story
   flags, world events and NPC reputation the dialogue changes are world outcomes:
   the host replays the client's finished conversation in order and applies them
@@ -665,14 +717,19 @@ party events.
   living player along. Dead players sit it out.
 - **The host's world waits.** From the start of the entry movie until the dream is
   up, the host freezes its world (creatures included). New joins are refused for the
-  duration unless the host allows them.
+  duration unless the host allows them, except during the ending, where joiners are
+  pulled onto its pad (a finished game reloads into the ending).
+- **Anyone can drive the story.** A client's talk, lamp, area step or blow on a story
+  object moves the dream on for everyone; a dream that hands over to the next one
+  (doctor 1 to 2) takes everyone along. Creatures the story sends (the forest spirit,
+  chompers) go after the player who set them off.
 - **Level-up dreams.** The first player to reach level 2, 3, 5, 6 or 7 brings that
   level's dream to everyone present, and everyone who was in it has that level's
   dream done. A player who missed it (late, or dead) still gets an unplayed dream
   for that level later, or just levels up if none is left. A played dream is never
   repeated for the party. The bunker dream (level 2) is played once per world.
 - **Dying in a dream:** you spectate until it ends. When every dreamer is dead, the
-  dream ends as a death outcome.
+  dream ends as a death outcome, also when the host is not one of the dreamers.
 - **Rewards:** dream outcome items are given to each dreamer. The outcome's world
   events reach every player, including one who died in the dream. A failed or
   abandoned dream gives nothing and is not marked done.
@@ -695,8 +752,12 @@ party events.
 - **Nothing in a prologue reaches the others,** apart from journal pages it wrote,
   which go to the shared journal afterwards. No saves happen during a prologue.
 - **Day 1 waits** for everyone's prologue (at most 45 minutes).
-- **The ending.** The credits start when every player in the ending has finished
-  reading, or after 2 minutes. Party dream openings and endings run their
+- **The ending.** It is a party dream: everyone alive goes, and the first player to
+  make the final choice (the bed or the crater) makes it for all. The credits start
+  when every player in the ending has finished reading, or after 2 minutes. Players
+  outside it (dead at night when it began) stay in the world, and one of them takes
+  the host when the others leave for the credits. An ending asked for while the host
+  is dead starts when the host is back, in the morning. Party dream openings and endings run their
   player-body steps (clothes, positions) for every dreamer.
 
 ---
@@ -752,20 +813,55 @@ party events.
 
 - **Stand-ins.** Each remote player appears as a stand-in body that copies their
   position (about 30 updates a second), aim, torso animation, held light and
-  status (burning, invisibility at 30% opacity).
+  status (burning, invisibility at 30% opacity). A stand-in held back by something in
+  its way (a short teleport through a wall) catches up with its player after half a
+  second.
+- **Blood.** A hit player's own game places its blood splat (none on a block) and every
+  other player gets that one splat, in the same spot.
 - **Own camera.** Each player has their own camera and field of view, set up from
   their own skills.
 - **Sounds.** Every sound has one owner, so nothing plays twice. A peer's sounds play
   in 3D on their stand-in (with indoor reverb and wall muffling) within the sound's
-  own range, never less than 650 units. Creature sounds come from the host within
-  their range of a player.
+  own range, never less than 650 units. World sounds play as in vanilla: a 3D one
+  within its own range, a flat (2D) one from anything awake around you, at full
+  volume. Creature sounds come from the host within their range of a player.
 - **Text chat** (Ctrl+C): relayed by the host, which stamps the sender, so a
-  name cannot be faked. Messages also appear as a speech bubble over the sender.
-- **Voice chat** (needs a logged-in Steam client, works over LAN too):
-  - Proximity voice: full volume within 150 units, silent beyond 650, muffled
-    through walls.
-  - Walkie-talkie: hold a `walkie_talkie` and right-click to transmit. Carrying one
-    lets you hear the radio from anywhere, with static.
+  name cannot be faked. What is said stays in the chat; nothing shows over the players.
+- **Player names**: each player tells the host their name and the host hands every
+  name out with the player roster. A name shows over a player only while you can
+  see them (vanilla's enemy sight test), so it never reveals someone behind a wall.
+- **Voice chat** (any install, LAN or Steam; the game's own microphone input and the
+  mod's own codec, no Steam client needed). Mic, mic volume, voice volume and each
+  player's volume are in Settings > Voice:
+  - Proximity voice comes from where the talker stands (panned toward them) and
+    carries as far as they spoke loud: a shout to 650 units, normal speech about three
+    quarters of that, a whisper about a third. Muffled through walls.
+  - Creatures hear it too (host rule, on by default): talk louder than a murmur is a
+    sound at the talker's position, like a step or a door. Whispering is safe.
+  - Walkie-talkie: hold a `walkie_talkie` and hold the radio talk key (right mouse by default, rebindable in Settings > Voice) to transmit. Carrying one
+    lets you hear the radio from anywhere: a narrow, slightly distorted band, a squelch
+    click and tail, and more static the farther apart the two radios are.
+    Every other walkie plays the talk out loud too: standing near someone who carries
+    one, you hear it from them (a short way, muffled through walls), and creatures near
+    a playing radio hear it.
+    Radios work one way at a time: your own radio is silent while you transmit, and a
+    channel carries whoever keyed first until they let go; someone keying over them is
+    heard garbled under a whistle. Players near a talker hear their walkie click on and
+    off; the far radios end each transmission with a roger beep.
+  - A walkie is crafted at the workbench (level 1) from 2 junk and 1 nail; each player
+    makes their own.
+  - A walkie is a device: an on/off knob (`B`, in hand), a 9V battery that drains while
+    it is on (faster while talking; `R` swaps in a fresh `battery9v`, as for the
+    flashlight), quieter and duller in a pocket than in hand. Off or flat, it neither
+    receives, transmits nor makes a sound for creatures: switching it off is how you
+    sneak with one.
+  - The signal fades with distance (clear to 3000 units, breaking up past that, gone at
+    9000), carries less out of buildings and barely in or out of underground places, and
+    nothing reaches another world (a dream).
+  - Keying right next to another live radio feeds back: a howl on every radio on the
+    channel and from that radio, which creatures hear from far off.
+  - Indoors a voice gets the same reverb vanilla puts on sounds made inside; walls muffle
+    it as vanilla muffles any sound behind a wall.
   - Push-to-talk (`V`) or open mic.
   - While spectating, you hear from the player you follow.
 
@@ -775,19 +871,22 @@ party events.
 
 Darkwood is balanced for one player. The mod changes the balance in only these
 places. All of them are host settings, sent to clients, so every machine applies the
-same numbers.
+same numbers. The ones in Host settings can be changed mid-game; leaving the screen
+with such a change not applied asks first, since it changes the game for everyone.
 
 | Setting | Default | What it does |
 |---|---|---|
-| `LootShareMode` / `DoubleItemsEnabled` | `ScaleWithPlayers` / on | Taking a hideout furnace fuel (odd mushrooms, odd meat, red eggs, embryos, dead rats, fish, insects, the large odd mushrooms, and any item vanilla flags as an experience item) gives the taker the stack multiplied by party size. The container keeps its stack, so each player can take their share. Not scaled: wood, nails, regular dog meat, unique items, items players put in containers, dropped items. |
+| `LootShareMode` / `DoubleItemsEnabled` | `ScaleWithPlayers` / on | Taking a hideout furnace fuel (odd mushrooms, odd meat, red eggs, embryos, dead rats, fish, insects, the large odd mushrooms, and any item vanilla flags as an experience item) gives the taker the stack multiplied by party size (the extra goes straight into the taker's bag; the container loses only the real stack, first come first served, so the first taker carries the whole party's share). Not scaled: wood, nails, regular dog meat, unique items, items players put in containers, dropped items. |
 | `NamedNpcScaleEnabled` / `NamedNpcAllowlist` | on / `ChomperBlack` | In dreams only, one extra black chomper per extra player, spawned around the original when it first appears and fighting with it. Night hideout monsters are not scaled. |
 | `FriendlyFireEnabled` | on | See [section 9](#9-player-combat-and-friendly-fire). |
 | `MaxPeerDamage` | 200 | Upper bound on one client-reported hit (anti-grief). |
+| `NightMonsterMultiplier` | x1 | Host settings > Night monsters (x1 to x10). Each hideout's night monsters: how many of each kind may be out at once and the pace they come at, times this. Read live by the host (the only one who spawns them), so it can be changed before hosting or mid-night. Worms, shadows and night events stay vanilla. |
 
 Other party-relevant rules that are not settings:
 
 - Creature health, damage and numbers are not scaled with party size (apart from
-  the dream chompers).
+  the dream chompers). The night monster count is the host's own choice, not tied to
+  party size.
 - Players in the level-up menu, a dialogue or the pause menu are protected because
   the world no longer pauses for them (it pauses only when everyone is in the pause
   menu).
@@ -806,8 +905,8 @@ By design:
   pause it only when every player is in the pause menu
   ([section 5](#5-time-pause-and-the-clock)).
 - **Nobody can sleep or skip time** (the game has no such mechanic).
-- **A client cannot change balance settings.** Friendly fire, loot sharing and the
-  party multiplier come from the host.
+- **A client cannot change balance settings.** Friendly fire, extra loot, the night
+  monster count and whether creatures hear voices come from the host.
 - **Two players cannot talk to the same NPC at once.** The second one listens in.
 - **A shared story item cannot be handed over twice.**
 - **A night-dead player cannot respawn before morning,** and F4 cannot release them.

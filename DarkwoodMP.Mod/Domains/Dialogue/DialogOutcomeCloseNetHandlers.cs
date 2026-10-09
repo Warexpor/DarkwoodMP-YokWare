@@ -326,15 +326,20 @@ namespace DWMPHorde.Networking
             return found;
         }
 
-        /// <summary>Same world filter as <see cref="FindNpcByName(string, bool)"/>, then the closest body.</summary>
-        internal static NPC FindNpcByNameNear(string name, bool preferDreamPad, Vector3 near)
+        /// <summary>
+        /// Same world filter as <see cref="FindNpcByName(string, bool)"/>, then the closest body
+        /// within <paramref name="maxDist"/> (null when none is that close). <paramref name="wake"/>:
+        /// switch an inactive one on (a trade needs a live body); a property write leaves it as it is.
+        /// </summary>
+        internal static NPC FindNpcByNameNear(string name, bool preferDreamPad, Vector3 near, float maxDist = float.MaxValue,
+            bool wake = true)
         {
             if (string.IsNullOrEmpty(name)) return null;
             string want = StripCloneSuffix(name);
             NPC[] all = WorldQueryHelper.GetCachedSceneComponents<NPC>();
             Transform pad = DreamSyncManager.GetDreamLocationTransform();
             NPC best = null;
-            float bestD = float.MaxValue;
+            float bestD = maxDist;
             for (int i = 0; i < all.Length; i++)
             {
                 NPC n = all[i];
@@ -355,7 +360,7 @@ namespace DWMPHorde.Networking
                     best = n;
                 }
             }
-            if (best != null && !best.gameObject.activeInHierarchy)
+            if (wake && best != null && !best.gameObject.activeInHierarchy)
             {
                 try { best.gameObject.SetActive(true); }
                 catch { /* ignore */ }

@@ -162,7 +162,7 @@ namespace DWMPHorde.Networking
                             "Join pipeline phase 3: peer " + playerId + " claims AlreadyInWorld but "
                             + verdictReason + " — re-sharing host world instead of trusting it");
                         trustedInWorld = false;
-                        SendPeerWorldResync(playerId, verdictHostChapter);
+                        SendPeerWorldResync(playerId, verdictHostChapter, handshake.StableClientKey);
                     }
                 }
 
