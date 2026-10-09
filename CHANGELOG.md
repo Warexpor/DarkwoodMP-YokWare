@@ -3,7 +3,7 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.191**. The current Horde wire protocol is **52** (held for 0.8.190 to 0.8.191; bumped in 0.8.189: `PlayerState`'s walkie trailer
+**0.8.192**. The current Horde wire protocol is **52** (held for 0.8.190 to 0.8.192; bumped in 0.8.189: `PlayerState`'s walkie trailer
 becomes a state byte, `WalkieState`: none, off or flat, on in a pocket, on in hand, plus underground;
 same DLL on every install).
 51 held for 0.8.187 to 0.8.188, bumped in 0.8.187: `VoiceData` (129) carries the
@@ -54,6 +54,18 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.192 — The walkie wears the game's own radio icon
+
+- **Walkie icon from the game.** The inventory atlas (`InventorySprites`) already holds a
+  handheld radio, `radio_small_01`, the icon of the "damaged handheld radio" journal note:
+  grey, diagonal, painted in the same hand as every other item. The walkie now uses it. The
+  mod's own icon (a clean black handset with red buttons, loaded from an embedded PNG onto a
+  copied scrap-metal quad) stood out next to vanilla items and is gone, with its loader and
+  `Resources/walkie_talkie.png`. The atlas also has an unused `walkieTalkie` sprite; at 9 by 25
+  pixels it reads as a sliver, so it was passed over.
+- Nothing is added to the sprite collection any more, so the one-time
+  `FindObjectsOfTypeAll` scan for it is gone too.
 
 ## 0.8.191 — Radio talk key rebindable
 
