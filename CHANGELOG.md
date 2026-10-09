@@ -3,8 +3,9 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.184**. The current Horde wire protocol is **49** (bumped in 0.8.184: `VoiceData` (129) gains the
-talker's loudness byte; same DLL on every install).
+**0.8.185**. The current Horde wire protocol is **50** (bumped in 0.8.185: `PlayerState` gains the
+`CarriesWalkie` trailer; same DLL on every install).
+49 held for 0.8.184, bumped there: `VoiceData` (129) gains the talker's loudness byte.
 48 held for 0.8.183, bumped in 0.8.182: new `PlayerName` (168),
 `PeerRoster` entries gain the player's name.
 47 held for 0.8.178 to 0.8.181, bumped in 0.8.177: `PlayerState` gains
@@ -48,6 +49,25 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.185 — A walkie playing radio talk is heard by the players and creatures around it
+
+- **Radios play out loud.** Radio talk was heard only by whoever carried a walkie themself.
+  Now every walkie plays it from its carrier's pocket: a player standing near someone with a
+  walkie hears the transmission from that player's position (panned toward them, full volume
+  within about 45 units, gone by 260, muffled through a wall), through the same radio sound
+  (narrow band, distortion, squelch, hiss by the distance between the two radios). Carrying
+  your own walkie, you hear it on yours. The talker's own radio stays quiet. Of their voice, the
+  radio in your hands and a radio nearby, the loudest is what you hear, held until another is
+  clearly louder.
+- **Who carries a walkie** travels in `PlayerState` (new `CarriesWalkie` trailer, protocol 50),
+  polled twice a second from the inventory and hotbar, whatever that player's voice settings.
+- **Creatures hear radios.** On the host (Creatures hear voices on), a walkie playing a
+  transmission, whisper or not, is a small sound (160 units) where its carrier stands, twice a
+  second while the talk goes on. The talker's own radio makes none. `Audio/VoiceHearing.cs`.
+- Not tested in game (voice needs two logged-in Steam clients). To check with three players:
+  A talks on the walkie, B carries one, C without one stands next to B and hears it from B's
+  side; a creature near B turns toward the radio.
 
 ## 0.8.184 — Voice from where the player stands, as far as they spoke loud; a real-sounding walkie; creatures hear talk
 

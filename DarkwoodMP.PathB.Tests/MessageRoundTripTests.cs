@@ -841,4 +841,19 @@ public class MessageRoundTripTests
         Assert.Equal((byte)200, VoiceDataMessage.Deserialize(again).Level);
         Assert.Equal(0, again.AvailableBytes);
     }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void PlayerState_TrailerKeepsWalkieAndAiming(bool walkie)
+    {
+        var msg = new PlayerStateMessage { PlayerId = 2, TorsoClip = "t", LegsClip = "l", Aiming = !walkie, ClockHeld = true, CarriesWalkie = walkie };
+        var r = new NetReader(Bytes(msg.Serialize));
+        var back = PlayerStateMessage.Deserialize(r);
+
+        Assert.Equal(walkie, back.CarriesWalkie);
+        Assert.Equal(!walkie, back.Aiming);
+        Assert.True(back.ClockHeld);
+        Assert.Equal(0, r.AvailableBytes);
+    }
 }

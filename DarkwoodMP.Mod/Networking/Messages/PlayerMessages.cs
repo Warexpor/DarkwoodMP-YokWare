@@ -151,6 +151,8 @@ namespace DWMPHorde.Networking
         /// Wolf's trap): it does not keep the shared clock running. Trailer.
         /// </summary>
         public bool ClockHeld;
+        /// <summary>Sender carries a walkie-talkie: a transmission plays from its radio for players nearby. Trailer.</summary>
+        public bool CarriesWalkie;
         public short CurrentFrame;
 
         // Continuous light state uses a conditional LightFlags payload.
@@ -239,6 +241,7 @@ namespace DWMPHorde.Networking
             writer.Put(SeesVillager);
             writer.Put(Aiming);
             writer.Put(ClockHeld);
+            writer.Put(CarriesWalkie);
         }
 
         public static PlayerStateMessage Deserialize(NetReader reader)
@@ -309,6 +312,7 @@ namespace DWMPHorde.Networking
             msg.SeesVillager = reader.GetBool();
             msg.Aiming = reader.GetBool();
             msg.ClockHeld = reader.GetBool();
+            msg.CarriesWalkie = reader.GetBool();
             return msg;
         }
     }

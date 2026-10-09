@@ -35,6 +35,9 @@ namespace DWMPHorde.Networking
         /// <summary>Peer is aiming (PlayerState trailer): its walking steps are quiet and alert nobody.</summary>
         public bool Aiming;
 
+        /// <summary>Peer carries a walkie-talkie (PlayerState trailer): radio talk plays from it for whoever stands near.</summary>
+        public bool CarriesWalkie;
+
         // Dreams
         public bool IsDeadInDream;
 

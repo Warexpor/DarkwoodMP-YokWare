@@ -71,8 +71,8 @@ Steam Voice needs a running, logged-on Steam client; transport is independent
 | `VoiceGain` | `1.4` | Gain applied after Steam `DecompressVoice`. |
 | `VoiceFullVolumeDistance` | `150` | Distance (game units; a body is about 40 across) within which a shout is at full volume; quieter speech a shorter way. |
 | `VoiceMaxDistance` | `650` | Distance (game units) a shout carries before it is silent, the same range as other sounds from peers. Normal speech carries about three quarters of it, a whisper about a third (the loudness is measured on the talker's machine). |
-| `WalkieItemName` | `walkie_talkie` | Inventory item type for the walkie radio. Hold it and press RMB to transmit (not while a menu, container, dialogue, map, journal or chat box is open); carrying one enables radio reception. |
-| `VoiceAlertsEnemies` | `true` | Host: creatures hear players talk. Speech louder than a murmur is a sound at the talker's position (vanilla `Character.alertInArea`): normal speech about as far as a walking step, a shout farther than running; a whisper is not heard. Also in Host settings. |
+| `WalkieItemName` | `walkie_talkie` | Inventory item type for the walkie radio. Hold it and press RMB to transmit (not while a menu, container, dialogue, map, journal or chat box is open); carrying one enables radio reception, and other walkies play the talk out loud for players near their carriers. |
+| `VoiceAlertsEnemies` | `true` | Host: creatures hear players talk. Speech louder than a murmur is a sound at the talker's position (vanilla `Character.alertInArea`): normal speech about as far as a walking step, a shout farther than running; a whisper is not heard. A walkie playing radio talk is a small sound (160 units) where its carrier stands. Also in Host settings. |
 
 ## Logging
 

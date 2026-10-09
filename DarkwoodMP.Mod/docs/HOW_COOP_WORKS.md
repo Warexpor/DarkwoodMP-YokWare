@@ -839,6 +839,9 @@ party events.
   - Walkie-talkie: hold a `walkie_talkie` and right-click to transmit. Carrying one
     lets you hear the radio from anywhere: a narrow, slightly distorted band, a squelch
     click and tail, and more static the farther apart the two radios are.
+    Every other walkie plays the talk out loud too: standing near someone who carries
+    one, you hear it from them (a short way, muffled through walls), and creatures near
+    a playing radio hear it.
   - Push-to-talk (`V`) or open mic.
   - While spectating, you hear from the player you follow.
 

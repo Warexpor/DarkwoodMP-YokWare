@@ -28,6 +28,10 @@ namespace DWMPHorde.Audio
         private const int OcclusionMask = 32769;
         /// <summary>Close by, a voice is mostly in the middle; it pans fully from this far out.</summary>
         private const float FullPanDistance = 300f;
+        /// <summary>Another player's walkie playing out loud: heard this far, at full volume this close.</summary>
+        internal const float NearRadioRange = 260f;
+        private const float NearRadioFull = 45f;
+        private const float NearRadioVolume = 0.7f;
 
         private static Speaker EnsureSpeaker(int id)
         {
@@ -131,15 +135,17 @@ namespace DWMPHorde.Audio
                 float level = since > 0.4f ? 0f : s.Level;
                 s.LevelEnv = level > s.LevelEnv ? level : Mathf.MoveTowards(s.LevelEnv, level, dt / LevelReleaseSec);
 
+                var net = ModRuntime.Network;
                 float proxVol = 0f;
                 float cutoff = 22000f;
                 float dist = float.MaxValue;
-                var proxy = ModRuntime.Network?.GetProxy(s.Id);
-                if (Player.Instance != null && proxy != null && proxy.transform != null)
+                Vector3 talkerPos = Vector3.zero;
+                var proxy = net?.GetProxy(s.Id);
+                bool talkerHere = Player.Instance != null && proxy != null && proxy.transform != null;
+                if (talkerHere)
                 {
-                    Vector3 b = proxy.transform.position;
-                    s.Go.transform.position = b;
-                    dist = Vector2.Distance(new Vector2(listen.x, listen.z), new Vector2(b.x, b.z));
+                    talkerPos = proxy.transform.position;
+                    dist = DistXz(listen, talkerPos);
 
                     // The louder they spoke, the farther it carries.
                     float loud = Mathf.Lerp(QuietRangeShare, 1f, s.LevelEnv);
@@ -152,35 +158,75 @@ namespace DWMPHorde.Audio
                     if (Time.unscaledTime >= s.NextOcclusionCheck)
                     {
                         s.NextOcclusionCheck = Time.unscaledTime + 0.15f;
-                        s.OccludedNow = IsOccluded(listen, b);
+                        s.OccludedNow = IsOccluded(listen, talkerPos);
                     }
                     s.Occlusion = Mathf.MoveTowards(s.Occlusion, s.OccludedNow ? 1f : 0f, dt * 5f);
                     proxVol *= Mathf.Lerp(1f, 0.55f, s.Occlusion);
                     cutoff = Mathf.Lerp(cutoff, Mathf.Min(cutoff, 900f), s.Occlusion);
                 }
 
-                float radioVol = (s.Walkie && _localWalkie) ? vol * 0.9f : 0f;
-                bool radio = s.RadioMode
-                    ? (radioVol > proxVol * 0.85f)
-                    : (radioVol > proxVol * 1.15f);
-                s.RadioMode = radio;
+                // On the radio: this player's own walkie, or the nearest other player's walkie
+                // playing it out loud (a small speaker, heard a short way).
+                float ownRadioVol = (s.Walkie && _localWalkie) ? vol * 0.9f : 0f;
+                float nearRadioVol = 0f;
+                Vector3 nearRadioPos = Vector3.zero;
+                float nearRadioCutoff = 22000f;
+                int nearRadioId = s.Walkie && net != null ? NearestRadio(net, s.Id, listen, out nearRadioPos) : 0;
+                if (nearRadioId != 0)
+                {
+                    float d = DistXz(listen, nearRadioPos);
+                    nearRadioVol = Mathf.InverseLerp(NearRadioRange, NearRadioFull, d) * vol * NearRadioVolume;
+                    if (nearRadioId != s.NearRadioId || Time.unscaledTime >= s.NextRadioOcclusionCheck)
+                    {
+                        s.NextRadioOcclusionCheck = Time.unscaledTime + 0.15f;
+                        s.RadioOccludedNow = IsOccluded(listen, nearRadioPos);
+                    }
+                    s.RadioOcclusion = Mathf.MoveTowards(s.RadioOcclusion, s.RadioOccludedNow ? 1f : 0f, dt * 5f);
+                    nearRadioVol *= Mathf.Lerp(1f, 0.5f, s.RadioOcclusion);
+                    nearRadioCutoff = Mathf.Lerp(22000f, 900f, s.RadioOcclusion);
+                }
+                s.NearRadioId = nearRadioId;
+
+                // The loudest way wins; the one playing keeps it until another is clearly louder.
+                HearMode mode = s.Mode;
+                float current = mode == HearMode.OwnRadio ? ownRadioVol : mode == HearMode.NearRadio ? nearRadioVol : proxVol;
+                current *= 1.15f;
+                if (proxVol > current) { mode = HearMode.Direct; current = proxVol * 1.15f; }
+                if (ownRadioVol > current) { mode = HearMode.OwnRadio; current = ownRadioVol * 1.15f; }
+                if (nearRadioVol > current) mode = HearMode.NearRadio;
+                if (mode == HearMode.OwnRadio && ownRadioVol <= 0f) mode = HearMode.Direct;
+                if (mode == HearMode.NearRadio && nearRadioVol <= 0f) mode = HearMode.Direct;
+                s.Mode = mode;
+                s.RadioMode = mode != HearMode.Direct;
+
                 // Static grows with the distance between the radios (and is at its worst when the
                 // talker is not in this world: another location, a dream).
+                float radioDist = !talkerHere ? float.MaxValue
+                    : DistXz(mode == HearMode.NearRadio ? nearRadioPos : listen, talkerPos);
                 s.RadioHiss = Mathf.Lerp(RadioHissNear, RadioHissFar,
-                    dist == float.MaxValue ? 1f : Mathf.InverseLerp(500f, 4000f, dist));
+                    radioDist == float.MaxValue ? 1f : Mathf.InverseLerp(500f, 4000f, radioDist));
+
+                float outVol = mode == HearMode.OwnRadio ? ownRadioVol : mode == HearMode.NearRadio ? nearRadioVol : proxVol;
+                float outCutoff = mode == HearMode.OwnRadio ? 22000f : mode == HearMode.NearRadio ? nearRadioCutoff : cutoff;
+                float soundDist = mode == HearMode.NearRadio ? DistXz(listen, nearRadioPos) : dist;
+                if (mode == HearMode.NearRadio)
+                    s.Go.transform.position = nearRadioPos;
+                else if (talkerHere)
+                    s.Go.transform.position = talkerPos;
+
                 if (s.Beh != null)
-                    s.Beh.Volume = Mathf.Clamp01(radio ? radioVol : proxVol);
+                    s.Beh.Volume = Mathf.Clamp01(outVol);
                 if (s.Muffle != null)
                 {
-                    float target = radio ? 22000f : cutoff;
-                    s.SmoothCutoff = Mathf.Lerp(s.SmoothCutoff, target, Mathf.Clamp01(dt * 8f));
+                    s.SmoothCutoff = Mathf.Lerp(s.SmoothCutoff, outCutoff, Mathf.Clamp01(dt * 8f));
                     s.Muffle.cutoffFrequency = s.SmoothCutoff;
                 }
                 if (s.Src != null)
                 {
-                    // The radio is in this player's own hands: no pan. A voice in the room pans
-                    // toward the talker, gently when they are close.
-                    float blend = radio || dist == float.MaxValue ? 0f : Mathf.Lerp(0.35f, 1f, Mathf.Clamp01(dist / FullPanDistance));
+                    // This player's own radio is in their hands: no pan. A voice or another
+                    // player's radio pans toward where it is, gently when close.
+                    float blend = mode == HearMode.OwnRadio || soundDist == float.MaxValue
+                        ? 0f : Mathf.Lerp(0.35f, 1f, Mathf.Clamp01(soundDist / FullPanDistance));
                     s.Blend = Mathf.MoveTowards(s.Blend, blend, dt * 3f);
                     s.Src.spatialBlend = s.Blend;
                 }
@@ -194,6 +240,34 @@ namespace DWMPHorde.Audio
             }
         }
 
+        private static float DistXz(Vector3 a, Vector3 b) => Vector2.Distance(new Vector2(a.x, a.z), new Vector2(b.x, b.z));
+
+        /// <summary>
+        /// The nearest other player within earshot carrying a walkie (PlayerState
+        /// <c>CarriesWalkie</c>), not the talker themself, whose radio is playing; 0 if none.
+        /// </summary>
+        internal static int NearestRadio(LanNetworkManager net, int talkerId, Vector3 from, out Vector3 pos)
+        {
+            pos = Vector3.zero;
+            int best = 0;
+            float bestDist = NearRadioRange;
+            foreach (Players.RemotePlayerProxy p in net.EnumerateRemoteProxies())
+            {
+                if (p == null || !p.isActiveAndEnabled || p.PlayerId <= 0 || p.PlayerId == talkerId)
+                    continue;
+                if (!net.RemotePlayers.TryGetValue(p.PlayerId, out RemotePlayerState st) || !st.CarriesWalkie)
+                    continue;
+                float d = DistXz(from, p.transform.position);
+                if (d < bestDist)
+                {
+                    bestDist = d;
+                    best = p.PlayerId;
+                    pos = p.transform.position;
+                }
+            }
+            return best;
+        }
+
         private static bool HasRecentRx()
         {
             foreach (Speaker s in _speakers.Values)
@@ -204,6 +278,20 @@ namespace DWMPHorde.Audio
             return false;
         }
 
+        /// <summary>
+        /// This player carries a walkie-talkie (inventory or hotbar), polled twice a second. It is
+        /// what lets them hear the radio, and it goes out in PlayerState so a transmission plays
+        /// from their radio for players near them (whatever their own voice settings).
+        /// </summary>
+        internal static bool LocalCarriesWalkie
+        {
+            get
+            {
+                UpdateLocalWalkie();
+                return _localWalkie;
+            }
+        }
+
         private static void UpdateLocalWalkie()
         {
             if (Time.unscaledTime < _nextWalkieCheck)
@@ -212,14 +300,15 @@ namespace DWMPHorde.Audio
             _localWalkie = false;
             try
             {
-                if (Player.Instance == null)
+                Player p = Player.Instance;
+                if (p == null || Core.loadingGame)
                     return;
                 string name = ModConfig.WalkieItemName?.Value ?? "walkie_talkie";
                 if (string.IsNullOrEmpty(name))
                     return;
                 _localWalkie =
-                    (Player.Instance.Inventory != null && Player.Instance.Inventory.getItemAmount(name) > 0)
-                    || (Player.Instance.Hotbar != null && Player.Instance.Hotbar.getItemAmount(name) > 0);
+                    (p.Inventory != null && p.Inventory.getItemAmount(name) > 0)
+                    || (p.Hotbar != null && p.Hotbar.getItemAmount(name) > 0);
             }
             catch { /* ignore */ }
         }

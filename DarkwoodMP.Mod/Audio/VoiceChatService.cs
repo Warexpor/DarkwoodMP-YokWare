@@ -20,6 +20,9 @@ namespace DWMPHorde.Audio
     /// </summary>
     public static partial class VoiceChatService
     {
+        /// <summary>How this player hears a talker: their voice, this player's own radio, or a radio nearby.</summary>
+        private enum HearMode { Direct, OwnRadio, NearRadio }
+
         private sealed class Speaker
         {
             public int Id;
@@ -55,6 +58,12 @@ namespace DWMPHorde.Audio
             public bool OccludedNow;
             public float SmoothCutoff = 22000f;
             public float Blend;
+            public HearMode Mode;
+            /// <summary>The other player whose walkie this talker is heard from (NearRadio), or 0.</summary>
+            public int NearRadioId;
+            public float RadioOcclusion;
+            public bool RadioOccludedNow;
+            public float NextRadioOcclusionCheck;
         }
 
         private sealed class VoiceSpeakerBehaviour : MonoBehaviour
@@ -311,7 +320,7 @@ namespace DWMPHorde.Audio
             if (net != null && msg.PlayerId == net.LocalPlayerId)
                 return;
             // The loudness travels with the packet, so the host needs no Steam to let creatures hear it.
-            VoiceHearing.Heard(msg.PlayerId, msg.Level / 255f);
+            VoiceHearing.Heard(msg.PlayerId, msg.Level / 255f, (msg.Flags & VoiceDataMessage.FlagWalkie) != 0);
             if (ModConfig.VoiceEnabled == null || !ModConfig.VoiceEnabled.Value)
                 return;
             if (!SteamAvailable())
@@ -372,7 +381,7 @@ namespace DWMPHorde.Audio
                 float level = MeasureOwnLevel((int)got);
                 byte levelByte = (byte)Mathf.RoundToInt(level * 255f);
                 if (net.Role == NetworkRole.Host)
-                    VoiceHearing.Heard(net.LocalPlayerId, level);
+                    VoiceHearing.Heard(net.LocalPlayerId, level, _walkieTx);
                 int len = (int)got;
                 net.Broadcast(NetMessageType.VoiceData,
                     w => VoiceDataMessage.WriteSlice(w, playerId, seq, flags, levelByte, _captureBuf, len),

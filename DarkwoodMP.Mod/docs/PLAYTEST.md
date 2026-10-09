@@ -382,6 +382,9 @@ Listen on the player who did not cause the sound.
 - [ ] A creature near a talking player turns toward a shout and comes looking if the
       talk goes on; a whisper does not draw it. Host settings > Creatures hear voices
       off stops it.
+- [ ] Three players: A talks on the walkie, B carries one, C without one stands next to B
+      and hears the radio from B's side, fading out a few steps away and muffled through
+      a wall; a creature near B turns toward the radio.
 - [ ] The walkie transmits only while playing (right mouse with the radio in hand), not
       in the inventory, a container, dialogue, the map, the journal, the pause menu,
       while dead or with chat open.
