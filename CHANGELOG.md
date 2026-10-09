@@ -62,11 +62,14 @@ tested in the game.
 - Tests: every literal the code hands to a display sink must have a Russian entry; the patterns
   keep their numbers and nested reasons (`LocTests`).
 - Removed the F2 window's never-shown "host next step" hint (dead code).
-- The title MULTIPLAYER button was stacked under the version and player-id labels (the row math
-  counted every positioned label, not just buttons), which put it in the dark bottom band of the
-  menu's vignette overlay at about half the brightness of PLAY/EXIT. It now takes the next row of
-  the vanilla button stack under EXIT, at the same 60-unit spacing (`ComputeVanillaLowestOffsetY`
-  counts only buttons; the 16-unit nudge is gone).
+- The title MULTIPLAYER button sat below the version text, in the dark bottom band of the menu's
+  vignette overlay, at about half the brightness of PLAY/EXIT. It now takes the row right under
+  PLAY; OPTIONS, CREDITS, EXIT and the version / player-id labels each move down one row (60 units,
+  vanilla's spacing). The shift is taken from the vanilla offsets, re-applied when vanilla resets
+  EXIT on menu open, and undone when leaving the title; pause-menu-only rows are untouched
+  (`ApplyTitleStack` / `ResetTitleStack`).
+- The title art's letters sat 2 texels low in their canvas (cropped at a faint shadow pixel above
+  them), 4 px off the row; they now sit on the vanilla sprite rows, so the stack is evenly spaced.
 
 ## 0.8.179 — MULTIPLAYER title button redrawn as vanilla pixel art
 

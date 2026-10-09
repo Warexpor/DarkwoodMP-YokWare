@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using DWMPHorde.Logging;
 using DWMPHorde.Networking;
 using UnityEngine;
@@ -41,35 +42,76 @@ namespace DWMPHorde
 
         private static float TitleMultiplayerOffsetY()
         {
-            // The next row of the vanilla stack, one row spacing below EXIT.
-            return ComputeVanillaLowestOffsetY() - RowSpacing;
+            // Second row of the title stack, right under PLAY; the rows below move down for it.
+            PositionMe play = _menu?.playBtn != null ? _menu.playBtn.GetComponent<PositionMe>() : null;
+            return (play != null ? play.offset.y : 60f) - RowSpacing;
         }
 
+        /// <summary>Title rows shifted down for MULTIPLAYER, with their vanilla offsets.</summary>
+        private static readonly List<KeyValuePair<PositionMe, Vector2>> _titleShifted = new List<KeyValuePair<PositionMe, Vector2>>(8); // reset-in: ResetTitleStack
+        private static MainMenu _titleShiftedMenu; // reset-in: ResetTitleStack
+
         /// <summary>
-        /// Offset of the lowest vanilla title button. Only buttons count: the version and player-id
-        /// labels sit lower, and stacking under them put MULTIPLAYER into the dark bottom band of
-        /// the menu's vignette overlay, at half the brightness of PLAY/EXIT.
+        /// Title screen: OPTIONS, CREDITS, EXIT and the version / player-id labels sit one row
+        /// lower than vanilla so MULTIPLAYER takes the row under PLAY. The shift is taken from the
+        /// vanilla offsets (vanilla resets EXIT's on every menu open) and checked every UI poll.
+        /// Pause-menu-only rows (RESUME, HELP, MAIN MENU) and the logo are left alone.
         /// </summary>
-        private static float ComputeVanillaLowestOffsetY()
+        private static void ApplyTitleStack()
         {
-            float lowest = 0f;
-            if (_menu?.Menu0 == null)
-                return lowest;
-            PositionMe[] pms = _menu.Menu0.GetComponentsInChildren<PositionMe>(false);
-            for (int i = 0; i < pms.Length; i++)
+            if (_menu == null || _menu.Menu0 == null || _menu.playBtn == null)
+                return;
+            PositionMe play = _menu.playBtn.GetComponent<PositionMe>();
+            if (play == null)
+                return;
+            if (_titleShiftedMenu != _menu)
             {
-                PositionMe pm = pms[i];
-                if (pm == null || pm.gameObject == _mpButton)
-                    continue;
-                if (pm.GetComponent<YokWareUiTag>() != null || pm.GetComponent<Button>() == null)
-                    continue;
-                string n = pm.gameObject != null ? pm.gameObject.name : "";
-                if (n.StartsWith("YokWare_", StringComparison.Ordinal))
-                    continue;
-                if (pm.offset.y < lowest)
-                    lowest = pm.offset.y;
+                ResetTitleStack();
+                _titleShiftedMenu = _menu;
+                PositionMe[] pms = _menu.Menu0.GetComponentsInChildren<PositionMe>(true);
+                for (int i = 0; i < pms.Length; i++)
+                {
+                    PositionMe pm = pms[i];
+                    if (pm == null || pm == play || pm.offset.y >= play.offset.y || IsPauseOnlyRow(pm.gameObject))
+                        continue;
+                    if (pm.GetComponent<YokWareUiTag>() != null || pm.gameObject.name.StartsWith("YokWare_", StringComparison.Ordinal))
+                        continue;
+                    _titleShifted.Add(new KeyValuePair<PositionMe, Vector2>(pm, pm.offset));
+                }
             }
-            return lowest;
+            for (int i = 0; i < _titleShifted.Count; i++)
+            {
+                PositionMe pm = _titleShifted[i].Key;
+                if (pm == null)
+                    continue;
+                Vector2 want = _titleShifted[i].Value - new Vector2(0f, RowSpacing);
+                if (pm.offset == want)
+                    continue;
+                pm.offset = want;
+                pm.init();
+            }
+        }
+
+        /// <summary>Put the shifted title rows back at their vanilla offsets (leaving the title).</summary>
+        private static void ResetTitleStack()
+        {
+            for (int i = 0; i < _titleShifted.Count; i++)
+            {
+                PositionMe pm = _titleShifted[i].Key;
+                if (pm == null || !pm)
+                    continue;
+                pm.offset = _titleShifted[i].Value;
+                pm.init();
+            }
+            _titleShifted.Clear();
+            _titleShiftedMenu = null;
+        }
+
+        private static bool IsPauseOnlyRow(GameObject go)
+        {
+            return go == _menu.mainMenuBtn
+                || (_menu.ResumeBtn != null && go == _menu.ResumeBtn.gameObject)
+                || (_menu.HelpBtn != null && go == _menu.HelpBtn.gameObject);
         }
 
         private static void BuildPanel()

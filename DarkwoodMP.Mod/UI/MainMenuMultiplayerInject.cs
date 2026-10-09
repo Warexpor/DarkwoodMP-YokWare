@@ -117,6 +117,7 @@ namespace DWMPHorde
         {
             if (!Core.mainMenu)
             {
+                ResetTitleStack();
                 SoftClearMenuCache();
                 _menu0WasActive = false;
                 return;
@@ -136,6 +137,7 @@ namespace DWMPHorde
 
             if (menu0Active)
             {
+                ApplyTitleStack();
                 bool becameActive = !_menu0WasActive;
                 int menu0Id = _menu.Menu0.GetInstanceID();
                 bool menuRebuilt = menu0Id != _boundMenu0Id;
