@@ -3,8 +3,11 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.188**. The current Horde wire protocol is **51** (bumped in 0.8.187: `VoiceData` (129) carries the
-mod's own voice codec instead of Steam Voice; same DLL on every install).
+**0.8.189**. The current Horde wire protocol is **52** (bumped in 0.8.189: `PlayerState`'s walkie trailer
+becomes a state byte, `WalkieState`: none, off or flat, on in a pocket, on in hand, plus underground;
+same DLL on every install).
+51 held for 0.8.187 to 0.8.188, bumped in 0.8.187: `VoiceData` (129) carries the
+mod's own voice codec instead of Steam Voice.
 50 held for 0.8.186, bumped in 0.8.185: `PlayerState` gains the
 `CarriesWalkie` trailer; same DLL on every install).
 49 held for 0.8.184, bumped there: `VoiceData` (129) gains the talker's loudness byte.
@@ -51,6 +54,50 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.189 — The walkie as a real radio: knob, battery, pocket, range, doubling, feedback, roger beep
+
+- **On/off knob.** `B` (Settings > Voice > Radio on/off key, config `VoiceRadioPowerKey`) turns
+  the walkie on or off, only with it in hand, as a knob on the radio would. On: a click and the
+  speaker hissing alive; off: a click and a short dying hiss. Off, it neither receives nor
+  transmits, nor plays out loud for anyone near, nor makes a sound creatures hear. It stays as
+  set across games.
+- **9V battery.** The walkie runs on the vanilla `battery9v`, the way the flashlight does: its
+  durability bar is the charge, a full battery lasts 25 minutes on (talking drains it faster,
+  a full one about 8 minutes of talk), only while the game runs. Under 10% it chirps twice
+  every 30 s; flat, it dies with a click and counts as off. The vanilla Reload key (`R`) with
+  it in hand swaps in a fresh battery (`InvItemClass.reload`). A crafted walkie comes charged.
+  A walkie crafted before this version keeps whatever charge its old item had: if it reads
+  flat, reload it. `Items/WalkieItem.cs`, `Audio/VoiceChatService.Walkie.cs`.
+- **In hand or in a pocket.** In a pocket a radio plays at 55% and dulled to 2 kHz, for its
+  carrier and for players near them (heard 180 instead of 260 units); creatures hear a pocket
+  radio 100 units around instead of 160.
+- **Range.** The signal between the talker's radio and the receiving one is clear to 3000 units
+  (the map is about 25000 across) and fades to nothing at 9000; each end inside a building counts
+  as 35% farther, each end underground lets 15% through (`whereAmI.inUndergroundLocation`, sent
+  in the walkie byte), and nothing reaches another world (a dream, a loading location). A weak
+  signal is quieter under more static and breaks up in 10-40 ms dropouts, more often the weaker;
+  below 3% the radio does not open at all. Creatures near a radio the signal does not reach hear
+  nothing.
+- **Doubling.** A second talker keying over the one holding the channel was simply not heard on
+  the radios. Now both come through: the holder garbled under a wobbling whistle (two carriers
+  beating), the second one quieter under it, as on a real channel.
+- **Feedback.** Keying within 90 units of another player's live radio feeds back: a howl near
+  2 kHz rising over about a second, drifting and warbling, from that radio for everyone near it
+  and on every radio on the channel, until the talker lets go or the radio is switched off. The
+  talker hears it too. On the host, creatures hear a howling radio up to 420 units away.
+- **Roger beep.** Each transmission ends on the far radios with two short tones (1250 Hz, then
+  900 Hz) before the squelch tail; a radio the signal no longer reaches does not beep.
+- Test pilot: `radio on|off` (the knob), `battery <percent>`; `voice` shows the walkie state,
+  battery, signal quality, doubling and feedback per talker.
+- Box-tested (native host + Wine client, test tone as radio talk): the host's live radio 45
+  units from the keying client howls at full within a second, and not at all once switched
+  off (then only the live voice); 4000 units apart with one end indoors the signal reads 0.59
+  and plays on the host's pocket radio at half volume; 7500 apart nothing gets through;
+  battery at 0% reads as off for the peer too; drain about 1% per 15 s on standby. Not
+  heard (the box has no audio): the knob, chirp, roger beep, whistle and howl themselves.
+- Note: the 0.8.188 Night monsters change was made by another session in this checkout and went
+  into the 0.8.187 commit (`fc53dab`) by mistake; its CHANGELOG entry stands as written.
 
 ## 0.8.188 — Night monsters setting for the host (x1 to x10)
 

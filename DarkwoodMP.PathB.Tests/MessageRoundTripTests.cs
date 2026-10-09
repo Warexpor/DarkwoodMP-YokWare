@@ -843,16 +843,21 @@ public class MessageRoundTripTests
     }
 
     [Theory]
-    [InlineData(true)]
-    [InlineData(false)]
-    public void PlayerState_TrailerKeepsWalkieAndAiming(bool walkie)
+    [InlineData(WalkieStates.None, false)]
+    [InlineData(WalkieStates.Off, true)]
+    [InlineData(WalkieStates.Pocket, false)]
+    [InlineData(WalkieStates.Hand, true)]
+    public void PlayerState_TrailerKeepsWalkieAndAiming(byte power, bool underground)
     {
-        var msg = new PlayerStateMessage { PlayerId = 2, TorsoClip = "t", LegsClip = "l", Aiming = !walkie, ClockHeld = true, CarriesWalkie = walkie };
+        byte state = WalkieStates.Make(power, underground);
+        var msg = new PlayerStateMessage { PlayerId = 2, TorsoClip = "t", LegsClip = "l", Aiming = underground, ClockHeld = true, WalkieState = state };
         var r = new NetReader(Bytes(msg.Serialize));
         var back = PlayerStateMessage.Deserialize(r);
 
-        Assert.Equal(walkie, back.CarriesWalkie);
-        Assert.Equal(!walkie, back.Aiming);
+        Assert.Equal(power, WalkieStates.Power(back.WalkieState));
+        Assert.Equal(underground, WalkieStates.IsUnderground(back.WalkieState));
+        Assert.Equal(power >= WalkieStates.Pocket, WalkieStates.Live(back.WalkieState));
+        Assert.Equal(underground, back.Aiming);
         Assert.True(back.ClockHeld);
         Assert.Equal(0, r.AvailableBytes);
     }

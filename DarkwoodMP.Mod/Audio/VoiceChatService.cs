@@ -44,6 +44,17 @@ namespace DWMPHorde.Audio
             /// <summary>Vanilla's indoor reverb (<c>AudioController</c>: a sound from inside a building gets an AudioReverbFilter).</summary>
             public AudioReverbFilter Reverb;
             public float NextInsideCheck;
+            public float NextTalkerInsideCheck;
+            public bool TalkerInside;
+            /// <summary>Signal on the radio this talker is heard through, 1 clear .. 0 none (0 when heard directly).</summary>
+            public float RadioQuality;
+            /// <summary>Someone keying over this talker (0..1): the whistle of two carriers.</summary>
+            public float Doubling;
+            /// <summary>Feedback from a radio right by this talker (0..1).</summary>
+            public float Howl;
+            public double HowlPhase;
+            public double HetPhase;
+            public float BreakupLeft;
             public bool RadioMode;
             public bool RadioWasActive;
             public Biquad RadioHp;
@@ -233,11 +244,18 @@ namespace DWMPHorde.Audio
             if (!enabled)
             {
                 _transmitting = false;
+                // The radio is a device: its knob and battery work with voice chat off too.
+                if (inGame)
+                {
+                    UpdateLocalWalkie();
+                    TickWalkie(talking: false, receiving: false);
+                }
                 return;
             }
 
             UpdateLocalWalkie();
             UpdateSpeakers();
+            TickHowl(net, Time.unscaledDeltaTime);
 
             if (!inGame)
             {
@@ -262,8 +280,6 @@ namespace DWMPHorde.Audio
                 }
             }
 
-            PumpTestTone(net);
-
             // Typing in chat or a menu text field must not key the mic.
             bool ptt = Input.GetKey(_pttKey) && !UiInputLock.IsHeld;
             bool openMic = !string.Equals(ModConfig.VoiceMode?.Value ?? "ptt", "ptt",
@@ -276,10 +292,17 @@ namespace DWMPHorde.Audio
                 {
                     InvItemClass cur = Player.Instance.currentItem;
                     if (!InvItemClass.isNull(cur) && cur.type == walkie)
-                        _walkieTx = Input.GetMouseButton(1) && WalkieTxAllowed();
+                        _walkieTx = Input.GetMouseButton(1) && WalkieTxAllowed() && LocalRadioLive;
                 }
             }
             catch { /* ignore */ }
+
+            // A test tone sent as radio talk keys the walkie like the mouse button would.
+            if (_toneWalkie && Time.unscaledTime < _toneUntil)
+                _walkieTx = true;
+            PumpTestTone(net);
+
+            TickWalkie(_walkieTx, ReceivingOnOwnRadio());
 
             // The radio's own click when its key goes down and the squelch tail when it comes up.
             if (_walkieTx != _walkieTxWas)
@@ -329,12 +352,29 @@ namespace DWMPHorde.Audio
                     frame[i] = 0.1f * (float)Math.Sin(_tonePhase);
                     _tonePhase += 2.0 * Math.PI * 440.0 / VoiceCodec.SampleRate;
                 }
-                bool was = _walkieTx;
-                _walkieTx = _toneWalkie;
                 SendFrame(net, frame);
-                _walkieTx = was;
             }
         }
+
+        private static bool ReceivingOnOwnRadio()
+        {
+            foreach (Speaker s in _speakers.Values)
+            {
+                if (s.Mode == HearMode.OwnRadio && Time.unscaledTime - s.LastData < 0.5f)
+                    return true;
+            }
+            return false;
+        }
+
+        private static string WalkieStateText(byte st)
+        {
+            byte p = WalkieStates.Power(st);
+            string t = p == WalkieStates.None ? "none" : p == WalkieStates.Off ? "off" : p == WalkieStates.Pocket ? "pocket" : "hand";
+            return WalkieStates.IsUnderground(st) ? t + "+underground" : t;
+        }
+
+        /// <summary>Test pilot: switch this player's radio on or off as the knob would.</summary>
+        internal static void SetRadioPower(bool on) => _radioOn = on;
 
         /// <summary>Test pilot: this player's mic and every talker heard here.</summary>
         internal static string Describe()
@@ -342,7 +382,9 @@ namespace DWMPHorde.Audio
             var sb = new System.Text.StringBuilder();
             sb.Append("mic=").Append(VoiceMic.Running ? "'" + VoiceMic.RunningDevice + "' level=" + VoiceMic.Level.ToString("0.00") : "off")
               .Append(" devices=").Append(VoiceMic.Devices.Length)
-              .Append(" walkie=").Append(_localWalkie)
+              .Append(" walkie=").Append(WalkieStateText(LocalWalkieState))
+              .Append(" battery=").Append(Mathf.RoundToInt(Charge() * 100f)).Append('%')
+              .Append(" howl=").Append(_howlLevel.ToString("0.00"))
               .Append(" sent=").Append(_seq);
             foreach (Speaker s in _speakers.Values)
             {
@@ -352,6 +394,9 @@ namespace DWMPHorde.Audio
                   .Append(" under=").Append(under).Append(" level=").Append(s.LevelEnv.ToString("0.00"))
                   .Append(" vol=").Append(s.Beh != null ? s.Beh.Volume.ToString("0.00") : "-")
                   .Append(" mode=").Append(s.Mode).Append(s.WalkieActive ? " walkie" : "")
+                  .Append(" q=").Append(s.RadioQuality.ToString("0.00"))
+                  .Append(s.Doubling > 0f ? " doubling=" + s.Doubling.ToString("0.00") : "")
+                  .Append(s.Howl > 0f ? " howl=" + s.Howl.ToString("0.00") : "")
                   .Append(" age=").Append((Time.unscaledTime - s.LastData).ToString("0.0")).Append("s");
             }
             return sb.ToString();
@@ -462,6 +507,9 @@ namespace DWMPHorde.Audio
                     speaker.RadioLp = Biquad.LowPass(RadioHighHz, _sampleRate);
                     WriteSquelch(speaker, open: true);
                 }
+
+                if (radioMode)
+                    RadioPacket(speaker, _decodeBuf, samples);
 
                 lock (speaker.Lock)
                 {

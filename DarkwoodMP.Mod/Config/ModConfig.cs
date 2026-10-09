@@ -76,6 +76,7 @@ namespace DWMPHorde.Config
         public static ModSetting<string> WalkieItemName { get; private set; }
         public static ModSetting<bool> VoiceAlertsEnemies { get; private set; }
         public static ModSetting<string> VoiceMicDevice { get; private set; }
+        public static ModSetting<string> VoiceRadioPowerKey { get; private set; }
         public static ModSetting<float> VoiceMicVolume { get; private set; }
         public static ModSetting<string> VoicePlayerVolumes { get; private set; }
 
@@ -221,7 +222,9 @@ namespace DWMPHorde.Config
             VoiceMaxDistance = config.Bind("Voice", "VoiceMaxDistance", 650f,
                 "Distance (game units) a shout carries before it is silent (same as other peer sounds). Normal speech carries about three quarters of it, a whisper about a third, muffled through walls.");
             WalkieItemName = config.Bind("Voice", "WalkieItemName", "walkie_talkie",
-                "InvItem type for walkie radio (hold + RMB to TX; inventory enables radio RX).");
+                "InvItem type for walkie radio (hold + RMB to TX; switched on and charged, it receives anywhere it is carried).");
+            VoiceRadioPowerKey = config.Bind("Voice", "VoiceRadioPowerKey", "B",
+                "Unity KeyCode name for the walkie's on/off knob (works with the walkie in hand).");
             VoiceMicDevice = config.Bind("Voice", "VoiceMicDevice", "",
                 "Microphone to talk into, by the name the game lists it under (Multiplayer > Settings > Voice). Empty: the system default.");
             VoiceMicVolume = config.Bind("Voice", "VoiceMicVolume", 1f,

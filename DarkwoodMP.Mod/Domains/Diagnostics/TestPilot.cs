@@ -1352,6 +1352,21 @@ namespace DWMPHorde.Sync
                 case "voice":
                     Out("  " + Audio.VoiceChatService.Describe());
                     return;
+                case "radio":
+                    // "radio on|off": the walkie's knob.
+                    Audio.VoiceChatService.SetRadioPower(a.Length < 2 || a[1] != "off");
+                    Out("  " + Audio.VoiceChatService.Describe());
+                    return;
+                case "battery":
+                {
+                    // "battery <percent>": set the carried walkie's charge.
+                    InvItemClass w = p.Inventory.getItemInPlayer(Config.ModConfig.WalkieItemName?.Value ?? "walkie_talkie");
+                    if (InvItemClass.isNull(w)) { Out("  no walkie carried"); return; }
+                    w.durability = w.baseClass.maxDurability * float.Parse(a[1], CultureInfo.InvariantCulture) / 100f;
+                    w.refresh();
+                    Out("  walkie charge " + w.durability.ToString("0.0", CultureInfo.InvariantCulture) + "/" + w.baseClass.maxDurability.ToString("0", CultureInfo.InvariantCulture));
+                    return;
+                }
                 case "names":
                 {
                     var sb = new StringBuilder("  me=p" + net.LocalPlayerId + " '" + PlayerNames.Shown(net.LocalPlayerId) + "'");

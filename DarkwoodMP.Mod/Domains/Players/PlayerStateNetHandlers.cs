@@ -55,7 +55,7 @@ namespace DWMPHorde.Networking
                     hostSt.ClockHeld = state.ClockHeld;
                     hostSt.SeesVillager = state.SeesVillager;
                     hostSt.Aiming = state.Aiming;
-                    hostSt.CarriesWalkie = state.CarriesWalkie;
+                    hostSt.WalkieState = state.WalkieState;
                     if (state.InBearTrap && trapChanged)
                         if (ModRuntime.VerboseLogging)
                             ModRuntime.LegacyInfo($"[Trap] host: player {playerId} trapped id={hostSt.TrapNetId} at {hostSt.BearTrapPos}");
@@ -173,7 +173,7 @@ namespace DWMPHorde.Networking
                 cliSt.ClockHeld = state.ClockHeld;
                 cliSt.SeesVillager = state.SeesVillager;
                 cliSt.Aiming = state.Aiming;
-                cliSt.CarriesWalkie = state.CarriesWalkie;
+                cliSt.WalkieState = state.WalkieState;
                 if (state.InBearTrap && cliTrapChanged)
                     if (ModRuntime.VerboseLogging)
                         ModRuntime.LegacyInfo($"[Trap] client: player {remotePlayerId} trapped id={cliSt.TrapNetId} at {cliSt.BearTrapPos}");

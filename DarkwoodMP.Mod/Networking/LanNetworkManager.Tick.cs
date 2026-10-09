@@ -296,7 +296,7 @@ namespace DWMPHorde.Networking
                 ClockHeld = Patches.HostSharedClockPatch.LocalPersonalHold(),
                 SeesVillager = Sync.NightVillage.LocalSeesVillager,
                 Aiming = local.aiming,
-                CarriesWalkie = Audio.VoiceChatService.LocalCarriesWalkie,
+                WalkieState = Audio.VoiceChatService.LocalWalkieState,
                 TrapNetId = local.inBearTrap ? Sync.LocalBearTrap.CurrentId(hostMint: _role == NetworkRole.Host) : 0
             };
 

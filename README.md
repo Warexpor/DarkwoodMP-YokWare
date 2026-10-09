@@ -5,8 +5,8 @@ join it: the same forest, the same nights, the same story, played together.
 
 | | |
 |--|--|
-| Product | YokWare Branch **0.8.188** |
-| Wire | Horde protocol **51** |
+| Product | YokWare Branch **0.8.189** |
+| Wire | Horde protocol **52** |
 | Players | Up to 8 by default (`MaxPlayers`, host included) |
 | Transport | LAN (LiteNetLib) or Steam lobby (SteamNetworkingSockets) |
 | Loaders | BepInEx 5.x or MelonLoader 0.7.x |
@@ -128,6 +128,8 @@ A GOG copy of Darkwood has no Steam, so a GOG player joins over LAN.
 | **Ctrl+C** | Text chat (Enter sends, Esc closes, Ctrl+V pastes) |
 | **V** | Push-to-talk voice chat (any install, LAN or Steam; no Steam client needed) |
 | **Right mouse** with a walkie-talkie in hand | Talk on the radio |
+| **B** with a walkie-talkie in hand | Switch the radio on or off |
+| **R** with a walkie-talkie in hand | Put in a fresh 9V battery |
 
 ### Settings
 

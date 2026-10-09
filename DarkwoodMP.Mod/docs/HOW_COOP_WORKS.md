@@ -845,8 +845,19 @@ party events.
     one, you hear it from them (a short way, muffled through walls), and creatures near
     a playing radio hear it.
     Radios work one way at a time: your own radio is silent while you transmit, and a
-    channel carries whoever keyed first until they let go. Players near a talker hear
-    their walkie click on and off.
+    channel carries whoever keyed first until they let go; someone keying over them is
+    heard garbled under a whistle. Players near a talker hear their walkie click on and
+    off; the far radios end each transmission with a roger beep.
+  - A walkie is a device: an on/off knob (`B`, in hand), a 9V battery that drains while
+    it is on (faster while talking; `R` swaps in a fresh `battery9v`, as for the
+    flashlight), quieter and duller in a pocket than in hand. Off or flat, it neither
+    receives, transmits nor makes a sound for creatures: switching it off is how you
+    sneak with one.
+  - The signal fades with distance (clear to 3000 units, breaking up past that, gone at
+    9000), carries less out of buildings and barely in or out of underground places, and
+    nothing reaches another world (a dream).
+  - Keying right next to another live radio feeds back: a howl on every radio on the
+    channel and from that radio, which creatures hear from far off.
   - Indoors a voice gets the same reverb vanilla puts on sounds made inside; walls muffle
     it as vanilla muffles any sound behind a wall.
   - Push-to-talk (`V`) or open mic.

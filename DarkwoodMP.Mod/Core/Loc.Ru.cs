@@ -25,6 +25,7 @@ namespace DWMPHorde
             { "Host settings", "Настройки хоста" },
             { "Creatures hear voices", "Твари слышат голоса" },
             { "Voice", "Голос" },
+            { "Radio on/off key", "Вкл/выкл рации" },
             { "Microphone", "Микрофон" },
             { "Microphone volume", "Громкость микрофона" },
             { "Microphone level", "Уровень микрофона" },

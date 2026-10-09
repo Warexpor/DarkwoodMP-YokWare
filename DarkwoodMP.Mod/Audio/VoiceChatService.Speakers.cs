@@ -216,27 +216,52 @@ namespace DWMPHorde.Audio
                 }
 
                 // On the radio: this player's own walkie, or the nearest other player's walkie
-                // playing it out loud (a small speaker, heard a short way).
-                // Radios are half duplex and one talker at a time: this player's own radio is
-                // silent while they key it, and a radio plays only the talker who keyed first.
-                bool onAir = s.WalkieActive && HoldsChannel(s.Id);
-                float ownRadioVol = (onAir && _localWalkie && !_walkieTx) ? vol * 0.9f : 0f;
+                // playing it out loud (a small speaker, heard a short way). Radios are half
+                // duplex: this player's own radio is silent while they key it. A channel carries
+                // the talker who keyed first; a second one keying over them is heard garbled
+                // under a whistle (two carriers beating), as on a real channel.
+                bool holder = s.WalkieActive && HoldsChannel(s.Id);
+                bool doubling = s.WalkieActive && !holder && _radioHolder != 0 && HoldsChannel(_radioHolder);
+                bool onAir = holder || doubling;
+                float airShare = doubling ? DoublingUnderShare : 1f;
+                bool talkerUnder = PeerUnderground(net, s.Id);
+                bool talkerInside = talkerHere && IsInsideCached(s, net, s.Id);
+
+                byte local = LocalWalkieState;
+                float ownRadioVol = 0f;
+                float ownQuality = 0f;
+                if (onAir && WalkieStates.Live(local) && !_walkieTx && talkerHere)
+                {
+                    ownQuality = RadioQuality(talkerPos, listen, talkerInside, Player.Instance != null && Player.Instance.isInside,
+                        talkerUnder, LocalUnderground);
+                    if (ownQuality > RadioSquelchQuality)
+                        ownRadioVol = vol * 0.9f * airShare * (WalkieStates.InHand(local) ? 1f : PocketVolume);
+                }
                 float nearRadioVol = 0f;
+                float nearQuality = 0f;
                 Vector3 nearRadioPos = Vector3.zero;
                 float nearRadioCutoff = 22000f;
-                int nearRadioId = onAir && net != null ? NearestRadio(net, s.Id, listen, out nearRadioPos) : 0;
+                int nearRadioId = onAir && net != null && talkerHere ? NearestRadio(net, s.Id, listen, out nearRadioPos) : 0;
                 if (nearRadioId != 0)
                 {
-                    float d = DistXz(listen, nearRadioPos);
-                    nearRadioVol = Mathf.InverseLerp(NearRadioRange, NearRadioFull, d) * vol * NearRadioVolume;
-                    if (nearRadioId != s.NearRadioId || Time.unscaledTime >= s.NextRadioOcclusionCheck)
+                    byte carrier = net.RemotePlayers.TryGetValue(nearRadioId, out RemotePlayerState cst) && cst != null ? cst.WalkieState : (byte)0;
+                    nearQuality = RadioQuality(talkerPos, nearRadioPos, talkerInside, IsInside(net, nearRadioId),
+                        talkerUnder, WalkieStates.IsUnderground(carrier));
+                    if (nearQuality > RadioSquelchQuality)
                     {
-                        s.NextRadioOcclusionCheck = Time.unscaledTime + 0.15f;
-                        s.RadioOccludedNow = IsOccluded(listen, nearRadioPos);
+                        bool hand = WalkieStates.InHand(carrier);
+                        float d = DistXz(listen, nearRadioPos);
+                        float range = hand ? NearRadioRange : NearRadioRange * 0.7f;
+                        nearRadioVol = Mathf.InverseLerp(range, NearRadioFull, d) * vol * NearRadioVolume * airShare * (hand ? 1f : PocketVolume);
+                        if (nearRadioId != s.NearRadioId || Time.unscaledTime >= s.NextRadioOcclusionCheck)
+                        {
+                            s.NextRadioOcclusionCheck = Time.unscaledTime + 0.15f;
+                            s.RadioOccludedNow = IsOccluded(listen, nearRadioPos);
+                        }
+                        s.RadioOcclusion = Mathf.MoveTowards(s.RadioOcclusion, s.RadioOccludedNow ? 1f : 0f, dt * 5f);
+                        nearRadioVol *= Mathf.Lerp(1f, WallVolume, s.RadioOcclusion);
+                        nearRadioCutoff = Mathf.Lerp(hand ? 22000f : PocketCutoff, WallCutoff, s.RadioOcclusion);
                     }
-                    s.RadioOcclusion = Mathf.MoveTowards(s.RadioOcclusion, s.RadioOccludedNow ? 1f : 0f, dt * 5f);
-                    nearRadioVol *= Mathf.Lerp(1f, WallVolume, s.RadioOcclusion);
-                    nearRadioCutoff = Mathf.Lerp(22000f, WallCutoff, s.RadioOcclusion);
                 }
                 s.NearRadioId = nearRadioId;
 
@@ -252,15 +277,23 @@ namespace DWMPHorde.Audio
                 s.Mode = mode;
                 s.RadioMode = mode != HearMode.Direct;
 
-                // Static grows with the distance between the radios (and is at its worst when the
-                // talker is not in this world: another location, a dream).
-                float radioDist = !talkerHere ? float.MaxValue
-                    : DistXz(mode == HearMode.NearRadio ? nearRadioPos : listen, talkerPos);
-                s.RadioHiss = Mathf.Lerp(RadioHissNear, RadioHissFar,
-                    radioDist == float.MaxValue ? 1f : Mathf.InverseLerp(500f, 4000f, radioDist));
+                // The signal on the radio it is heard through: static grows as it weakens, and
+                // a weak one breaks up (decode side).
+                s.RadioQuality = mode == HearMode.NearRadio ? nearQuality : mode == HearMode.OwnRadio ? ownQuality : 0f;
+                s.RadioHiss = Mathf.Lerp(RadioHissNear, RadioHissFar, 1f - s.RadioQuality);
+                s.Doubling = Mathf.MoveTowards(s.Doubling, holder && AnyoneDoubling(s.Id) ? 1f : 0f, dt * 6f);
+
+                // Feedback: the talker keys right by a radio that is on and receiving them; it
+                // plays them back into their own mic and howls, on every radio on the channel.
+                Vector3 howlAt = Vector3.zero;
+                bool feeding = holder && FeedbackRadioNear(net, s.Id, talkerHere, talkerPos, out howlAt);
+                s.Howl = Mathf.MoveTowards(s.Howl, feeding ? 1f : 0f, dt * (feeding ? 1.2f : 3f));
+                if (feeding)
+                    OfferHowl(s.Howl, howlAt);
 
                 float outVol = mode == HearMode.OwnRadio ? ownRadioVol : mode == HearMode.NearRadio ? nearRadioVol : proxVol;
-                float outCutoff = mode == HearMode.OwnRadio ? 22000f : mode == HearMode.NearRadio ? nearRadioCutoff : cutoff;
+                float outCutoff = mode == HearMode.OwnRadio ? (WalkieStates.InHand(local) ? 22000f : PocketCutoff)
+                    : mode == HearMode.NearRadio ? nearRadioCutoff : cutoff;
                 float soundDist = mode == HearMode.NearRadio ? DistXz(listen, nearRadioPos) : dist;
                 if (mode == HearMode.NearRadio)
                     s.Go.transform.position = nearRadioPos;
@@ -310,11 +343,65 @@ namespace DWMPHorde.Audio
             }
         }
 
+        /// <summary>A second talker keying over the one holding the channel is heard at this share, under the whistle.</summary>
+        private const float DoublingUnderShare = 0.4f;
+        /// <summary>A radio this close to a talker keying feeds back.</summary>
+        private const float FeedbackRange = 90f;
+
+        private static bool AnyoneDoubling(int holderId)
+        {
+            foreach (Speaker o in _speakers.Values)
+            {
+                if (o.Id != holderId && o.WalkieActive && Time.unscaledTime - o.LastData < ChannelHoldSec)
+                    return true;
+            }
+            // This player keying over them counts too: the far radios hear both.
+            return _walkieTx;
+        }
+
+        /// <summary>A live radio (not the talker's own) within <see cref="FeedbackRange"/> of the talker; where it is.</summary>
+        private static bool FeedbackRadioNear(LanNetworkManager net, int talkerId, bool talkerHere, Vector3 talkerPos, out Vector3 at)
+        {
+            at = Vector3.zero;
+            if (!talkerHere || net == null)
+                return false;
+            Player p = Player.Instance;
+            if (p != null && LocalRadioLive && !_walkieTx && DistXz(p.transform.position, talkerPos) < FeedbackRange)
+            {
+                at = p.transform.position;
+                return true;
+            }
+            foreach (Players.RemotePlayerProxy o in net.EnumerateRemoteProxies())
+            {
+                if (o == null || !o.isActiveAndEnabled || o.PlayerId == talkerId)
+                    continue;
+                if (!net.RemotePlayers.TryGetValue(o.PlayerId, out RemotePlayerState st) || st == null || !WalkieStates.Live(st.WalkieState))
+                    continue;
+                if (DistXz(o.transform.position, talkerPos) < FeedbackRange)
+                {
+                    at = o.transform.position;
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        /// <summary><see cref="IsInside"/>, refreshed at most twice a second per talker.</summary>
+        private static bool IsInsideCached(Speaker s, LanNetworkManager net, int id)
+        {
+            if (Time.unscaledTime >= s.NextTalkerInsideCheck)
+            {
+                s.NextTalkerInsideCheck = Time.unscaledTime + 0.5f;
+                s.TalkerInside = IsInside(net, id);
+            }
+            return s.TalkerInside;
+        }
+
         private static float DistXz(Vector3 a, Vector3 b) => Vector2.Distance(new Vector2(a.x, a.z), new Vector2(b.x, b.z));
 
         /// <summary>
-        /// The nearest other player within earshot carrying a walkie (PlayerState
-        /// <c>CarriesWalkie</c>), not the talker themself, whose radio is playing; 0 if none.
+        /// The nearest other player within earshot whose walkie is on (PlayerState
+        /// <c>WalkieState</c>), not the talker themself; 0 if none.
         /// </summary>
         internal static int NearestRadio(LanNetworkManager net, int talkerId, Vector3 from, out Vector3 pos)
         {
@@ -325,7 +412,7 @@ namespace DWMPHorde.Audio
             {
                 if (p == null || !p.isActiveAndEnabled || p.PlayerId <= 0 || p.PlayerId == talkerId)
                     continue;
-                if (!net.RemotePlayers.TryGetValue(p.PlayerId, out RemotePlayerState st) || !st.CarriesWalkie)
+                if (!net.RemotePlayers.TryGetValue(p.PlayerId, out RemotePlayerState st) || st == null || !WalkieStates.Live(st.WalkieState))
                     continue;
                 float d = DistXz(from, p.transform.position);
                 if (d < bestDist)
@@ -346,41 +433,6 @@ namespace DWMPHorde.Audio
                     return true;
             }
             return false;
-        }
-
-        /// <summary>
-        /// This player carries a walkie-talkie (inventory or hotbar), polled twice a second. It is
-        /// what lets them hear the radio, and it goes out in PlayerState so a transmission plays
-        /// from their radio for players near them (whatever their own voice settings).
-        /// </summary>
-        internal static bool LocalCarriesWalkie
-        {
-            get
-            {
-                UpdateLocalWalkie();
-                return _localWalkie;
-            }
-        }
-
-        private static void UpdateLocalWalkie()
-        {
-            if (Time.unscaledTime < _nextWalkieCheck)
-                return;
-            _nextWalkieCheck = Time.unscaledTime + 0.5f;
-            _localWalkie = false;
-            try
-            {
-                Player p = Player.Instance;
-                if (p == null || Core.loadingGame)
-                    return;
-                string name = ModConfig.WalkieItemName?.Value ?? "walkie_talkie";
-                if (string.IsNullOrEmpty(name))
-                    return;
-                _localWalkie =
-                    (p.Inventory != null && p.Inventory.getItemAmount(name) > 0)
-                    || (p.Hotbar != null && p.Hotbar.getItemAmount(name) > 0);
-            }
-            catch { /* ignore */ }
         }
 
         /// <summary>

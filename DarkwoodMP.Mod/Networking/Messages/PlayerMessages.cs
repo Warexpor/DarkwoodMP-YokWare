@@ -114,6 +114,26 @@ namespace DWMPHorde.Networking
         }
     }
 
+    /// <summary>The walkie byte of <see cref="PlayerStateMessage.WalkieState"/>.</summary>
+    public static class WalkieStates
+    {
+        public const byte None = 0;
+        /// <summary>Carried but switched off, or its battery is flat.</summary>
+        public const byte Off = 1;
+        public const byte Pocket = 2;
+        public const byte Hand = 3;
+        private const byte PowerMask = 3;
+        /// <summary>The carrier is underground (a radio barely gets through).</summary>
+        public const byte Underground = 4;
+
+        public static byte Make(byte power, bool underground) => (byte)(power | (underground ? Underground : 0));
+        public static byte Power(byte state) => (byte)(state & PowerMask);
+        /// <summary>The radio is on and has charge: it receives and can play out loud.</summary>
+        public static bool Live(byte state) => Power(state) >= Pocket;
+        public static bool InHand(byte state) => Power(state) == Hand;
+        public static bool IsUnderground(byte state) => (state & Underground) != 0;
+    }
+
     public struct PlayerStateMessage
     {
         public int PlayerId;
@@ -151,8 +171,12 @@ namespace DWMPHorde.Networking
         /// Wolf's trap): it does not keep the shared clock running. Trailer.
         /// </summary>
         public bool ClockHeld;
-        /// <summary>Sender carries a walkie-talkie: a transmission plays from its radio for players nearby. Trailer.</summary>
-        public bool CarriesWalkie;
+        /// <summary>
+        /// Sender's walkie-talkie (<see cref="WalkieStates"/>): none, off or flat, on in a pocket,
+        /// on in hand; plus whether the sender is underground. A transmission plays from a radio
+        /// that is on for players nearby. Trailer.
+        /// </summary>
+        public byte WalkieState;
         public short CurrentFrame;
 
         // Continuous light state uses a conditional LightFlags payload.
@@ -241,7 +265,7 @@ namespace DWMPHorde.Networking
             writer.Put(SeesVillager);
             writer.Put(Aiming);
             writer.Put(ClockHeld);
-            writer.Put(CarriesWalkie);
+            writer.Put(WalkieState);
         }
 
         public static PlayerStateMessage Deserialize(NetReader reader)
@@ -312,7 +336,7 @@ namespace DWMPHorde.Networking
             msg.SeesVillager = reader.GetBool();
             msg.Aiming = reader.GetBool();
             msg.ClockHeld = reader.GetBool();
-            msg.CarriesWalkie = reader.GetBool();
+            msg.WalkieState = reader.GetByte();
             return msg;
         }
     }

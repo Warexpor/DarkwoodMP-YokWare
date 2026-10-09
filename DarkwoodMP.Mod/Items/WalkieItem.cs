@@ -9,7 +9,8 @@ using UnityEngine;
 namespace DWMPHorde.Items
 {
     /// <summary>
-    /// Injects craftable walkie_talkie (2 scrap + 1 nail, workbench lvl 1) for radio voice.
+    /// Injects craftable walkie_talkie (2 scrap + 1 nail, workbench lvl 1) for radio voice; it
+    /// runs on a 9V battery (reloaded like the flashlight) and comes off the bench charged.
     /// Ported from friend Melon WalkieItem onto BepInEx Harmony / PatchAll.
     /// </summary>
     public static class WalkieItem
@@ -215,9 +216,18 @@ namespace DWMPHorde.Items
             item.showPopup = true;
             item.rottenItem = null;
             item.rotten = false;
-            item.hasDurability = false;
+            // Runs on a 9V battery like the vanilla flashlight: the durability bar is the charge
+            // (drained by VoiceChatService while switched on), and the vanilla Reload key swaps in
+            // a battery9v (InvItemClass.reload: no ammo, so durability back to full).
+            item.hasDurability = true;
+            item.maxDurability = 100f;
+            item.durabilityDrain = 0f;
+            item.durabilityRegeneration = 0f;
+            item.regeneratesWhenInactive = false;
             item.hasAmmo = false;
-            item.canBeReloaded = false;
+            item.canBeReloaded = true;
+            item.ammoType = "battery9v";
+            item.reloadSound = "pistol_reload";
             item.isFirearm = false;
             item.isMelee = false;
             item.canBeAimed = false;
