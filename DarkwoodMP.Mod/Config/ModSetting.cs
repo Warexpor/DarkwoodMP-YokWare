@@ -12,13 +12,20 @@ namespace DWMPHorde.Config
         private readonly string _key;
         private T _value;
 
-        internal ModSetting(ModConfigStore store, string section, string key, T value)
+        internal ModSetting(ModConfigStore store, string section, string key, T value, T defaultValue)
         {
             _store = store;
             _section = section;
             _key = key;
             _value = value;
+            Default = defaultValue;
         }
+
+        /// <summary>The value bound in code (what "Revert to default" puts back).</summary>
+        public T Default { get; }
+
+        /// <summary>"Section.Key", unique per setting.</summary>
+        public string Id => _section + "." + _key;
 
         public T Value
         {

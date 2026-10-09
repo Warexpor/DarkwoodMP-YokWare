@@ -22,6 +22,8 @@ namespace DWMPHorde
         private static VmScreen _settings; // process-scoped: menu screens
         private static VmScreen _hostSettings; // process-scoped: menu screens
         private static VmScreen _picker; // process-scoped: menu screens
+        private static VmSettingsPage _settingsPage; // process-scoped: Apply / Revert to default of Settings
+        private static VmSettingsPage _hostSettingsPage; // process-scoped: Apply / Revert to default of Host settings
         private static string _pickerStatus; // process-scoped: menu status line
         private static float _pickerStatusUntil; // process-scoped: menu status line timer
 
@@ -37,6 +39,8 @@ namespace DWMPHorde
             _join = new VmScreen("MultiplayerJoin") { Build = BuildJoin, Signature = JoinSignature, Parent = _root, Tick = TickStatus };
             _settings = new VmScreen("MultiplayerSettings") { Build = BuildSettings, Signature = SettingsSignature, Parent = _root };
             _hostSettings = new VmScreen("MultiplayerHostSettings") { Build = BuildHostSettings, Signature = HostSettingsSignature, Parent = _root };
+            _settingsPage = new VmSettingsPage(_settings, SettingsEntries);
+            _hostSettingsPage = new VmSettingsPage(_hostSettings, HostSettingsEntries);
             EnsureVoice();
             _picker = new VmScreen("MultiplayerWorldCopy") { Build = BuildPicker, Parent = _join, Tick = TickStatus, OnBack = PickerBack };
         }
@@ -393,6 +397,38 @@ namespace DWMPHorde
             b.Slider("Other players' steps", z, () => ModConfig.PeerMovementVolume?.Value ?? 0.85f,
                 t => { if (ModConfig.PeerMovementVolume != null) ModConfig.PeerMovementVolume.Value = Mathf.Round(t * 20f) / 20f; });
             b.Return();
+            _settingsPage.Buttons(b);
+        }
+
+        /// <summary>A config setting for a <see cref="VmSettingsPage"/> (null when not bound).</summary>
+        private static VmSetting Setting<T>(ModSetting<T> m, bool enabled = true)
+        {
+            if (m == null)
+                return null;
+            return new VmSetting { Key = m.Id, Get = () => m.Value, Set = v => m.Value = (T)v, Default = m.Default, Enabled = enabled };
+        }
+
+        private static IEnumerable<VmSetting> SettingsEntries()
+        {
+            yield return Setting(ModConfig.PlayerName);
+            yield return Setting(ModConfig.ShowPlayerNames);
+            yield return Setting(ModConfig.ChatEnabled);
+            yield return Setting(ModConfig.PeerMovementVolume);
+        }
+
+        /// <summary>The rules, plus how the game is opened while not hosting yet (locked once online).</summary>
+        private static IEnumerable<VmSetting> HostSettingsEntries()
+        {
+            bool offline = Role == NetworkRole.Offline;
+            yield return Setting(ModConfig.FriendlyFireEnabled);
+            yield return Setting(ModConfig.LootShareModeSetting);
+            yield return Setting(ModConfig.DoubleItemsEnabled);
+            yield return Setting(ModConfig.NightMonsterMultiplier);
+            yield return Setting(ModConfig.VoiceAlertsEnemies);
+            yield return Setting(ModConfig.MaxPlayers, offline);
+            yield return Setting(ModConfig.SteamLobbyType, offline);
+            yield return Setting(ModConfig.ConnectPort, offline);
+            yield return Setting(ModConfig.HostPassword, offline);
         }
 
         /// <summary>
@@ -432,6 +468,7 @@ namespace DWMPHorde
                 v => { if (ModConfig.HostPassword != null) ModConfig.HostPassword.Value = v; }, 64, masked: true,
                 enabled: offline);
             b.Return();
+            _hostSettingsPage.Buttons(b);
         }
 
         private static int NameIndex()

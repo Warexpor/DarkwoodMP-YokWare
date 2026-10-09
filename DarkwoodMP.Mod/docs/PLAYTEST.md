@@ -377,6 +377,10 @@ Listen on the player who did not cause the sound.
 - [ ] Settings > Voice: the meter moves when you speak, switching Microphone cycles the
       devices (and back to Default), Microphone volume changes the meter, a player's
       volume in Players changes only that player, at 0 mutes them.
+- [ ] Multiplayer > Settings, Voice, Players, Host settings: a change lights up Apply; Return
+      asks to apply, No puts the old values back, Yes keeps them. Revert to default resets
+      only that screen (host settings online: rules only). Voice > Players and back to
+      Voice does not ask.
 - [ ] Voice (any two installs, the GOG one too): a teammate a room away is heard from
       their side (left or right); a whisper fades out sooner than a shout; muffled
       through a wall. A walkie-talkie carries from anywhere with a squelch click at the

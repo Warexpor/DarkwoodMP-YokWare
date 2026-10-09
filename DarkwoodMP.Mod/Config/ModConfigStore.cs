@@ -56,7 +56,7 @@ namespace DWMPHorde.Config
                 _dirty = true;
             }
 
-            var setting = new ModSetting<T>(this, section, key, value);
+            var setting = new ModSetting<T>(this, section, key, value, defaultValue);
             _bound.Add(new BoundEntry
             {
                 Section = section,

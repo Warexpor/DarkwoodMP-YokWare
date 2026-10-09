@@ -19,6 +19,8 @@ namespace DWMPHorde
     {
         private static VmScreen _voice; // process-scoped: menu screens
         private static VmScreen _voicePlayers; // process-scoped: menu screens
+        private static VmSettingsPage _voicePage; // process-scoped: Apply / Revert to default of Voice
+        private static VmSettingsPage _voicePlayersPage; // process-scoped: Apply / Revert to default of Players
         private static tk2dTextMesh _meter; // process-scoped: the live level row on the Voice screen
         private static string _meterShown; // process-scoped: last meter text, to rebuild the mesh only on change
 
@@ -29,6 +31,36 @@ namespace DWMPHorde
         {
             _voice = new VmScreen("MultiplayerVoice") { Build = BuildVoice, Signature = VoiceSignature, Parent = _settings, Tick = TickVoice };
             _voicePlayers = new VmScreen("MultiplayerVoicePlayers") { Build = BuildVoicePlayers, Signature = VoicePlayersSignature, Parent = _voice };
+            _voicePage = new VmSettingsPage(_voice, VoiceEntries);
+            _voicePlayersPage = new VmSettingsPage(_voicePlayers, VoicePlayerEntries);
+        }
+
+        private static IEnumerable<VmSetting> VoiceEntries()
+        {
+            yield return Setting(ModConfig.VoiceEnabled);
+            yield return Setting(ModConfig.VoiceMode);
+            yield return Setting(ModConfig.VoicePttKey);
+            yield return Setting(ModConfig.VoiceRadioTalkKey);
+            yield return Setting(ModConfig.VoiceRadioPowerKey);
+            yield return Setting(ModConfig.VoiceMicDevice);
+            yield return Setting(ModConfig.VoiceMicVolume);
+            yield return Setting(ModConfig.VoiceVolume);
+        }
+
+        /// <summary>The players listed now, by the name their volume is kept under; default 1.</summary>
+        private static IEnumerable<VmSetting> VoicePlayerEntries()
+        {
+            foreach (int id in OtherPlayerIds())
+            {
+                int pid = id;
+                yield return new VmSetting
+                {
+                    Key = "player:" + Sync.PlayerNames.Shown(pid),
+                    Get = () => VoicePlayerVolumes.Get(pid),
+                    Set = v => VoicePlayerVolumes.Set(pid, (float)v),
+                    Default = 1f,
+                };
+            }
         }
 
         private static string VoiceSignature() => VoiceIndex() + "/" + string.Join("\n", VoiceMic.Devices);
@@ -73,6 +105,7 @@ namespace DWMPHorde
             int others = OtherPlayerIds().Count;
             b.Value(others > 0 ? others + " ..." : Loc.T("Nobody yet"), z, () => Vm.Open(_voicePlayers), enabled: others > 0);
             b.Return();
+            _voicePage.Buttons(b);
         }
 
         /// <summary>Every frame on the Voice screen: keep the mic on and redraw the meter.</summary>
@@ -169,6 +202,7 @@ namespace DWMPHorde
                 z -= step;
             }
             b.Return();
+            _voicePlayersPage.Buttons(b);
         }
     }
 }

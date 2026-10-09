@@ -3,7 +3,7 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.193**. The current Horde wire protocol is **52** (held for 0.8.190 to 0.8.193; bumped in 0.8.189: `PlayerState`'s walkie trailer
+**0.8.194**. The current Horde wire protocol is **52** (held for 0.8.190 to 0.8.194; bumped in 0.8.189: `PlayerState`'s walkie trailer
 becomes a state byte, `WalkieState`: none, off or flat, on in a pocket, on in hand, plus underground;
 same DLL on every install).
 51 held for 0.8.187 to 0.8.188, bumped in 0.8.187: `VoiceData` (129) carries the
@@ -54,6 +54,25 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.194 — Apply and Revert to default on the Multiplayer settings screens
+
+- **Settings, Voice, Voice > Players and Host settings now have Apply and Revert to default**,
+  on the Return row where vanilla Options has them (Apply at x 0, Revert to default at x 168,
+  the game's own words for both). They work the vanilla Options way: a change still takes
+  effect at once (the mic meter, volumes and host rules show it live), Apply keeps it, and
+  Return or Esc with changes not applied asks the game's "Do you wish to apply these
+  changes?"; No puts back what the screen had when it was opened. Opening a child screen
+  (Voice from Settings, Players from Voice) does not count as leaving. Apply is greyed while
+  nothing changed, Revert to default while every setting on the screen is at its default.
+- **Revert to default** puts the screen's own settings back to the values bound in code
+  (Settings: name, player names, text chat, other players' steps; Voice: mode, the three
+  keys, microphone, both volumes; Players: each listed player back to 1; Host settings: the
+  rules, and players, lobby, port and password only while not hosting, as those rows are
+  locked online). It is not applied until Apply, so No on leaving undoes it too.
+- Code: `VmSettingsPage` / `VmSetting` and `VmBuilder.OptionsButton` / `Enable` in
+  `UI/VanillaMenu/VanillaMenu.cs`, `VmScreen.OnOpen`; `ModSetting<T>` keeps its `Default` and
+  `Id`. No config keys or protocol change.
 
 ## 0.8.193 — A hand-painted walkie icon
 

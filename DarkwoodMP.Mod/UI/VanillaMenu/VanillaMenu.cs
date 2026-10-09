@@ -69,9 +69,15 @@ namespace YokWare.VanillaMenu
             HideOtherScreens(menu, screen);
             if (menu.Menu0 != null && menu.Menu0.activeSelf)
                 menu.Menu0.SetActive(false);
+            VmScreen from = Current;
             if (Current != null && Current != screen)
                 Current.Hide();
             Current = screen;
+            if (from != screen)
+            {
+                try { screen.OnOpen?.Invoke(from); }
+                catch (Exception ex) { Debug.LogError("[YokWare menu] " + screen.Name + " open failed: " + ex); }
+            }
             screen.Show(menu);
         }
 
@@ -282,7 +288,20 @@ namespace YokWare.VanillaMenu
         public Func<string> Signature;
         /// <summary>Back / Esc. Null: the parent screen, else the main stack.</summary>
         public Action OnBack;
+        /// <summary>Opened from another screen (the one it was opened from; null: the main stack).</summary>
+        public Action<VmScreen> OnOpen;
         public VmScreen Parent;
+
+        /// <summary>True when <paramref name="other"/> is this screen or sits under it.</summary>
+        public bool IsAncestorOf(VmScreen other)
+        {
+            for (VmScreen s = other; s != null; s = s.Parent)
+            {
+                if (s == this)
+                    return true;
+            }
+            return false;
+        }
 
         public GameObject Root { get; private set; }
         public readonly List<Button> Nav = new List<Button>();
@@ -596,6 +615,14 @@ namespace YokWare.VanillaMenu
             return Wire(tm, onFire ?? Vm.Back);
         }
 
+        /// <summary>A button on the Options "Return" row (vanilla "Apply" at x 0, "Revert" at x 168).</summary>
+        public Button OptionsButton(string shown, float x, Action onFire)
+        {
+            MainMenu m = Vm.Menu;
+            tk2dTextMesh tm = Text(m != null ? Vm.ReturnSource(m) : null, "OptionsButton", x, Vm.ReturnZ, shown);
+            return Wire(tm, onFire);
+        }
+
         /// <summary>A setting's grey name, right-aligned at <paramref name="x"/> (Video tab).</summary>
         public tk2dTextMesh Name(string english, float z, float x = Vm.NameX)
         {
@@ -708,6 +735,21 @@ namespace YokWare.VanillaMenu
             return s;
         }
 
+        /// <summary>Undo <see cref="Disable"/>: <paramref name="color"/> is the colour it had when built.</summary>
+        public static void Enable(Button b, Color color)
+        {
+            if (b == null)
+                return;
+            b.disabled = false;
+            b.noRollover = false;
+            b.baseColor = color;
+            if (b.textMesh != null)
+            {
+                b.textMesh.color = color;
+                b.textMesh.Commit();
+            }
+        }
+
         /// <summary>Make <paramref name="b"/> look and act unavailable.</summary>
         public static void Disable(Button b)
         {
@@ -721,6 +763,170 @@ namespace YokWare.VanillaMenu
                 b.textMesh.Commit();
             }
             b.baseColor = Vm.Dim;
+        }
+    }
+
+    /// <summary>One setting a <see cref="VmSettingsPage"/> keeps track of.</summary>
+    public sealed class VmSetting
+    {
+        public string Key;
+        public Func<object> Get;
+        public Action<object> Set;
+        public object Default;
+        /// <summary>False: shown but locked right now (left alone by "Revert to default").</summary>
+        public bool Enabled = true;
+    }
+
+    /// <summary>
+    /// The vanilla Options way for a settings screen: a change shows at once, "Apply" keeps it,
+    /// "Revert to default" puts the screen's settings back to their defaults, and leaving with
+    /// changes not applied asks "Do you wish to apply these changes?" (No puts back what the
+    /// screen had when it was opened). Child screens opened from it do not count as leaving.
+    /// </summary>
+    public sealed class VmSettingsPage
+    {
+        private readonly VmScreen _screen;
+        private readonly Func<IEnumerable<VmSetting>> _settings;
+        private readonly Dictionary<string, object> _opened = new Dictionary<string, object>();
+        private Button _apply;
+        private Button _revert;
+        private Color _applyColor;
+        private Color _revertColor;
+
+        public VmSettingsPage(VmScreen screen, Func<IEnumerable<VmSetting>> settings)
+        {
+            _screen = screen;
+            _settings = settings;
+            screen.OnOpen = from =>
+            {
+                if (from == null || !screen.IsAncestorOf(from))
+                    Remember();
+            };
+            screen.OnBack = Leave;
+            Action tick = screen.Tick;
+            screen.Tick = () =>
+            {
+                tick?.Invoke();
+                Refresh();
+            };
+        }
+
+        /// <summary>Changed since opened or last applied.</summary>
+        public bool Changed
+        {
+            get
+            {
+                foreach (VmSetting s in _settings())
+                {
+                    if (s != null && _opened.TryGetValue(s.Key, out object was) && !Equals(was, s.Get()))
+                        return true;
+                }
+                return false;
+            }
+        }
+
+        private bool AtDefaults
+        {
+            get
+            {
+                foreach (VmSetting s in _settings())
+                {
+                    if (s != null && s.Enabled && !Equals(s.Default, s.Get()))
+                        return false;
+                }
+                return true;
+            }
+        }
+
+        /// <summary>The Apply and Revert to default buttons, on the Return row.</summary>
+        public void Buttons(VmBuilder b)
+        {
+            _apply = b.OptionsButton(Vm.Vanilla("Apply"), 0f, Apply);
+            _revert = b.OptionsButton(Vm.Vanilla("Revert_to_default"), 168f, RevertToDefault);
+            _applyColor = _apply != null ? _apply.baseColor : Color.white;
+            _revertColor = _revert != null ? _revert.baseColor : Color.white;
+            _shownApply = _shownRevert = null;
+            Refresh();
+        }
+
+        private bool? _shownApply;
+        private bool? _shownRevert;
+
+        private void Refresh()
+        {
+            Show(_apply, _applyColor, Changed, ref _shownApply);
+            Show(_revert, _revertColor, !AtDefaults, ref _shownRevert);
+        }
+
+        private static void Show(Button b, Color color, bool on, ref bool? shown)
+        {
+            if (b == null || shown == on)
+                return;
+            shown = on;
+            if (on)
+                VmBuilder.Enable(b, color);
+            else
+                VmBuilder.Disable(b);
+        }
+
+        private void Remember()
+        {
+            _opened.Clear();
+            foreach (VmSetting s in _settings())
+            {
+                if (s != null && !_opened.ContainsKey(s.Key))
+                    _opened[s.Key] = s.Get();
+            }
+        }
+
+        public void Apply()
+        {
+            Remember();
+            Refresh();
+        }
+
+        public void RevertToDefault()
+        {
+            foreach (VmSetting s in _settings())
+            {
+                if (s != null && s.Enabled)
+                    s.Set(s.Default);
+            }
+            _screen.Rebuild();
+        }
+
+        private void PutBack()
+        {
+            foreach (VmSetting s in _settings())
+            {
+                if (s != null && _opened.TryGetValue(s.Key, out object was) && !Equals(was, s.Get()))
+                    s.Set(was);
+            }
+        }
+
+        private void Leave()
+        {
+            if (!Changed)
+            {
+                Close();
+                return;
+            }
+            _screen.Confirm(Vm.Vanilla("ApplySettingsBox_title"), yes =>
+            {
+                if (yes)
+                    Remember();
+                else
+                    PutBack();
+                Close();
+            });
+        }
+
+        private void Close()
+        {
+            if (_screen.Parent != null)
+                Vm.Open(_screen.Parent);
+            else
+                Vm.CloseAll(restoreMenu: true);
         }
     }
 
