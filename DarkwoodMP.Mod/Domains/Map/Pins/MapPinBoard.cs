@@ -362,8 +362,12 @@ namespace DWMPHorde.Sync
                         Pins.Add(incoming);
                         if (incoming.Id >= _nextId) _nextId = incoming.Id + 1;
                         if (!IsLocalOwner(incoming))
-                            Notify(incoming.OwnerName + " marked " + KindName(incoming.Kind)
-                                + (string.IsNullOrEmpty(incoming.Label) ? "" : " \"" + incoming.Label + "\"") + " on the map.", false);
+                        {
+                            string label = string.IsNullOrEmpty(incoming.Label) ? "" : " \"" + incoming.Label + "\"";
+                            Notify(Loc.Russian
+                                ? incoming.OwnerName + " ставит на карте метку: " + Loc.T(KindName(incoming.Kind)) + label + "."
+                                : incoming.OwnerName + " marked " + KindName(incoming.Kind) + label + " on the map.", false);
+                        }
                     }
                     else
                     {
@@ -397,7 +401,7 @@ namespace DWMPHorde.Sync
                         Pings.RemoveAt(0);
                     Version++;
                     if (!IsLocalOwner(incoming))
-                        Notify(incoming.OwnerName + " pinged the map.", true);
+                        Notify(incoming.OwnerName + (Loc.Russian ? " подает сигнал на карте." : " pinged the map."), true);
                     ModLog.Event(LogCat.UI, "[MapPin] ping by " + incoming.OwnerName + " at "
                         + incoming.X.ToString("F0") + "," + incoming.Z.ToString("F0"));
                     return;
@@ -451,7 +455,7 @@ namespace DWMPHorde.Sync
 
         private static void Notify(string text, bool overHead)
         {
-            ChatHud.AddSystemLine("[Map] " + text);
+            ChatHud.AddSystemLine((Loc.Russian ? "[Карта] " : "[Map] ") + text);
             if (!overHead) return;
             try
             {

@@ -193,7 +193,7 @@ namespace DWMPHorde.Networking
                 if (wasReconnect && Player.Instance != null && !GameScreen.AtTitle && !Core.loadingGame)
                 {
                     DWMPHorde.Patches.PersonalFlavorHud.BeginBypass();
-                    try { Player.Instance.displayMessage(status); }
+                    try { Player.Instance.displayMessage(Loc.T(status)); }
                     finally { DWMPHorde.Patches.PersonalFlavorHud.EndBypass(); }
                 }
             }

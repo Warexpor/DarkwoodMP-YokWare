@@ -78,7 +78,7 @@ namespace DWMPHorde
             float s = UiScale;
             GUI.matrix = Matrix4x4.TRS(Vector3.zero, Quaternion.identity, new Vector3(s, s, 1f));
             Rect sr = new Rect(_windowRect.x / s, _windowRect.y / s, _windowRect.width / s, _windowRect.height / s);
-            sr = GUI.Window(987656, sr, DrawWindow, "Permanent world copy — pick profile slot");
+            sr = GUI.Window(987656, sr, DrawWindow, Loc.T("Permanent world copy — pick profile slot"));
             _windowRect = new Rect(sr.x * s, sr.y * s, sr.width * s, sr.height * s);
             GUI.matrix = old;
         }
@@ -110,15 +110,15 @@ namespace DWMPHorde
             if (share == null)
                 return;
 
-            GUILayout.Label(
+            GUILayout.Label(Loc.T(
                 "Host world downloaded. Choose which local PLAY profile keeps a permanent copy.\n"
-                + "It stays on this machine until you delete that profile. Live co-op still uses the host's world.");
+                + "It stays on this machine until you delete that profile. Live co-op still uses the host's world."));
             GUILayout.Space(6f);
 
             if (!string.IsNullOrEmpty(_status))
             {
                 GUI.color = Color.yellow;
-                GUILayout.Label(_status);
+                GUILayout.Label(Loc.T(_status));
                 GUI.color = Color.white;
             }
 
@@ -128,27 +128,27 @@ namespace DWMPHorde
                 GUI.color = new Color(1f, 0.55f, 0.35f);
                 if (_pendingCampaignMismatch)
                 {
-                    GUILayout.Label(
+                    GUILayout.Label(Loc.T(
                         WrongSaveWarning.Format(
                             "Profile " + _pendingSlot
                             + " belongs to a different co-op campaign than this host.\n"
-                            + "Overwrite will replace that save with the host world."));
+                            + "Overwrite will replace that save with the host world.")));
                 }
                 else
                 {
-                    GUILayout.Label(
+                    GUILayout.Label(Loc.T(
                         "Profile " + _pendingSlot + " already has a save.\n"
-                        + "Overwrite with the host world? This cannot be undone.");
+                        + "Overwrite with the host world? This cannot be undone."));
                 }
                 GUI.color = Color.white;
                 GUILayout.BeginHorizontal();
-                if (GUILayout.Button("Overwrite & keep permanently", GUILayout.Height(32f)))
+                if (GUILayout.Button(Loc.T("Overwrite & keep permanently"), GUILayout.Height(32f)))
                 {
                     Commit(_pendingSlot, overwriteConfirmed: true);
                     _confirmOverwrite = false;
                     _pendingCampaignMismatch = false;
                 }
-                if (GUILayout.Button("Cancel", GUILayout.Height(32f), GUILayout.Width(100f)))
+                if (GUILayout.Button(Loc.T("Cancel"), GUILayout.Height(32f), GUILayout.Width(100f)))
                 {
                     _confirmOverwrite = false;
                     _pendingCampaignMismatch = false;
@@ -174,38 +174,39 @@ namespace DWMPHorde
                 GUILayout.BeginVertical(GUI.skin.box);
                 GUILayout.BeginHorizontal();
 
-                string title = "Profile " + s.Id;
+                string title = Loc.T("Profile") + " " + s.Id;
                 if (s.Id == preferred && preferred >= 1)
-                    title += "  (last used)";
+                    title += "  " + Loc.T("(last used)");
                 GUILayout.Label(title, GUILayout.Width(140f));
 
                 string detail;
+                string dayCh = Loc.T("Day") + " " + s.Day + " " + Loc.T("Ch.") + s.Chapter;
                 if (s.IsEmpty)
-                    detail = "[Empty] — safe to use";
+                    detail = Loc.T("[Empty] — safe to use");
                 else if (s.IsCoopCopy)
-                    detail = "Co-op copy  Day " + s.Day + " Ch." + s.Chapter
+                    detail = Loc.T("Co-op copy") + "  " + dayCh
                         + (string.IsNullOrEmpty(s.TimeSaved) ? "" : "  " + s.TimeSaved)
-                        + (s.MatchesIncomingPackage ? "  [SAME AS HOST]" : "")
-                        + (s.CampaignMismatchWithHost ? "  [DIFFERENT CAMPAIGN]" : "");
+                        + (s.MatchesIncomingPackage ? "  " + Loc.T("[SAME AS HOST]") : "")
+                        + (s.CampaignMismatchWithHost ? "  " + Loc.T("[DIFFERENT CAMPAIGN]") : "");
                 else
-                    detail = "Campaign  Day " + s.Day + " Ch." + s.Chapter
+                    detail = Loc.T("Campaign") + "  " + dayCh
                         + (string.IsNullOrEmpty(s.TimeSaved) ? "" : "  " + s.TimeSaved)
-                        + (s.CampaignMismatchWithHost ? "  [DIFFERENT CAMPAIGN]" : "");
+                        + (s.CampaignMismatchWithHost ? "  " + Loc.T("[DIFFERENT CAMPAIGN]") : "");
 
                 if (s.CampaignMismatchWithHost)
                     GUI.color = new Color(1f, 0.55f, 0.35f);
                 GUILayout.Label(detail, GUILayout.ExpandWidth(true));
                 GUI.color = Color.white;
 
-                string btn = s.IsEmpty ? "Use empty" : (s.IsCoopCopy ? "Update copy" : "Overwrite");
-                if (GUILayout.Button(btn, GUILayout.Width(110f), GUILayout.Height(28f)))
+                string btn = Loc.T(s.IsEmpty ? "Use empty" : (s.IsCoopCopy ? "Update copy" : "Overwrite"));
+                if (GUILayout.Button(btn, GUILayout.Width(130f), GUILayout.Height(28f)))
                     OnPickSlot(s);
 
                 GUILayout.EndHorizontal();
                 if (s.IsCoopCopy && !string.IsNullOrEmpty(s.CoopNote))
                 {
                     GUI.color = new Color(0.75f, 0.85f, 1f);
-                    GUILayout.Label(s.CoopNote);
+                    GUILayout.Label(Loc.T(s.CoopNote));
                     GUI.color = Color.white;
                 }
                 GUILayout.EndVertical();
@@ -213,7 +214,7 @@ namespace DWMPHorde
 
             GUILayout.EndScrollView();
             GUILayout.Space(4f);
-            GUILayout.Label("Tip: empty slots first. Deleting a profile in PLAY removes the permanent copy.");
+            GUILayout.Label(Loc.T("Tip: empty slots first. Deleting a profile in PLAY removes the permanent copy."));
             GUI.DragWindow();
         }
 

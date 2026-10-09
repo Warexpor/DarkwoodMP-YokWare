@@ -262,11 +262,13 @@ namespace DWMPHorde.Items
             Dictionary<string, string> sheet = Language.GetAllKeysForSheet("Items");
             if (sheet == null || sheet.ContainsKey("walkie_talkie_name"))
                 return;
-            sheet.Add("walkie_talkie_name", "Walkie-Talkie");
+            // DoSwitch runs before the menu's per-frame language refresh: read the setting now.
+            Loc.SetLanguage(GameSettings.GetString("LanguageCode"));
+            sheet.Add("walkie_talkie_name", Loc.T("Walkie-Talkie"));
             if (!sheet.ContainsKey("walkie_talkie_desc"))
             {
                 sheet.Add("walkie_talkie_desc",
-                    "A crude two-way radio. Carry one each to talk over any distance.");
+                    Loc.T("A crude two-way radio. Carry one each to talk over any distance."));
             }
             if (!_langDone)
             {

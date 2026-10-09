@@ -3,7 +3,7 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.179**. The current Horde wire protocol is **47** (held for 0.8.178 and 0.8.179; bumped in 0.8.177: `PlayerState` gains
+**0.8.180**. The current Horde wire protocol is **47** (held for 0.8.178 to 0.8.180; bumped in 0.8.177: `PlayerState` gains
 the `ClockHeld` trailer; same DLL on every install).
 46 held for 0.8.176, bumped there: `NightDeathState` gains
 the rejoin resume and its position, `PlayerDied` gains the dying player's home, the entity
@@ -44,6 +44,24 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.180 — Russian for the mod's own text
+
+- With Russian chosen in Options > Language, everything the mod itself shows is in Russian: the
+  title button (СЕТЕВАЯ ИГРА, pixel art built like the English one from the game's Russian menu
+  glyphs: С from НАСТРОЙКИ, Е from ГЛАВНОЕ, Т from АВТОРЫ, "ВАЯ ИГРА" from НОВАЯ ИГРА), the
+  multiplayer panel buttons and their progress/failure labels, the F2 settings window, the F3
+  manual saves window, the join profile-slot picker, connection and world-share status, the
+  WORLD SHARE FAILED / WRONG SAVE warnings with their reasons, HUD lines (someone already talking,
+  already taken, host promoted, …), the chat box, map pin cards, stamps and chat notices, and the
+  walkie-talkie item's name and description (Рация). Every other language keeps the English text.
+- Text stays English in the code and is translated where it is shown (`Core/Loc.cs`,
+  `Core/Loc.Ru.cs`: whole-string entries plus patterns for lines with numbers or a nested reason),
+  so status matching keeps working and an English reason sent by the host reaches a Russian client
+  in Russian. A language change in Options rewrites the panel labels and swaps the title art at once.
+- Tests: every literal the code hands to a display sink must have a Russian entry; the patterns
+  keep their numbers and nested reasons (`LocTests`).
+- Removed the F2 window's never-shown "host next step" hint (dead code).
 
 ## 0.8.179 — MULTIPLAYER title button redrawn as vanilla pixel art
 

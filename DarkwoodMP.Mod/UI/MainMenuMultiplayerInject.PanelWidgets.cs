@@ -265,10 +265,14 @@ namespace DWMPHorde
             tk2dTextMesh tm = labelGo.GetComponent<tk2dTextMesh>();
             if (tm == null)
                 return null;
+            YokWareUiTag tag = parent.GetComponent<YokWareUiTag>();
+            if (tag != null)
+                tag.LabelEn = text;
+            string shown = Loc.T(text);
             tm.anchor = TextAnchor.MiddleCenter;
-            if (tm.maxChars < text.Length + 4)
-                tm.maxChars = text.Length + 8;
-            tm.text = text;
+            if (tm.maxChars < shown.Length + 4)
+                tm.maxChars = shown.Length + 8;
+            tm.text = shown;
             // Colors: settingsStyle applied by ApplySettingsButtonColors (idle≠hover).
             // Non-settings fallback keeps source colors.
             tm.Commit();

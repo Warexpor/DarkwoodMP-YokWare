@@ -412,7 +412,7 @@ namespace DWMPHorde.Sync
             if (Player.Instance == null)
                 return;
             Patches.PersonalFlavorHud.BeginBypass();
-            try { Player.Instance.displayMessage(text); }
+            try { Player.Instance.displayMessage(Loc.T(text)); }
             catch { /* HUD mid-teardown */ }
             finally { Patches.PersonalFlavorHud.EndBypass(); }
         }

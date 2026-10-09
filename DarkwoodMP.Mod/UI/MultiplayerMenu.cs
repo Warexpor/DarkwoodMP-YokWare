@@ -7,7 +7,7 @@ namespace DWMPHorde
 {
     public sealed class MultiplayerMenu : MonoBehaviour
     {
-        private static MultiplayerMenu _instance;
+        private static MultiplayerMenu _instance; // process-scoped: DontDestroyOnLoad window
 
         private bool _visible;
         private bool _advancedOpen;
@@ -30,7 +30,6 @@ namespace DWMPHorde
         private const string CtlLobby = "dwmp_lobby";
         private const string CtlName = "dwmp_name";
         private const string LockOwner = "f2";
-        private string _hostNextStepHint = "";
         private string _restoreSelfStatus = "";
         private float _restoreSelfStatusUntil;
         private ClientStateBackupData _peekBackup;
@@ -79,20 +78,6 @@ namespace DWMPHorde
         {
             if (_instance == null) return;
             _instance.WriteFieldsToConfig();
-        }
-
-        public static void SetHostNextStepHint(string hint)
-        {
-            if (_instance == null)
-                EnsureExists();
-            if (_instance != null)
-                _instance._hostNextStepHint = hint ?? "";
-        }
-
-        public static void ClearHostNextStepHint()
-        {
-            if (_instance != null)
-                _instance._hostNextStepHint = "";
         }
 
         public static void EnsureExists()
@@ -154,6 +139,8 @@ namespace DWMPHorde
 
         private void Update()
         {
+            // The mod's text follows the game's language (Options > Language), checked every frame.
+            Loc.SetLanguage(GameSettings.GetString("LanguageCode"));
             MainMenuMultiplayerInject.OnUpdate();
 
             // In-game only: the title screen has no gameplay input to hold back.
@@ -205,12 +192,12 @@ namespace DWMPHorde
         {
             _scroll = GUILayout.BeginScrollView(_scroll, GUILayout.ExpandHeight(true));
 
-            GUILayout.Label("Status: " + (Network != null ? Network.StatusText : "No network"), GUILayout.ExpandWidth(true));
+            GUILayout.Label(Loc.T("Status:") + " " + Loc.T(Network != null ? Network.StatusText : "No network"), GUILayout.ExpandWidth(true));
             if (Network != null && Network.WorldSaveShare != null
                 && !string.IsNullOrEmpty(Network.WorldSaveShare.ProgressText))
-                GUILayout.Label(Network.WorldSaveShare.ProgressText, GUILayout.ExpandWidth(true));
+                GUILayout.Label(Loc.T(Network.WorldSaveShare.ProgressText), GUILayout.ExpandWidth(true));
             GUILayout.Label(
-                "Join: host must be in-chapter → world share → pick slot → ENTER WORLD.",
+                Loc.T("Join: host must be in-chapter → world share → pick slot → ENTER WORLD."),
                 GUILayout.ExpandWidth(true));
 
             // Focus left a field: that is the commit point for the text it held.
@@ -225,33 +212,33 @@ namespace DWMPHorde
                 _steamLobbyText = ResolveLobbyText();
 
             GUILayout.Space(8f);
-            GUILayout.Label("Host IP:", GUILayout.ExpandWidth(true));
+            GUILayout.Label(Loc.T("Host IP:"), GUILayout.ExpandWidth(true));
             _connectAddress = Field(CtlAddress, _connectAddress, ref _dirtyAddress);
 
             GUILayout.Space(4f);
-            GUILayout.Label("Port (1-65535):", GUILayout.ExpandWidth(true));
+            GUILayout.Label(Loc.T("Port (1-65535):"), GUILayout.ExpandWidth(true));
             _portText = Field(CtlPort, _portText, ref _dirtyPort);
 
             GUILayout.Space(4f);
-            GUILayout.Label("Password (optional):", GUILayout.ExpandWidth(true));
+            GUILayout.Label(Loc.T("Password (optional):"), GUILayout.ExpandWidth(true));
             _passwordText = Field(CtlPassword, _passwordText ?? "", ref _dirtyPassword);
 
             GUILayout.Space(4f);
-            GUILayout.Label("Steam lobby id:", GUILayout.ExpandWidth(true));
+            GUILayout.Label(Loc.T("Steam lobby id:"), GUILayout.ExpandWidth(true));
             _steamLobbyText = Field(CtlLobby, _steamLobbyText ?? "", ref _dirtyLobby);
 
             GUILayout.Space(4f);
-            GUILayout.Label("Chat name:", GUILayout.ExpandWidth(true));
+            GUILayout.Label(Loc.T("Chat name:"), GUILayout.ExpandWidth(true));
             _nameText = Field(CtlName, _nameText ?? "Player", ref _dirtyName);
 
             bool anyDirty = _dirtyAddress || _dirtyPort || _dirtyPassword || _dirtyLobby || _dirtyName;
             GUI.enabled = anyDirty;
-            if (GUILayout.Button(anyDirty ? "Apply" : "Saved", GUILayout.Height(24f)))
+            if (GUILayout.Button(Loc.T(anyDirty ? "Apply" : "Saved"), GUILayout.Height(24f)))
                 WriteFieldsToConfig();
             GUI.enabled = true;
 
             GUILayout.Space(10f);
-            if (GUILayout.Button(_advancedOpen ? "Advanced ▾" : "Advanced ▸", GUILayout.Height(26f)))
+            if (GUILayout.Button(Loc.T(_advancedOpen ? "Advanced ▾" : "Advanced ▸"), GUILayout.Height(26f)))
                 _advancedOpen = !_advancedOpen;
 
             if (_advancedOpen)
@@ -260,8 +247,8 @@ namespace DWMPHorde
                 if (Network != null && Network.IsSteamSession && Network.Role == NetworkRole.Host
                     && !string.IsNullOrEmpty(Network.SteamLobbyIdText))
                 {
-                    GUILayout.Label("Lobby: " + Network.SteamLobbyIdText, GUILayout.ExpandWidth(true));
-                    if (GUILayout.Button("Copy lobby id + open invite", GUILayout.Height(28f)))
+                    GUILayout.Label(Loc.T("Lobby:") + " " + Network.SteamLobbyIdText, GUILayout.ExpandWidth(true));
+                    if (GUILayout.Button(Loc.T("Copy lobby id + open invite"), GUILayout.Height(28f)))
                     {
                         Networking.Steam.SteamCoopTransport.CopyToClipboard(Network.SteamLobbyIdText);
                         Network.InviteSteamFriends();
@@ -272,16 +259,15 @@ namespace DWMPHorde
                 {
                     bool shareBusy = Network.WorldSaveShare != null && Network.WorldSaveShare.IsBusy;
                     GUI.enabled = Network.IsConnected && Network.IsHandshakeComplete && !shareBusy;
-                    if (GUILayout.Button(shareBusy ? "Resending world…" : "Resend world to clients", GUILayout.Height(28f)))
+                    if (GUILayout.Button(Loc.T(shareBusy ? "Resending world…" : "Resend world to clients"), GUILayout.Height(28f)))
                         Network.WorldSaveShare?.ScheduleHostResend();
                     GUI.enabled = true;
                 }
 
                 if (Network != null && Network.Role != NetworkRole.Offline)
                 {
-                    if (GUILayout.Button("Disconnect", GUILayout.Height(28f)))
+                    if (GUILayout.Button(Loc.T("Disconnect"), GUILayout.Height(28f)))
                     {
-                        ClearHostNextStepHint();
                         if (Network.Role == NetworkRole.Host && Network.TryGracefulHostLeave())
                         { /* handoff */ }
                         else
@@ -295,7 +281,7 @@ namespace DWMPHorde
             GUILayout.Space(10f);
             GUILayout.Label(
                 PluginInfo.DisplayVersion + "  proto=" + PluginInfo.ProtocolVersion
-                + "  |  F2=settings F3=save  |  " + ModLog.ConfigPathHint,
+                + "  |  " + Loc.T("F2=settings F3=save") + "  |  " + ModLog.ConfigPathHint,
                 GUILayout.ExpandWidth(true));
 
             GUILayout.EndScrollView();
@@ -319,37 +305,37 @@ namespace DWMPHorde
         private void DrawRestoreSelfSection()
         {
             GUILayout.Space(6f);
-            GUILayout.Label("Client self-backup (inv / skills / exit pos):", GUILayout.ExpandWidth(true));
+            GUILayout.Label(Loc.T("Client self-backup (inv / skills / exit pos):"), GUILayout.ExpandWidth(true));
 
             bool canRestore = TryGetRestoreSelfGate(out string reason);
             var peek = PeekLocalSelfBackup();
             if (peek != null)
             {
                 GUILayout.Label(
-                    "On disk: day≈" + peek.Day
-                    + " lvl=" + peek.CurrentLevel
-                    + " inv=" + (peek.InventoryItems?.Count ?? 0)
-                    + " skills=" + (peek.Skills?.Count ?? 0)
+                    (Loc.Russian ? "На диске: день≈" : "On disk: day≈") + peek.Day
+                    + (Loc.Russian ? " ур.=" : " lvl=") + peek.CurrentLevel
+                    + (Loc.Russian ? " предм.=" : " inv=") + (peek.InventoryItems?.Count ?? 0)
+                    + (Loc.Russian ? " навыки=" : " skills=") + (peek.Skills?.Count ?? 0)
                     + (string.IsNullOrEmpty(peek.Timestamp) ? "" : " @ " + peek.Timestamp),
                     GUILayout.ExpandWidth(true));
             }
             else
             {
-                GUILayout.Label("On disk: none for this campaign.", GUILayout.ExpandWidth(true));
+                GUILayout.Label(Loc.T("On disk: none for this campaign."), GUILayout.ExpandWidth(true));
             }
 
             GUI.enabled = canRestore;
-            if (GUILayout.Button("Restore self now", GUILayout.Height(28f)))
+            if (GUILayout.Button(Loc.T("Restore self now"), GUILayout.Height(28f)))
                 TryRestoreSelf();
             GUI.enabled = true;
 
             if (!canRestore && !string.IsNullOrEmpty(reason))
-                GUILayout.Label(reason, GUILayout.ExpandWidth(true));
+                GUILayout.Label(Loc.T(reason), GUILayout.ExpandWidth(true));
 
             if (!string.IsNullOrEmpty(_restoreSelfStatus) && Time.realtimeSinceStartup < _restoreSelfStatusUntil)
             {
                 GUI.color = Color.yellow;
-                GUILayout.Label(_restoreSelfStatus, GUILayout.ExpandWidth(true));
+                GUILayout.Label(Loc.T(_restoreSelfStatus), GUILayout.ExpandWidth(true));
                 GUI.color = Color.white;
             }
         }
@@ -427,10 +413,10 @@ namespace DWMPHorde
             }
 
             SetRestoreSelfStatus(
-                "Restored self — lvl=" + data.CurrentLevel
-                + " inv=" + (data.InventoryItems?.Count ?? 0)
-                + " skills=" + (data.Skills?.Count ?? 0)
-                + " pos=(" + data.PosX.ToString("F0") + "," + data.PosZ.ToString("F0") + ")");
+                (Loc.Russian ? "Персонаж восстановлен — ур.=" : "Restored self — lvl=") + data.CurrentLevel
+                + (Loc.Russian ? " предм.=" : " inv=") + (data.InventoryItems?.Count ?? 0)
+                + (Loc.Russian ? " навыки=" : " skills=") + (data.Skills?.Count ?? 0)
+                + (Loc.Russian ? " поз.=(" : " pos=(") + data.PosX.ToString("F0") + "," + data.PosZ.ToString("F0") + ")");
             ModLog.Event(LogCat.Save,
                 "Applied local self-backup (before lvl=" + beforeLvl
                 + " hp=" + beforeHp.ToString("F0") + ").");

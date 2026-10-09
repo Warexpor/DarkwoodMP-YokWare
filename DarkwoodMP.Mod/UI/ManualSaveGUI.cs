@@ -179,7 +179,7 @@ namespace DWMPHorde
             GUI.matrix = Matrix4x4.TRS(Vector3.zero, Quaternion.identity, new Vector3(s, s, 1f));
 
             Rect sr = new Rect(_windowRect.x / s, _windowRect.y / s, _windowRect.width / s, _windowRect.height / s);
-            sr = GUI.Window(987655, sr, DrawWindow, "Manual Saves (F3)");
+            sr = GUI.Window(987655, sr, DrawWindow, Loc.T("Manual Saves (F3)"));
             _windowRect = new Rect(sr.x * s, sr.y * s, sr.width * s, sr.height * s);
 
             GUI.matrix = old;
@@ -190,15 +190,15 @@ namespace DWMPHorde
             if (!string.IsNullOrEmpty(_statusMsg))
             {
                 GUI.color = Color.yellow;
-                GUILayout.Label(_statusMsg);
+                GUILayout.Label(Loc.T(_statusMsg));
                 GUI.color = Color.white;
             }
 
             GameProfile profile = Core.currentProfile;
             GUILayout.BeginHorizontal();
             GUILayout.Label(profile != null
-                    ? "Profile " + profile.id + " | Day " + profile.day + " | Ch." + profile.chapter
-                    : "No active profile",
+                    ? Loc.T("Profile") + " " + profile.id + " | " + Loc.T("Day") + " " + profile.day + " | " + Loc.T("Ch.") + profile.chapter
+                    : Loc.T("No active profile"),
                 GUILayout.ExpandWidth(true));
             if (GUILayout.Button("X", GUILayout.Width(24))) { _visible = false; _confirmingOverwrite = false; }
             GUILayout.EndHorizontal();
@@ -218,37 +218,37 @@ namespace DWMPHorde
             ManualSaveSlotMeta m = _slotMetas[idx];
             GUILayout.BeginHorizontal(GUILayout.Height(36f));
 
-            GUILayout.Label("Slot " + (idx + 1), GUILayout.Width(70f));
+            GUILayout.Label(Loc.T("Slot") + " " + (idx + 1), GUILayout.Width(70f));
 
             if (m.hasData)
             {
-                string info = "Day " + m.day + " | Ch." + m.chapter;
+                string info = Loc.T("Day") + " " + m.day + " | " + Loc.T("Ch.") + m.chapter;
                 if (!string.IsNullOrEmpty(m.timeSaved))
                     info += " | " + m.timeSaved;
                 if (_slotIsLegacy[idx])
-                    info += " | shared (old)";
+                    info += " | " + Loc.T("shared (old)");
                 GUILayout.Label(info, GUILayout.ExpandWidth(true));
             }
             else
             {
-                GUILayout.Label("[Empty]", GUILayout.ExpandWidth(true));
+                GUILayout.Label(Loc.T("[Empty]"), GUILayout.ExpandWidth(true));
             }
 
             if (_confirmingOverwrite && _pendingSlot == idx)
             {
-                GUILayout.Label(_pendingIsSave ? "Overwrite?" : "Load? (lose progress)", GUILayout.Width(_pendingIsSave ? 90f : 140f));
-                if (GUILayout.Button("Yes", GUILayout.Width(50f)))
+                GUILayout.Label(Loc.T(_pendingIsSave ? "Overwrite?" : "Load? (lose progress)"), GUILayout.Width(_pendingIsSave ? 110f : 210f));
+                if (GUILayout.Button(Loc.T("Yes"), GUILayout.Width(50f)))
                 {
                     _confirmingOverwrite = false;
                     if (_pendingIsSave) DoSave(idx);
                     else DoLoad(idx);
                 }
-                if (GUILayout.Button("No", GUILayout.Width(50f)))
+                if (GUILayout.Button(Loc.T("No"), GUILayout.Width(50f)))
                     _confirmingOverwrite = false;
             }
             else
             {
-                if (GUILayout.Button("Save", GUILayout.Width(60f)))
+                if (GUILayout.Button(Loc.T("Save"), GUILayout.Width(60f)))
                 {
                     if (_slotMetas[idx].hasData)
                     {
@@ -263,7 +263,7 @@ namespace DWMPHorde
                 }
 
                 GUI.enabled = m.hasData;
-                if (GUILayout.Button("Load", GUILayout.Width(60f)))
+                if (GUILayout.Button(Loc.T("Load"), GUILayout.Width(60f)))
                 {
                     // Loading replaces the live profile files: always confirm.
                     _confirmingOverwrite = true;

@@ -161,7 +161,7 @@ namespace DWMPHorde.Networking
                 if (Player.Instance != null && !GameScreen.AtTitle && !Core.loadingGame)
                 {
                     DWMPHorde.Patches.PersonalFlavorHud.BeginBypass();
-                    try { Player.Instance.displayMessage(tip); }
+                    try { Player.Instance.displayMessage(Loc.T(tip)); }
                     finally { DWMPHorde.Patches.PersonalFlavorHud.EndBypass(); }
                 }
             }

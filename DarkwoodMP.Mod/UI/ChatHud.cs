@@ -167,14 +167,14 @@ namespace DWMPHorde
             float w = Mathf.Min(520f, Screen.width - 40f);
             float h = 64f;
             Rect box = new Rect(20f, Screen.height - h - 40f, w, h);
-            GUI.Box(box, "Chat  —  ENTER send   ESC close");
+            GUI.Box(box, Loc.T("Chat  —  ENTER send   ESC close"));
             GUI.SetNextControlName(InputControlName);
             _draft = GUI.TextField(
                 new Rect(box.x + 8f, box.y + 28f, box.width - 88f, 24f),
                 _draft ?? "",
                 200);
 
-            if (GUI.Button(new Rect(box.x + box.width - 72f, box.y + 28f, 60f, 24f), "SEND"))
+            if (GUI.Button(new Rect(box.x + box.width - 72f, box.y + 28f, 60f, 24f), Loc.T("SEND")))
                 TrySend();
 
             if (_focusPending)
@@ -223,7 +223,7 @@ namespace DWMPHorde
             var net = ModRuntime.Network;
             if (net == null || net.Role == NetworkRole.Offline)
             {
-                AddLine("[System] Not in a session.");
+                AddLine(Loc.T("[System] Not in a session."));
                 return;
             }
 

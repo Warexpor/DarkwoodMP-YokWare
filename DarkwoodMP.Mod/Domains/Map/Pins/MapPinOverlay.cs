@@ -142,12 +142,12 @@ namespace DWMPHorde.Sync
             if (pin == null || !MapPinView.TryPinGuiPoint(pin.Id, out Vector2 at))
                 return;
             Color c = MapPinPalette.Get(pin.Color);
-            string who = MapPinBoard.IsLocalOwner(pin) ? "you" : (string.IsNullOrEmpty(pin.OwnerName) ? "someone" : pin.OwnerName);
-            string text = "<b>" + MapPinBoard.KindName(pin.Kind) + "</b>"
+            string who = MapPinBoard.IsLocalOwner(pin) ? Loc.T("you") : (string.IsNullOrEmpty(pin.OwnerName) ? Loc.T("someone") : pin.OwnerName);
+            string text = "<b>" + Loc.T(MapPinBoard.KindName(pin.Kind)) + "</b>"
                 + (string.IsNullOrEmpty(pin.Label) ? "" : "  “" + pin.Label + "”")
                 + "\n<color=#" + ColorUtility.ToHtmlStringRGB(c) + ">●</color> " + who
-                + (pin.Day > 0 ? ", day " + pin.Day : "")
-                + "\n<size=" + Mathf.RoundToInt(11f * s) + ">RMB erase · wheel restyle · double-click label</size>";
+                + (pin.Day > 0 ? (Loc.Russian ? ", день " : ", day ") + pin.Day : "")
+                + "\n<size=" + Mathf.RoundToInt(11f * s) + ">" + Loc.T("RMB erase · wheel restyle · double-click label") + "</size>";
             Vector2 size = _card.CalcSize(new GUIContent(text));
             float x = Mathf.Clamp(at.x + 24f * s, 4f, Screen.width - size.x - 4f);
             float y = Mathf.Clamp(at.y - size.y * 0.5f, 4f, Screen.height - size.y - 4f);
@@ -156,8 +156,10 @@ namespace DWMPHorde.Sync
 
         private void DrawStrip(float s)
         {
-            string text = "Stamp: <b>" + MapPinBoard.KindName(MapPinView.SelectedKind) + "</b> (wheel)"
-                + "    RMB place / erase    MMB or Shift+RMB ping    double-click a pin to label it";
+            string kind = Loc.T(MapPinBoard.KindName(MapPinView.SelectedKind));
+            string text = Loc.Russian
+                ? "Метка: <b>" + kind + "</b> (колесо)    ПКМ — поставить / стереть    СКМ или Shift+ПКМ — сигнал    двойной щелчок по метке — подпись"
+                : "Stamp: <b>" + kind + "</b> (wheel)    RMB place / erase    MMB or Shift+RMB ping    double-click a pin to label it";
             Vector2 size = _strip.CalcSize(new GUIContent(text));
             float w = Mathf.Min(size.x + 16f * s, Screen.width - 16f);
             GUI.Box(new Rect((Screen.width - w) * 0.5f, Screen.height - size.y - 14f * s, w, size.y), text, _strip);
@@ -188,7 +190,7 @@ namespace DWMPHorde.Sync
             }
             float w = 260f * s, h = 24f * s;
             var r = new Rect(Mathf.Clamp(at.x - w * 0.5f, 4f, Screen.width - w - 4f), at.y + 16f * s, w, h);
-            GUI.Box(new Rect(r.x - 4f, r.y - 20f * s, r.width + 8f, r.height + 24f * s), "Label (Enter save, Esc cancel)", _card);
+            GUI.Box(new Rect(r.x - 4f, r.y - 20f * s, r.width + 8f, r.height + 24f * s), Loc.T("Label (Enter save, Esc cancel)"), _card);
             GUI.SetNextControlName(FieldName);
             _draft = GUI.TextField(r, _draft ?? "", MapPinBoard.MaxLabelLength);
             if (_focusPending)

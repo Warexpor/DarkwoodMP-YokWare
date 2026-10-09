@@ -208,7 +208,6 @@ namespace DWMPHorde
                 return;
             _joinPending = false;
             _hostingHint = false;
-            MultiplayerMenu.ClearHostNextStepHint();
             if (net.Role == NetworkRole.Host && net.TryGracefulHostLeave())
             {
                 ResetJoinLabelsIdle();
@@ -281,12 +280,18 @@ namespace DWMPHorde
         {
             if (buttonGo == null || !buttonGo)
                 return;
+            YokWareUiTag tag = buttonGo.GetComponent<YokWareUiTag>();
+            if (tag != null)
+                tag.LabelEn = text;
             tk2dTextMesh tm = buttonGo.GetComponentInChildren<tk2dTextMesh>(true);
             if (tm == null)
                 return;
-            if (tm.text == text)
+            string shown = Loc.T(text);
+            if (tm.text == shown)
                 return;
-            tm.text = text;
+            if (tm.maxChars < shown.Length + 4)
+                tm.maxChars = shown.Length + 8;
+            tm.text = shown;
             tm.Commit();
             FitButtonHitbox(buttonGo);
         }

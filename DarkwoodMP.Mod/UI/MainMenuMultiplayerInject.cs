@@ -94,6 +94,15 @@ namespace DWMPHorde
 
             try
             {
+                RelabelOnLanguageChange();
+            }
+            catch (Exception ex)
+            {
+                ModLog.Error(LogCat.Session, "menu relabel: " + ex.Message, ex);
+            }
+
+            try
+            {
                 TickUiLifecycle();
             }
             catch (Exception ex)
@@ -309,6 +318,30 @@ namespace DWMPHorde
         private sealed class YokWareUiTag : MonoBehaviour
         {
             public string Kind;
+            /// <summary>The label's English text; shown through <see cref="Loc.T"/>, again on a language change.</summary>
+            public string LabelEn;
+        }
+
+        private static string _labelLanguage; // process-scoped: language the panel labels were last written in
+
+        /// <summary>The game's language changed in Options: write every mod label again in it.</summary>
+        private static void RelabelOnLanguageChange()
+        {
+            if (_labelLanguage == Loc.Language)
+                return;
+            _labelLanguage = Loc.Language;
+            var roots = new List<Transform>(2);
+            if (_mpButton != null && _mpButton) roots.Add(_mpButton.transform);
+            if (_panel != null && _panel) roots.Add(_panel.transform);
+            for (int r = 0; r < roots.Count; r++)
+            {
+                YokWareUiTag[] tags = roots[r].GetComponentsInChildren<YokWareUiTag>(true);
+                for (int i = 0; i < tags.Length; i++)
+                {
+                    if (tags[i] != null && !string.IsNullOrEmpty(tags[i].LabelEn))
+                        SetLabel(tags[i].gameObject, tags[i].LabelEn);
+                }
+            }
         }
 
     }

@@ -7,29 +7,63 @@ using UnityEngine;
 namespace DWMPHorde
 {
     /// <summary>
-    /// Embedded title-button art (MULTIPLAYER idle/hover). Pixel art built from the vanilla
-    /// menu atlas glyphs (MAIN MENU, PLAY, EXIT, CREDITS) with the vanilla _0 → _1 rollover
-    /// look; both PNGs share one canvas (the hover's glow padding), drawn point-filtered at
-    /// the EXIT sprite's texel size. CamUI looks down (Euler 90); UI lives in screen-pixel XZ.
+    /// Embedded title-button art (MULTIPLAYER idle/hover, and СЕТЕВАЯ ИГРА for Russian). Pixel
+    /// art built from the vanilla menu atlas glyphs of that language with the vanilla _0 → _1
+    /// rollover look; both PNGs of a language share one canvas (the hover's glow padding),
+    /// drawn point-filtered at the EXIT sprite's texel size. The art follows the game's
+    /// language setting. CamUI looks down (Euler 90); UI lives in screen-pixel XZ.
     /// </summary>
     internal static class MenuButtonArt
     {
-        private const string IdleResource = "DWMPHorde.Resources.MenuButtons.multiplayer_idle.png";
-        private const string HoverResource = "DWMPHorde.Resources.MenuButtons.multiplayer_hover.png";
+        private sealed class ArtSet
+        {
+            public string IdleResource, HoverResource;
+            public Texture2D Idle, Hover;
+            public bool Failed;
+        }
 
-        private static Texture2D _idle; // process-scoped: loaded asset
-        private static Texture2D _hover; // process-scoped: loaded asset
-        private static bool _loadFailed; // process-scoped: loaded asset
+        private static readonly ArtSet English = new ArtSet // process-scoped: loaded asset
+        {
+            IdleResource = "DWMPHorde.Resources.MenuButtons.multiplayer_idle.png",
+            HoverResource = "DWMPHorde.Resources.MenuButtons.multiplayer_hover.png"
+        };
+        private static readonly ArtSet Russian = new ArtSet // process-scoped: loaded asset
+        {
+            IdleResource = "DWMPHorde.Resources.MenuButtons.multiplayer_idle_ru.png",
+            HoverResource = "DWMPHorde.Resources.MenuButtons.multiplayer_hover_ru.png"
+        };
         private static Mesh _quad; // process-scoped: loaded asset
+
+        /// <summary>The art for the game's language (English when the Russian set cannot load).</summary>
+        private static ArtSet Current()
+        {
+            ArtSet set = Loc.Russian ? Russian : English;
+            if (!EnsureLoaded(set) && set != English)
+                set = English;
+            return set.Idle != null ? set : null;
+        }
+
+        private static bool EnsureLoaded(ArtSet set)
+        {
+            if (set.Idle != null)
+                return true;
+            if (set.Failed)
+                return false;
+            set.Idle = Load(set.IdleResource);
+            set.Hover = Load(set.HoverResource);
+            set.Failed = set.Idle == null;
+            return !set.Failed;
+        }
 
         public static bool TryAttachMultiplayerArt(GameObject buttonGo)
         {
             if (buttonGo == null)
                 return false;
-            Texture2D idle = Load(IdleResource, ref _idle);
-            Texture2D hover = Load(HoverResource, ref _hover);
-            if (idle == null)
+            ArtSet set = Current();
+            if (set == null)
                 return false;
+            Texture2D idle = set.Idle;
+            Texture2D hover = set.Hover;
 
             Shader shader = Shader.Find("tk2d/BlendVertexColor")
                 ?? Shader.Find("Sprites/Default")
@@ -83,14 +117,12 @@ namespace DWMPHorde
             art.transform.SetParent(buttonGo.transform, true);
 
             var swap = art.AddComponent<MenuButtonArtHover>();
-            swap.Idle = idle;
-            swap.Hover = hover ?? idle;
+            swap.Set = set;
             swap.Button = buttonGo.GetComponent<Button>();
             swap.Renderer = mr;
             swap.Follow = buttonGo.transform;
             swap.Col = col;
-            swap.TargetW = targetW;
-            swap.TargetH = targetH;
+            swap.Texel = texel;
 
             // Hitbox must cover the long MULTIPLAYER glyph, not the short EXIT collider.
             MainMenuMultiplayerInject.FitButtonHitbox(buttonGo);
@@ -110,7 +142,8 @@ namespace DWMPHorde
         {
             u0 = v0 = 0f;
             u1 = v1 = 1f;
-            Texture2D idle = Load(IdleResource, ref _idle);
+            ArtSet set = Current();
+            Texture2D idle = set != null ? set.Idle : null;
             if (idle == null)
                 return false;
             try
@@ -222,37 +255,29 @@ namespace DWMPHorde
             return _quad;
         }
 
-        private static Texture2D Load(string resourceName, ref Texture2D cache)
+        private static Texture2D Load(string resourceName)
         {
-            if (cache != null)
-                return cache;
-            if (_loadFailed)
-                return null;
             try
             {
                 byte[] bytes = ReadResource(resourceName);
                 if (bytes == null)
                 {
-                    _loadFailed = true;
                     ModLog.Warn(LogCat.Session, "Menu button art missing: " + resourceName);
                     return null;
                 }
                 var tex = new Texture2D(2, 2, TextureFormat.RGBA32, false);
                 if (!ImageConversion.LoadImage(tex, bytes))
                 {
-                    _loadFailed = true;
                     ModLog.Warn(LogCat.Session, "Menu button art decode failed: " + resourceName);
                     return null;
                 }
                 tex.name = resourceName;
                 tex.filterMode = FilterMode.Point;
                 tex.wrapMode = TextureWrapMode.Clamp;
-                cache = tex;
-                return cache;
+                return tex;
             }
             catch (Exception ex)
             {
-                _loadFailed = true;
                 ModLog.Warn(LogCat.Session, "Menu button art: " + ex.Message);
                 return null;
             }
@@ -279,14 +304,12 @@ namespace DWMPHorde
 
         private sealed class MenuButtonArtHover : MonoBehaviour
         {
-            public Texture2D Idle;
-            public Texture2D Hover;
+            public ArtSet Set;
             public Button Button;
             public MeshRenderer Renderer;
             public Transform Follow;
             public Collider Col;
-            public float TargetW;
-            public float TargetH;
+            public float Texel;
             private bool _wasHover;
 
             private void LateUpdate()
@@ -297,17 +320,25 @@ namespace DWMPHorde
                     return;
                 }
 
+                // The language changed in Options: the other word, its own width and hitbox.
+                ArtSet now = Current();
+                bool relang = now != null && now != Set;
+                if (relang)
+                    Set = now;
+
                 GameObject camObj = Core.CamUI;
                 Camera cam = camObj != null ? camObj.GetComponent<Camera>() : null;
-                PlaceFacingCam(transform, Follow, Col, cam, TargetW, TargetH);
+                PlaceFacingCam(transform, Follow, Col, cam, Set.Idle.width * Texel, Set.Idle.height * Texel);
+                if (relang)
+                    MainMenuMultiplayerInject.FitButtonHitbox(Follow.gameObject);
 
                 if (Renderer == null || Renderer.sharedMaterial == null)
                     return;
                 bool hover = Button != null && Button.rolledOver && !Button.disabled;
-                if (hover == _wasHover)
+                if (hover == _wasHover && !relang)
                     return;
                 _wasHover = hover;
-                Renderer.sharedMaterial.mainTexture = hover ? Hover : Idle;
+                Renderer.sharedMaterial.mainTexture = hover && Set.Hover != null ? Set.Hover : Set.Idle;
             }
         }
     }

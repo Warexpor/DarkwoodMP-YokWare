@@ -42,7 +42,7 @@ namespace DWMPHorde
                 if (Player.Instance != null && !GameScreen.AtTitle && !Core.loadingGame)
                 {
                     DWMPHorde.Patches.PersonalFlavorHud.BeginBypass();
-                    try { Player.Instance.displayMessage(msg); }
+                    try { Player.Instance.displayMessage(Loc.T(msg)); }
                     finally { DWMPHorde.Patches.PersonalFlavorHud.EndBypass(); }
                 }
             }
