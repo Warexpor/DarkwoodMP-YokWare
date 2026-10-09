@@ -26,8 +26,6 @@ namespace DWMPHorde
         private const string TagKindRow = "row";
 
         private const float RowSpacing = 60f;
-        /// <summary>Nudge title MULTIPLAYER up toward EXIT (PositionMe offset units).</summary>
-        private const float MpButtonNudgeUp = 16f;
         /// <summary>HOST/JOIN panel rows use tighter spacing than the title.</summary>
         private const float PanelRowSpacing = 46f;
         /// <summary>Panel tk2d labels vs Video/Profiles native size.</summary>

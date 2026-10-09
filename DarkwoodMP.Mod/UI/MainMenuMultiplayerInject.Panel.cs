@@ -41,10 +41,15 @@ namespace DWMPHorde
 
         private static float TitleMultiplayerOffsetY()
         {
-            // One row below EXIT, then nudge up so it sits closer to the vanilla stack.
-            return ComputeVanillaLowestOffsetY() - RowSpacing + MpButtonNudgeUp;
+            // The next row of the vanilla stack, one row spacing below EXIT.
+            return ComputeVanillaLowestOffsetY() - RowSpacing;
         }
 
+        /// <summary>
+        /// Offset of the lowest vanilla title button. Only buttons count: the version and player-id
+        /// labels sit lower, and stacking under them put MULTIPLAYER into the dark bottom band of
+        /// the menu's vignette overlay, at half the brightness of PLAY/EXIT.
+        /// </summary>
         private static float ComputeVanillaLowestOffsetY()
         {
             float lowest = 0f;
@@ -56,7 +61,7 @@ namespace DWMPHorde
                 PositionMe pm = pms[i];
                 if (pm == null || pm.gameObject == _mpButton)
                     continue;
-                if (pm.GetComponent<YokWareUiTag>() != null)
+                if (pm.GetComponent<YokWareUiTag>() != null || pm.GetComponent<Button>() == null)
                     continue;
                 string n = pm.gameObject != null ? pm.gameObject.name : "";
                 if (n.StartsWith("YokWare_", StringComparison.Ordinal))
