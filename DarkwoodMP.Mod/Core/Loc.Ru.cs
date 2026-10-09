@@ -23,6 +23,7 @@ namespace DWMPHorde
             { "Restore my character", "Восстановить персонажа" },
             { "Settings", "Настройки" },
             { "Host settings", "Настройки хоста" },
+            { "Creatures hear voices", "Твари слышат голоса" },
             { "Disconnect", "Отключиться" },
             { "Local network", "Локальная сеть" },
             { "Steam", "Steam" },

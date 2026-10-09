@@ -831,10 +831,14 @@ party events.
   name out with the player roster. A name shows over a player only while you can
   see them (vanilla's enemy sight test), so it never reveals someone behind a wall.
 - **Voice chat** (needs a logged-in Steam client, works over LAN too):
-  - Proximity voice: full volume within 150 units, silent beyond 650, muffled
-    through walls.
+  - Proximity voice comes from where the talker stands (panned toward them) and
+    carries as far as they spoke loud: a shout to 650 units, normal speech about three
+    quarters of that, a whisper about a third. Muffled through walls.
+  - Creatures hear it too (host rule, on by default): talk louder than a murmur is a
+    sound at the talker's position, like a step or a door. Whispering is safe.
   - Walkie-talkie: hold a `walkie_talkie` and right-click to transmit. Carrying one
-    lets you hear the radio from anywhere, with static.
+    lets you hear the radio from anywhere: a narrow, slightly distorted band, a squelch
+    click and tail, and more static the farther apart the two radios are.
   - Push-to-talk (`V`) or open mic.
   - While spectating, you hear from the player you follow.
 

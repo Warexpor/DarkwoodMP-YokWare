@@ -3,8 +3,10 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.183**. The current Horde wire protocol is **48** (held for 0.8.183; bumped in 0.8.182: new `PlayerName` (168),
-`PeerRoster` entries gain the player's name; same DLL on every install).
+**0.8.184**. The current Horde wire protocol is **49** (bumped in 0.8.184: `VoiceData` (129) gains the
+talker's loudness byte; same DLL on every install).
+48 held for 0.8.183, bumped in 0.8.182: new `PlayerName` (168),
+`PeerRoster` entries gain the player's name.
 47 held for 0.8.178 to 0.8.181, bumped in 0.8.177: `PlayerState` gains
 the `ClockHeld` trailer.
 46 held for 0.8.176, bumped there: `NightDeathState` gains
@@ -46,6 +48,49 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.184 — Voice from where the player stands, as far as they spoke loud; a real-sounding walkie; creatures hear talk
+
+Review of the voice chat. What it did before: every voice played flat in the middle (no left or
+right), at a volume by distance alone, with the same reach for a whisper and a shout; the
+decoded audio was stretched to the mixer's rate by repeating samples (a faint metallic edge);
+each talk spurt waited a quarter second to start; a spurt shorter than that hung until the
+next one; late or repeated network packets played out of order; the radio was a gentle
+600-6800 Hz filter with a 50 ms tick at the end; walls were found with a ray that hit anything,
+floors and triggers aside.
+
+- **Heard from where they stand.** The voice now comes from the player's character: it pans
+  left and right toward them (gently when they stand close, fully from about 300 units out), and
+  keeps the muffle through walls, now tested the way vanilla tests whether a creature hears a
+  sound through something (`Character.heardSound`: one ray on its blocking layers) and eased in
+  and out instead of switching.
+- **As far as they spoke loud.** Each voice packet now carries how loud the talker spoke,
+  measured on the talker's own machine (protocol 49, `VoiceData` gains a loudness byte). A shout
+  carries the full `VoiceMaxDistance` (650), normal speech about three quarters of it, a whisper
+  about a third. The reach rises at once with the voice and falls slowly between words, so it
+  does not pump.
+- **Creatures hear you.** On the host, a player talking louder than a murmur makes a sound
+  where they stand twice a second, through vanilla's own `Character.alertInArea` (the call a
+  step, a door or a shot makes): normal speech about as far as a walking step, a shout farther
+  than running. Creatures stop and listen, and come looking if it goes on. Whispering is safe.
+  Dead players make no sound. Host settings > **Creatures hear voices** (config `[Voice]
+  VoiceAlertsEnemies`, default on). The host needs no Steam for it: the loudness travels with
+  the packet. `Audio/VoiceHearing.cs`.
+- **The walkie sounds like a radio.** A narrow 380-2900 Hz band (two second-order filters
+  instead of one gentle one), driven into a little distortion, under a hiss that grows with
+  the distance between the two radios (worst when the talker is in another location). The far
+  radio opens with a squelch click and closes with a short burst of static, and the talker
+  hears their own radio click when keying and letting go. `Audio/VoiceChatService.Radio.cs`.
+- **Cleaner, quicker voice.** Decoded straight at the mixer's rate (Steam takes up to 48 kHz),
+  with interpolation when the mixer is faster; volume changes ramp across each audio buffer
+  instead of stepping; talk starts after 150 ms of buffer instead of 250; a short spurt plays
+  out instead of waiting; a backlog after a network stall is cut to 200 ms instead of 350.
+  Late or repeated packets are dropped by their sequence number. The voice packet's layout is
+  written by one helper for the send path and the message (`VoiceDataMessage.WriteSlice`) with
+  a round-trip test.
+- Not tested in game: voice needs two logged-in Steam clients, and the test boxes' client is
+  the GOG build. To check: a teammate's voice from the left or right, a whisper fading out
+  sooner than a shout, the radio squelch and hiss, and a creature turning toward a shout.
 
 ## 0.8.183 — Names over the head in a softer look; chat fades smoothly; nothing said over the players
 

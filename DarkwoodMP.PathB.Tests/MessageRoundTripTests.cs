@@ -822,4 +822,23 @@ public class MessageRoundTripTests
         Assert.Equal(msg.DiscoveryElementNames, back.DiscoveryElementNames);
         Assert.Equal(0, r.AvailableBytes);
     }
+
+    [Fact]
+    public void VoiceData_SliceAndSerializeShareOneLayout()
+    {
+        byte[] capture = { 9, 8, 7, 6, 5, 4 };
+        var r = new NetReader(Bytes(w => VoiceDataMessage.WriteSlice(w, 3, 65535, VoiceDataMessage.FlagWalkie, 200, capture, 4)));
+        var back = VoiceDataMessage.Deserialize(r);
+
+        Assert.Equal(3, back.PlayerId);
+        Assert.Equal((ushort)65535, back.Seq);
+        Assert.Equal(VoiceDataMessage.FlagWalkie, back.Flags);
+        Assert.Equal((byte)200, back.Level);
+        Assert.Equal(new byte[] { 9, 8, 7, 6 }, back.Data);
+        Assert.Equal(0, r.AvailableBytes);
+
+        var again = new NetReader(Bytes(back.Serialize));
+        Assert.Equal((byte)200, VoiceDataMessage.Deserialize(again).Level);
+        Assert.Equal(0, again.AvailableBytes);
+    }
 }

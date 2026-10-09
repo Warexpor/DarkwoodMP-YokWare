@@ -12,6 +12,11 @@ namespace DWMPHorde.Audio
     /// <summary>
     /// Steam Voice capture/playback over Horde wire (LAN or Steam SNS session).
     /// Requires Steam client logged on for codec; transport is independent.
+    /// A voice is heard from where the talker stands (3D, muffled through walls), and as far as
+    /// they spoke loud: each packet carries the talker's loudness, measured where it was
+    /// recorded. On the walkie it is heard through the radio, band-limited and with static that
+    /// grows with distance. On the host, loud talk is heard by the creatures around the talker
+    /// (<see cref="VoiceHearing"/>).
     /// </summary>
     public static partial class VoiceChatService
     {
@@ -31,14 +36,25 @@ namespace DWMPHorde.Audio
             public bool Walkie;
             public bool RadioMode;
             public bool RadioWasActive;
-            public float RadioHp;
-            public float RadioLp;
+            public Biquad RadioHp;
+            public Biquad RadioLp;
+            /// <summary>Radio hiss level for this talker (grows with the distance between the two radios).</summary>
+            public float RadioHiss;
             public bool Priming = true;
+            /// <summary>Set when a short spurt has ended below the prime level: play it out anyway.</summary>
+            public bool PrimeRelease;
             public int PacketsIn;
             public int Underruns;
-            public bool Occluded;
+            public bool HasSeq;
+            public ushort LastSeq;
+            /// <summary>Loudness of the latest packet (0..1) and its envelope: quick to rise, slow to fall between words.</summary>
+            public float Level;
+            public float LevelEnv;
+            public float Occlusion;
             public float NextOcclusionCheck;
+            public bool OccludedNow;
             public float SmoothCutoff = 22000f;
+            public float Blend;
         }
 
         private sealed class VoiceSpeakerBehaviour : MonoBehaviour
@@ -46,44 +62,50 @@ namespace DWMPHorde.Audio
             internal Speaker S;
             public int SrcRate;
             public volatile float Volume;
-            private double _step = 1.0;
-            private double _acc;
+            private double _step;
+            private double _frac;
+            private float _prev;
             private float _cur;
+            private float _vol;
 
             private void OnAudioFilterRead(float[] data, int channels)
             {
                 Speaker s = S;
-                if (s == null)
+                if (s == null || SrcRate <= 0)
                 {
                     Array.Clear(data, 0, data.Length);
                     return;
                 }
-                if (_step == 1.0 && SrcRate > 0)
-                    _step = (double)SrcRate / AudioSettings.outputSampleRate;
+                if (_step <= 0.0)
+                    _step = (double)SrcRate / OutputRate;
 
                 int frames = data.Length / channels;
-                float volume = Volume;
+                // Volume ramps across the buffer: a step from one frame to the next clicks.
+                float from = _vol;
+                float to = Volume;
+                _vol = to;
                 lock (s.Lock)
                 {
-                    int primeNeed = (int)(SrcRate * 0.25f);
                     if (s.Priming)
                     {
-                        if (s.Buffered < primeNeed)
+                        if (s.Buffered < (int)(SrcRate * PrimeSec) && !s.PrimeRelease)
                         {
                             Array.Clear(data, 0, data.Length);
                             return;
                         }
                         s.Priming = false;
+                        s.PrimeRelease = false;
                     }
 
                     for (int i = 0; i < frames; i++)
                     {
-                        _acc += _step;
-                        while (_acc >= 1.0)
+                        _frac += _step;
+                        while (_frac >= 1.0)
                         {
-                            _acc -= 1.0;
+                            _frac -= 1.0;
                             if (s.Buffered > 0)
                             {
+                                _prev = _cur;
                                 _cur = s.Ring[s.ReadPos];
                                 s.ReadPos = (s.ReadPos + 1) % s.Ring.Length;
                                 s.Buffered--;
@@ -92,21 +114,29 @@ namespace DWMPHorde.Audio
                             {
                                 s.Priming = true;
                                 s.Underruns++;
-                                for (int j = i; j < frames; j++)
-                                {
-                                    for (int c = 0; c < channels; c++)
-                                        data[j * channels + c] = 0f;
-                                }
+                                _prev = _cur = 0f;
+                                for (int j = i * channels; j < data.Length; j++)
+                                    data[j] = 0f;
                                 return;
                             }
                         }
-                        float sample = _cur * volume;
+                        // Linear between the two decoded samples around this output sample.
+                        float sample = (_prev + (_cur - _prev) * (float)_frac) * (from + (to - from) * i / frames);
+                        // The carrier is a clip of ones: multiplying keeps whatever 3D pan the
+                        // source put on it before this filter, and is the sample itself if after.
                         for (int c = 0; c < channels; c++)
-                            data[i * channels + c] = sample;
+                            data[i * channels + c] *= sample;
                     }
                 }
             }
         }
+
+        /// <summary>Seconds buffered before a talk spurt starts playing (absorbs network jitter).</summary>
+        private const float PrimeSec = 0.15f;
+        /// <summary>A spurt shorter than <see cref="PrimeSec"/> plays out once no more data has come for this long.</summary>
+        private const float PrimeFlushSec = 0.12f;
+
+        private static int OutputRate = 48000; // process-scoped: AudioSettings.outputSampleRate, read on the main thread
 
         private static bool _recording;
         private static float _stopLinger;
@@ -120,12 +150,14 @@ namespace DWMPHorde.Audio
         private static GameObject _root; // process-scoped: DontDestroyOnLoad speaker parent
         private static byte[] _decompressBuf; // process-scoped: decoder setup
         private static uint _sampleRate; // process-scoped: decoder setup
+        private static byte[] _levelBuf; // process-scoped: decoder setup (own loudness)
         private static bool _localWalkie; // process-scoped: polled every 0.5 s
         private static float _nextWalkieCheck; // process-scoped: polled every 0.5 s
         private static float _nextSteamCheck; // process-scoped: Steam availability
         private static bool _steamOk; // process-scoped: Steam availability
         private static bool _steamWarned; // process-scoped: Steam availability
         private static bool _walkieTx;
+        private static bool _walkieTxWas;
         private static float _nextRearm; // process-scoped: rate limit
         private static float _lastSent; // process-scoped: stats
         private static int _txPackets; // process-scoped: stats
@@ -143,6 +175,8 @@ namespace DWMPHorde.Audio
             _speakers.Clear();
             _stopLinger = 0f;
             _walkieTx = false;
+            _walkieTxWas = false;
+            VoiceHearing.Reset();
         }
 
         /// <summary>
@@ -151,6 +185,7 @@ namespace DWMPHorde.Audio
         /// </summary>
         public static void RemoveSpeaker(int playerId)
         {
+            VoiceHearing.Forget(playerId);
             if (!_speakers.TryGetValue(playerId, out Speaker s))
                 return;
             if (s.Go != null)
@@ -160,6 +195,9 @@ namespace DWMPHorde.Audio
 
         public static void Tick()
         {
+            // Creatures hear the clients' voices on the host whether or not this player has voice.
+            VoiceHearing.Tick(ModRuntime.Network);
+
             if (ModConfig.VoiceEnabled == null || !ModConfig.VoiceEnabled.Value)
             {
                 if (_recording)
@@ -178,6 +216,7 @@ namespace DWMPHorde.Audio
             {
                 if (_recording)
                     StopCapture();
+                _walkieTxWas = false;
                 return;
             }
 
@@ -213,6 +252,13 @@ namespace DWMPHorde.Audio
                 }
             }
             catch { /* ignore */ }
+
+            // The radio's own click when its key goes down and the squelch tail when it comes up.
+            if (_walkieTx != _walkieTxWas)
+            {
+                _walkieTxWas = _walkieTx;
+                PlayLocalSquelch(_walkieTx);
+            }
 
             if (openMic || ptt || _walkieTx)
             {
@@ -261,12 +307,14 @@ namespace DWMPHorde.Audio
 
         public static void OnVoiceData(VoiceDataMessage msg)
         {
+            var net = ModRuntime.Network;
+            if (net != null && msg.PlayerId == net.LocalPlayerId)
+                return;
+            // The loudness travels with the packet, so the host needs no Steam to let creatures hear it.
+            VoiceHearing.Heard(msg.PlayerId, msg.Level / 255f);
             if (ModConfig.VoiceEnabled == null || !ModConfig.VoiceEnabled.Value)
                 return;
             if (!SteamAvailable())
-                return;
-            var net = ModRuntime.Network;
-            if (net != null && msg.PlayerId == net.LocalPlayerId)
                 return;
             if (msg.Data == null || msg.Data.Length == 0)
                 return;
@@ -321,14 +369,14 @@ namespace DWMPHorde.Audio
                 int playerId = Math.Max(net.LocalPlayerId, 0);
                 ushort seq = _seq++;
                 byte flags = (byte)(_walkieTx ? VoiceDataMessage.FlagWalkie : 0);
+                float level = MeasureOwnLevel((int)got);
+                byte levelByte = (byte)Mathf.RoundToInt(level * 255f);
+                if (net.Role == NetworkRole.Host)
+                    VoiceHearing.Heard(net.LocalPlayerId, level);
                 int len = (int)got;
-                net.Broadcast(NetMessageType.VoiceData, w =>
-                {
-                    w.Put(playerId);
-                    w.Put((short)seq);
-                    w.Put(flags);
-                    w.Put(_captureBuf, 0, len);
-                }, DeliveryMethod.Unreliable);
+                net.Broadcast(NetMessageType.VoiceData,
+                    w => VoiceDataMessage.WriteSlice(w, playerId, seq, flags, levelByte, _captureBuf, len),
+                    DeliveryMethod.Unreliable);
                 _txPackets++;
                 _lastSent = Time.unscaledTime;
             }
@@ -338,18 +386,69 @@ namespace DWMPHorde.Audio
             }
         }
 
+        /// <summary>Loudness of the packet just recorded: it is decoded here once (low rate is plenty to measure).</summary>
+        private static float MeasureOwnLevel(int length)
+        {
+            try
+            {
+                if (_levelBuf == null)
+                    _levelBuf = new byte[65536];
+                uint bytesOut;
+                if (SteamUser.DecompressVoice(_captureBuf, (uint)length, _levelBuf, (uint)_levelBuf.Length,
+                        out bytesOut, 11025u) != EVoiceResult.k_EVoiceResultOK)
+                    return 0f;
+                return LevelOf(_levelBuf, (int)bytesOut / 2);
+            }
+            catch
+            {
+                return 0f;
+            }
+        }
+
+        /// <summary>
+        /// 0 for silence, about 0.15 for a whisper, 0.65 for normal speech, 1 for shouting: the RMS of the
+        /// 16-bit samples in dBFS, from -50 to -12.
+        /// </summary>
+        internal static float LevelOf(byte[] pcm16, int samples)
+        {
+            if (samples <= 0)
+                return 0f;
+            double sum = 0;
+            for (int i = 0; i < samples; i++)
+            {
+                short v = (short)(pcm16[i * 2] | (pcm16[i * 2 + 1] << 8));
+                double f = v / 32768.0;
+                sum += f * f;
+            }
+            double rms = Math.Sqrt(sum / samples);
+            float db = 20f * (float)Math.Log10(rms + 1e-9);
+            return Mathf.Clamp01(Mathf.InverseLerp(-45f, -10f, db));
+        }
+
         private static void Decompress(VoiceDataMessage p)
         {
             try
             {
                 if (_sampleRate == 0)
                 {
-                    _sampleRate = SteamUser.GetVoiceOptimalSampleRate();
-                    if (_sampleRate == 0)
-                        _sampleRate = 11025u;
-                    _decompressBuf = new byte[131072];
-                    ModLog.Event(LogCat.Audio, "Voice decoding at " + _sampleRate + "Hz");
+                    // Decoded straight at the mixer's rate (Steam takes 11025..48000): no resampling
+                    // left for the audio thread unless the mixer runs faster than that.
+                    OutputRate = AudioSettings.outputSampleRate > 0 ? AudioSettings.outputSampleRate : 48000;
+                    _sampleRate = (uint)Mathf.Clamp(OutputRate, 11025, 48000);
+                    _decompressBuf = new byte[262144];
+                    ModLog.Event(LogCat.Audio, "Voice decoding at " + _sampleRate + "Hz (mixer " + OutputRate + "Hz)");
                 }
+
+                Speaker speaker = EnsureSpeaker(p.PlayerId);
+                // Unreliable packets can arrive late or twice: an older one would play out of order.
+                if (speaker.HasSeq)
+                {
+                    short ahead = (short)(p.Seq - speaker.LastSeq);
+                    if (ahead <= 0 && ahead > -1000)
+                        return;
+                }
+                speaker.HasSeq = true;
+                speaker.LastSeq = p.Seq;
 
                 uint bytesOut = 0;
                 EVoiceResult result = SteamUser.DecompressVoice(
@@ -358,17 +457,22 @@ namespace DWMPHorde.Audio
                 if (result != EVoiceResult.k_EVoiceResultOK || bytesOut < 2)
                     return;
 
-                Speaker speaker = EnsureSpeaker(p.PlayerId);
                 speaker.Walkie = (p.Flags & VoiceDataMessage.FlagWalkie) != 0;
+                speaker.Level = p.Level / 255f;
                 speaker.PacketsIn++;
                 speaker.LastData = Time.unscaledTime;
                 float gain = ModConfig.VoiceGain?.Value ?? 1.4f;
                 bool radioMode = speaker.RadioMode;
+                bool radioStart = radioMode && !speaker.RadioWasActive;
                 if (radioMode)
                     speaker.RadioWasActive = true;
+                if (radioStart)
+                {
+                    speaker.RadioHp = Biquad.HighPass(RadioLowHz, _sampleRate);
+                    speaker.RadioLp = Biquad.LowPass(RadioHighHz, _sampleRate);
+                    WriteSquelch(speaker, open: true);
+                }
 
-                float hpCoeff = 1f - Mathf.Exp((float)Math.PI * -600f / _sampleRate);
-                float lpCoeff = 1f - Mathf.Exp((float)Math.PI * -6800f / _sampleRate);
                 int samples = (int)bytesOut / 2;
                 lock (speaker.Lock)
                 {
@@ -379,24 +483,17 @@ namespace DWMPHorde.Audio
                         short pcm = (short)(_decompressBuf[i * 2] | (_decompressBuf[i * 2 + 1] << 8));
                         float sample = pcm / 32768f * gain;
                         if (radioMode)
-                        {
-                            speaker.RadioHp += hpCoeff * (sample - speaker.RadioHp);
-                            sample -= speaker.RadioHp;
-                            speaker.RadioLp += lpCoeff * (sample - speaker.RadioLp);
-                            sample = speaker.RadioLp;
-                            sample *= 2f;
-                            sample /= 1f + 0.5f * Mathf.Abs(sample);
-                            sample += (UnityEngine.Random.value - 0.5f) * 0.012f;
-                        }
+                            sample = RadioSample(speaker, sample);
                         speaker.Ring[speaker.WritePos] = Mathf.Clamp(sample, -1f, 1f);
                         speaker.WritePos = (speaker.WritePos + 1) % speaker.Ring.Length;
                         speaker.Buffered++;
                     }
 
-                    int maxBuf = (int)(_sampleRate * 0.9f);
+                    // Fell behind (a burst after a stall): skip ahead rather than lag for the rest of the talk.
+                    int maxBuf = (int)(_sampleRate * 0.6f);
                     if (speaker.Buffered > maxBuf)
                     {
-                        int drop = speaker.Buffered - (int)(_sampleRate * 0.35f);
+                        int drop = speaker.Buffered - (int)(_sampleRate * 0.2f);
                         speaker.ReadPos = (speaker.ReadPos + drop) % speaker.Ring.Length;
                         speaker.Buffered -= drop;
                     }
@@ -408,14 +505,17 @@ namespace DWMPHorde.Audio
             }
         }
 
+        /// <summary>A looping clip of ones: the speaker's filter multiplies its voice into it.</summary>
         private static AudioClip CarrierClip()
         {
             if (_carrier != null)
                 return _carrier;
-            _carrier = AudioClip.Create("yokware_voice_carrier", 4800, 1, 48000, false);
-            _carrier.SetData(new float[4800], 0);
+            var ones = new float[4800];
+            for (int i = 0; i < ones.Length; i++)
+                ones[i] = 1f;
+            _carrier = AudioClip.Create("yokware_voice_carrier", ones.Length, 1, 48000, false);
+            _carrier.SetData(ones, 0);
             return _carrier;
         }
-
     }
 }

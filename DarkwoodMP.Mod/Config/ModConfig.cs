@@ -72,6 +72,7 @@ namespace DWMPHorde.Config
         public static ModSetting<float> VoiceFullVolumeDistance { get; private set; }
         public static ModSetting<float> VoiceMaxDistance { get; private set; }
         public static ModSetting<string> WalkieItemName { get; private set; }
+        public static ModSetting<bool> VoiceAlertsEnemies { get; private set; }
 
         /// <summary>
         /// LiteNetLib connection key shared by host accept and client connect.
@@ -209,11 +210,13 @@ namespace DWMPHorde.Config
                 "Gain applied after Steam DecompressVoice.");
             // Game units, like every other range here (a body is about 40 across).
             VoiceFullVolumeDistance = config.Bind("Voice", "VoiceFullVolumeDistance", 150f,
-                "Distance (game units) within which proximity voice is at full volume.");
+                "Distance (game units) within which a shout is at full volume (quieter speech a shorter way).");
             VoiceMaxDistance = config.Bind("Voice", "VoiceMaxDistance", 650f,
-                "Distance (game units) beyond which proximity voice is silent (same as other peer sounds).");
+                "Distance (game units) a shout carries before it is silent (same as other peer sounds). Normal speech carries about three quarters of it, a whisper about a third, muffled through walls.");
             WalkieItemName = config.Bind("Voice", "WalkieItemName", "walkie_talkie",
                 "InvItem type for walkie radio (hold + RMB to TX; inventory enables radio RX).");
+            VoiceAlertsEnemies = config.Bind("Voice", "VoiceAlertsEnemies", true,
+                "Host: creatures hear players talk. Normal speech carries about as far as a walking step, a shout farther than running; a whisper is not heard.");
             // Entity spawner moved to standalone plugin YokWare.EntitySpawner.
 
             // Support = join/session/combat Events without Legacy flood ([Perf] via Debug.PerfProbe).

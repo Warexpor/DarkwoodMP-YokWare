@@ -5,8 +5,8 @@ join it: the same forest, the same nights, the same story, played together.
 
 | | |
 |--|--|
-| Product | YokWare Branch **0.8.183** |
-| Wire | Horde protocol **48** |
+| Product | YokWare Branch **0.8.184** |
+| Wire | Horde protocol **49** |
 | Players | Up to 8 by default (`MaxPlayers`, host included) |
 | Transport | LAN (LiteNetLib) or Steam lobby (SteamNetworkingSockets) |
 | Loaders | BepInEx 5.x or MelonLoader 0.7.x |
@@ -100,7 +100,7 @@ menu. Its screens look and work like the game's own menus (Esc goes back):
   settings (friends only, public or invite only).
 - **Settings:** your name, when other players' names show (when pointed at,
   always, off), text and voice chat, push-to-talk key, voice and footstep volume.
-- **Host settings:** friendly fire, extra loot, player count, Steam lobby type,
+- **Host settings:** friendly fire, extra loot, whether creatures hear voices, player count, Steam lobby type,
   port and password.
 - **In the pause menu:** Invite friends (Steam host), Send the world again (host),
   Restore my character (client, when the automatic restore missed), Disconnect.

@@ -412,6 +412,9 @@ namespace DWMPHorde
             z -= step;
             b.Choice("Extra loot", z, LootChoices, () => ModConfig.GetLootShareMode() == LootShareMode.Off ? 0 : 1, SetLoot);
             z -= step;
+            b.Choice("Creatures hear voices", z, YesNo, () => ModConfig.VoiceAlertsEnemies == null || ModConfig.VoiceAlertsEnemies.Value ? 1 : 0,
+                i => { if (ModConfig.VoiceAlertsEnemies != null) ModConfig.VoiceAlertsEnemies.Value = i == 1; });
+            z -= step;
             b.Choice("Players", z, PlayerChoices, () => Mathf.Clamp((ModConfig.MaxPlayers?.Value ?? 8) - 2, 0, PlayerChoices.Length - 1),
                 i => { if (ModConfig.MaxPlayers != null) ModConfig.MaxPlayers.Value = i + 2; },
                 enabled: offline);

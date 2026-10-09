@@ -374,9 +374,14 @@ Listen on the player who did not cause the sound.
       loop stops when the creature dies. Enemy footsteps move with the enemy and are
       muffled behind a wall.
 - [ ] The Sound volume slider at 0 also silences other players' sounds.
-- [ ] Voice (needs two logged-in Steam clients): a teammate a room away is heard and
-      fades out around the distance of their footsteps; muffled through a wall. A
-      walkie-talkie carries from anywhere. A player who leaves stops being heard.
+- [ ] Voice (needs two logged-in Steam clients): a teammate a room away is heard from
+      their side (left or right); a whisper fades out sooner than a shout; muffled
+      through a wall. A walkie-talkie carries from anywhere with a squelch click at the
+      start, a burst of static at the end and more hiss the farther apart. A player who
+      leaves stops being heard.
+- [ ] A creature near a talking player turns toward a shout and comes looking if the
+      talk goes on; a whisper does not draw it. Host settings > Creatures hear voices
+      off stops it.
 - [ ] The walkie transmits only while playing (right mouse with the radio in hand), not
       in the inventory, a container, dialogue, the map, the journal, the pause menu,
       while dead or with chat open.

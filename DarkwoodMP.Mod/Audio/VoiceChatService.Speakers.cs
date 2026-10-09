@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using DWMPHorde.Config;
 using DWMPHorde.Logging;
 using DWMPHorde.Networking;
-using LiteNetLib;
 using Steamworks;
 using UnityEngine;
 
@@ -20,6 +19,15 @@ namespace DWMPHorde.Audio
         /// re-created on the next packet). Peer leave is handled sooner by <see cref="RemoveSpeaker"/>.
         /// </summary>
         private const float IdleReapSec = 30f;
+
+        /// <summary>A whisper carries this share of <c>VoiceMaxDistance</c>; a shout all of it.</summary>
+        private const float QuietRangeShare = 0.35f;
+        /// <summary>Seconds for the loudness envelope to fall from a shout to silence (it rises at once).</summary>
+        private const float LevelReleaseSec = 1.5f;
+        /// <summary>Vanilla's sound-blocking layers (<c>Character.heardSound</c>: walls and solid world).</summary>
+        private const int OcclusionMask = 32769;
+        /// <summary>Close by, a voice is mostly in the middle; it pans fully from this far out.</summary>
+        private const float FullPanDistance = 300f;
 
         private static Speaker EnsureSpeaker(int id)
         {
@@ -48,8 +56,16 @@ namespace DWMPHorde.Audio
             s.Src.clip = CarrierClip();
             s.Src.loop = true;
             s.Src.playOnAwake = false;
-            s.Src.spatialBlend = 0f;
             s.Src.volume = 1f;
+            // Panned toward where the talker stands; the distance falloff is ours (by how loud they
+            // spoke), so Unity's own rolloff is flat and doppler off (it would bend a moving voice).
+            s.Src.spatialBlend = 0f;
+            s.Src.rolloffMode = AudioRolloffMode.Custom;
+            s.Src.SetCustomCurve(AudioSourceCurveType.CustomRolloff, AnimationCurve.Constant(0f, 1f, 1f));
+            s.Src.minDistance = 1f;
+            s.Src.maxDistance = 100000f;
+            s.Src.dopplerLevel = 0f;
+            s.Src.spread = 60f;
             s.Src.Play();
             _speakers[id] = s;
             return s;
@@ -67,9 +83,11 @@ namespace DWMPHorde.Audio
                         string line = "[Voice] 10s tx=" + _txPackets;
                         foreach (Speaker s in _speakers.Values)
                         {
-                            int buffered;
-                            lock (s.Lock) { buffered = s.Buffered; s.PacketsIn = 0; }
-                            line += " | p" + s.Id + " buf=" + buffered;
+                            int buffered, under;
+                            lock (s.Lock) { buffered = s.Buffered; under = s.Underruns; s.PacketsIn = 0; s.Underruns = 0; }
+                            line += " | p" + s.Id + " buf=" + buffered + " under=" + under
+                                + " level=" + s.LevelEnv.ToString("0.00") + (s.RadioMode ? " radio" : "")
+                                + (s.OccludedNow ? " walled" : "");
                         }
                         return line;
                     });
@@ -80,6 +98,7 @@ namespace DWMPHorde.Audio
             if (_speakers.Count == 0)
                 return;
 
+            float dt = Time.unscaledDeltaTime;
             float vol = ModConfig.VoiceVolume?.Value ?? 1f;
             float rangeFull = ModConfig.VoiceFullVolumeDistance?.Value ?? 150f;
             float rangeMax = ModConfig.VoiceMaxDistance?.Value ?? LocalAudioService.DefaultMaxAudioDistance;
@@ -95,50 +114,75 @@ namespace DWMPHorde.Audio
                     continue;
                 }
 
-                if (s.RadioWasActive && Time.unscaledTime - s.LastData > 0.3f)
+                float since = Time.unscaledTime - s.LastData;
+                lock (s.Lock)
+                {
+                    if (s.Priming && s.Buffered > 0 && since > PrimeFlushSec)
+                        s.PrimeRelease = true;
+                }
+
+                if (s.RadioWasActive && since > 0.3f)
                 {
                     s.RadioWasActive = false;
-                    WriteStatic(s, 0.05f);
+                    WriteSquelch(s, open: false);
                 }
+
+                // Loudness: up at once with the voice, down slowly between words.
+                float level = since > 0.4f ? 0f : s.Level;
+                s.LevelEnv = level > s.LevelEnv ? level : Mathf.MoveTowards(s.LevelEnv, level, dt / LevelReleaseSec);
 
                 float proxVol = 0f;
                 float cutoff = 22000f;
-                if (Player.Instance != null)
+                float dist = float.MaxValue;
+                var proxy = ModRuntime.Network?.GetProxy(s.Id);
+                if (Player.Instance != null && proxy != null && proxy.transform != null)
                 {
-                    var proxy = ModRuntime.Network?.GetProxy(s.Id);
-                    if (proxy != null && proxy.transform != null)
+                    Vector3 b = proxy.transform.position;
+                    s.Go.transform.position = b;
+                    dist = Vector2.Distance(new Vector2(listen.x, listen.z), new Vector2(b.x, b.z));
+
+                    // The louder they spoke, the farther it carries.
+                    float loud = Mathf.Lerp(QuietRangeShare, 1f, s.LevelEnv);
+                    float range = Mathf.Max(rangeMax * loud, 60f);
+                    float full = Mathf.Min(rangeFull * loud, range * 0.5f);
+                    float t = Mathf.InverseLerp(range, full, dist);
+                    proxVol = t * vol;
+                    cutoff = Mathf.Lerp(4500f, 22000f, t);
+
+                    if (Time.unscaledTime >= s.NextOcclusionCheck)
                     {
-                        Vector3 a = listen;
-                        Vector3 b = proxy.transform.position;
-                        float dist = Vector3.Distance(a, b);
-                        float t = Mathf.InverseLerp(rangeMax, rangeFull, dist);
-                        proxVol = Mathf.Sqrt(t) * vol;
-                        cutoff = Mathf.Lerp(4500f, 22000f, t);
-                        if (Time.unscaledTime >= s.NextOcclusionCheck)
-                        {
-                            s.NextOcclusionCheck = Time.unscaledTime + 0.2f;
-                            s.Occluded = IsOccluded(a, b);
-                        }
-                        if (s.Occluded)
-                        {
-                            proxVol *= 0.65f;
-                            cutoff = Mathf.Min(cutoff, 1000f);
-                        }
+                        s.NextOcclusionCheck = Time.unscaledTime + 0.15f;
+                        s.OccludedNow = IsOccluded(listen, b);
                     }
+                    s.Occlusion = Mathf.MoveTowards(s.Occlusion, s.OccludedNow ? 1f : 0f, dt * 5f);
+                    proxVol *= Mathf.Lerp(1f, 0.55f, s.Occlusion);
+                    cutoff = Mathf.Lerp(cutoff, Mathf.Min(cutoff, 900f), s.Occlusion);
                 }
 
-                float radioVol = (s.Walkie && _localWalkie) ? vol * 0.95f : 0f;
+                float radioVol = (s.Walkie && _localWalkie) ? vol * 0.9f : 0f;
                 bool radio = s.RadioMode
                     ? (radioVol > proxVol * 0.85f)
                     : (radioVol > proxVol * 1.15f);
                 s.RadioMode = radio;
+                // Static grows with the distance between the radios (and is at its worst when the
+                // talker is not in this world: another location, a dream).
+                s.RadioHiss = Mathf.Lerp(RadioHissNear, RadioHissFar,
+                    dist == float.MaxValue ? 1f : Mathf.InverseLerp(500f, 4000f, dist));
                 if (s.Beh != null)
                     s.Beh.Volume = Mathf.Clamp01(radio ? radioVol : proxVol);
                 if (s.Muffle != null)
                 {
                     float target = radio ? 22000f : cutoff;
-                    s.SmoothCutoff = Mathf.Lerp(s.SmoothCutoff, target, Time.deltaTime * 8f);
+                    s.SmoothCutoff = Mathf.Lerp(s.SmoothCutoff, target, Mathf.Clamp01(dt * 8f));
                     s.Muffle.cutoffFrequency = s.SmoothCutoff;
+                }
+                if (s.Src != null)
+                {
+                    // The radio is in this player's own hands: no pan. A voice in the room pans
+                    // toward the talker, gently when they are close.
+                    float blend = radio || dist == float.MaxValue ? 0f : Mathf.Lerp(0.35f, 1f, Mathf.Clamp01(dist / FullPanDistance));
+                    s.Blend = Mathf.MoveTowards(s.Blend, blend, dt * 3f);
+                    s.Src.spatialBlend = s.Blend;
                 }
             }
 
@@ -158,24 +202,6 @@ namespace DWMPHorde.Audio
                     return true;
             }
             return false;
-        }
-
-        private static void WriteStatic(Speaker speaker, float seconds)
-        {
-            int n = (int)(_sampleRate * seconds);
-            lock (speaker.Lock)
-            {
-                for (int i = 0; i < n; i++)
-                {
-                    if (speaker.Buffered >= speaker.Ring.Length)
-                        break;
-                    float fade = 1f - (float)i / n;
-                    speaker.Ring[speaker.WritePos] =
-                        (UnityEngine.Random.value - 0.5f) * 0.16f * fade * fade;
-                    speaker.WritePos = (speaker.WritePos + 1) % speaker.Ring.Length;
-                    speaker.Buffered++;
-                }
-            }
         }
 
         private static void UpdateLocalWalkie()
@@ -230,6 +256,10 @@ namespace DWMPHorde.Audio
             return _steamOk;
         }
 
+        /// <summary>
+        /// A wall between listener and talker, by vanilla's own test for whether a creature hears a
+        /// sound through something (<c>Character.heardSound</c>: one ray on its blocking layers).
+        /// </summary>
         private static bool IsOccluded(Vector3 from, Vector3 to)
         {
             try
@@ -238,21 +268,12 @@ namespace DWMPHorde.Audio
                 float mag = delta.magnitude;
                 if (mag < 1f)
                     return false;
-                RaycastHit[] hits = Physics.RaycastAll(from, delta / mag, mag);
-                for (int i = 0; i < hits.Length; i++)
-                {
-                    Collider col = hits[i].collider;
-                    if (col == null || col.isTrigger)
-                        continue;
-                    if (col.GetComponentInParent<CharBase>() != null)
-                        continue;
-                    if (col.GetComponentInParent<Players.RemotePlayerProxy>() != null)
-                        continue;
-                    return true;
-                }
+                return Physics.Raycast(from, delta / mag, mag, OcclusionMask, QueryTriggerInteraction.Ignore);
             }
-            catch { /* ignore */ }
-            return false;
+            catch
+            {
+                return false;
+            }
         }
     }
 }
