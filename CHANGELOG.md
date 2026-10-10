@@ -55,7 +55,7 @@ tested in the game.
 
 ---
 
-## 0.8.196 — Pilot-run fixes: stuck pad exit, night-dead past dawn, wreck physics, oven portrait callback
+## 0.8.196 — Pilot-run fixes: stuck pad exit, night-dead past dawn, wreck physics, oven portrait callback, join weather, chapter teardown
 
 Found by an unattended three-player story crawl (host + two clients, every chapter 1 location).
 
@@ -92,6 +92,24 @@ Found by an unattended three-player story crawl (host + two clients, every chapt
   compared. A client keeps the host's stock for it in the trade queue until it is out, so its
   copy was always the old roll and every morning restock showed up as a trader "desync"
   (`CollectTraders` in `DesyncCheck.Sections.cs`).
+- **A client joining while it was raining logged a NullReferenceException** (`Rain.startRain`).
+  The host sends weather at handshake, while the joiner still sits on the title screen with no
+  player; vanilla `startRain` reads `Player.Instance.whereAmI`. A client now ignores weather until
+  it has a player in the world; the late-join bulk sends it again once it does
+  (`WorldWeatherTimeNetHandlers.HandleWeatherSync`).
+- **Clients logged ~30 NullReferenceExceptions in `Character.OnDestroy` on every chapter change.**
+  The chapter scene load tears the old scene down in no fixed order; once the FX/UI SpawnPools are
+  gone, `Core.RemovePooledPrefab` indexes a missing pool (null) for each character still carrying
+  a message or effect, and the rest of that character's cleanup is skipped. With a pool gone the
+  object is destroyed instead, as vanilla does with an object no pool owns
+  (`Patches/PooledPrefabTeardownPatch.cs`).
+- Desync check: containers and pickups around a client in a place the host never went showed up
+  as `host=<none>` (the registry only knew objects that had woken on that machine). The first
+  check after each scene load now also takes every object of the type, inactive ones included
+  (`DesyncRegistry`).
+- Not a mod bug: vanilla writes `savch.dat` as plain text and always decrypts it when a new
+  chapter starts, so it logs a `FormatException` and falls back to the chapter save kept in
+  `savs.dat`. Harmless, and the same without the mod.
 
 ## 0.8.195 — The apply-changes question only for changes with consequences
 
