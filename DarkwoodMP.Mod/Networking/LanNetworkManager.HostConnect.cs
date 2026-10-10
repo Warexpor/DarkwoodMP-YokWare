@@ -134,6 +134,7 @@ namespace DWMPHorde.Networking
             // Migration promote still does NOT auto-Save (survivor slot corruption).
             TryHostWorldSaveCheckpointOnExit();
             TrySnapshotClientBackupOnExit();
+            FlushReliableToHostBeforeLeave();
 
             // Snapshot for public session-stop line before we wipe peers/ids
             NetworkRole wasRole = _role;

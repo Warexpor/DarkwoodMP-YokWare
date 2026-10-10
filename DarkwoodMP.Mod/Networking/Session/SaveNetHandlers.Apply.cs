@@ -361,6 +361,9 @@ namespace DWMPHorde.Networking
                 return;
 
             ClientStateBackup.SaveBackupFile(json, playerId, steamId, stableKey);
+            ModLog.Event(LogCat.Save, "[ClientBackup] stored backup from p" + playerId + " ("
+                + ((parsed.InventoryItems?.Count ?? 0) + (parsed.HotbarItems?.Count ?? 0)) + " items, level "
+                + parsed.CurrentLevel + ")");
         }
     }
 }

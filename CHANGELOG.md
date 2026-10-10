@@ -3,7 +3,7 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.210**. The current Horde wire protocol is **53**. Every install in a session
+**0.8.211**. The current Horde wire protocol is **53**. Every install in a session
 needs the same DLL; the protocol is checked on join.
 
 Protocol history (newest first):
@@ -60,6 +60,43 @@ tested in the game.
 
 ---
 
+## 0.8.211 — Log review of the 0.8.208 dual-box session: exit backup reaches the host, hidden client no longer at 1 fps
+
+Both logs of the session (Steam host + Wine client on LAN, day 1, radio handed over and
+used) had no errors or exceptions and no open desyncs. Two faults found in them:
+
+- **A leaving client's backup never reached the host (LAN).** On disconnect or quit the
+  client writes its character (position, bags, hotbar) to its own file and sends it to the
+  host. The send was queued for LiteNetLib's thread and the connection was closed in the
+  same call, so it was dropped every time: the host had no file for this campaign after
+  the session. The rejoin still worked from the client's own file, but the host's copy
+  (used when the client's file is gone, e.g. another PC or a wiped profile) was only as
+  new as the last world save. Now a LAN client wakes the send thread and waits, up to
+  250 ms, until its reliable queues to the host are empty before closing
+  (`FlushReliableToHostBeforeLeave`). Steam already closed with linger. The host logs
+  `[ClientBackup] stored backup from pN`.
+- **Wine client at one frame a second while out of sight with its pause menu open.**
+  `BackgroundFrameRate` turns vsync off for an unfocused window, but with the pause menu
+  open the Wine window took focus back at once and reported "focused" for minutes while
+  the player was in the other window (about 250 frames of exactly 1000 ms in the log).
+  Frames that stop being presented now count as out of sight too: three frames in a row
+  over 0.5 s each with vsync on, outside loading. That state ends at the next key or
+  mouse button the game receives, or when focus really goes. Log lines:
+  `[Frame] focused but frames are not presented`, `[Frame] out of sight`,
+  `[Frame] back in sight`.
+- **Wrong count, not a fault in the data:** "sent backup to host (0 items" and the
+  "Restore my character" question counted the backpack only; the hotbar is counted now.
+  The backup itself had the radio in it.
+- Seen and left as they are: long host frames during world generation and the first
+  save (2 to 4 s, loading); `DOTween safe mode captured 29 errors` on the client at quit
+  (vanilla tweens on destroyed objects, no detail in the log).
+- The session ran at 1280x720, so the 0.8.208 resolution fix was not exercised.
+- Files: `Networking/LanNetworkManager.Transport.cs`,
+  `Networking/LanNetworkManager.HostConnect.cs`, `Networking/Services/BackgroundFrameRate.cs`,
+  `Networking/Session/SaveNetHandlers.cs`, `Networking/Session/SaveNetHandlers.Apply.cs`,
+  `UI/MultiplayerScreens.cs`.
+- Deployed together with 0.8.209 and 0.8.210. Not playtested.
+
 ## 0.8.210 — Radio icon redrawn
 
 - The radio's inventory icon was a detailed upright painting shrunk to icon size: thin
@@ -70,7 +107,7 @@ tested in the game.
 - The art is 240 px (eight art pixels per icon pixel) and is averaged down to 30 px, the
   size of vanilla icons (`IconPixels` 48 -> 30).
 - Files: `Resources/walkie_talkie.png`, `Items/WalkieItem.cs`.
-- Built but **not deployed** and not seen in game. The game folders still hold 0.8.208.
+- Deployed with 0.8.211; not seen in game yet.
 
 ## 0.8.209 — Answer buttons of a question box spaced, MULTIPLAYER there when the pause menu opens
 
@@ -85,8 +122,7 @@ tested in the game.
   frames), so it popped in. Opening the menu now makes the next update run that pass at
   once.
 - Files: `UI/VanillaMenu/VanillaMenu.cs`, `UI/MainMenuMultiplayerInject.Panel.cs`.
-- Built but **not deployed** (a session was running) and not playtested. The DLLs in the
-  three game folders are still 0.8.208.
+- Deployed with 0.8.211; not playtested.
 
 ## 0.8.208 — MULTIPLAYER button keeps its size after a resolution change
 

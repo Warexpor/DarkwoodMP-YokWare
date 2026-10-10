@@ -197,6 +197,36 @@ namespace DWMPHorde.Networking
         /// </summary>
         public void FlushQueuedSends() => _net?.TriggerUpdate();
 
+        /// <summary>How long a leaving client waits for its last reliable messages to go out.</summary>
+        private const int LeaveFlushMs = 250;
+
+        /// <summary>
+        /// LAN client, just before the connection is closed: LiteNetLib sends from its own thread
+        /// and closing drops whatever is still queued, so a reliable message written in the same
+        /// call (the exit backup) never left. Wake the thread and wait until the queues to the
+        /// host are empty. Steam closes with linger and sends its queue itself.
+        /// </summary>
+        private void FlushReliableToHostBeforeLeave()
+        {
+            if (_net == null || _role != NetworkRole.Client || _backend != ConnectionBackend.Lan)
+                return;
+            if (!_lanPeers.TryGetPeer(1, out NetPeer host) || host == null
+                || host.ConnectionState != ConnectionState.Connected)
+                return;
+            var wait = System.Diagnostics.Stopwatch.StartNew();
+            while (host.GetPacketsCountInReliableQueue(0, true) + host.GetPacketsCountInReliableQueue(0, false) > 0)
+            {
+                if (wait.ElapsedMilliseconds >= LeaveFlushMs)
+                {
+                    ModLog.Warn(LogCat.Network, "Leaving with reliable messages to the host still queued after "
+                        + LeaveFlushMs + " ms");
+                    return;
+                }
+                _net.TriggerUpdate();
+                System.Threading.Thread.Sleep(2);
+            }
+        }
+
         /// <summary>Send a message to all connected peers.</summary>
         /// <param name="skipLoadingPeers">
         /// When true, skip peers in <see cref="_session.Link.LoadingWorld"/> (title join / LoadScene).

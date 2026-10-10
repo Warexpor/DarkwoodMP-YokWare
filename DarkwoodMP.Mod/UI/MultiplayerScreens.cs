@@ -804,7 +804,7 @@ namespace DWMPHorde
                 return;
             string q = Loc.T("Put back your character from the last backup?") + "\n"
                 + Vm.Vanilla("Day") + " " + peek.Day + " · " + Loc.T("level") + " " + peek.CurrentLevel
-                + " · " + Loc.T("items") + " " + (peek.InventoryItems?.Count ?? 0)
+                + " · " + Loc.T("items") + " " + ((peek.InventoryItems?.Count ?? 0) + (peek.HotbarItems?.Count ?? 0))
                 + (string.IsNullOrEmpty(peek.Timestamp) ? "" : " · " + peek.Timestamp);
             _root.Confirm(q, yes => { if (yes) RestoreSelf(); });
         }
