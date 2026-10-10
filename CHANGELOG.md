@@ -3,12 +3,12 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.216**. The current Horde wire protocol is **54**. Every install in a session
+**0.8.217**. The current Horde wire protocol is **54**. Every install in a session
 needs the same DLL; the protocol is checked on join.
 
 Protocol history (newest first):
 
-- **54**, 0.8.212 to 0.8.216: `VoiceData` (129) gains flag 2: a second codec block after the voice,
+- **54**, 0.8.212 to 0.8.217: `VoiceData` (129) gains flag 2: a second codec block after the voice,
   the sounds the talker's radio picked up.
 - **53**, 0.8.200 to 0.8.211: the world share package gains `savplc.dat` (container slots a player
   stored items in). No message layout changed; the bump keeps every player on a build
@@ -61,6 +61,15 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.217 — Player names are white when fully shown
+
+- **What was off:** a player's name over their character was drawn grey (62% white at 85%
+  strength) even when fully faded in, greyer than the same font anywhere else in the game.
+- **What changed:** the name is white at full strength. The fade in and out and the
+  fading with distance are unchanged.
+- **Files:** `UI/Nameplates.cs` (the look in use, "hover label"). No protocol change.
+- **Status:** code only, built but not deployed (a playtest of 0.8.216 was running).
 
 ## 0.8.216 — Radio inventory icon: the five-slat grille at 30 px
 
