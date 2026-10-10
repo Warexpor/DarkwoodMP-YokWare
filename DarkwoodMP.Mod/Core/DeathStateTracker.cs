@@ -181,6 +181,7 @@ namespace DWMPHorde
             Reset();
             _localNightDeathDay = -1;
             _hostMorningEdgeDay = -1;
+            _lastHostClockTime = -1;
             _armDeathSaveSuppress = false;
             ClearMorningDeadMarks();
         }

@@ -124,7 +124,7 @@ namespace DWMPHorde.Sync
                             rb = go.GetComponent<Rigidbody>();
                         if (rb != null)
                         {
-                            rb.isKinematic = true;
+                            LockKinematic(rb);
 
                             // Baseline: last interp target, else current host pose.
                             // A missing baseline produces no position delta and
@@ -260,8 +260,7 @@ namespace DWMPHorde.Sync
                                 localRb = localInterp.CachedRb;
                             if (localRb == null)
                                 localRb = go.GetComponent<Rigidbody>();
-                            if (localRb != null && localRb.isKinematic)
-                                localRb.isKinematic = false;
+                            ReleaseKinematic(localRb);
                             if (ItemMovingSoundHelper.IsRemoteScrape(obj.Name)
                                 || MovingObjectSoundService.IsPlaying(obj.Name)
                                 || MovingObjectSoundService.IsFading(obj.Name))

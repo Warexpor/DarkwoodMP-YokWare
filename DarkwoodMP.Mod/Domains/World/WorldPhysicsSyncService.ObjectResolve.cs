@@ -51,8 +51,8 @@ namespace DWMPHorde.Sync
                 for (int i = 0; i < dropIds.Count; i++)
                 {
                     int id = dropIds[i];
-                    if (_s.ClientKinematic.TryGetValue(id, out var kin) && kin.rb != null && kin.rb.isKinematic)
-                        kin.rb.isKinematic = false;
+                    if (_s.ClientKinematic.TryGetValue(id, out var kin))
+                        ReleaseKinematic(kin.rb);
                     _s.ClientKinematic.Remove(id);
                     _s.ClientKinematicGate[id] = Time.time;
                     _s.ObjectInterp.Remove(id);
@@ -156,7 +156,7 @@ namespace DWMPHorde.Sync
             if (rb != null)
             {
                 // Host must stay kinematic too while interpolating client-pushed free-bodies.
-                rb.isKinematic = true;
+                LockKinematic(rb);
                 rb.velocity = Vector3.zero;
                 rb.angularVelocity = Vector3.zero;
             }
@@ -204,9 +204,7 @@ namespace DWMPHorde.Sync
         {
             if (go == null) return;
             RemoveObjectFromInterpolation(go);
-            Rigidbody lampRb = go.GetComponent<Rigidbody>();
-            if (lampRb != null && lampRb.isKinematic)
-                lampRb.isKinematic = false;
+            ReleaseKinematic(go.GetComponent<Rigidbody>());
         }
 
         /// <summary>

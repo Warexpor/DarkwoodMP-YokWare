@@ -153,10 +153,14 @@ namespace DWMPHorde.Patches
 
         private static void Postfix(Controller __instance, byte __state)
         {
-            if (__state != Step)
-                return;
-            __instance.CurrentTime++;
-            __instance.refreshTime();
+            if (__state == Step)
+            {
+                __instance.CurrentTime++;
+                __instance.refreshTime();
+            }
+            var net = ModRuntime.Network;
+            if (net != null && net.Role == NetworkRole.Host)
+                DeathStateTracker.HostCheckClockLeftNight(__instance);
         }
 
         /// <summary>Hand back the step held above, also when FixedUpdate throws.</summary>

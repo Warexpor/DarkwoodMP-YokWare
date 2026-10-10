@@ -3,7 +3,7 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.195**. The current Horde wire protocol is **52** (held for 0.8.190 to 0.8.195; bumped in 0.8.189: `PlayerState`'s walkie trailer
+**0.8.196**. The current Horde wire protocol is **52** (held for 0.8.190 to 0.8.196; bumped in 0.8.189: `PlayerState`'s walkie trailer
 becomes a state byte, `WalkieState`: none, off or flat, on in a pocket, on in hand, plus underground;
 same DLL on every install).
 51 held for 0.8.187 to 0.8.188, bumped in 0.8.187: `VoiceData` (129) carries the
@@ -54,6 +54,32 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.196 — Pilot-run fixes: stuck pad exit, night-dead past dawn, wreck physics
+
+Found by an unattended three-player story crawl (host + two clients, every chapter 1 location).
+
+- **Leaving a cellar or other pad by day could leave the player stuck in it.** Vanilla walks out
+  of a pad with a Save and finishes the walk-out (clears `returningToWorld`, gives inputs back,
+  lifts the black screen) only when that Save reports done (`SaveManager.onSaved`). Co-op skips
+  that Save for a connected client (the host owns the world save) and for a night-dead player,
+  and a skipped Save never reported done. A client waited for the host's next coordinated save
+  to finish its walk-out; a night-dead host never sends one, so the host and its clients kept
+  `returningToWorld` set and every later exit was ignored. A Save a co-op rule skips now reports
+  done the way vanilla's own `dontSave` skip does (`SkippedSaveAnswersOnSavedPatch` in
+  `Patches/SaveSyncPatches.cs`).
+- **A player who died at night stayed dead (spectating) for a whole extra day** when the clock
+  left the night by a jump instead of passing midnight: entering the doctor's house sets the time
+  to 100 (a vanilla `tweenTime` GameEvent), so vanilla's `startDay` never ran and the morning
+  release with it. The host now treats a jump out of the night (not a dream's own clock) as the
+  morning for the night-dead (`DeathStateTracker.HostCheckClockLeftNight`, run from the host
+  clock step in `ClientTimeAuthorityPatches.cs`).
+- **A client turned the tank wreck (and any body the game keeps kinematic) into a free physics
+  body.** Network smoothing froze a body while it followed the host and then let go by clearing
+  `isKinematic`, also on bodies that were kinematic by design. PhysX rejected the wreck's
+  non-convex collider on every release (`Non-convex MeshCollider with non-kinematic Rigidbody`,
+  `Dynamic actor with illegal collision shapes`). Sync now lets go only of bodies it froze itself
+  (`LockKinematic` / `ReleaseKinematic` in `WorldPhysicsSyncService.cs`).
 
 ## 0.8.195 — The apply-changes question only for changes with consequences
 

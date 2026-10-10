@@ -90,6 +90,35 @@ namespace DWMPHorde
                 ReleaseLocalNightDeath(worldAuthority: true);
         }
 
+        /// <summary>Host clock at the last <see cref="HostCheckClockLeftNight"/> (-1 = none yet).</summary>
+        private static int _lastHostClockTime = -1; // reset-in: ResetSession
+
+        /// <summary>
+        /// Host, every clock step: a GameEvent that sets the time (the doctor's house sets it to
+        /// 100 on entry) took the clock out of the night without passing midnight, so vanilla's
+        /// startDay never ran and the night-dead stayed down (spectating) for a whole day more.
+        /// Such a jump is a morning for them. Dream clocks (a dream sets its own time and gives
+        /// the old one back) are not a jump out of the night.
+        /// </summary>
+        public static void HostCheckClockLeftNight(Controller ctrl)
+        {
+            if (ctrl == null)
+                return;
+            int now = ctrl.CurrentTime;
+            int last = _lastHostClockTime;
+            _lastHostClockTime = now;
+            if (last < 0 || now >= last || !(LocalNightDeath || RemoteNightDeathCount > 0))
+                return;
+            float nightEdge = ctrl.nightTime - 50f;
+            if (last < nightEdge || now >= nightEdge || now == (int)ctrl.dayTime)
+                return; // not out of the night, or midnight itself (startDay releases there)
+            Dreams dreams = Singleton<Dreams>.Instance;
+            if (Core.EnteringDream || DreamSyncManager.IsDreamActive
+                || (dreams != null && (dreams.dreaming || dreams.dreamPrepared || dreams.switchingDream)))
+                return;
+            HostReleaseNightDeadAtMorning("clock set from " + last + " to " + now);
+        }
+
         /// <summary>Client: host says it is morning. Release locally and drop peers' night-death marks.</summary>
         public static void ClientReleaseNightDeadAtMorning()
         {

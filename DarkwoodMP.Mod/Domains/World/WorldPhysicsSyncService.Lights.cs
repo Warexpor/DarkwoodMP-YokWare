@@ -287,8 +287,7 @@ namespace DWMPHorde.Sync
             foreach (var kv in _s.ClientKinematic)
             {
                 var (rBody, _, objName) = kv.Value;
-                if (rBody != null)
-                    rBody.isKinematic = false;
+                ReleaseKinematic(rBody);
                 LanNetworkManager.NotifyBodyPushStopped(objName);
             }
 

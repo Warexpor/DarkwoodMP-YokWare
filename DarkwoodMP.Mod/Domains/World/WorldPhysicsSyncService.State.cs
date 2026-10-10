@@ -50,6 +50,8 @@ namespace DWMPHorde.Sync
             public uint NextSnapshotSequence;
             public int ClientUpdateCleanupCounter;
             public readonly Dictionary<int, (Rigidbody rb, float releaseTime, string objName)> ClientKinematic = new Dictionary<int, (Rigidbody rb, float releaseTime, string objName)>();
+            /// <summary>Bodies sync made kinematic (see <see cref="LockKinematic"/>); only these are let go.</summary>
+            public readonly HashSet<int> SyncLockedBodies = new HashSet<int>();
             public readonly Dictionary<int, float> BodyPushSoundTimer = new Dictionary<int, float>();
             public readonly Dictionary<int, float> LastPushSoundTime = new Dictionary<int, float>();
             public readonly Dictionary<int, AudioSource> PushSoundSource = new Dictionary<int, AudioSource>();

@@ -31,6 +31,30 @@ namespace DWMPHorde.Sync
         /// <summary>NonAlloc overlap into shared <see cref="_overlap3D"/>.</summary>
         private static int OverlapNear(Vector3 pos, float radius)
             => Physics.OverlapSphereNonAlloc(pos, radius, _overlap3D);
+
+        /// <summary>
+        /// Freeze a body while it follows another machine's pose. Sync let go of every body it
+        /// had followed by clearing isKinematic, also bodies the game keeps kinematic itself (the
+        /// tank wreck's non-convex mesh collider): PhysX rejected them on every release ("Dynamic
+        /// actor with illegal collision shapes", "Non-convex MeshCollider with non-kinematic
+        /// Rigidbody") and the wreck turned into a free body on the client.
+        /// </summary>
+        internal static void LockKinematic(Rigidbody rb)
+        {
+            if (rb == null || rb.isKinematic)
+                return;
+            _s.SyncLockedBodies.Add(rb.GetInstanceID());
+            rb.isKinematic = true;
+        }
+
+        /// <summary>Let go of a body <see cref="LockKinematic"/> froze; a body kinematic by design stays so.</summary>
+        internal static void ReleaseKinematic(Rigidbody rb)
+        {
+            if (rb == null)
+                return;
+            if (_s.SyncLockedBodies.Remove(rb.GetInstanceID()) && rb.isKinematic)
+                rb.isKinematic = false;
+        }
         /// <summary>
         /// How long one moving state from a client pusher keeps the host's scrape going. It has to
         /// outlast the gap to the next state (sent every 0.1 s, arriving with jitter); it was
