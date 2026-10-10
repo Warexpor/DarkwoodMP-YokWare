@@ -212,8 +212,8 @@ namespace DWMPHorde.Audio
         private static float _nextWalkieCheck; // process-scoped: polled every 0.5 s
         private static bool _walkieTx;
         private static float _walkieSendUntil; // process-scoped: compared against the clock
-        /// <summary>The mic's delay (noise suppression, <see cref="VoiceDenoise.DelaySamples"/>) and a packet more.</summary>
-        private const float WalkieSendTailSec = VoiceDenoise.DelaySamples / (float)VoiceCodec.SampleRate + 0.05f;
+        /// <summary>The mic's delay (<see cref="VoiceMicChain.MaxDelaySec"/>), the frame its worker hands packets over in, and a packet more.</summary>
+        private const float WalkieSendTailSec = VoiceMicChain.MaxDelaySec + 0.08f;
         private static bool _walkieTxWas;
         private static bool _transmitting;
         private static int _txPackets; // process-scoped: stats

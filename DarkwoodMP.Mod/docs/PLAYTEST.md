@@ -478,6 +478,10 @@ Listen on the player who did not cause the sound.
       radio too; A typing or clicking in a pause is much quieter than A's voice. The
       first sound of a word is not cut, and the last word before A lets go of the radio
       key is heard whole.
+      A typing while talking: the keys are clearly quieter than with it off and A's
+      voice is not warbly or cut. The log's "[Voice] microphone ... at 48000 Hz" line
+      shows the rate, and there is no "noise suppression unavailable" line. Frame rate
+      with voice on is the same as with it off.
 - [ ] The walkie transmits only while playing (the radio talk key, right mouse by default, with the radio in hand), not
       in the inventory, a container, dialogue, the map, the journal, the pause menu,
       while dead or with chat open.

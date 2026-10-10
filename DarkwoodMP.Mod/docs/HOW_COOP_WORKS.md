@@ -896,10 +896,10 @@ party events.
   - The signal fades with distance (clear to 6000 units, breaking up past that, gone at
     18000), carries less out of buildings and barely in or out of underground places, and
     nothing reaches another world (a dream).
-  - The microphone is cleaned before it is sent (`VoiceNoiseSuppression`): steady noise
-    (fans, hiss, hum) comes out of each band, and in a pause what is left, a key or mouse
-    click included, is turned down further. Noise that is not steady while the player
-    talks (typing under speech, another voice) passes.
+  - The microphone is cleaned before it is sent (`VoiceNoiseSuppression`, on unless the
+    player turns it off in Settings > Voice): a trained model (RNNoise) tells speech from
+    noise, so fans, hum, hiss, keys and clicks go down and the voice stays. Another
+    voice in the room is speech to it and passes.
   - Indoors a voice gets the same reverb vanilla puts on sounds made inside; walls muffle
     it as vanilla muffles any sound behind a wall.
   - Push-to-talk (`V`) or open mic.

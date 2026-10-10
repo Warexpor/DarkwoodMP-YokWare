@@ -3,12 +3,12 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.220**. The current Horde wire protocol is **54**. Every install in a session
+**0.8.221**. The current Horde wire protocol is **54**. Every install in a session
 needs the same DLL; the protocol is checked on join.
 
 Protocol history (newest first):
 
-- **54**, 0.8.212 to 0.8.220: `VoiceData` (129) gains flag 2: a second codec block after the voice,
+- **54**, 0.8.212 to 0.8.221: `VoiceData` (129) gains flag 2: a second codec block after the voice,
   the sounds the talker's radio picked up.
 - **53**, 0.8.200 to 0.8.211: the world share package gains `savplc.dat` (container slots a player
   stored items in). No message layout changed; the bump keeps every player on a build
@@ -61,6 +61,50 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.221 — Mic noise suppression by a trained model (RNNoise)
+
+Asked for after 0.8.220: a suppressor that also handles noise that is not steady. The
+on/off switch asked for with it already exists (Settings > Voice > "Noise suppression",
+config `VoiceNoiseSuppression`, on by default); it now switches this.
+
+- **RNNoise replaces the old suppressor.** RNNoise (Jean-Marc Valin, Mozilla / Xiph.Org,
+  `xiph/rnnoise` v0.1.1, BSD licence) ported from C to C# (`Audio/RnNoise.cs`), with its
+  trained weights as an 87 KB resource in the DLL. No native library, the same on every
+  install. A small recurrent network that knows what speech sounds like answers, 100
+  times a second, how much of each of 22 bands is voice. The spectral suppressor and its
+  pause gate from 0.8.212 to 0.8.220 (`VoiceDenoise`) are removed, not kept beside it.
+- **Checked against the original.** The C code was built and run on the same input as
+  the port: the outputs differ by about 76 dB below the signal (rounding). A unit test
+  holds the reference's figures.
+- **Measured on the reference, noise only:** fan-like and low-heavy noise down 20 dB in
+  the first second and 40 to 60 dB after; hum with hiss about 20 dB at once, 35 dB in a
+  pause after speech; bursts like key clicks 8 to 21 dB in pauses. Limits: another
+  voice or a television is speech to it; a loud, bright hiss with nothing else (white
+  noise up to 20 kHz at about -40 dBFS) is taken for speech until the player has
+  talked, then goes down in pauses. Speech quality could only be checked on a synthetic
+  voice here; it needs ears in a playtest.
+- **The mic now records at 48 kHz** where the device allows (the model's rate; before:
+  16 kHz), is cleaned there before the mic volume is applied, then brought to the 16 kHz
+  voice rate through a real low-pass (`Audio/VoiceResampler.cs`, Kaiser-windowed sinc,
+  any ratio) instead of one biquad and straight lines between samples. Devices at other
+  rates are converted to 48 kHz the same way.
+- **Off the game's frame.** The whole chain (`Audio/VoiceMicChain.cs`) runs on a worker
+  thread; the frame hands over the recording and collects finished packets, one frame
+  later. Cost about 0.2 ms per 10 ms of sound on this machine under .NET 8; not measured
+  under the game's Mono.
+- **Delay** about 20 ms (was 64 ms). The radio keeps its flag 0.11 s after key-up as
+  before, so the last word is whole.
+- **If the weights cannot be loaded** the mic works without suppression and the log says
+  "[Voice] noise suppression unavailable" once.
+- **Licence:** `Resources/RnNoise/COPYING.txt` (also embedded in the DLL),
+  `Resources/RnNoise/SOURCES.md`, `COPYRIGHT`, README credits.
+- **Files:** `Audio/RnNoise.cs`, `Audio/VoiceResampler.cs`, `Audio/VoiceMicChain.cs`,
+  `Audio/VoiceMic.cs`, `Audio/VoiceChatService.cs`, `Config/ModConfig.cs`, removed
+  `Audio/VoiceDenoise.cs`; tests `RnNoiseTests.cs` replace `VoiceDenoiseTests.cs` (477
+  pass). No protocol change.
+- **Not verified in game:** how it sounds, the 48 kHz recording on the Proton clients,
+  the cost under Mono.
 
 ## 0.8.220 — Mic noise suppression: works from the first second, quiet pauses, clicks between sentences
 

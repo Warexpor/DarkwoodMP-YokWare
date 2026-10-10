@@ -254,7 +254,7 @@ namespace DWMPHorde.Config
             VoiceMicVolume = config.Bind("Voice", "VoiceMicVolume", 1f,
                 "Microphone volume, 0..4 (1 as recorded). Also how loud you count for how far your voice carries.");
             VoiceNoiseSuppression = config.Bind("Voice", "VoiceNoiseSuppression", true,
-                "Take steady noise (fans, hiss, hum, the room) out of your microphone before it is sent.");
+                "Take noise (fans, hiss, hum, the room, keys and clicks) out of your microphone before it is sent.");
             VoiceRadioWorldSounds = config.Bind("Voice", "VoiceRadioWorldSounds", true,
                 "Your keyed walkie also sends the sounds around you, as loud as they reach you (not music or menu sounds). Off: your voice only.");
             VoicePlayerVolumes = config.Bind("Voice", "VoicePlayerVolumes", "",
