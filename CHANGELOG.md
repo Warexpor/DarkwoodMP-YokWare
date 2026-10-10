@@ -3,7 +3,7 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.209**. The current Horde wire protocol is **53**. Every install in a session
+**0.8.210**. The current Horde wire protocol is **53**. Every install in a session
 needs the same DLL; the protocol is checked on join.
 
 Protocol history (newest first):
@@ -59,6 +59,18 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.210 — Radio icon redrawn
+
+- The radio's inventory icon was a detailed upright painting shrunk to icon size: thin
+  lines, an antenna taking half the frame, a different angle from every item next to it.
+  It is redrawn for the size it is shown at: a boxy handset lying at an angle like the
+  game's own items, filling its frame, big plain shapes (speaker bars, label plate, short
+  antenna), grey only.
+- The art is 240 px (eight art pixels per icon pixel) and is averaged down to 30 px, the
+  size of vanilla icons (`IconPixels` 48 -> 30).
+- Files: `Resources/walkie_talkie.png`, `Items/WalkieItem.cs`.
+- Built but **not deployed** and not seen in game. The game folders still hold 0.8.208.
 
 ## 0.8.209 — Answer buttons of a question box spaced, MULTIPLAYER there when the pause menu opens
 
