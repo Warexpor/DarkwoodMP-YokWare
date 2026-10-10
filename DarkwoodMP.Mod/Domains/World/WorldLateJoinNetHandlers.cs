@@ -49,7 +49,7 @@ namespace DWMPHorde.Networking
 
                 Vector3 p = item.transform.position;
                 string itemType = item.invItem != null ? item.invItem.type : "";
-                string itemName = item.name ?? "";
+                string itemName = item.gameObject.name ?? "";
                 _net.SendToPlayer(targetPlayerId, NetMessageType.LightState,
                     w => new LightStateMessage
                     {

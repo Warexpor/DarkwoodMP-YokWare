@@ -58,7 +58,7 @@ namespace DWMPHorde.Networking
                     if (dist > NamedDoorFallbackRadius) continue;
                     if (!string.IsNullOrEmpty(want))
                     {
-                        string n = DialogOutcomeCloseNetHandlers.StripCloneSuffix(d.name);
+                        string n = DialogOutcomeCloseNetHandlers.StripCloneSuffix(d.gameObject.name);
                         if (string.Equals(n, want, System.StringComparison.OrdinalIgnoreCase) && dist < bestNamed)
                         {
                             bestNamed = dist;

@@ -3,12 +3,12 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.197**. The current Horde wire protocol is **52**. Every install in a session
+**0.8.198**. The current Horde wire protocol is **52**. Every install in a session
 needs the same DLL; the protocol is checked on join.
 
 Protocol history (newest first):
 
-- **52**, 0.8.189 to 0.8.197: `PlayerState`'s walkie trailer becomes a state byte,
+- **52**, 0.8.189 to 0.8.198: `PlayerState`'s walkie trailer becomes a state byte,
   `WalkieState`: none, off or flat, on in a pocket, on in hand, plus underground.
 - **51**, 0.8.187 to 0.8.188: `VoiceData` (129) carries the mod's own voice codec
   instead of Steam Voice.
@@ -56,6 +56,44 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.198 — First real session (Steam, English host + Russian client): ghost traps, furniture left behind, translated names on the wire
+
+Found in the logs of a 40-minute Steam session with a friend. No wire change (protocol 52), but the
+identifiers below changed meaning, so every player needs this DLL.
+
+- **A trap one player disarmed far from another stayed armed for that other player.** The client
+  later walked into a bear trap the host had removed half an hour earlier and was caught by it
+  (`[Trap] host: player 3 trapped` on a trap the host no longer had). The game switches off the
+  world away from the local player, a switched-off trap has no collider, and the removal looked
+  for traps by collider only (the scene scan was skipped for trap names). Removal now also reads
+  the trigger registry, which holds switched-off traps. The host's trap ledger is told about a
+  trap destroyed while it never woke on the host (Unity sends no `OnDestroy` there), so a later
+  joiner does not get it back. Files: `WorldPhysicsSyncService.Pickups.cs` (`DestroyObjectByPos`),
+  `TrapLedger.cs`.
+- **Furniture pushed while another player was far away stayed put on that player's machine.** The
+  host's wardrobe ended 85 units from the client's copy; the client then could not open it
+  (`no activate target near … Wardrobe_Big_1_Burned`, `HandleContainerStateRequest: no inventory`)
+  and its own pushes were refused (`ObjectApply failed=1`). The client dropped every free-body
+  state outside its interest range. It now sets the pose of its (switched-off) copy directly, with
+  no resolve cascade, interpolation or sound. The interpolation tick also moves a switched-off
+  body by its transform (a rigidbody outside the physics scene ignores `rb.position`). Files:
+  `WorldPhysicsSyncService.Apply.cs`, `.ObjectResolve.cs` (`SnapFarObject`), `.Interpolation.cs`.
+  A copy that is already more than 50 units off (an old save from before this fix) is not pulled
+  back by this; it heals on the next world download.
+- **Translated names were used as network identifiers.** `Item.name`, `Door.name` and
+  `Window.name` are vanilla display names in the player's own language, not object names. With an
+  English host and a Russian client:
+  - picking up a sprung bear trap asked the host to remove "Металлолом", which matched nothing
+    (the trap check looked for the English word "scrap");
+  - the desync check reported every door twice, forever (`Wooden door@…` host only,
+    `Деревянная Дверь@…` client only), and would have done the same for dropped items;
+  - lamp switch states, the locked-door attempt, door open / unblock fallbacks and dream prop
+    colliders matched by name only when both players used the same language.
+  All of these now send and compare the object name. Files: `DroppedItemSyncHelpers.cs`,
+  `DesyncCheck.Sections.cs`, `DoorSyncPatches.cs`, `DreamDoorSyncPatches.cs`, `DoorNetHandlers.cs`,
+  `WorldLateJoinNetHandlers.cs`, `WorldPhysicsSyncService.Lights.cs`, `.Interpolation.cs`.
+- Not yet confirmed in a playtest: build and unit tests only.
 
 ## 0.8.197 — A player down at night or in a dream leaves a body; ghost Wolfman after loading
 

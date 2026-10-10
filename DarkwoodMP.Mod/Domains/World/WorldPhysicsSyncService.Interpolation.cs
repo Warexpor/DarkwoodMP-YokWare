@@ -85,8 +85,9 @@ namespace DWMPHorde.Sync
                 Quaternion targetRotQ = Quaternion.Euler(s.TargetRot);
                 Quaternion lerpRot = Quaternion.Slerp(prevRotQ, targetRotQ, t);
 
-                Rigidbody rb = s.CachedRb;
-                bool hostClientPush = rb != null && _s.ClientKinematic.ContainsKey(key);
+                // A switched-off body is not in the physics scene: only its transform moves it.
+                Rigidbody rb = s.Target.activeInHierarchy ? s.CachedRb : null;
+                bool hostClientPush = s.CachedRb != null && _s.ClientKinematic.ContainsKey(key);
                 if (t < 1f || hostClientPush)
                 {
                     // Active lerp, or hold last target on host while waiting for next
@@ -111,8 +112,8 @@ namespace DWMPHorde.Sync
                 {
                     // Interpolation complete (non-client-push). Release kinematic so the
                     // local peer can push / interact. Next snapshot re-locks.
-                    if (rb != null && ModRuntime.Network != null && ModRuntime.Network.Role != NetworkRole.Host)
-                        ReleaseKinematic(rb);
+                    if (s.CachedRb != null && ModRuntime.Network != null && ModRuntime.Network.Role != NetworkRole.Host)
+                        ReleaseKinematic(s.CachedRb);
                     // Non-rigidbody objects still need transform driven.
                     if (rb == null)
                     {
@@ -307,7 +308,8 @@ namespace DWMPHorde.Sync
                 Collider col = item.GetComponent<Collider>();
                 if (col == null) continue;
                 // Skip huge static environment; keep lights, bells, push props.
-                string n = item.name ?? "";
+                // Object name: Item.name is the display name in the player's language.
+                string n = item.gameObject.name ?? "";
                 bool interesting = item.isLight
                     || item.draggable
                     || n.IndexOf("Lamp", System.StringComparison.OrdinalIgnoreCase) >= 0
@@ -405,7 +407,7 @@ namespace DWMPHorde.Sync
             {
                 Item item = items[i];
                 if (item == null) continue;
-                string n = item.name ?? "";
+                string n = item.gameObject.name ?? "";
                 if (n.Equals(name, System.StringComparison.OrdinalIgnoreCase)
                     || n.IndexOf(name, System.StringComparison.OrdinalIgnoreCase) >= 0)
                     return item.gameObject;

@@ -384,7 +384,7 @@ namespace DWMPHorde.Sync
                 PosY = p.y,
                 PosZ = p.z,
                 IsOn = true,
-                ItemName = __instance.name,
+                ItemName = __instance.gameObject.name,
                 ItemType = itemType,
                 Switched = ItemSwitchMeScopePatch.Active
             });
@@ -418,7 +418,7 @@ namespace DWMPHorde.Sync
                 PosY = p.y,
                 PosZ = p.z,
                 IsOn = false,
-                ItemName = __instance.name,
+                ItemName = __instance.gameObject.name,
                 ItemType = itemType,
                 Switched = ItemSwitchMeScopePatch.Active
             });
@@ -512,7 +512,7 @@ namespace DWMPHorde.Sync
                 PosY = p.y,
                 PosZ = p.z,
                 IsOn = false,
-                ItemName = __instance.name,
+                ItemName = __instance.gameObject.name,
                 ItemType = itemType
             });
             ModRuntime.LegacyInfo($"[LightSync] send empDisable {__instance.name} type={itemType}");

@@ -74,7 +74,7 @@ namespace DWMPHorde.Patches
                     PosX = pos.x,
                     PosY = pos.y,
                     PosZ = pos.z,
-                    DoorName = door.name ?? "",
+                    DoorName = door.gameObject.name ?? "",
                     AttemptOnly = true
                 }.Serialize(w),
                 DeliveryMethod.ReliableOrdered);
@@ -103,7 +103,8 @@ namespace DWMPHorde.Patches
             if (net == null) return;
 
             Vector3 pos = door.transform.position;
-            string name = door.name ?? "";
+            // Object name: Door.name is the display name in the player's language.
+            string name = door.gameObject.name ?? "";
 
             // During dreams only fan-out doors that belong to the dream pad.
             // Entry transition: IsDreamActive but dreamLocation not ready. Suppress all
@@ -233,7 +234,7 @@ namespace DWMPHorde.Patches
                     PosX = pos.x,
                     PosY = pos.y,
                     PosZ = pos.z,
-                    DoorName = "unblock:" + (__instance.name ?? "")
+                    DoorName = "unblock:" + (__instance.gameObject.name ?? "")
                 }.Serialize(w),
                 DeliveryMethod.ReliableOrdered);
             ModRuntime.LegacyInfo($"[DoorSync] sent unblock: {__instance.name}");

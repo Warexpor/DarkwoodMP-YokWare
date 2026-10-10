@@ -94,9 +94,27 @@ namespace DWMPHorde.Sync
                 best = root;
             }
 
-            // 2) Scene scan for collider-less / culled items near pos. Skip it for known trap
-            // names after the overlap query: a missing trap has already been removed.
-            if (best == null && !NeedleLooksLikeTrap(needle))
+            // 2) Switched-off objects have no collider to overlap, and the game switches off the
+            // world away from the local player: a trap another player disarmed across the map
+            // stayed armed here and caught whoever walked there later. Traps are read from the
+            // trigger registry, then everything from the items.
+            if (best == null && NeedleLooksLikeTrap(needle))
+            {
+                Trigger[] trigs = WorldQueryHelper.GetCachedSceneComponents<Trigger>();
+                for (int i = 0; i < trigs.Length; i++)
+                {
+                    Trigger tr = trigs[i];
+                    if (tr == null) continue;
+                    GameObject go = tr.gameObject;
+                    if (go == null || !go.scene.IsValid()) continue;
+                    float dSq = XzDistSq(go.transform.position, pos);
+                    if (dSq > matchSq || dSq >= bestDistSq) continue;
+                    if (!ShouldDestroyWorldPickup(go, needle)) continue;
+                    bestDistSq = dSq;
+                    best = go;
+                }
+            }
+            if (best == null)
             {
                 Item[] items = WorldQueryHelper.GetCachedSceneComponents<Item>();
                 for (int i = 0; i < items.Length; i++)
@@ -139,6 +157,7 @@ namespace DWMPHorde.Sync
                 TraverseHack.SetExplicitFlag(true);
                 // Co-op rescue: free anyone still flagged inBearTrap near this destroy pose.
                 LocalBearTrap.ReleaseIfRemoved(best, best.transform.position);
+                TrapLedger.NoteGoneUnwatched(best);
 
                 UnityEngine.Object.DestroyImmediate(best);
             }

@@ -277,8 +277,10 @@ namespace DWMPHorde.Patches
         internal static void ResolveWorldPickupClaim(Item worldItem, out Vector3 pos, out string sendName, out bool isTrap)
         {
             pos = worldItem.transform.position;
-            sendName = worldItem.name;
             GameObject go = worldItem.gameObject;
+            // The object name, never Item.name: that is the display name in the player's own
+            // language ("Scrap metal" / "Металлолом"), which no other machine can match.
+            sendName = go.name;
             // Object flags only: display names ("Teddy bear") made ordinary items look like traps.
             isTrap = TrapNetworkId.IsWorldTrap(go) || TrapNetworkId.IsOccupancyTrap(go);
 
@@ -299,11 +301,6 @@ namespace DWMPHorde.Patches
                         && !string.IsNullOrEmpty(inv.slots[0].invItem.type))
                         sendName = inv.slots[0].invItem.type;
                 }
-            }
-            else if (string.IsNullOrEmpty(sendName) || sendName.IndexOf("scrap", System.StringComparison.OrdinalIgnoreCase) >= 0)
-            {
-                // refreshName may have rewritten Item.name to the loot display string.
-                sendName = go.name;
             }
         }
 
