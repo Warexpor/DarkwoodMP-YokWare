@@ -315,7 +315,8 @@ namespace DWMPHorde.Audio
             }
 
             // Typing in chat or a menu text field must not key the mic.
-            bool ptt = Input.GetKey(_pttKey) && !UiInputLock.IsHeld;
+            bool ptt = (Input.GetKey(_pttKey) && !UiInputLock.IsHeld)
+                || (PadAction(PadVoiceAction(), down: false) && WalkieTxAllowed());
             bool openMic = !string.Equals(ModConfig.VoiceMode?.Value ?? "ptt", "ptt",
                 StringComparison.OrdinalIgnoreCase);
             _walkieTx = false;
@@ -481,7 +482,7 @@ namespace DWMPHorde.Audio
         /// </summary>
         private static bool PadAction(string action, bool down)
         {
-            if (!PadMode)
+            if (action == null || !PadMode)
                 return false;
             try
             {
@@ -494,6 +495,28 @@ namespace DWMPHorde.Audio
                 return false;
             }
         }
+
+        /// <summary>
+        /// Push to talk on a controller. Every button of the controller has a vanilla action in
+        /// play, so there is none to take: the setting picks which one voice shares, by the
+        /// vanilla action it is bound to (<c>VoicePadTalkButton</c>; the names are the buttons
+        /// of the game's default layout).
+        /// </summary>
+        internal static readonly string[] PadVoiceButtons = { "Off", "DpadLeft", "DpadRight", "LeftStick", "RightStick" };
+        private static readonly string[] PadVoiceActions = { null, "Cycle", "Effects Cycle", "Reload", "Dodge" };
+
+        internal static int PadVoiceIndex()
+        {
+            string v = ModConfig.VoicePadTalkButton?.Value ?? "DpadLeft";
+            for (int i = 0; i < PadVoiceButtons.Length; i++)
+            {
+                if (string.Equals(PadVoiceButtons[i], v, StringComparison.OrdinalIgnoreCase))
+                    return i;
+            }
+            return 1;
+        }
+
+        private static string PadVoiceAction() => PadVoiceActions[PadVoiceIndex()];
 
         internal const string PadTalkAction = "Aim";
         internal const string PadKnobAction = "Attack";

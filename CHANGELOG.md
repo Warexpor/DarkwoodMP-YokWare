@@ -3,12 +3,12 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.218**. The current Horde wire protocol is **54**. Every install in a session
+**0.8.219**. The current Horde wire protocol is **54**. Every install in a session
 needs the same DLL; the protocol is checked on join.
 
 Protocol history (newest first):
 
-- **54**, 0.8.212 to 0.8.218: `VoiceData` (129) gains flag 2: a second codec block after the voice,
+- **54**, 0.8.212 to 0.8.219: `VoiceData` (129) gains flag 2: a second codec block after the voice,
   the sounds the talker's radio picked up.
 - **53**, 0.8.200 to 0.8.211: the world share package gains `savplc.dat` (container slots a player
   stored items in). No message layout changed; the bump keeps every player on a build
@@ -61,6 +61,24 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.219 — Push to talk on a controller
+
+- **What changed:** voice chat without a radio has a controller button: hold D-pad left
+  to talk (only while playing, not in a menu). Settings > Voice > "Controller talk
+  button" picks D-pad left, D-pad right, left stick click, right stick click or Off;
+  config key `VoicePadTalkButton`.
+- **Why it shares a button:** in play the game's default controller layout uses every
+  button (read from its Rewired maps: A, B, X, Y, both shoulders, both triggers, Back,
+  Start, both stick clicks and all four D-pad directions), so none is free. The button
+  picked still does its vanilla action too: D-pad left moves to the next thing under the
+  cursor when several are there (nothing otherwise), D-pad right selects the next
+  skill, left stick click reloads, right stick click dodges. D-pad left is the default
+  as the least harmful. The mod reads the vanilla action, so it follows a rebind.
+- **Files:** `Audio/VoiceChatService.cs`, `Config/ModConfig.cs`,
+  `UI/MultiplayerScreens.Voice.cs` (one more row, screen starts 20 units higher),
+  `Core/Loc.Ru.cs`, docs. No protocol change.
+- **Status:** code only, not tried with a controller yet.
 
 ## 0.8.218 — Disarmed traps gone for everyone; radio: quieter world, end-of-talk tail, static with no cut-off, manual, controller
 

@@ -885,6 +885,9 @@ party events.
     with the radio in hand (it cannot be aimed and is no weapon, so neither does anything
     else). The radio's item description is its manual and names the buttons as they are
     set right now (keys, or Aim and Attack while a controller is in use).
+  - Push to talk without a radio has a controller button too (D-pad left by default,
+    Settings > Voice). The game leaves no controller button free, so the one picked also
+    does its vanilla action.
   - A walkie is a device: an on/off knob (`B`, in hand), a 9V battery that drains while
     it is on (about an hour on standby, faster while talking; `R` swaps in a fresh `battery9v`, as for the
     flashlight), quieter and duller in a pocket than in hand. Off or flat, it neither

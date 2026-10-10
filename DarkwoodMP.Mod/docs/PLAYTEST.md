@@ -456,6 +456,9 @@ Listen on the player who did not cause the sound.
 - [ ] The radio's description (hover it in the inventory) is its manual: the talk and
       knob keys as set in Settings > Voice, Reload for the battery; with a controller in
       use it says Aim and Attack. Also in Russian.
+- [ ] Controller voice: holding D-pad left talks (the Voice screen's meter says "talking",
+      B hears it); Settings > Voice > "Controller talk button" changes it or turns it
+      off. The Voice screen fits with the extra row.
 - [ ] Controller: with the radio in hand, holding Aim talks and pressing Attack turns the
       knob; neither does anything else. Not while a menu is open.
 - [ ] A host disarms a bear trap (one placed by a player, one from the world): it is gone

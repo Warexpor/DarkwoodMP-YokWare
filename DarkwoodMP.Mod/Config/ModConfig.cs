@@ -71,6 +71,7 @@ namespace DWMPHorde.Config
         public static ModSetting<bool> VoiceEnabled { get; private set; }
         public static ModSetting<string> VoiceMode { get; private set; }
         public static ModSetting<string> VoicePttKey { get; private set; }
+        public static ModSetting<string> VoicePadTalkButton { get; private set; }
         public static ModSetting<float> VoiceVolume { get; private set; }
         public static ModSetting<float> VoiceGain { get; private set; }
         public static ModSetting<float> VoiceFullVolumeDistance { get; private set; }
@@ -231,6 +232,8 @@ namespace DWMPHorde.Config
                 "ptt = push-to-talk (VoicePttKey). open = always transmit while connected.");
             VoicePttKey = config.Bind("Voice", "VoicePttKey", "V",
                 "Unity KeyCode name for push-to-talk (default V).");
+            VoicePadTalkButton = config.Bind("Voice", "VoicePadTalkButton", "DpadLeft",
+                "Push to talk on a controller, held: DpadLeft, DpadRight, LeftStick, RightStick or Off. The game has no free controller button, so each also does its vanilla action (by the default layout: next thing under the cursor, next skill, reload, dodge).");
             VoiceVolume = config.Bind("Voice", "VoiceVolume", 1f,
                 "Playback volume multiplier for remote voice.");
             VoiceGain = config.Bind("Voice", "VoiceGain", 1.4f,

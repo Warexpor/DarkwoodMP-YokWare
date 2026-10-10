@@ -20,7 +20,7 @@ In game:
 
 - **Multiplayer > Settings** edits `PlayerName`, `ShowPlayerNames`, `ChatEnabled` and
   `PeerMovementVolume`.
-- **Settings > Voice** edits `VoiceEnabled` / `VoiceMode`, `VoicePttKey`,
+- **Settings > Voice** edits `VoiceEnabled` / `VoiceMode`, `VoicePttKey`, `VoicePadTalkButton`,
   `VoiceRadioTalkKey`, `VoiceRadioPowerKey`, `VoiceRadioWorldSounds`, `VoiceMicDevice`,
   `VoiceMicVolume`, `VoiceNoiseSuppression` and `VoiceVolume`; **Voice > Players** edits `VoicePlayerVolumes`.
 - **Multiplayer > Host settings** edits `FriendlyFireEnabled`, `LootShareMode` (with
@@ -84,6 +84,7 @@ set in Multiplayer > Settings > Voice.
 | `VoiceEnabled` | `true` | Proximity and walkie voice chat. |
 | `VoiceMode` | `ptt` | `ptt` is push-to-talk (`VoicePttKey`); `open` sends whenever you speak (a gate that follows the room's own noise). |
 | `VoicePttKey` | `V` | Unity `KeyCode` name for push-to-talk. |
+| `VoicePadTalkButton` | `DpadLeft` | Push to talk on a controller, held: `DpadLeft`, `DpadRight`, `LeftStick`, `RightStick` or `Off`. Every controller button has a vanilla action in play, so the button also does its own (by the default layout: next thing under the cursor, next skill, reload, dodge). Settings > Voice > Controller talk button. |
 | `VoiceVolume` | `1` | Playback volume multiplier for remote voice. |
 | `VoiceGain` | `1.4` | Gain applied to received voice, on top of the built-in level (loud peaks are soft-limited, not clipped). |
 | `VoiceRadioTalkKey` | `Mouse1` | Unity `KeyCode` name for talking on the walkie, held with it in hand. `Mouse1` is right mouse, `Mouse3` and `Mouse4` the side buttons. Settings > Voice > Radio talk key. On a controller the game's Aim talks. |

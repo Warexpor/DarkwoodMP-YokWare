@@ -41,6 +41,7 @@ namespace DWMPHorde
             yield return Setting(ModConfig.VoiceEnabled, ask: true);
             yield return Setting(ModConfig.VoiceMode, ask: true);
             yield return Setting(ModConfig.VoicePttKey);
+            yield return Setting(ModConfig.VoicePadTalkButton);
             yield return Setting(ModConfig.VoiceRadioTalkKey);
             yield return Setting(ModConfig.VoiceRadioPowerKey);
             yield return Setting(ModConfig.VoiceMicDevice);
@@ -69,17 +70,22 @@ namespace DWMPHorde
         private static string VoiceSignature() => VoiceIndex() + "/" + string.Join("\n", VoiceMic.Devices);
 
         private static readonly string[] OffOn = { "Off", "On" };
+        private static readonly string[] PadTalkChoices = { "Off", "D-pad left", "D-pad right", "Left stick click", "Right stick click" };
 
         private static void BuildVoice(VmBuilder b)
         {
-            b.Header("Voice", 178f + 100f);
-            float z = 100f + 80f;
+            b.Header("Voice", 178f + 120f);
+            float z = 100f + 100f;
             const float step = Vm.RowStep;
 
             b.Choice("Voice chat", z, VoiceChoices, VoiceIndex, SetVoice);
             z -= step;
             b.KeyField("Push to talk key", z, () => ModConfig.VoicePttKey?.Value ?? "V",
                 v => { if (ModConfig.VoicePttKey != null) ModConfig.VoicePttKey.Value = v; }, enabled: VoiceIndex() == 1);
+            z -= step;
+            b.Choice("Controller talk button", z, PadTalkChoices, VoiceChatService.PadVoiceIndex,
+                i => { if (ModConfig.VoicePadTalkButton != null) ModConfig.VoicePadTalkButton.Value = VoiceChatService.PadVoiceButtons[i]; },
+                enabled: VoiceIndex() == 1);
             z -= step;
             b.KeyField("Radio talk key", z, () => ModConfig.VoiceRadioTalkKey?.Value ?? "Mouse1",
                 v => { if (ModConfig.VoiceRadioTalkKey != null) ModConfig.VoiceRadioTalkKey.Value = v; });
