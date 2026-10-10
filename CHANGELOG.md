@@ -55,7 +55,7 @@ tested in the game.
 
 ---
 
-## 0.8.196 — Pilot-run fixes: stuck pad exit, night-dead past dawn, wreck physics
+## 0.8.196 — Pilot-run fixes: stuck pad exit, night-dead past dawn, wreck physics, oven portrait callback
 
 Found by an unattended three-player story crawl (host + two clients, every chapter 1 location).
 
@@ -74,6 +74,14 @@ Found by an unattended three-player story crawl (host + two clients, every chapt
   release with it. The host now treats a jump out of the night (not a dream's own clock) as the
   morning for the night-dead (`DeathStateTracker.HostCheckClockLeftNight`, run from the host
   clock step in `ClientTimeAuthorityPatches.cs`).
+- **The host threw a NullReferenceException (or changed the wrong NPC) when a client used an
+  oven while the host talked to someone.** A changePortrait board (oven lookAt*, lookKeyhole)
+  swaps the portrait and steps the board in a 1.5 s delayed callback that reads the dialogue
+  window's NPC when it runs. On the host replaying the client's board, the window was closed by
+  then (NPC null: the exception) or open on the host's own conversation, which got the oven's
+  portrait and a board step. Scheduled during a host replay, the callback now runs only while
+  that replay still holds the window on the same NPC; otherwise it only sets the portrait type
+  on the NPC the board belonged to (`DialogHostPortraitInvokePatch`).
 - **A client turned the tank wreck (and any body the game keeps kinematic) into a free physics
   body.** Network smoothing froze a body while it followed the host and then let go by clearing
   `isKinematic`, also on bodies that were kinematic by design. PhysX rejected the wreck's
