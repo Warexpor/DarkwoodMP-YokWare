@@ -411,8 +411,12 @@ namespace DWMPHorde.Items
             return uvs;
         }
 
-        /// <summary>Vanilla inventory icons are about 30 px across, drawn 1:1 with point filtering.</summary>
-        private const int IconPixels = 30;
+        /// <summary>
+        /// Vanilla inventory icons are about 30 px across, point filtered, and fill their frame.
+        /// The radio with its antenna fills about half of its own, so it gets more pixels than
+        /// they do to end up as readable as they are.
+        /// </summary>
+        private const int IconPixels = 48;
 
         /// <summary>
         /// The walkie's painted icon (256 px, embedded), brought down to the pixel density of the

@@ -3,7 +3,7 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.206**. The current Horde wire protocol is **53**. Every install in a session
+**0.8.207**. The current Horde wire protocol is **53**. Every install in a session
 needs the same DLL; the protocol is checked on join.
 
 Protocol history (newest first):
@@ -59,6 +59,14 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.207 — Radio icon less coarse
+
+- **The walkie's icon is drawn from 48 px instead of 30.** 30 px is the size of the
+  game's own icons (measured: flashlight 29x30 in the inventory atlas), but those are
+  drawn to fill their frame, while the radio with its antenna fills about half of it, so
+  at 30 px the body was left with some 16 pixels and turned to mush. 48 px keeps the hard
+  pixel edges and leaves the radio readable. File: `WalkieItem.cs`. Not seen in game.
 
 ## 0.8.206 — Radio: recorded static and knob, twice the range, your own talk from a radio near you
 
