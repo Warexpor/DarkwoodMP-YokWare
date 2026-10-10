@@ -3,7 +3,7 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.203**. The current Horde wire protocol is **53**. Every install in a session
+**0.8.204**. The current Horde wire protocol is **53**. Every install in a session
 needs the same DLL; the protocol is checked on join.
 
 Protocol history (newest first):
@@ -59,6 +59,13 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.204 — Voice a little louder
+
+- **Received voice is about 2 dB louder at the same setting.** The built-in level under
+  `VoiceGain` goes from 1.6 to 2.0; the setting and its default (1.4) keep their meaning,
+  and loud peaks are still soft-limited instead of clipped. Applies to plain voice and to
+  the radio alike. File: `VoiceChatService.cs`. Not playtested.
 
 ## 0.8.203 — F4 line when spectating begins
 

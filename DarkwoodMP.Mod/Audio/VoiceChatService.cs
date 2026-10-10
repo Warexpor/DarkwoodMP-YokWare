@@ -451,7 +451,7 @@ namespace DWMPHorde.Audio
         /// Built-in level of received voice, under the VoiceGain setting. Voice sat well below
         /// the game's own sounds at the old level; the setting keeps its meaning (1.4 = normal).
         /// </summary>
-        private const float VoiceBaseGain = 1.6f;
+        private const float VoiceBaseGain = 2.0f;
 
         private const float LimitKnee = 0.7f;
 
