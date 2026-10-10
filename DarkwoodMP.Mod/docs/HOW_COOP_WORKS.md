@@ -947,10 +947,10 @@ Explicitly parked or left as is:
 
 Runtime verification still pending:
 
-- A full dual-box and three-player campaign soak. Every domain is code covered;
-  the recent releases are built and unit-tested but not playtested. See
-  [COOP_COVERAGE.md](COOP_COVERAGE.md) for the per-domain
-  status.
+- A full dual-box and three-player campaign soak by hand. Every domain is code
+  covered; the recent releases are unit-tested and checked in automated
+  three-player pilot runs, not yet in a human playtest. See
+  [COOP_COVERAGE.md](COOP_COVERAGE.md) for the per-domain status.
 
 ---
 

@@ -3,51 +3,53 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.197**. The current Horde wire protocol is **52** (held for 0.8.190 to 0.8.197; bumped in 0.8.189: `PlayerState`'s walkie trailer
-becomes a state byte, `WalkieState`: none, off or flat, on in a pocket, on in hand, plus underground;
-same DLL on every install).
-51 held for 0.8.187 to 0.8.188, bumped in 0.8.187: `VoiceData` (129) carries the
-mod's own voice codec instead of Steam Voice.
-50 held for 0.8.186, bumped in 0.8.185: `PlayerState` gains the
-`CarriesWalkie` trailer; same DLL on every install).
-49 held for 0.8.184, bumped there: `VoiceData` (129) gains the talker's loudness byte.
-48 held for 0.8.183, bumped in 0.8.182: new `PlayerName` (168),
-`PeerRoster` entries gain the player's name.
-47 held for 0.8.178 to 0.8.181, bumped in 0.8.177: `PlayerState` gains
-the `ClockHeld` trailer.
-46 held for 0.8.176, bumped there: `NightDeathState` gains
-the rejoin resume and its position, `PlayerDied` gains the dying player's home, the entity
-snapshot's second flag byte gains the in-sight bit.
-45 held for 0.8.171 to 0.8.175, bumped in 0.8.170:
-`Handshake` gains `WorldGeneratedLocally`.
-44 held for 0.8.166 to 0.8.169, bumped in 0.8.165: `ScenarioEventFired` gains the
-scenario name; `GameEventsFired` gains the scene-piece flag in 0.8.167.
-43 held for 0.8.162 to 0.8.164, bumped in 0.8.162: new `MapPinRequest` (166) and
-`MapPinEvent` (167), `MapMarker` (68) and `MapMarkerRemove` (72) retired, `MapStateSync` carries the party map board.
-42 held for 0.8.143 to 0.8.161, bumped in 0.8.142:
-`WorldClock` (165) removed with the 0.8.141 rollback.
-41 held for 0.8.141, bumped there: new `WorldClock` (165).
-40 held for 0.8.140, bumped there: new `CosmeticState` (164), `ExamineObject` gains the drawn pool line, the entity
-descriptor gains the look key.
-39 held for 0.8.139, bumped there: new `DialogHandInClaim` (161), `PauseMenuState` (162) and `WorldPause` (163).
-38 held for 0.8.138, bumped there: new `DialogMirror` (160).
-37 held for 0.8.137, bumped there: new `DialogHandInGone` (159).
-36 held for 0.8.136, bumped there: new `QuestHandoff` (158).
-35 held for 0.8.135, bumped there: new `OxygenTankTier` (157).
-34 held for 0.8.134, bumped there: `OxygenTankStash` (70) and `CompressorTankConvert` (71) retired.
-33 held for 0.8.133, bumped there:
-`ItemSpawn` gains `PlacerId`, `PlayerScare` gains `ScaryFace` and `CasterId`,
-`WorldSaveBegin` gains `Difficulty`, `DroppedItemSpawn` gains the drop velocity,
-`PlayerEffectSync` gains a burning byte, `PlayerBurning` the curse flag, `DeathBagSpawn`
-the location marker, `ThrowableSpawn` the recoverable weapon and the flare age (throw id and remaining life
-removed), `ShadowEvent` its end and owner, `PlayerEffectSync` health, darkness and skills,
-`TimeSync` the overworld time, `CutsceneSync` action 6 (dream entry cancelled),
-`PlayerEffectSync` the home oven and the in-ending flag, `MapElementDiscovered` the pin position, `ChapterTransition` `StartOver`, new `PorterTransport`
-(150), `PlayerSpecial` (151), `TradeCommit` (152) and the desync check's `DesyncDigest`,
-`DesyncDetailRequest`, `DesyncDetail` and `DesyncReport` (153-156),
-`DragSync` its sample time and end pose,
-`ThrowableDespawn` (125) retired;
-32 held for 0.8.132 only).
+**0.8.197**. The current Horde wire protocol is **52**. Every install in a session
+needs the same DLL; the protocol is checked on join.
+
+Protocol history (newest first):
+
+- **52**, 0.8.189 to 0.8.197: `PlayerState`'s walkie trailer becomes a state byte,
+  `WalkieState`: none, off or flat, on in a pocket, on in hand, plus underground.
+- **51**, 0.8.187 to 0.8.188: `VoiceData` (129) carries the mod's own voice codec
+  instead of Steam Voice.
+- **50**, 0.8.185 to 0.8.186: `PlayerState` gains the `CarriesWalkie` trailer.
+- **49**, 0.8.184: `VoiceData` (129) gains the talker's loudness byte.
+- **48**, 0.8.182 to 0.8.183: new `PlayerName` (168), `PeerRoster` entries gain the
+  player's name.
+- **47**, 0.8.177 to 0.8.181: `PlayerState` gains the `ClockHeld` trailer.
+- **46**, 0.8.176: `NightDeathState` gains the rejoin resume and its position,
+  `PlayerDied` gains the dying player's home, the entity snapshot's second flag byte
+  gains the in-sight bit.
+- **45**, 0.8.170 to 0.8.175: `Handshake` gains `WorldGeneratedLocally`.
+- **44**, 0.8.165 to 0.8.169: `ScenarioEventFired` gains the scenario name;
+  `GameEventsFired` gains the scene-piece flag in 0.8.167.
+- **43**, 0.8.162 to 0.8.164: new `MapPinRequest` (166) and `MapPinEvent` (167),
+  `MapMarker` (68) and `MapMarkerRemove` (72) retired, `MapStateSync` carries the
+  party map board.
+- **42**, 0.8.142 to 0.8.161: `WorldClock` (165) removed with the 0.8.141 rollback.
+- **41**, 0.8.141: new `WorldClock` (165).
+- **40**, 0.8.140: new `CosmeticState` (164), `ExamineObject` gains the drawn pool
+  line, the entity descriptor gains the look key.
+- **39**, 0.8.139: new `DialogHandInClaim` (161), `PauseMenuState` (162) and
+  `WorldPause` (163).
+- **38**, 0.8.138: new `DialogMirror` (160).
+- **37**, 0.8.137: new `DialogHandInGone` (159).
+- **36**, 0.8.136: new `QuestHandoff` (158).
+- **35**, 0.8.135: new `OxygenTankTier` (157).
+- **34**, 0.8.134: `OxygenTankStash` (70) and `CompressorTankConvert` (71) retired.
+- **33**, 0.8.133: `ItemSpawn` gains `PlacerId`, `PlayerScare` gains `ScaryFace` and
+  `CasterId`, `WorldSaveBegin` gains `Difficulty`, `DroppedItemSpawn` gains the drop
+  velocity, `PlayerEffectSync` gains a burning byte, health, darkness, skills, the
+  home oven and the in-ending flag, `PlayerBurning` the curse flag, `DeathBagSpawn`
+  the location marker, `ThrowableSpawn` the recoverable weapon and the flare age
+  (throw id and remaining life removed), `ShadowEvent` its end and owner, `TimeSync`
+  the overworld time, `CutsceneSync` action 6 (dream entry cancelled),
+  `MapElementDiscovered` the pin position, `ChapterTransition` `StartOver`,
+  `DragSync` its sample time and end pose; new `PorterTransport` (150),
+  `PlayerSpecial` (151), `TradeCommit` (152) and the desync check's `DesyncDigest`,
+  `DesyncDetailRequest`, `DesyncDetail` and `DesyncReport` (153-156);
+  `ThrowableDespawn` (125) retired.
+- **32**, 0.8.132.
 
 This file is a public ship log. Code-only status and runtime status are called
 out separately. A runtime item is not considered verified until it has been

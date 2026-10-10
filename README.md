@@ -34,9 +34,10 @@ the host.
   level, recipes, home oven and trader standing.
 - **Single-player rules are adapted, not removed.** Menus no longer pause the world
   for one player (players in a dialogue, the level-up menu or the pause menu are
-  protected instead); the world pauses when everyone is in the pause menu. A night death
-  makes you spectate until morning instead of skipping the night for everyone. Each
-  player plays their own prologue. Dreams take the whole party.
+  protected instead); the world pauses when everyone is in the pause menu. A night
+  death makes you spectate until morning, your body lying where you fell, instead
+  of skipping the night for everyone. Each player plays their own prologue. Dreams
+  take the whole party.
 
 The full rulebook (design philosophy, who owns what, how every gameplay area
 behaves, what players can and cannot do, and what is still open) is
@@ -48,8 +49,9 @@ behaves, what players can and cannot do, and what is still open) is
 
 Every gameplay area has a multiplayer path in code, and the unit tests run on
 every push. Runtime verification is a dual-box (two game installs on one machine)
-or three-player playtest. Recent releases are built and unit-tested but not yet
-playtested; the [CHANGELOG](CHANGELOG.md) says which is which for each release.
+or three-player playtest. Recent releases are unit-tested and checked in automated
+three-player runs but not yet playtested by hand; the [CHANGELOG](CHANGELOG.md) says
+which is which for each release.
 Expect bugs, and send logs (see [Reporting a bug](#reporting-a-bug)).
 
 ---
