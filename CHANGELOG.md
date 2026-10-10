@@ -3,7 +3,7 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.200**. The current Horde wire protocol is **53**. Every install in a session
+**0.8.201**. The current Horde wire protocol is **53**. Every install in a session
 needs the same DLL; the protocol is checked on join.
 
 Protocol history (newest first):
@@ -57,6 +57,33 @@ Protocol history (newest first):
 This file is a public ship log. Code-only status and runtime status are called
 out separately. A runtime item is not considered verified until it has been
 tested in the game.
+
+---
+
+## 0.8.201 — Map board in the game's own UI, no stamp under the cursor, sharper names
+
+- **No stamp follows the cursor on the map.** The chosen stamp used to hang under the cursor
+  the whole time the map was open. It is hidden now. The first wheel notch brings it up (its
+  name shows at the bottom of the map), further notches change it, and it fades 2.5 seconds
+  after the last one. Right click still places the chosen stamp at any time.
+- **Map board texts are the game's own UI.** The grey IMGUI boxes are gone. A hovered pin is
+  described by the map's location popup (stamp as the title, then the label, who placed it and
+  the day). Pin labels, the label being written (typed straight under the pin, with a caret)
+  and one dim line of controls at the bottom of the map are in the hover-label font. The
+  controls line follows what the cursor is on: placing, a hovered pin, or writing a label.
+- **Names over players looked smeared.** The hover-label font is an 11 px bitmap; the names
+  drew it at 1.5x and at fractions of a pixel. They are at the hover label's own 2x now, on
+  whole pixels.
+- **"Host" after the host's name** was not added by the mod: the host install's config had
+  `PlayerName = Warexpor Host`. Set to `Warexpor` (local config, not in the repo). A client
+  that set a voice volume for the old name sets it again.
+- No protocol change.
+- Files: `Domains/Map/Pins/MapPinOverlay.cs` (rewritten, no `OnGUI`), `MapPinView.cs`
+  (`ShowPopup`, wheel reveal), `UI/Nameplates.cs`, `Core/Loc.Ru.cs`.
+- Code only, not playtested yet.
+- Open question for the user (nothing changed): a dream's story end already wakes the whole
+  party at once, so nobody stays behind and nobody spectates. The only spectating in a dream is
+  after dying in it.
 
 ---
 

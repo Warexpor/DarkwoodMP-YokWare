@@ -49,7 +49,8 @@ namespace DWMPHorde
         /// <summary>The looks tried so far; <see cref="StyleIndex"/> picks one (test pilot <c>namestyle</c>).</summary>
         internal static readonly Style[] Styles =
         {
-            new Style("hover label, dimmed", "tahoma_11px_outlinedata", 0.62f, 0.85f, 0.5f, 0.75f),
+            // Size 1 is the hover label's own 2x: the font is an 11px bitmap, and 0.75 (1.5x) smeared its strokes.
+            new Style("hover label, dimmed", "tahoma_11px_outlinedata", 0.62f, 0.85f, 0.5f, 1f),
             new Style("soft, no outline", "tahoma_11px_light_AAdata", 0.70f, 0.80f, 1f, 1f),
             new Style("menu heading, spaced", "tahoma_11px_light_aa_occludeddata", 0.62f, 0.90f, 3f, 1f, lower: true),
             new Style("thin outline, spaced", "tahoma_11px_light_outlinedata", 0.66f, 0.85f, 2f, 1f),
@@ -149,7 +150,8 @@ namespace DWMPHorde
                         float a = Mathf.SmoothStep(0f, 1f, plate.Alpha) * far * st.Alpha;
                         Vector3 ui = Core.worldToUIPos(t.position + new Vector3(0f, 0f, OverHead));
                         HudText.FollowScale(plate.Text);
-                        HudText.Place(plate.Text, ui.x, ui.z);
+                        // Whole pixels: a bitmap font between two pixels goes soft and shimmers as either player moves.
+                        HudText.Place(plate.Text, Mathf.Round(ui.x), Mathf.Round(ui.z));
                         HudText.Set(plate.Text, Shown(st, PlayerNames.Shown(proxy.PlayerId)), new Color(st.Grey, st.Grey, st.Grey, a));
                     }
                 }

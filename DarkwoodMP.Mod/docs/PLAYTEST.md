@@ -143,8 +143,12 @@ Older, still open:
 
 - [ ] **Party map board (3 players if possible):** each player right-clicks a pin on
       the world map: it shows for everyone at the clicked spot (also on a screen above
-      1080p), each owner in their own colour. The wheel changes the stamp before
-      placing and restyles a hovered pin; a double click labels it (typing M or J in
+      1080p), each owner in their own colour. No stamp follows the cursor until the wheel
+      is turned: the first notch shows the chosen stamp (its name at the bottom of the
+      map) for a moment, further notches change it, then it fades. The wheel also
+      restyles a hovered pin, which shows the game's location popup (stamp, label,
+      owner, day). The controls line at the bottom and the labels are in the game font,
+      no grey boxes. A double click labels a pin (typing M or J in
       the label does not close the map; Esc cancels the label, not the map). Right
       click erases a pin for everyone, also two pins placed close together (the right
       one goes). Middle click pings: pulses on every open map, "pinged the map" over

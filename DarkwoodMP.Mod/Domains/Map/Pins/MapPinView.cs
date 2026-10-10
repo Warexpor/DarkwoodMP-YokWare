@@ -32,7 +32,10 @@ namespace DWMPHorde.Sync
     /// Right click places the chosen stamp or erases the pin under the cursor; the mouse wheel picks
     /// the stamp (or restyles the pin under the cursor); middle click or Shift + right click pings
     /// the map for everyone; a double click on a pin writes a label on it (<see cref="MapPinOverlay"/>).
-    /// Pins carry no collider, so they never hide a location's name under them.
+    /// The chosen stamp is not drawn under the cursor: the wheel brings it up for a moment (the
+    /// first notch only shows it, the next ones change it). A hovered pin is described by the
+    /// game's own location popup. Pins carry no collider, so they never hide a location's name
+    /// under them.
     /// </summary>
     internal static class MapPinView
     {
@@ -54,6 +57,12 @@ namespace DWMPHorde.Sync
         private const float HoverRadiusPx = 22f;
         private const float DoubleClickSec = 0.35f;
         private const float LocalPingCooldown = 1.5f;
+        /// <summary>Seconds the chosen stamp stays under the cursor after the wheel, the last part fading.</summary>
+        private const float GhostShowSec = 2.5f;
+        private const float GhostFadeSec = 0.6f;
+        private const float GhostIconAlpha = 0.5f, GhostHaloAlpha = 0.35f;
+        /// <summary>Any key of the game's "UI" language sheet: the popup's title is written over it.</summary>
+        private const string PopupKey = "PlayerIsInThisLocation";
 
         // Local heights over the map icons (higher is nearer the camera, drawn on top).
         private const float HaloY = 25f, IconY = 26f, PingY = 28f, GhostY = 30f;
@@ -76,6 +85,9 @@ namespace DWMPHorde.Sync
         private static float _lastLmbAt = -10f;
         private static int _lastLmbPinId;
         private static float _lastPingAt = -10f;
+        private static float _ghostUntil = -10f;
+        private static ItemPopup _popup;
+        private static tk2dTextMesh _popupName;
 
         /// <summary>The stamp right click places (kept between map opens).</summary>
         internal static MapPinKind SelectedKind;
@@ -85,6 +97,8 @@ namespace DWMPHorde.Sync
         internal static int EditingId;
         /// <summary>The world map with the board on it is open.</summary>
         internal static bool Active;
+        /// <summary>The chosen stamp is under the cursor right now (the wheel brought it up).</summary>
+        internal static bool GhostShown;
 
         internal static void OnMapOpen(Map map)
         {
@@ -120,6 +134,10 @@ namespace DWMPHorde.Sync
             EditingId = 0;
             _drawnVersion = -1;
             _lastLmbPinId = 0;
+            _ghostUntil = -10f;
+            GhostShown = false;
+            _popup = null;
+            _popupName = null;
         }
 
         private static void DestroyAll(List<Drawn> list)
@@ -164,10 +182,14 @@ namespace DWMPHorde.Sync
             if (EditingId != 0 && MapPinBoard.Find(EditingId) == null)
                 EditingId = 0; // erased by someone else while being labelled
 
-            UpdateGhost(haveCursor && hovered == null && EditingId == 0, cx, cz);
+            float ghostLeft = _ghostUntil - Time.unscaledTime;
+            GhostShown = haveCursor && hovered == null && EditingId == 0 && ghostLeft > 0f;
+            UpdateGhost(GhostShown, cx, cz, Mathf.Clamp01(ghostLeft / GhostFadeSec));
 
             if (EditingId != 0 || !haveCursor)
                 return;
+            if (hovered != null)
+                ShowPopup(hovered);
 
             bool shift = Input.GetKey(KeyCode.LeftShift) || Input.GetKey(KeyCode.RightShift);
             if (Input.GetMouseButtonDown(2) || (shift && Input.GetMouseButtonDown(1)))
@@ -197,7 +219,12 @@ namespace DWMPHorde.Sync
                 if (hovered != null)
                     MapPinBoard.RequestSetKind(hovered.Pin.Id, Step(hovered.Pin.Kind, step));
                 else
-                    SelectedKind = Step(SelectedKind, step);
+                {
+                    // The first notch only brings the stamp up; while it shows, the wheel changes it.
+                    if (GhostShown)
+                        SelectedKind = Step(SelectedKind, step);
+                    _ghostUntil = Time.unscaledTime + GhostShowSec;
+                }
             }
 
             if (Input.GetMouseButtonDown(0))
@@ -301,7 +328,41 @@ namespace DWMPHorde.Sync
             s.color = c;
         }
 
-        private static void UpdateGhost(bool show, float x, float z)
+        /// <summary>
+        /// The hovered pin in the game's own location popup: the stamp as its title, then the label,
+        /// who placed it and on which day. Vanilla's map update hides the popup every frame nothing
+        /// of its own is hovered, so this runs after it, every frame the pin is hovered.
+        /// </summary>
+        private static void ShowPopup(Drawn d)
+        {
+            InventoryController inv = Singleton<InventoryController>.Instance;
+            ItemPopup popup = inv != null ? inv.itemPopup : null;
+            if (popup == null || d.Icon == null)
+                return;
+            if (popup != _popup || _popupName == null)
+            {
+                _popup = popup;
+                _popupName = Traverse.Create(popup).Field("nameText").GetValue<tk2dTextMesh>();
+            }
+            if (_popupName == null)
+                return; // the popup has not started yet
+            MapPin pin = d.Pin;
+            string who = MapPinBoard.IsLocalOwner(pin) ? Loc.T("you") : (string.IsNullOrEmpty(pin.OwnerName) ? Loc.T("someone") : pin.OwnerName);
+            string desc = (string.IsNullOrEmpty(pin.Label) ? "" : "\"" + pin.Label + "\"\n")
+                + who + (pin.Day > 0 ? (Loc.Russian ? ", день " : ", day ") + pin.Day : "");
+            // Where vanilla puts it for a location's icon.
+            Vector3 p = d.Icon.transform.position;
+            Vector2 at = new Vector2(p.x - 18f, p.z + 40f - Screen.height) / Core.ResolutionWidthModifier;
+            popup.show(PopupKey, at, YokWare.VanillaMenu.Vm.ForMenuFont(desc));
+            string title = YokWare.VanillaMenu.Vm.ForMenuFont(Loc.T(MapPinBoard.KindName(pin.Kind)));
+            if (_popupName.text != title)
+            {
+                _popupName.text = title;
+                _popupName.Commit();
+            }
+        }
+
+        private static void UpdateGhost(bool show, float x, float z, float fade)
         {
             if (!show)
             {
@@ -314,12 +375,14 @@ namespace DWMPHorde.Sync
                 DestroyGo(ref _ghostHalo);
                 DestroyGo(ref _ghostIcon);
                 Color own = MapPinPalette.Get(LocalColor());
-                _ghostHalo = MakeSprite(HaloSprite, x, z, GhostY - 1f, HaloScale, new Color(own.r, own.g, own.b, 0.35f));
-                _ghostIcon = MakeSprite(KindSprites[(int)SelectedKind], x, z, GhostY, IconScale, new Color(1f, 1f, 1f, 0.5f));
+                _ghostHalo = MakeSprite(HaloSprite, x, z, GhostY - 1f, HaloScale, new Color(own.r, own.g, own.b, GhostHaloAlpha));
+                _ghostIcon = MakeSprite(KindSprites[(int)SelectedKind], x, z, GhostY, IconScale, new Color(1f, 1f, 1f, GhostIconAlpha));
                 _ghostKind = SelectedKind;
             }
             Place(_ghostHalo, x, z, GhostY - 1f);
             Place(_ghostIcon, x, z, GhostY);
+            if (_ghostIcon != null) SetAlpha(_ghostIcon, GhostIconAlpha * fade);
+            if (_ghostHalo != null) SetAlpha(_ghostHalo, GhostHaloAlpha * fade);
             if (_ghostIcon != null) _ghostIcon.SetActive(true);
             if (_ghostHalo != null) _ghostHalo.SetActive(true);
         }
@@ -400,26 +463,26 @@ namespace DWMPHorde.Sync
             return true;
         }
 
-        /// <summary>Screen point (GUI space, origin top-left) of a pin's icon, or false when not drawn.</summary>
-        internal static bool TryPinGuiPoint(int pinId, out Vector2 gui)
+        /// <summary>UI-space point (screen pixels, x right and y up) of a pin's icon, or false when not drawn.</summary>
+        internal static bool TryPinUiPoint(int pinId, out Vector2 ui)
         {
-            gui = default(Vector2);
+            ui = default(Vector2);
             for (int i = 0; i < _drawn.Count; i++)
             {
                 Drawn d = _drawn[i];
                 if (d.Pin.Id != pinId || d.Icon == null) continue;
-                return TryGuiPoint(d.Icon, out gui);
+                return TryUiPoint(d.Icon, out ui);
             }
             return false;
         }
 
-        private static bool TryGuiPoint(GameObject go, out Vector2 gui)
+        private static bool TryUiPoint(GameObject go, out Vector2 ui)
         {
-            gui = default(Vector2);
+            ui = default(Vector2);
             Camera cam = UiCamera;
             if (cam == null || go == null) return false;
             Vector3 sp = cam.WorldToScreenPoint(go.transform.position);
-            gui = new Vector2(sp.x, Screen.height - sp.y);
+            ui = new Vector2(sp.x, sp.y);
             return true;
         }
 
@@ -454,7 +517,7 @@ namespace DWMPHorde.Sync
 
         internal static MapPin DrawnPin(int i) => _drawn[i].Pin;
 
-        internal static bool DrawnGuiPoint(int i, out Vector2 gui) => TryGuiPoint(_drawn[i].Icon, out gui);
+        internal static bool DrawnUiPoint(int i, out Vector2 ui) => TryUiPoint(_drawn[i].Icon, out ui);
 
         /// <summary>Session end: nothing of the board stays on a map (the open map is torn down too).</summary>
         internal static void Reset()

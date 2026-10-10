@@ -238,8 +238,9 @@ namespace DWMPHorde
             { "Shelter", "Укрытие" },
             { "Camp", "Лагерь" },
             { "Grave", "Могила" },
-            { "RMB erase · wheel restyle · double-click label", "ПКМ — стереть · колесо — сменить вид · двойной щелчок — подпись" },
-            { "Label (Enter save, Esc cancel)", "Подпись (Enter — сохранить, Esc — отмена)" },
+            { "RMB - erase  ·  wheel - change the mark  ·  double click - write on it", "ПКМ - стереть  ·  колесо - сменить метку  ·  двойной щелчок - подписать" },
+            { "RMB - mark  ·  wheel - choose the mark  ·  MMB - signal", "ПКМ - поставить метку  ·  колесо - выбрать метку  ·  СКМ - сигнал" },
+            { "Enter - save  ·  Esc - cancel", "Enter - сохранить  ·  Esc - отмена" },
         };
 
         private static readonly Pattern[] RuPatterns = // process-scoped: constant table

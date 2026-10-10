@@ -205,8 +205,13 @@ glow in its owner's colour, the day it was placed and an optional label.
 
 - Right click places the chosen stamp, or erases the pin under the cursor (any
   player may erase any pin: it is one shared map).
-- The mouse wheel picks the stamp, or restyles the pin under the cursor.
+- The mouse wheel picks the stamp, or restyles the pin under the cursor. The chosen
+  stamp is not drawn under the cursor all the time: the first wheel notch brings it
+  up for a moment (with its name at the bottom of the map), the next ones change it.
 - A double click on a pin writes a label on it.
+- The texts are the game's own: a hovered pin is described by the map's location
+  popup (stamp, label, who placed it and on which day), labels and the one line of
+  controls at the bottom are in the hover-label font.
 - Middle click (or Shift + right click) pings a spot: it pulses on everyone's map
   for 25 seconds, and players with the map closed see "<name> pinged the map".
 - New pins and pings from others show as a `[Map]` line in the chat (not over the player).
