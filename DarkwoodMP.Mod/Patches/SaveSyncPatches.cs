@@ -35,6 +35,28 @@ namespace DWMPHorde.Patches
     }
 
     /// <summary>
+    /// A Save a co-op prefix skipped (connected client, night-dead peer) still answers
+    /// <c>onSaved</c>, as vanilla's own <c>dontSave</c> skip does. Its one listener is the walk
+    /// out of a pad by day (<c>OutsideLocations.returningOnSaved</c>): unanswered, its
+    /// <c>returningToWorld</c> stayed set, so every later <c>returnToWorld</c> was ignored (the
+    /// player stayed in the cellar) and inputs stayed held, until a host SaveSync happened to
+    /// run a real Save. A night-dead host never sends one, so it and its clients were stuck.
+    /// </summary>
+    [HarmonyPatch(typeof(SaveManager), "Save")]
+    public static class SkippedSaveAnswersOnSavedPatch
+    {
+        [HarmonyPriority(Priority.Last)]
+        private static void Postfix(SaveManager __instance, bool __runOriginal)
+        {
+            if (__runOriginal || __instance == null || __instance.onSaved == null)
+                return;
+            if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected)
+                return;
+            __instance.onSaved();
+        }
+    }
+
+    /// <summary>
     /// Co-op coordinated save: local <see cref="SaveManager.Save"/> notifies the host;
     /// host rate-limits then broadcasts SaveSync so clients run full Save with Saving UI.
     /// <see cref="LanNetworkManager.RemoteSaveInProgress"/> prevents rebroadcast loops.

@@ -213,6 +213,11 @@ Older, still open:
 - [ ] A client dies at night, others survive: it spectates (F4 cycles living players,
       camera and sound follow), cannot release itself early, and at dawn is released
       and sent home (`NightDeathRelease` 144).
+- [ ] The night death leaves a body where the player fell, on every machine including
+      their own: lying dead, walked over, no bag sprite. Pointing at it loots the bag;
+      once emptied by anyone the bag is gone everywhere and the body stays. At dawn the
+      body goes and anything left shows as a bag (`[Corpse]` lines).
+- [ ] A day death (also a one-life death held until morning) drops a plain bag, no body.
 - [ ] Everyone dies at night: one shared morning, no hang. The last living player
       disconnecting at night also resolves the morning.
 - [ ] Hard, last life (or Nightmare): a death keeps that player down until the next
@@ -311,7 +316,8 @@ Older, still open:
 - [ ] A late player reaching that level later gets a dream the party has not played
       (or just levels up).
 - [ ] Die in a shared dream while the teammate finishes it: you wake up out of
-      spectate with no reward. Everyone dies: you all wake up and can move.
+      spectate with no reward. Everyone dies: you all wake up and can move. Until
+      the dream ends your body lies where you fell for every dreamer (not lootable).
 - [ ] A chained dream moves every dreamer to the next part; the dead stay down.
 - [ ] A second dream in one run has its own music, items and outcome.
 - [ ] The bunker dream's leave door opens for every dreamer; the overworld bunker door
@@ -471,9 +477,11 @@ Listen on the player who did not cause the sound.
 
 ## Automated runs (local tooling)
 
-The maintainers' machine has an unattended dual-box test pilot (the `TestPilot`
-commands in the mod, driven by scripts under `scripts/pilot/` that are not part of
-this repository). It plays on real profiles: back up both save trees first and
-restore them after. Read its `[Pilot]`, `[Desync]` and Unity error lines in both logs.
-A third install (`ThirdDarkwood`, saves in `Darkwood_Third`) adds a second client for
-three-player runs; then read all three logs.
+The maintainers' machine has an unattended test pilot (the `TestPilot` commands in
+the mod, driven by scripts under `scripts/pilot/` that are not part of this
+repository). It runs a host and one or two clients (a third install, `ThirdDarkwood`
+with saves in `Darkwood_Third`, is the second client). Runs go in a contained desktop
+with the game folders mounted as throwaway copies, so the real saves are not touched;
+a run on the real installs plays on real profiles, so back up every save tree first.
+Read the `[Pilot]`, `[Desync]` and Unity error lines in every player's log. Pilot
+`corpses` lists the bodies of players down at night or in a dream.

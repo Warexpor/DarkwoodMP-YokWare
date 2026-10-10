@@ -109,6 +109,8 @@ namespace DWMPHorde.Networking
 
             if (!IsConnected || !_session.Link.HandshakeComplete)
             {
+                if (!IsConnected)
+                    Players.PlayerCorpses.ClearAll();
                 if (perf) ClientPerfProbe.MarkUpdateRest();
                 return;
             }
@@ -123,6 +125,10 @@ namespace DWMPHorde.Networking
             }
 
             _sendTimer += Time.deltaTime;
+
+            // Bodies of players down until morning or the dream's end (own throttle; before the
+            // dead-in-a-dream send gate below, which returns early).
+            Players.PlayerCorpses.Tick(this);
 
             // Pause entity and physics traffic while packing and sending the world share.
             bool shareBusy = _worldSaveShare != null && _worldSaveShare.IsBusy;
@@ -241,6 +247,7 @@ namespace DWMPHorde.Networking
             Sync.MenuShield.Tick(this);
             Sync.DesyncCheck.Tick(this);
             Sync.PersonalPrologue.TickClient(this);
+            Patches.WolfVisitorGhostSweep.TickClient(this);
             if (_role == NetworkRole.Host)
             {
                 Patches.TraderRestockDefer.Tick();

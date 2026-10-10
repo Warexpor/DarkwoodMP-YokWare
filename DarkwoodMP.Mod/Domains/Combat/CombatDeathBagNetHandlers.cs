@@ -157,7 +157,8 @@ namespace DWMPHorde.Networking
         /// Host: bag emptied via ContainerItem take/remove — fan DeathBagLooted so peers
         /// destroy without waiting for opener Inventory.hide (disconnect mid-open left ghosts).
         /// Idempotent via _lootedDeathBagIds. Does not Destroy the local opener's GO (UI may
-        /// still be open); vanilla removeWhenEmpty + hide cleans the opener copy.
+        /// still be open); vanilla removeWhenEmpty + hide cleans the opener copy. The host's
+        /// own copy is destroyed here unless the host has that bag open.
         /// </summary>
         internal void TryHostFanDeathBagEmptied(Inventory inv)
         {
@@ -193,6 +194,18 @@ namespace DWMPHorde.Networking
                 LiteNetLib.DeliveryMethod.ReliableOrdered);
             ModRuntime.LegacyInfo(
                 $"[Death] host fan DeathBagLooted (emptied via container take) id={(bagId ?? "?")} at {pos}");
+
+            // The peers drop their copies on the fan; the host's own copy stayed, as an empty bag
+            // only the host saw (and saved), when a client was the one who emptied it. Only the
+            // host's own open bag waits for vanilla's removeWhenEmpty on close.
+            Inventory openInv = Player.Instance != null ? Player.Instance.openedItemInventory : null;
+            if (openInv == inv)
+                return;
+            using (new NetworkApplyGuard())
+            {
+                UnityEngine.Object.Destroy(inv.gameObject);
+            }
+            ModRuntime.LegacyInfo($"[Death] host dropped its copy of the emptied bag id={(bagId ?? "?")}");
         }
 
         /// <summary>Lookup by BagId; purges destroyed entries.</summary>

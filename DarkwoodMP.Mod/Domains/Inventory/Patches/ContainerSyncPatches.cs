@@ -219,6 +219,16 @@ namespace DWMPHorde.Patches
             if (action == ContainerAction.RemoveItem || action == ContainerAction.TakeItem)
                 net.RecordPendingContainerRemove(pos, slotIdx);
 
+            // The host's own take emptying a death bag ends it for everyone now, as a client's take
+            // does (the peers' copies were left standing empty until the host closed the window).
+            if (net.Role == NetworkRole.Host
+                && (action == ContainerAction.RemoveItem || action == ContainerAction.TakeItem))
+            {
+                Inventory taken = WorldQueryHelper.FindInventoryByPos(pos);
+                if (taken != null && taken.invType == Inventory.InvType.deathDrop)
+                    net.CombatDeathBagHandlers?.TryHostFanDeathBagEmptied(taken);
+            }
+
             // Track the pre-take player inventory count for a precise denial refund.
             if (preTakePlayerCount >= 0 && (action == ContainerAction.RemoveItem || action == ContainerAction.TakeItem))
                 net.RecordPendingTakePreCount(pos, slotIdx, preTakePlayerCount, isRecipe, itemType, durability, ammo);

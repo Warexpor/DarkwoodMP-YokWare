@@ -426,6 +426,11 @@ night for players who are still alive, so in co-op:
 - Enemies, worms and shadows ignore night-dead players, and attacks from a dead
   player are rejected.
 - The first death does not skip the day or save the game.
+- **The body stays where the player fell**, on every machine, lying dead, with no
+  collider (anyone walks over it). It is also the death bag: the bag drops on the
+  spot as by day, hidden under the body, and pointing at the body loots it. At the
+  morning release the body goes and whatever is left shows as a bag again. A
+  one-life death by day is held until morning too, but it drops a plain bag with no body.
 - **At dawn** every night-dead player is released and sent home. A death that
   arrives after the host's dawn counts as a day death.
 - **If everyone dies,** the host resolves one shared morning (day skip and save),
@@ -457,6 +462,7 @@ dialogue, dream entries, cutscenes and the title screen.
 ### Dying in a dream
 
 No bag is dropped; the player keeps their kit and spectates until the dream ends.
+Their body lies where they fell until then (not lootable, nothing was dropped).
 See [section 13](#13-dreams).
 
 ---
@@ -941,10 +947,10 @@ Explicitly parked or left as is:
 
 Runtime verification still pending:
 
-- A full dual-box and three-player campaign soak. Every domain is code covered;
-  the recent releases are built and unit-tested but not playtested. See
-  [COOP_COVERAGE.md](COOP_COVERAGE.md) for the per-domain
-  status.
+- A full dual-box and three-player campaign soak by hand. Every domain is code
+  covered; the recent releases are unit-tested and checked in automated
+  three-player pilot runs, not yet in a human playtest. See
+  [COOP_COVERAGE.md](COOP_COVERAGE.md) for the per-domain status.
 
 ---
 

@@ -393,6 +393,23 @@ namespace DWMPHorde.Sync
                     net.SendTimeSyncTo(-1);
                     Out("  time=" + Singleton<Controller>.Instance.CurrentTime);
                     return;
+                case "rain":
+                {
+                    // rain [on|off]: the host starts or stops rain the way a vanilla event does
+                    // (ignoreDay); every machine prints its own state.
+                    Rain r = Singleton<Rain>.Instance;
+                    if (r == null) { Out("  no Rain"); return; }
+                    if (a.Length > 1)
+                    {
+                        if (net.Role != NetworkRole.Host) { Out("  host only"); return; }
+                        if (a[1] == "on") r.startRain(true, true);
+                        else r.Raining = false;
+                    }
+                    Out("  raining=" + (r.Raining ? 1 : 0) + " fog=" + (r.fogIsActive ? 1 : 0)
+                        + " scenario=" + (Singleton<NightScenarios>.Instance != null ? Singleton<NightScenarios>.Instance.scenarioId : -1)
+                        + " day=" + Singleton<Controller>.Instance.day);
+                    return;
+                }
                 case "prologue":
                 {
                     Dreams d = Dreams.Instance;
@@ -1284,7 +1301,8 @@ namespace DWMPHorde.Sync
                     bool take = a[0] == "loot";
                     var conts = new List<Item>();
                     foreach (Item it in UnityEngine.Object.FindObjectsOfType<Item>())
-                        if (it != null && it.hasInventory && it.GetComponent<Inventory>() != null && it.GetComponent<Inventory>().invType == Inventory.InvType.itemInv
+                        if (it != null && it.hasInventory && it.GetComponent<Inventory>() != null && (it.GetComponent<Inventory>().invType == Inventory.InvType.itemInv
+                                || it.GetComponent<Inventory>().invType == Inventory.InvType.deathDrop)
                             && !it.isDroppedItem
                             && (!take || Contents(it.GetComponent<Inventory>()).Length > 0))
                             conts.Add(it);
@@ -1303,6 +1321,12 @@ namespace DWMPHorde.Sync
                     Out("  looted " + c.name + "@" + Pos(c.transform.position) + " [" + before + "] → [" + Contents(c.GetComponent<Inventory>()) + "]");
                     return;
                 }
+                case "corpses":
+                    // Bodies left by players down until morning or the dream's end, and their bags.
+                    foreach (string line in Players.PlayerCorpses.Describe())
+                        Out("  " + line);
+                    Out("  bags: " + UnityEngine.Object.FindObjectsOfType<DeathDrop>().Length);
+                    return;
                 case "save":
                     Singleton<SaveManager>.Instance.Save(doJson: true, doSaveProfile: true, force: true, forceSaveStatic: false,
                         showSavingIndicator: true, closeAndOpenStadiaSave: false);

@@ -68,6 +68,22 @@ namespace DWMPHorde
 
         public static Vector3 LocalDeathPosition { get; private set; }
 
+        /// <summary>
+        /// The local player went down inside the night window (not a one-life death by day, which
+        /// is also held until morning). Only these deaths leave a body (<see cref="Players.PlayerCorpses"/>).
+        /// </summary>
+        public static bool LocalDiedInNightWindow { get; private set; }
+
+        /// <summary>Remote peers whose night death fell inside the night window (see <see cref="LocalDiedInNightWindow"/>).</summary>
+        private static readonly HashSet<int> _remoteDiedInNightWindow = new HashSet<int>();
+
+        internal static bool RemoteDiedInNightWindow(int playerId) => _remoteDiedInNightWindow.Contains(playerId);
+
+        internal static bool TryGetRemoteDeathPosition(int playerId, out Vector3 pos)
+            => _remoteDeathPositions.TryGetValue(playerId, out pos);
+
+        internal static IEnumerable<int> RemoteNightDeadIds => _remoteDeathPositions.Keys;
+
         public static bool LocalBagSynced { get; set; }
 
         public static bool PreventSpectator { get; set; }
@@ -147,6 +163,7 @@ namespace DWMPHorde
         {
             LocalNightDeath = false;
             LocalDeathPosition = Vector3.zero;
+            LocalDiedInNightWindow = false;
             LocalBagSynced = false;
             PreventSpectator = false;
             _localPermadeathEligible = false;
@@ -162,6 +179,7 @@ namespace DWMPHorde
             ResetLocal();
             RemoteNightDeathCount = 0;
             _remoteDeathPositions.Clear();
+            _remoteDiedInNightWindow.Clear();
             _remotePermadeathEligible.Clear();
             PartyWipeDeclared = false;
             _nightDeadByIdentity.Clear();
@@ -181,6 +199,7 @@ namespace DWMPHorde
             Reset();
             _localNightDeathDay = -1;
             _hostMorningEdgeDay = -1;
+            _lastHostClockTime = -1;
             _armDeathSaveSuppress = false;
             ClearMorningDeadMarks();
         }
@@ -223,6 +242,7 @@ namespace DWMPHorde
             Controller ctrl = Singleton<Controller>.Instance;
             _localNightDeathDay = ctrl != null ? ctrl.day : -1;
             LocalDeathPosition = pos;
+            LocalDiedInNightWindow = IsNightDeathWindow();
             LocalBagSynced = false;
             _armDeathSaveSuppress = true;
             ModLog.Event(LogCat.Death, $"Local night death at {pos}");
@@ -261,6 +281,8 @@ namespace DWMPHorde
             if (_remoteDeathPositions.ContainsKey(playerId))
                 return;
             _remoteDeathPositions[playerId] = pos;
+            if (IsNightDeathWindow())
+                _remoteDiedInNightWindow.Add(playerId);
             if (permadeathEligible)
                 _remotePermadeathEligible.Add(playerId);
             string identity = IdentityOf(ModRuntime.Network, playerId);
@@ -290,6 +312,7 @@ namespace DWMPHorde
         public static void OnRemoteDayDeath(int playerId)
         {
             _armDeathSaveSuppress = true;
+            _remoteDiedInNightWindow.Remove(playerId);
             if (_remoteDeathPositions.Remove(playerId))
             {
                 _remotePermadeathEligible.Remove(playerId);
@@ -316,6 +339,7 @@ namespace DWMPHorde
         {
             if (playerId <= 0) return false;
 
+            _remoteDiedInNightWindow.Remove(playerId);
             bool wasNightDead = _remoteDeathPositions.Remove(playerId);
             // _nightDeadByIdentity keeps it: the same player rejoining this night is still down.
             _remotePermadeathEligible.Remove(playerId);

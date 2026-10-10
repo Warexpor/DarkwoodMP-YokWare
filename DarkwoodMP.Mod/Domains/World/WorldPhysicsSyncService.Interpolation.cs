@@ -61,8 +61,7 @@ namespace DWMPHorde.Sync
                     // and we want to resume smoothly. Just skip position update.
                     // Release kinematic so the local HingeJoint can drive position.
                     Rigidbody dragRb = s.CachedRb;
-                    if (dragRb != null && dragRb.isKinematic)
-                        dragRb.isKinematic = false;
+                    ReleaseKinematic(dragRb);
                     continue;
                 }
 
@@ -96,8 +95,7 @@ namespace DWMPHorde.Sync
                     Quaternion rot = t < 1f ? lerpRot : Quaternion.Euler(s.TargetRot);
                     if (rb != null)
                     {
-                        if (!rb.isKinematic)
-                            rb.isKinematic = true;
+                        LockKinematic(rb);
                         rb.position = pos;
                         rb.rotation = rot;
                         rb.velocity = Vector3.zero;
@@ -114,7 +112,7 @@ namespace DWMPHorde.Sync
                     // Interpolation complete (non-client-push). Release kinematic so the
                     // local peer can push / interact. Next snapshot re-locks.
                     if (rb != null && ModRuntime.Network != null && ModRuntime.Network.Role != NetworkRole.Host)
-                        rb.isKinematic = false;
+                        ReleaseKinematic(rb);
                     // Non-rigidbody objects still need transform driven.
                     if (rb == null)
                     {
@@ -129,9 +127,7 @@ namespace DWMPHorde.Sync
                 if (_s.ObjectInterp.TryGetValue(key, out var deadState) && deadState.Target != null
                     && ModRuntime.Network != null && ModRuntime.Network.Role != NetworkRole.Host)
                 {
-                    Rigidbody rb = deadState.Target.GetComponent<Rigidbody>();
-                    if (rb != null)
-                        rb.isKinematic = false;
+                    ReleaseKinematic(deadState.Target.GetComponent<Rigidbody>());
                     // Stop drag sound when the remote object falls out of sync
                     // (host walked away, object out of scan range, etc.) so
                     // the sound doesn't play forever on the client.
@@ -180,8 +176,7 @@ namespace DWMPHorde.Sync
                 if (nowK >= kv.Value.releaseTime)
                 {
                     var (rBody, _, oName) = kv.Value;
-                    if (rBody != null)
-                        rBody.isKinematic = false;
+                    ReleaseKinematic(rBody);
                     if (!string.IsNullOrEmpty(oName) && _s.BodyPushSoundActive.Remove(oName))
                         LanNetworkManager.NotifyBodyPushStopped(oName);
                     _staleKinematicKeys.Add(kv.Key);

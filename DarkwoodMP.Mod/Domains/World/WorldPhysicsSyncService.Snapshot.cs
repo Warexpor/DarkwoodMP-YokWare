@@ -287,8 +287,7 @@ namespace DWMPHorde.Sync
                 if (now_ >= kv.Value.releaseTime)
                 {
                     var (rBody, _, objName) = kv.Value;
-                    if (rBody != null)
-                        rBody.isKinematic = false;
+                    ReleaseKinematic(rBody);
                     // Sound may already have stopped via early timer; ensure once.
                     if (!string.IsNullOrEmpty(objName) && _s.BodyPushSoundActive.Remove(objName))
                         LanNetworkManager.NotifyBodyPushStopped(objName);

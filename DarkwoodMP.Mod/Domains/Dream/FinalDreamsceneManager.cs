@@ -100,6 +100,13 @@ namespace DWMPHorde.Sync
         /// <summary>True when any remote player is dead in the shared dream (N-player set).</summary>
         public static bool IsRemoteDead => _deadPlayerIds.Count > 0;
 
+        internal static bool IsRemoteDeadInDream(int playerId) => _isActive && _deadPlayerIds.Contains(playerId);
+
+        internal static IEnumerable<int> RemoteDeadIds => _deadPlayerIds;
+
+        /// <summary>Where the local player fell in this dream (its body stays there, <see cref="Players.PlayerCorpses"/>).</summary>
+        internal static Vector3 LocalDeathPosition { get; private set; }
+
         public static void OnDreamStarted()
         {
             _isActive = true;
@@ -220,6 +227,8 @@ namespace DWMPHorde.Sync
 
             _localDeadInDream = true;
             _localDiedThisDream = true;
+            if (Player.Instance != null)
+                LocalDeathPosition = Player.Instance._transform.position;
 
             ModRuntime.LegacyInfo("[FinalDreamscene] Local player died in dream");
 

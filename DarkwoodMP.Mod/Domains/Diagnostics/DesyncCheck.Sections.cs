@@ -270,8 +270,13 @@ namespace DWMPHorde.Sync
                 return false;
             var a = Fields(host);
             var b = Fields(client);
-            return SameField(a, b, "alive") && SameField(a, b, "poison") && SameField(a, b, "bleed")
-                && SameField(a, b, "skills") && Near(a, b, "hp", 10);
+            if (!SameField(a, b, "alive") || !SameField(a, b, "poison") || !SameField(a, b, "bleed")
+                || !SameField(a, b, "skills"))
+                return false;
+            // A dead player's health means nothing until the respawn sets it: the dead machine
+            // refills its own bar for the respawn while the host's copy stays at 0.
+            a.TryGetValue("alive", out string alive);
+            return alive == "0" || Near(a, b, "hp", 10);
         }
 
         // ---------------------------------------------------- near the player
@@ -599,6 +604,10 @@ namespace DWMPHorde.Sync
             {
                 NPC npc = all[i];
                 if (npc == null || !npc.trader || npc.inventory == null || string.IsNullOrEmpty(npc.name))
+                    continue;
+                // Switched off (culled far away, or kept hidden by the story): a client holds the
+                // host's stock for it in the trade queue until it is out, so its copy here is old.
+                if (!npc.gameObject.activeInHierarchy)
                     continue;
                 TradeInventorySyncMessage m = TradeInventorySync.BuildMessage(npc);
                 parts.Clear();

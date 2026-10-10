@@ -65,6 +65,10 @@ namespace DWMPHorde.Networking
 
             var rain = Singleton<Rain>.Instance;
             if (rain == null) return;
+            // The host sends weather at handshake, while a joining client still sits on the title
+            // screen: vanilla startRain reads Player.Instance.whereAmI and would throw. The
+            // late-join bulk (phase 0) sends weather again once this client is in the world.
+            if (Player.Instance == null || Player.Instance.whereAmI == null) return;
 
             bool wasRaining = rain.Raining;
             bool wasFogActive = rain.fogIsActive;
@@ -103,7 +107,10 @@ namespace DWMPHorde.Networking
                 if (msg.Raining && Patches.PadWeather.LocalInPad())
                     Patches.PadWeather.StartHidden(rain);
                 else if (msg.Raining)
-                    rain.Raining = true;
+                    // ignoreDay: the host already passed vanilla's first-day / first-night gate.
+                    // The client's own NightScenarios.scenarioId is only set by the night pick the
+                    // host runs, so it can sit on 1 and refuse rain that is falling for the host.
+                    rain.startRain(false, true);
                 else
                     rain.Raining = false;
             }
