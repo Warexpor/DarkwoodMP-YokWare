@@ -20,8 +20,8 @@ namespace DWMPHorde.Audio
         private const float RadioHissFar = 0.045f;
 
         private static AudioSource _localRadio; // process-scoped: 2D source for this player's own radio clicks
-        private static AudioClip _keyClip; // process-scoped: generated asset
-        private static AudioClip _releaseClip; // process-scoped: generated asset
+        private static AudioClip _keyClip; // process-scoped: recorded asset (RadioSamples)
+        private static AudioClip _releaseClip; // process-scoped: recorded asset (RadioSamples)
 
         /// <summary>RBJ cookbook second-order filter (Q 0.707), direct form I.</summary>
         internal struct Biquad
@@ -266,10 +266,13 @@ namespace DWMPHorde.Audio
 
         private static void EnsureSquelchClips()
         {
+            // The talk key: a real handheld's call beep and squelch tail; the generated ones only if missing.
             if (_keyClip == null)
-                _keyClip = SquelchClip("yokware_radio_key", 0.03f, 0.5f, cubic: true);
+                _keyClip = RadioSamples.Load("key.wav", "yokware_radio_key")
+                    ?? SquelchClip("yokware_radio_key", 0.03f, 0.5f, cubic: true);
             if (_releaseClip == null)
-                _releaseClip = SquelchClip("yokware_radio_release", 0.14f, 0.3f, cubic: false);
+                _releaseClip = RadioSamples.Load("release.wav", "yokware_radio_release")
+                    ?? SquelchClip("yokware_radio_release", 0.14f, 0.3f, cubic: false);
         }
 
         /// <summary>A talker's own radio clicking as they key it and let go, heard by players near them.</summary>
@@ -410,7 +413,7 @@ namespace DWMPHorde.Audio
             return clip;
         }
 
-        /// <summary>This player's own radio: a click when the key goes down, a short hiss when it comes up.</summary>
+        /// <summary>This player's own radio: the call beep when the key goes down, the squelch tail when it comes up.</summary>
         private static void PlayLocalSquelch(bool keyDown)
         {
             try

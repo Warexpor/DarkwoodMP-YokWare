@@ -5,7 +5,7 @@ join it: the same forest, the same nights, the same story, played together.
 
 | | |
 |--|--|
-| Product | YokWare Branch **0.8.204** |
+| Product | YokWare Branch **0.8.205** |
 | Wire | Horde protocol **53** |
 | Players | Up to 8 by default (`MaxPlayers`, host included) |
 | Transport | LAN (LiteNetLib) or Steam lobby (SteamNetworkingSockets) |
@@ -303,7 +303,9 @@ The highest assigned message ID is 168 (`PlayerName`). Voice uses message 129.
 ## Credits and license
 
 Warexpor and Yokyy co-author YokWare Branch; see [CONTRIBUTORS.md](CONTRIBUTORS.md).
-Built on BepInEx, MelonLoader, Harmony and LiteNetLib. Darkwood is a game by Acid
+Built on BepInEx, MelonLoader, Harmony and LiteNetLib. Recorded radio sounds are CC0
+recordings from Freesound, listed in
+[SOURCES.md](DarkwoodMP.Mod/Resources/Radio/SOURCES.md). Darkwood is a game by Acid
 Wizard Studio; this is an unofficial fan mod and needs a legal copy of the game.
 
 Licensed under GPLv3: see [LICENSE](LICENSE) and [COPYRIGHT](COPYRIGHT).

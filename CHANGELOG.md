@@ -3,7 +3,7 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.204**. The current Horde wire protocol is **53**. Every install in a session
+**0.8.205**. The current Horde wire protocol is **53**. Every install in a session
 needs the same DLL; the protocol is checked on join.
 
 Protocol history (newest first):
@@ -59,6 +59,23 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.205 — Recorded call beep and squelch tail on the radio's talk key
+
+- **Pressing the radio's talk key plays a real handheld's call beep** in place of the
+  generated click: for the talker, and for players standing near the talker. It is a CC0
+  recording ("Walkie Talkie famous beep" by SEF7, Freesound), trimmed to 0.59 s, mono,
+  embedded in the DLL. If the recording cannot be read, the old generated click plays.
+- **Letting the talk key go plays a recorded squelch tail** in place of the generated
+  hiss, for the same listeners ("Radio Sign Off / Squelch" by JovianSounds, Freesound,
+  CC0; the file is 1.2 s with 0.2 s of sound, trimmed to 0.25 s).
+- New `RadioSamples` loads embedded 16-bit WAV recordings; sources and licences are
+  listed in `DarkwoodMP.Mod/Resources/Radio/SOURCES.md`. The other radio sounds (power
+  on and off, low battery, flat battery, and what the far radio's speaker plays as a
+  transmission opens and closes) are still generated; recordings for
+  them are being chosen.
+- Files: `RadioSamples.cs`, `VoiceChatService.Radio.cs`, `Resources/Radio/key.wav`, `release.wav`.
+- Not playtested; the level against voice has not been heard.
 
 ## 0.8.204 — Voice a little louder
 
