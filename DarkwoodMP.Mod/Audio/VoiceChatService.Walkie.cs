@@ -27,9 +27,6 @@ namespace DWMPHorde.Audio
         private const float RadioInsideFactor = 1.35f;
         /// <summary>What gets through from or to underground.</summary>
         private const float RadioUndergroundShare = 0.15f;
-        /// <summary>Below this signal the radio does not open at all.</summary>
-        private const float RadioSquelchQuality = 0.03f;
-
         /// <summary>A radio in a pocket plays quieter and duller than one in hand.</summary>
         private const float PocketVolume = 0.55f;
         private const float PocketCutoff = 2000f;
@@ -96,6 +93,7 @@ namespace DWMPHorde.Audio
             if (Time.unscaledTime < _nextWalkieCheck)
                 return;
             _nextWalkieCheck = Time.unscaledTime + 0.5f;
+            Items.WalkieItem.RefreshDescription();
             _localWalkie = false;
             _walkieItem = null;
             try
@@ -128,7 +126,7 @@ namespace DWMPHorde.Audio
             }
 
             // The knob is on the radio: it turns only with the radio in hand, while playing.
-            if (Input.GetKeyDown(_powerKey) && HoldingWalkie() && WalkieTxAllowed())
+            if ((Input.GetKeyDown(_powerKey) || PadAction(PadKnobAction, down: true)) && HoldingWalkie() && WalkieTxAllowed())
             {
                 _radioOn = !_radioOn;
                 bool live = _radioOn && Charge() > 0f;
@@ -176,6 +174,11 @@ namespace DWMPHorde.Audio
             if (receiverUnderground) q *= RadioUndergroundShare;
             return q;
         }
+
+        /// <summary>The radio's power key as set (for the item's description).</summary>
+        internal static string PowerKeyText => ModConfig.VoiceRadioPowerKey?.Value ?? "B";
+        /// <summary>The radio's talk key as set (for the item's description).</summary>
+        internal static string TalkKeyText => ModConfig.VoiceRadioTalkKey?.Value ?? "Mouse1";
 
         /// <summary>Whether a peer's PlayerState says they are underground.</summary>
         private static bool PeerUnderground(LanNetworkManager net, int id)

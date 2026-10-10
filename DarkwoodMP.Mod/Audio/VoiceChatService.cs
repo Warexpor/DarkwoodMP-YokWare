@@ -55,11 +55,20 @@ namespace DWMPHorde.Audio
             public float RadioQuality;
             /// <summary>Someone keying over this talker (0..1): the two bury each other in static.</summary>
             public float Doubling;
-            public float BreakupLeft;
             /// <summary>Where in the caller's beep this transmission is (-1: not playing).</summary>
             public int BeepPos = -1;
             public bool RadioMode;
             public bool RadioWasActive;
+            /// <summary>How much of the voice the signal lets through (1 clear .. 0 static only), as of the last packet.</summary>
+            public float VoiceShare = 1f;
+            /// <summary>
+            /// Until then the radio this talker was heard on plays out what it has and its squelch
+            /// tail, at the volume it had (<see cref="HeldVol"/>): the talker is off the air by
+            /// then, and without the hold the tail played as a voice from where they stand.
+            /// </summary>
+            public float RadioHoldUntil;
+            public float HeldVol;
+            public float HeldCutoff = 22000f;
             public Biquad RadioHp;
             public Biquad RadioLp;
             public bool Priming = true;
@@ -196,7 +205,7 @@ namespace DWMPHorde.Audio
         private static readonly float[] _worldRx = new float[VoiceCodec.PacketSamples]; // process-scoped: picked-up sounds of the packet being decoded
         private static readonly float[] _echoMix = new float[VoiceCodec.PacketSamples]; // process-scoped: scratch
         /// <summary>The sounds picked up by a talker's radio against their voice, on the radio that plays them.</summary>
-        private const float WorldRxGain = 0.8f;
+        private const float WorldRxGain = 0.5f;
         private static readonly List<float[]> _frames = new List<float[]>(8); // process-scoped: frames from the mic this tick
         private static float[] _preroll; // process-scoped: the frame before talk began (its first syllable)
         private static bool _localWalkie; // process-scoped: polled every 0.5 s
@@ -317,7 +326,7 @@ namespace DWMPHorde.Audio
                 {
                     InvItemClass cur = Player.Instance.currentItem;
                     if (!InvItemClass.isNull(cur) && cur.type == walkie)
-                        _walkieTx = Input.GetKey(RadioTalkKey()) && WalkieTxAllowed() && LocalRadioLive;
+                        _walkieTx = RadioTalkHeld() && WalkieTxAllowed() && LocalRadioLive;
                 }
             }
             catch { /* ignore */ }
@@ -447,6 +456,50 @@ namespace DWMPHorde.Audio
             }
             return _talkKey;
         }
+
+        /// <summary>The game is played with a controller right now (vanilla's own switch).</summary>
+        internal static bool PadMode
+        {
+            get
+            {
+                try
+                {
+                    Globals g = Singleton<Globals>.Instance;
+                    return g != null && g.controllerMode;
+                }
+                catch
+                {
+                    return false;
+                }
+            }
+        }
+
+        /// <summary>
+        /// A vanilla input action (Rewired, by its name) on the controller. The radio's talk
+        /// button is the game's Aim and its knob the game's Attack: with the radio in hand
+        /// neither does anything else (it cannot be aimed, and it is no weapon).
+        /// </summary>
+        private static bool PadAction(string action, bool down)
+        {
+            if (!PadMode)
+                return false;
+            try
+            {
+                InputScript input = Singleton<InputScript>.Instance;
+                Rewired.Player rp = input != null ? input.rewiredPlayer : null;
+                return rp != null && (down ? rp.GetButtonDown(action) : rp.GetButton(action));
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        internal const string PadTalkAction = "Aim";
+        internal const string PadKnobAction = "Attack";
+
+        /// <summary>The walkie's talk button is held: its key, or Aim on a controller.</summary>
+        private static bool RadioTalkHeld() => Input.GetKey(RadioTalkKey()) || PadAction(PadTalkAction, down: false);
 
         /// <summary>
         /// The talk key (right mouse by default) is also vanilla aim / context click, so it only keys the radio while the player is
@@ -583,25 +636,41 @@ namespace DWMPHorde.Audio
                     return;
                 // Only a radio plays the second block: heard directly, the talker is a voice in
                 // a world the listener hears for themselves.
-                if (worldSamples > 0 && speaker.RadioMode)
+                bool walkieNow = (p.Flags & VoiceDataMessage.FlagWalkie) != 0;
+                if (worldSamples > 0 && speaker.RadioMode && walkieNow)
                 {
                     int n = Math.Min(samples, worldSamples);
                     for (int i = 0; i < n; i++)
                         _decodeBuf[i] += _worldRx[i] * WorldRxGain;
                 }
 
-                bool walkieNow = (p.Flags & VoiceDataMessage.FlagWalkie) != 0;
                 if (walkieNow != speaker.WalkieActive)
                 {
                     speaker.WalkieActive = walkieNow;
                     PlayTalkerClick(speaker, keyDown: walkieNow);
                 }
                 speaker.Walkie = walkieNow;
-                if (walkieNow)
-                    ClaimChannel(speaker.Id);
                 speaker.Level = p.Level / 255f;
                 speaker.PacketsIn++;
                 speaker.LastData = Time.unscaledTime;
+                if (walkieNow)
+                {
+                    ClaimChannel(speaker.Id);
+                    speaker.RadioHoldUntil = 0f;
+                }
+                else
+                {
+                    // The key came up (the mic sends a moment longer, for the last word of a
+                    // voice heard directly): the radio playing this talker closes now, with its
+                    // squelch tail, and what follows is not on the air.
+                    if (speaker.RadioWasActive)
+                    {
+                        speaker.RadioWasActive = false;
+                        WriteSquelchTail(speaker);
+                    }
+                    if (Time.unscaledTime < speaker.RadioHoldUntil)
+                        return;
+                }
                 WriteVoice(speaker, _decodeBuf, samples);
             }
             catch (Exception ex)
@@ -618,7 +687,8 @@ namespace DWMPHorde.Audio
         private static void WriteVoice(Speaker speaker, float[] buf, int samples)
         {
             float gain = (ModConfig.VoiceGain?.Value ?? 1.4f) * VoiceBaseGain;
-            bool radioMode = speaker.RadioMode;
+            // Only what the talker's radio sends goes through the listener's radio.
+            bool radioMode = speaker.RadioMode && speaker.WalkieActive;
             bool radioStart = radioMode && !speaker.RadioWasActive;
             if (radioMode)
                 speaker.RadioWasActive = true;
@@ -628,6 +698,7 @@ namespace DWMPHorde.Audio
                 speaker.RadioLp = Biquad.LowPass(RadioHighHz, _sampleRate);
                 StartStatic(speaker);
                 speaker.BeepPos = 0;
+                speaker.VoiceShare = VoiceShareOf(speaker.RadioQuality);
             }
 
             if (radioMode)

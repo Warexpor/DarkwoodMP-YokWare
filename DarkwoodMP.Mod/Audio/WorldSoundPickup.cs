@@ -23,8 +23,13 @@ namespace DWMPHorde.Audio
     /// </summary>
     internal static class WorldSoundPickup
     {
-        /// <summary>The track's level against the sources as they play (they are taken before the game's mixer).</summary>
-        private const float Gain = 1.2f;
+        /// <summary>
+        /// The track's level against the sources as they play (they are taken before the game's
+        /// mixer). Well under the voice: a radio's mic is at its holder's mouth, the world is
+        /// what leaks in behind it. At the sources' own level a gunshot or a door filled the
+        /// channel.
+        /// </summary>
+        private const float Gain = 0.3f;
         private const int RingLen = 1 << 16;
         private const int RingMask = RingLen - 1;
         /// <summary>The track is read this far behind what the taps wrote last, at least: a block still being mixed is not read.</summary>
@@ -107,10 +112,17 @@ namespace DWMPHorde.Audio
                 return;
             if (LeftOut(src) || go.GetComponent<Tap>() != null)
                 return;
+            // Unity lets one audio filter component serve one source only: an object with two
+            // sources (a pooled sound crossfading between its takes, the game's long ambiences)
+            // or with the listener is left alone.
+            go.GetComponents(_sources);
+            if (_sources.Count != 1 || go.GetComponent<AudioListener>() != null)
+                return;
             go.AddComponent<Tap>();
             _taps++;
         }
 
+        private static readonly List<AudioSource> _sources = new List<AudioSource>(2); // process-scoped: scratch
         private static int _taps; // process-scoped: stats
         private static int _sent; // process-scoped: stats
         private static float _peak; // process-scoped: stats
@@ -249,6 +261,26 @@ namespace DWMPHorde.Audio
             }
             _sent++;
             return true;
+        }
+
+        /// <summary>
+        /// A pooled sound gets its second source the first time it crossfades: its tap goes
+        /// before that, or Unity logs an error for the object on every start ("multiple
+        /// AudioSources ... OnAudioFilterRead may only be used by one").
+        /// </summary>
+        [HarmonyPatch(typeof(AudioObject), "_CreateSecondAudioSource")]
+        internal static class SecondSourcePatch
+        {
+            private static void Prefix(AudioObject __instance)
+            {
+                try
+                {
+                    Tap tap = __instance != null ? __instance.GetComponent<Tap>() : null;
+                    if (tap != null)
+                        UnityEngine.Object.DestroyImmediate(tap);
+                }
+                catch { /* the object is on its way out */ }
+            }
         }
 
         /// <summary>The game's pooled sounds, as each starts to play.</summary>

@@ -861,11 +861,15 @@ party events.
     sound at the talker's position, like a step or a door. Whispering is safe.
   - Walkie-talkie: hold a `walkie_talkie` and hold the radio talk key (right mouse by default, rebindable in Settings > Voice) to transmit. Carrying one
     lets you hear the radio from anywhere: a narrow, slightly distorted band, the caller's
-    beep at the start and a squelch tail at the end, and more static the farther apart
-    the two radios are. Every sound a radio makes is a recording; none is generated.
+    beep at the start and a squelch tail at the end (played by the listener's radio the
+    moment the talker lets go). The signal has no cut-off distance: past the clear range
+    static rises under the voice and the voice sinks into it, until only static is left,
+    and at the very end of the range the static fades out too. Every sound a radio makes
+    is a recording; none is generated.
     A keyed radio also sends the sounds around its holder (steps, doors, creatures, the
-    weather), each as loud and as dull as it reaches the holder; not music, menu sounds
-    or voice chat itself. Only radios play that part: a player standing by the talker
+    weather), each as loud and as dull as it reaches the holder and well under the voice;
+    not music, menu sounds or voice chat itself (nor the game's long ambience loops, which
+    play on two sources and cannot be tapped). Only radios play that part: a player standing by the talker
     hears their voice and the world for themselves (`VoiceRadioWorldSounds`).
     Every other walkie plays the talk out loud too: standing near someone who carries
     one, you hear it from them (a short way, muffled through walls), and creatures near
@@ -877,6 +881,10 @@ party events.
     transmission from another player's live radio near them, as that radio plays it.
   - A walkie is crafted at the workbench (level 1) from 2 junk and 1 nail; each player
     makes their own.
+  - On a controller the talk button is the game's Aim and the knob the game's Attack,
+    with the radio in hand (it cannot be aimed and is no weapon, so neither does anything
+    else). The radio's item description is its manual and names the buttons as they are
+    set right now (keys, or Aim and Attack while a controller is in use).
   - A walkie is a device: an on/off knob (`B`, in hand), a 9V battery that drains while
     it is on (about an hour on standby, faster while talking; `R` swaps in a fresh `battery9v`, as for the
     flashlight), quieter and duller in a pocket than in hand. Off or flat, it neither

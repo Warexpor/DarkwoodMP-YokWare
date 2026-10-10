@@ -445,15 +445,27 @@ Listen on the player who did not cause the sound.
       voice from B's radio (quieter, from B's side, duller if B's is in a pocket), with
       the squelch tail on letting go. B switching their radio off or on in hand:
       A hears the knob from B. Indoors all of it has the room's reverb.
-- [ ] Signal: far apart the radio hisses and breaks up, and from a cellar or the bunker
-      underground barely anything gets through. Each transmission opens with the
-      caller's beep and ends with a squelch tail; neither a voice nor static starts or
-      stops with a click.
+- [ ] Signal: walking apart past the clear range, static comes in under the voice as one
+      steady sound and grows while the voice sinks into it, until only static is left;
+      at the very end of the range the static fades out. At no distance does the sound
+      cut off or drop out in pieces. From a cellar or the bunker underground it is
+      mostly static. Each transmission opens with the caller's beep; when the talker
+      lets go, the listener's radio plays the squelch tail at once, at the radio's
+      volume, far from the talker too. Neither a voice nor static starts or stops with
+      a click.
+- [ ] The radio's description (hover it in the inventory) is its manual: the talk and
+      knob keys as set in Settings > Voice, Reload for the battery; with a controller in
+      use it says Aim and Attack. Also in Russian.
+- [ ] Controller: with the radio in hand, holding Aim talks and pressing Attack turns the
+      knob; neither does anything else. Not while a menu is open.
+- [ ] A host disarms a bear trap (one placed by a player, one from the world): it is gone
+      for the client too, and the next desync check is clean.
 - [ ] A keying next to B's live radio: no howl. A and C keying together: both garbled
       under static, no whistle.
 - [ ] World sounds on the radio: A keys far from B and walks, opens a door, stands by a
       barking dog or in the rain; B hears those through the radio under A's voice,
-      louder the closer they are to A, and no music. B standing next to A hears A's
+      well under the voice, louder the closer they are to A, and no music. No "multiple
+      AudioSources" error in either log. B standing next to A hears A's
       voice only once, without the sounds doubled. Voice > "Radio picks up sounds" off
       on A: voice only.
 - [ ] Noise suppression: with a fan or hiss in A's room, B hears A's voice without it;

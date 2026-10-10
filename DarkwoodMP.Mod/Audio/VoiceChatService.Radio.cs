@@ -61,25 +61,32 @@ namespace DWMPHorde.Audio
         private static readonly System.Random _noise = new System.Random(); // process-scoped: main thread only (decode side)
 
         /// <summary>
+        /// How much of the voice a signal of this quality lets through: all of it while clear,
+        /// less and less as the signal weakens, none over the last stretch of the range, where
+        /// only static is left.
+        /// </summary>
+        internal static float VoiceShareOf(float quality)
+            => Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(VoiceGoneQuality, VoiceClearQuality, quality));
+
+        private const float VoiceGoneQuality = 0.15f;
+        private const float VoiceClearQuality = 0.9f;
+        /// <summary>Over the very end of the range the static itself fades to nothing: no distance at which sound is cut off.</summary>
+        private const float StaticEdgeQuality = 0.05f;
+
+        /// <summary>
         /// One packet of voice as the radio gets it (decode side, before the radio's band and
-        /// drive): quieter and breaking up as the signal weakens, and buried in static under a
+        /// drive): fading under the static as the signal weakens, and buried in static under a
         /// second talker keying over this one.
         /// </summary>
         private static void RadioPacket(Speaker s, float[] x, int n)
         {
-            float q = s.RadioQuality;
-            float voice = Mathf.Lerp(0.55f, 1f, q);
-            // A weak signal drops out in pieces of 10..40 ms, more often the weaker it gets.
-            if (s.BreakupLeft <= 0f && q < 0.6f && _noise.NextDouble() < Math.Pow((0.6f - q) / 0.6f, 1.5) * 0.75)
-                s.BreakupLeft = 160 + (float)_noise.NextDouble() * 480f;
+            // Eased over the packet: the share moves a little with every step the players take.
+            float from = s.VoiceShare;
+            float to = VoiceShareOf(s.RadioQuality);
+            s.VoiceShare = to;
             for (int i = 0; i < n; i++)
             {
-                float v = x[i] * voice;
-                if (s.BreakupLeft > 0f)
-                {
-                    v = BreakupStatic(s);
-                    s.BreakupLeft--;
-                }
+                float v = x[i] * (from + (to - from) * i / n);
                 // Two talkers on one channel: the voice garbles under the static of the clash.
                 if (s.Doubling > 0f)
                     v = v * (1f - 0.35f * s.Doubling) + s.Doubling * 0.6f * BreakupStatic(s);
@@ -95,7 +102,7 @@ namespace DWMPHorde.Audio
             {
                 float[] beep = _keyTone;
                 if (beep != null && s.BeepPos < beep.Length)
-                    x += beep[s.BeepPos++] * BeepGain;
+                    x += beep[s.BeepPos++] * BeepGain * s.VoiceShare;
                 else
                     s.BeepPos = -1;
             }
@@ -108,11 +115,17 @@ namespace DWMPHorde.Audio
 
         /// <summary>The caller's beep and the squelch tail inside a received transmission, against the voice.</summary>
         private const float BeepGain = 0.5f;
+        /// <summary>Past the tail's own length: the audio thread reads in blocks and may start late.</summary>
+        private const float TailHoldSlackSec = 0.2f;
         private const float TailGain = 0.6f;
         /// <summary>The steady static under a clear transmission, at this level (the recording is at RMS 0.055, all of it in the radio's band).</summary>
         private const float StaticNearGain = 0.1f;
-        /// <summary>The out-of-range static at no signal at all (the recording is at RMS 0.18).</summary>
-        private const float StaticFarGain = 0.35f;
+        /// <summary>
+        /// The out-of-range static at its loudest, where no voice is left (the recording is at
+        /// RMS 0.18): about as loud as a clear voice, so it takes the voice's place and nothing
+        /// seems to go quiet on the way out.
+        /// </summary>
+        private const float StaticFarGain = 1f;
 
         private static float[] _staticNear; // process-scoped: recorded asset (RadioSamples), at the voice rate
         private static float[] _staticFar; // process-scoped: recorded asset (RadioSamples), at the voice rate
@@ -144,8 +157,10 @@ namespace DWMPHorde.Audio
         /// <summary>How much of the out-of-range static a signal of this quality carries.</summary>
         private static float FarStaticGain(float quality)
         {
-            float weak = 1f - Mathf.Clamp01(quality);
-            return weak * Mathf.Sqrt(weak) * StaticFarGain;
+            // Rising all the way from the edge of the clear range to where the voice is gone,
+            // then holding, then out over the last sliver of the range.
+            float weak = Mathf.InverseLerp(1f, VoiceGoneQuality, quality);
+            return weak * weak * StaticFarGain * Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0f, StaticEdgeQuality, quality));
         }
 
         /// <summary>
@@ -159,10 +174,10 @@ namespace DWMPHorde.Audio
                 return 0f;
             if (++s.StaticNearPos >= near.Length) s.StaticNearPos = 0;
             if (++s.StaticFarPos >= far.Length) s.StaticFarPos = 0;
-            return near[s.StaticNearPos] * StaticNearGain + far[s.StaticFarPos] * s.FarStatic;
+            return near[s.StaticNearPos] * StaticNearGain * s.VoiceShare + far[s.StaticFarPos] * s.FarStatic;
         }
 
-        /// <summary>What a dropout sounds like: the out-of-range static alone (before the radio's band and drive).</summary>
+        /// <summary>The static of two talkers clashing: the out-of-range recording (before the radio's band and drive).</summary>
         private static float BreakupStatic(Speaker s)
         {
             float[] far = _staticFar;
@@ -181,13 +196,18 @@ namespace DWMPHorde.Audio
             EnsureStatic();
             speaker.BeepPos = -1;
             float[] tail = _releaseTail;
+            // As loud as the signal was: at the end of the range the tail is lost in the static too.
+            float gain = TailGain * Mathf.Lerp(0.2f, 1f, speaker.VoiceShare);
             lock (speaker.Lock)
             {
+                // The listener's radio keeps playing until the tail is out (Speaker.RadioHoldUntil).
+                int toPlay = speaker.Buffered + (tail != null ? tail.Length : 0);
+                speaker.RadioHoldUntil = Time.unscaledTime + toPlay / (float)VoiceCodec.SampleRate + TailHoldSlackSec;
                 for (int i = 0; tail != null && i < tail.Length; i++)
                 {
                     if (speaker.Buffered >= speaker.Ring.Length)
                         break;
-                    speaker.Ring[speaker.WritePos] = Mathf.Clamp(tail[i] * TailGain, -1f, 1f);
+                    speaker.Ring[speaker.WritePos] = Mathf.Clamp(tail[i] * gain, -1f, 1f);
                     speaker.WritePos = (speaker.WritePos + 1) % speaker.Ring.Length;
                     speaker.Buffered++;
                 }

@@ -3,12 +3,12 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.217**. The current Horde wire protocol is **54**. Every install in a session
+**0.8.218**. The current Horde wire protocol is **54**. Every install in a session
 needs the same DLL; the protocol is checked on join.
 
 Protocol history (newest first):
 
-- **54**, 0.8.212 to 0.8.217: `VoiceData` (129) gains flag 2: a second codec block after the voice,
+- **54**, 0.8.212 to 0.8.218: `VoiceData` (129) gains flag 2: a second codec block after the voice,
   the sounds the talker's radio picked up.
 - **53**, 0.8.200 to 0.8.211: the world share package gains `savplc.dat` (container slots a player
   stored items in). No message layout changed; the bump keeps every player on a build
@@ -61,6 +61,52 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.218 — Disarmed traps gone for everyone; radio: quieter world, end-of-talk tail, static with no cut-off, manual, controller
+
+From the 0.8.216 playtest logs:
+
+- **A disarmed bear trap stayed set for the other players.** The host disarmed two bear
+  traps (one just placed, one from the world); the client logged `[ObjectDestroy] miss`
+  for both and the desync check then reported them (`DESYNC Traps beartrap@...:
+  host=<none> client=...active=1`). Cause: a trap carries a small inventory of its own
+  (the junk a disarm gives) and is not a dropped item, so the rule that keeps a removal
+  from eating furniture containers turned every trap away. A world trap is now matched
+  by its name before that rule (`WorldPhysicsSyncService.ShouldDestroyWorldPickup`).
+- **`GameObject has multiple AudioSources ... OnAudioFilterRead` errors on the client.**
+  The radio's sound tap sat on a pooled sound object that later got its second source
+  (the game adds one the first time a sound crossfades, here the meadow ambience). A
+  tap is no longer given to an object with two sources or the listener, and is taken
+  off before the game adds the second one (`WorldSoundPickup`, patch on
+  `AudioObject._CreateSecondAudioSource`). Such sounds are not picked up by the radio.
+
+Radio, as asked:
+
+- **World sounds over the radio much quieter.** They came through at the sources' own
+  level (peaks of 1.0 in the log). Now about 16 dB down, well under the voice
+  (`WorldSoundPickup.Gain` 1.2 to 0.3, `WorldRxGain` 0.8 to 0.5).
+- **The end of someone else's transmission was silent.** The squelch tail was written
+  0.3 s after the last packet, by which time the talker was off the air and the
+  listener's radio had gone back to "voice from where they stand", silent at any
+  distance. Now the listener's radio closes the moment the talker's key comes up (the
+  first packet without the radio flag), writes the tail, and stays as it was (volume,
+  place) until the tail has played. The quarter second the mic keeps sending after the
+  key is not on the air.
+- **Losing signal.** No dropouts in pieces and no distance where the radio stops
+  opening. Past the clear range the out-of-range static comes in as one steady sound
+  and rises while the voice (and the world sounds, the beep, the tail) sinks into it;
+  where the voice is gone the static is as loud as a clear voice was; over the last
+  sliver of the range it fades out.
+- **Manual.** The radio's item description says how to use it and names the buttons as
+  they are set right now; it follows the key settings, the language and a controller
+  being picked up.
+- **Controller.** With the radio in hand, the game's Aim talks and the game's Attack
+  turns the knob. Voice chat without a radio has no controller button (use the open
+  mic mode).
+- **Files:** `Audio/VoiceChatService*.cs`, `Audio/WorldSoundPickup.cs`,
+  `Items/WalkieItem.cs`, `Core/Loc.Ru.cs`,
+  `Domains/World/WorldPhysicsSyncService.Pickups.cs`, docs. No protocol change.
+- **Status:** code only, not heard or seen in game yet.
 
 ## 0.8.217 — Player names are white when fully shown
 

@@ -285,6 +285,12 @@ namespace DWMPHorde.Sync
                 return false;
 
             Item item = root.GetComponent<Item>();
+            // A trap carries an itemInv of its own (the junk a disarm gives) and is not a
+            // dropped item, so the furniture rule below turned every trap away: one a player
+            // disarmed stayed set for everyone else. A trap is matched by its name.
+            if (trapGo && TrapNetworkId.IsWorldTrap(root))
+                return NameOrItemTypeMatches(root, null, needleNorm);
+
             Inventory inv = root.GetComponent<Inventory>();
             if (inv != null && inv.invType == Inventory.InvType.itemInv)
             {

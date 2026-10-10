@@ -232,7 +232,12 @@ namespace DWMPHorde
 
             // Walkie-talkie item (vanilla Items sheet).
             { "Walkie-Talkie", "Рация" },
-            { "A crude two-way radio. Carry one each to talk over any distance.", "Самодельная рация. Возьмите каждый по одной — и говорите на любом расстоянии." },
+            { "A crude two-way radio; every player needs their own. With it in hand: hold {0} to talk, {1} switches it on and off. It also receives from a pocket, only quieter. The farther apart you are, the more static. Runs on a 9V battery: Reload puts in a new one.", "Самодельная рация; своя нужна каждому игроку. Возьмите её в руку: удерживайте {0}, чтобы говорить; {1} включает и выключает её. В кармане она тоже принимает, только тише. Чем дальше вы друг от друга, тем больше помех. Работает от батарейки 9 В: «Перезарядка» ставит новую." },
+            { "left mouse button", "левую кнопку мыши" },
+            { "right mouse button", "правую кнопку мыши" },
+            { "middle mouse button", "среднюю кнопку мыши" },
+            { "Aim", "«Прицел»" },
+            { "Attack", "«Атака»" },
 
             // Chat and map pins.
             { "[System] Not in a session.", "[Система] Вы не в сетевой игре." },

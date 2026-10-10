@@ -98,7 +98,7 @@ namespace DWMPHorde.Audio
                 byte carrier = net.RemotePlayers.TryGetValue(nearId, out RemotePlayerState cst) && cst != null ? cst.WalkieState : (byte)0;
                 float quality = RadioQuality(p.transform.position, radioPos, p.isInside, IsInside(net, nearId),
                     LocalUnderground, WalkieStates.IsUnderground(carrier));
-                if (quality > RadioSquelchQuality)
+                if (quality > 0f)
                 {
                     bool hand = WalkieStates.InHand(carrier);
                     float d = DistXz(listen, radioPos);

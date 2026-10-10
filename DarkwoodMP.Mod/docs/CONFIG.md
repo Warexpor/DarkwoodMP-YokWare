@@ -86,8 +86,8 @@ set in Multiplayer > Settings > Voice.
 | `VoicePttKey` | `V` | Unity `KeyCode` name for push-to-talk. |
 | `VoiceVolume` | `1` | Playback volume multiplier for remote voice. |
 | `VoiceGain` | `1.4` | Gain applied to received voice, on top of the built-in level (loud peaks are soft-limited, not clipped). |
-| `VoiceRadioTalkKey` | `Mouse1` | Unity `KeyCode` name for talking on the walkie, held with it in hand. `Mouse1` is right mouse, `Mouse3` and `Mouse4` the side buttons. Settings > Voice > Radio talk key. |
-| `VoiceRadioPowerKey` | `B` | Unity `KeyCode` name for the walkie's on/off knob; it turns only with the walkie in hand. |
+| `VoiceRadioTalkKey` | `Mouse1` | Unity `KeyCode` name for talking on the walkie, held with it in hand. `Mouse1` is right mouse, `Mouse3` and `Mouse4` the side buttons. Settings > Voice > Radio talk key. On a controller the game's Aim talks. |
+| `VoiceRadioPowerKey` | `B` | Unity `KeyCode` name for the walkie's on/off knob; it turns only with the walkie in hand. On a controller the game's Attack turns it. |
 | `VoiceMicDevice` | empty | Microphone to talk into, by the name the game lists it under; empty for the system default. A device that is not plugged in falls back to the default. |
 | `VoiceMicVolume` | `1` | Microphone volume, 0 to 4 (1 as recorded; the Voice screen sets 0 to 2). It is also how loud you count for how far your voice carries. |
 | `VoiceNoiseSuppression` | `true` | Take steady noise (fans, hiss, hum, the room's tone) out of your microphone before it is sent. Spectral, managed code; it adds 32 ms. |

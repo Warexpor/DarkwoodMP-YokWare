@@ -291,6 +291,48 @@ namespace DWMPHorde.Items
             return true;
         }
 
+        private static string _descShown; // process-scoped: the description last written to the sheet
+
+        /// <summary>
+        /// The radio's description is its manual, and names the buttons as they are set right
+        /// now: the two radio keys from the settings, or the game's Aim and Attack while a
+        /// controller is in use. Called now and then; rewrites the sheet only on a change.
+        /// </summary>
+        internal static void RefreshDescription()
+        {
+            if (_descShown == null)
+                return;
+            string now = Description();
+            if (now == _descShown)
+                return;
+            Dictionary<string, string> sheet = Language.GetAllKeysForSheet("Items");
+            if (sheet == null)
+                return;
+            sheet["walkie_talkie_desc"] = now;
+            _descShown = now;
+        }
+
+        private static string Description()
+        {
+            bool pad = Audio.VoiceChatService.PadMode;
+            string talk = pad ? Loc.T("Aim") : KeyLabel(Audio.VoiceChatService.TalkKeyText);
+            string knob = pad ? Loc.T("Attack") : KeyLabel(Audio.VoiceChatService.PowerKeyText);
+            return string.Format(
+                Loc.T("A crude two-way radio; every player needs their own. With it in hand: hold {0} to talk, {1} switches it on and off. It also receives from a pocket, only quieter. The farther apart you are, the more static. Runs on a 9V battery: Reload puts in a new one."),
+                talk, knob);
+        }
+
+        private static string KeyLabel(string key)
+        {
+            if (string.Equals(key, "Mouse0", StringComparison.OrdinalIgnoreCase))
+                return Loc.T("left mouse button");
+            if (string.Equals(key, "Mouse1", StringComparison.OrdinalIgnoreCase))
+                return Loc.T("right mouse button");
+            if (string.Equals(key, "Mouse2", StringComparison.OrdinalIgnoreCase))
+                return Loc.T("middle mouse button");
+            return key;
+        }
+
         private static void InjectLocalization()
         {
             Dictionary<string, string> sheet = Language.GetAllKeysForSheet("Items");
@@ -299,11 +341,8 @@ namespace DWMPHorde.Items
             // DoSwitch runs before the menu's per-frame language refresh: read the setting now.
             Loc.SetLanguage(GameSettings.GetString("LanguageCode"));
             sheet.Add("walkie_talkie_name", Loc.T("Walkie-Talkie"));
-            if (!sheet.ContainsKey("walkie_talkie_desc"))
-            {
-                sheet.Add("walkie_talkie_desc",
-                    Loc.T("A crude two-way radio. Carry one each to talk over any distance."));
-            }
+            _descShown = Description();
+            sheet["walkie_talkie_desc"] = _descShown;
             if (!_langDone)
             {
                 _langDone = true;
