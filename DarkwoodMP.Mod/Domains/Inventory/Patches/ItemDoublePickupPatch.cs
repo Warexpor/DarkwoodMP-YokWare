@@ -16,12 +16,18 @@ namespace DWMPHorde.Patches
     public static class ItemDoublePickupPatch
     {
         private static readonly HashSet<string> PlayerPlacedContainerKeys = new HashSet<string>();
+        /// <summary>
+        /// The same marks by container object and slot. The position key alone was lost when the
+        /// container moved (a pushed wardrobe), and its stacks gave the bonus again.
+        /// </summary>
+        private static readonly HashSet<long> PlayerPlacedSlots = new HashSet<long>();
         /// <summary>Type of the item currently being disarmed (null = none armed).</summary>
         private static string _disarmType;
 
         public static void Reset()
         {
             PlayerPlacedContainerKeys.Clear();
+            PlayerPlacedSlots.Clear();
             _disarmType = null;
             _pendingShares.Clear();
         }
@@ -48,9 +54,37 @@ namespace DWMPHorde.Patches
             return $"{pos.x:F2}:{pos.y:F2}:{pos.z:F2}:{slotIdx}";
         }
 
+        private static long MakeSlotKey(Inventory inv, int slotIdx)
+        {
+            return ((long)inv.GetInstanceID() << 16) ^ (uint)slotIdx;
+        }
+
+        /// <summary>
+        /// A player put items into this container slot: taking them back is not loot. Called for
+        /// every put, however it was made (cursor drop, quick transfer, craft output, a peer's
+        /// put): only the cursor drop into a plain container used to count, so mushrooms moved
+        /// into a workbench with a quick transfer came back with the party bonus each time.
+        /// </summary>
         public static void MarkContainerSlotPlayerPlaced(Vector3 pos, int slotIdx)
         {
             PlayerPlacedContainerKeys.Add(MakeContainerKey(pos, slotIdx));
+            Inventory inv = Sync.WorldQueryHelper.FindInventoryByPos(pos);
+            if (inv != null)
+                PlayerPlacedSlots.Add(MakeSlotKey(inv, slotIdx));
+        }
+
+        public static void MarkContainerSlotPlayerPlaced(Inventory inv, int slotIdx)
+        {
+            if (inv == null || slotIdx < 0)
+                return;
+            PlayerPlacedSlots.Add(MakeSlotKey(inv, slotIdx));
+            PlayerPlacedContainerKeys.Add(MakeContainerKey(inv.transform.position, slotIdx));
+        }
+
+        /// <summary>A world container: not a player's own bag or hotbar.</summary>
+        private static bool IsWorldContainer(Inventory inv)
+        {
+            return inv != null && inv.invType != Inventory.InvType.playerInv && inv.invType != Inventory.InvType.hotbar;
         }
 
         private static int GetItemMultiplier()
@@ -61,10 +95,11 @@ namespace DWMPHorde.Patches
         private static bool IsPlayerPlacedSlot(InvSlot slot)
         {
             if (slot?.inventory == null) return false;
-            if (slot.inventory.invType != Inventory.InvType.itemInv) return false;
+            if (!IsWorldContainer(slot.inventory)) return false;
             int idx = slot.inventory.slots.IndexOf(slot);
             if (idx < 0) return false;
-            return PlayerPlacedContainerKeys.Contains(MakeContainerKey(slot.inventory.transform.position, idx));
+            return PlayerPlacedSlots.Contains(MakeSlotKey(slot.inventory, idx))
+                || PlayerPlacedContainerKeys.Contains(MakeContainerKey(slot.inventory.transform.position, idx));
         }
 
         private static void Log(string msg)
@@ -369,10 +404,8 @@ namespace DWMPHorde.Patches
         [HarmonyPostfix]
         private static void OnPlaceItem(InvSlot __instance)
         {
-            if (__instance.inventory == null || __instance.inventory.invType != Inventory.InvType.itemInv) return;
-            int idx = __instance.inventory.slots.IndexOf(__instance);
-            if (idx >= 0)
-                MarkContainerSlotPlayerPlaced(__instance.inventory.transform.position, idx);
+            if (!IsWorldContainer(__instance.inventory)) return;
+            MarkContainerSlotPlayerPlaced(__instance.inventory, __instance.inventory.slots.IndexOf(__instance));
         }
 
         [HarmonyPriority(Priority.Last)]
@@ -380,10 +413,8 @@ namespace DWMPHorde.Patches
         [HarmonyPostfix]
         private static void OnControllerPlaceItem(InvSlot __instance)
         {
-            if (__instance.inventory == null || __instance.inventory.invType != Inventory.InvType.itemInv) return;
-            int idx = __instance.inventory.slots.IndexOf(__instance);
-            if (idx >= 0)
-                MarkContainerSlotPlayerPlaced(__instance.inventory.transform.position, idx);
+            if (!IsWorldContainer(__instance.inventory)) return;
+            MarkContainerSlotPlayerPlaced(__instance.inventory, __instance.inventory.slots.IndexOf(__instance));
         }
     }
 }

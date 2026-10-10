@@ -42,7 +42,7 @@ changes are kept without asking.
 | `ConnectAddress` | `127.0.0.1` | Host address of Multiplayer > Join (Address), used by Connect. |
 | `ConnectPort` | `7788` | Default UDP port for hosting and joining on LAN (1-65535; out-of-range values are clamped with a warning). |
 | `HostPassword` | empty | Optional join password. Empty means open LAN. Host and every client must match. Also used as the Steam lobby connection key. |
-| `SteamLobbyId` | empty | Steam lobby id (ulong) for Multiplayer > Join > Join the lobby. The host fills it in when creating a Steam lobby. Friends can also join through the Steam invite overlay. |
+| `SteamLobbyId` | empty | Steam lobby id (ulong) for Multiplayer > Join > Steam friends > Join the lobby. The host fills it in when creating a Steam lobby. Friends can also join through the Steam invite overlay. |
 | `SteamLobbyType` | `friends` | Steam host lobby visibility: `friends`, `public` or `private`. |
 | `PlayerName` | `Player` | Name the other players see: over your character, in chat and on map pins. Left at `Player`, a Steam player goes by their Steam name. |
 | `ChatEnabled` | `true` | Co-op text chat. Ctrl+C opens the input, Enter sends, Esc closes. Gameplay input (movement, hotbar, walkie) is held while typing. |
@@ -83,7 +83,7 @@ set in Multiplayer > Settings > Voice.
 | `VoiceMode` | `ptt` | `ptt` is push-to-talk (`VoicePttKey`); `open` sends whenever you speak (a gate that follows the room's own noise). |
 | `VoicePttKey` | `V` | Unity `KeyCode` name for push-to-talk. |
 | `VoiceVolume` | `1` | Playback volume multiplier for remote voice. |
-| `VoiceGain` | `1.4` | Gain applied to received voice. |
+| `VoiceGain` | `1.4` | Gain applied to received voice, on top of the built-in level (loud peaks are soft-limited, not clipped). |
 | `VoiceRadioTalkKey` | `Mouse1` | Unity `KeyCode` name for talking on the walkie, held with it in hand. `Mouse1` is right mouse, `Mouse3` and `Mouse4` the side buttons. Settings > Voice > Radio talk key. |
 | `VoiceRadioPowerKey` | `B` | Unity `KeyCode` name for the walkie's on/off knob; it turns only with the walkie in hand. |
 | `VoiceMicDevice` | empty | Microphone to talk into, by the name the game lists it under; empty for the system default. A device that is not plugged in falls back to the default. |

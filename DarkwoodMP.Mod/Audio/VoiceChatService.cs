@@ -447,6 +447,28 @@ namespace DWMPHorde.Audio
             return pause == null || !pause.gameObject.activeInHierarchy;
         }
 
+        /// <summary>
+        /// Built-in level of received voice, under the VoiceGain setting. Voice sat well below
+        /// the game's own sounds at the old level; the setting keeps its meaning (1.4 = normal).
+        /// </summary>
+        private const float VoiceBaseGain = 1.6f;
+
+        private const float LimitKnee = 0.7f;
+
+        /// <summary>
+        /// Peaks above the knee bend toward full scale instead of being cut flat: the higher
+        /// level would otherwise crackle on every loud syllable.
+        /// </summary>
+        private static float SoftLimit(float x)
+        {
+            float a = x < 0f ? -x : x;
+            if (a <= LimitKnee)
+                return x;
+            float over = (a - LimitKnee) / (1f - LimitKnee);
+            float y = LimitKnee + (1f - LimitKnee) * (float)Math.Tanh(over);
+            return x < 0f ? -y : y;
+        }
+
         public static void OnVoiceData(VoiceDataMessage msg)
         {
             var net = ModRuntime.Network;
@@ -516,7 +538,7 @@ namespace DWMPHorde.Audio
                 speaker.Level = p.Level / 255f;
                 speaker.PacketsIn++;
                 speaker.LastData = Time.unscaledTime;
-                float gain = ModConfig.VoiceGain?.Value ?? 1.4f;
+                float gain = (ModConfig.VoiceGain?.Value ?? 1.4f) * VoiceBaseGain;
                 bool radioMode = speaker.RadioMode;
                 bool radioStart = radioMode && !speaker.RadioWasActive;
                 if (radioMode)
@@ -540,7 +562,7 @@ namespace DWMPHorde.Audio
                         float sample = _decodeBuf[i] * gain;
                         if (radioMode)
                             sample = RadioSample(speaker, sample);
-                        speaker.Ring[speaker.WritePos] = Mathf.Clamp(sample, -1f, 1f);
+                        speaker.Ring[speaker.WritePos] = SoftLimit(sample);
                         speaker.WritePos = (speaker.WritePos + 1) % speaker.Ring.Length;
                         speaker.Buffered++;
                     }

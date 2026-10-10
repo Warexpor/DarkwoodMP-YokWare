@@ -3,12 +3,12 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.198**. The current Horde wire protocol is **52**. Every install in a session
+**0.8.199**. The current Horde wire protocol is **52**. Every install in a session
 needs the same DLL; the protocol is checked on join.
 
 Protocol history (newest first):
 
-- **52**, 0.8.189 to 0.8.198: `PlayerState`'s walkie trailer becomes a state byte,
+- **52**, 0.8.189 to 0.8.199: `PlayerState`'s walkie trailer becomes a state byte,
   `WalkieState`: none, off or flat, on in a pocket, on in hand, plus underground.
 - **51**, 0.8.187 to 0.8.188: `VoiceData` (129) carries the mod's own voice codec
   instead of Steam Voice.
@@ -56,6 +56,68 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.199 — Session notes: loot-bonus dupe, listening in on a talk, Steam friends list, radio and voice tuning
+
+From the host's notes on the same session. No wire change (protocol 52). Build and unit tests
+only; nothing here is playtested yet.
+
+- **Loot-bonus dupe through a container.** Mushrooms (and every other bonus item) put into the
+  workbench and taken back came out with the party bonus again, each time (host log: took 4 and
+  got +4, put 2 back, took 6 and got +6, twice). Only a cursor drop into a plain container marked
+  the slot as "a player put this here"; a quick transfer, a craft output or any non-`itemInv`
+  container did not, and the mark was keyed by position, so a pushed wardrobe lost it. Every put
+  is now marked where it is sent (`SendContainerAction`) and where it is received, by container
+  object and slot. Files: `ItemDoublePickupPatch.cs`, `ContainerSyncPatches.cs`,
+  `ContainerLootNetHandlers.cs`.
+  - **Known gap, left open on purpose:** the marks live in memory. After a reload (or for a
+    player who joins later) a stack a player stored counts as world loot again. Closing it needs
+    the marks saved with the world and sent to joiners (a save sidecar and a protocol bump).
+- **Listening in on another player's talk.**
+  - **Esc did nothing for the listener** while the talking player moved between screens that
+    change the portrait (the bunker door: look, listen, handle). Vanilla drops Esc while the top
+    fade screen is up, and the listener's view raises it for each portrait change. The listener's
+    Esc is now read directly in that state.
+  - **The talk handed over while the listener was in its own trade** (the talking player left)
+    kept the other player's last screen under the new owner's options once the trade closed: old
+    text, an item list, a talk still marked as running. It is cleared at the hand-over.
+  - **The talk ending while the listener was in its own trade** closed the window with the
+    trading screen still up; the trade is closed first now.
+  - A portrait clip that finishes loading after the view closed no longer cuts the close fade.
+  - Files: `DialogMirror.cs`, `LanNetworkManager.Tick.cs`.
+- **A joining player's stand-up on the other screens** started when its first packet arrived,
+  from the first frame, so it ran behind and was cut when the player, already up, walked off.
+  The stand-in now starts the clip at the frame the player is on and plays on from there, ending
+  with it. This partly reverses 0.8.160 (which played it from frame 0 because following every
+  packet's frame cut it in half): the start of the stand-up is not shown when the player was
+  already part-way up. `SecondPlayerAnimController.Apply.cs`.
+- **Multiplayer menu.**
+  - **Join > Steam friends** (new screen): friends who are in a lobby of this game right now, one
+    click to join. The lobby id field moved there. Steam only reports friends-only and public
+    lobbies, so a private lobby still needs an invite or the id.
+  - **Invite friends** is also on the host's title screen (it was pause menu only).
+  - A LAN host's Multiplayer screen shows **Your address: ip:port**.
+  - Files: `MultiplayerScreens.cs`, `SteamCoopTransport.cs` (`FindFriendLobbies`), `Loc.Ru.cs`.
+- **Radio.** A battery lasts 60 minutes on standby (was 25) and 20 minutes of talking on top (was
+  8). The inventory icon is brought down to 30 px with point filtering, the density of the game's
+  own icons (it was a 256 px image with smooth filtering). `VoiceChatService.Walkie.cs`,
+  `WalkieItem.cs`.
+- **Voice is louder.** Received voice gets a built-in 1.6x under the `VoiceGain` setting (existing
+  config files keep their value and still get it), and peaks are soft-limited instead of clipped.
+  `VoiceChatService.cs`.
+- **Looked at, not changed:**
+  - **Aggressive barking with no dog in sight.** The dog's chase and guard sounds are looping 3D
+    sounds with vanilla's own carry (1000 and 1500 units; the screen is about 960 x 540 units
+    from the player), and the mod plays them through vanilla's sources. In co-op a dog barks at
+    the other player too, so it is heard from off screen. Nothing in the logs shows a stuck loop
+    or a wrong source. Whether to cut a creature's voice short for a player it is not reacting
+    to is a rules decision, not made here.
+  - **The Wolfman still in the hideout after the morning ended.** Vanilla: on his first visit he
+    is not the morning trader (`Location.spawnWolf`, not `spawnTrader`), `endAfterNight` removes
+    only the trader, and he goes when the hideout unloads (the player is a screen or two away).
+    The logs show exactly that (despawned once the host was far enough).
+  - **New radio sounds** (recorded, not generated): not done; needs sound files with a licence
+    that fits a public GPLv3 repo.
 
 ## 0.8.198 — First real session (Steam, English host + Russian client): ghost traps, furniture left behind, translated names on the wire
 

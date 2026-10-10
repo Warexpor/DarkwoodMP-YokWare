@@ -176,6 +176,10 @@ namespace DWMPHorde.Patches
 
         internal static void SendContainerAction(ContainerAction action, Vector3 pos, int slotIdx, string itemType, int amount, float durability, int ammo, bool isPlayerPlaced = false, int preTakePlayerCount = -1, bool isRecipe = false, string[] upgrades = null, bool shouldBeActive = false)
         {
+            // Every local put goes through here, whatever made it: the loot bonus must not
+            // count the stack as world loot when it is taken back.
+            if (action == ContainerAction.PlaceItem && isPlayerPlaced && slotIdx >= 0)
+                ItemDoublePickupPatch.MarkContainerSlotPlayerPlaced(pos, slotIdx);
             if (LanNetworkManager.IsApplyingRemoteState)
             {
                 if (ModRuntime.VerboseLogging)

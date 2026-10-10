@@ -411,10 +411,45 @@ namespace DWMPHorde.Items
             return uvs;
         }
 
+        /// <summary>Vanilla inventory icons are about 30 px across, drawn 1:1 with point filtering.</summary>
+        private const int IconPixels = 30;
+
         /// <summary>
-        /// The walkie's painted icon (256 px, embedded). The inventory draws it at 30 units, so it
-        /// gets a mip chain and trilinear filtering: shrunk without mips it shimmers and jags.
+        /// The walkie's painted icon (256 px, embedded), brought down to the pixel density of the
+        /// game's own icons: at full resolution with smooth filtering it looked far sharper and
+        /// cleaner than every item next to it.
         /// </summary>
+        /// <summary>Area average of a square-ish image down to size x size, weighted by alpha.</summary>
+        private static Color32[] Downsample(Color32[] src, int w, int h, int size)
+        {
+            var dst = new Color32[size * size];
+            for (int y = 0; y < size; y++)
+            {
+                int y0 = y * h / size, y1 = Math.Max(y0 + 1, (y + 1) * h / size);
+                for (int x = 0; x < size; x++)
+                {
+                    int x0 = x * w / size, x1 = Math.Max(x0 + 1, (x + 1) * w / size);
+                    float r = 0f, g = 0f, b = 0f, a = 0f;
+                    for (int sy = y0; sy < y1; sy++)
+                    {
+                        for (int sx = x0; sx < x1; sx++)
+                        {
+                            Color32 c = src[sy * w + sx];
+                            r += c.r * c.a;
+                            g += c.g * c.a;
+                            b += c.b * c.a;
+                            a += c.a;
+                        }
+                    }
+                    int n = (y1 - y0) * (x1 - x0);
+                    dst[y * size + x] = a <= 0f
+                        ? new Color32(0, 0, 0, 0)
+                        : new Color32((byte)(r / a), (byte)(g / a), (byte)(b / a), (byte)(a / n));
+                }
+            }
+            return dst;
+        }
+
         private static Texture2D LoadIconTexture()
         {
             if (_iconTexture != null)
@@ -449,15 +484,14 @@ namespace DWMPHorde.Items
                     ModLog.Warn(LogCat.Audio, "Walkie sprite decode failed");
                     return null;
                 }
-                var tex = new Texture2D(png.width, png.height, TextureFormat.RGBA32, true)
+                var tex = new Texture2D(IconPixels, IconPixels, TextureFormat.RGBA32, false)
                 {
                     name = "YokWare_WalkieIconTex",
                     wrapMode = TextureWrapMode.Clamp,
-                    filterMode = FilterMode.Trilinear,
-                    anisoLevel = 2
+                    filterMode = FilterMode.Point
                 };
-                tex.SetPixels32(png.GetPixels32());
-                tex.Apply(true, true);
+                tex.SetPixels32(Downsample(png.GetPixels32(), png.width, png.height, IconPixels));
+                tex.Apply(false, true);
                 UnityEngine.Object.Destroy(png);
                 _iconTexture = tex;
                 return tex;

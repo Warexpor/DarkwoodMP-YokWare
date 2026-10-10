@@ -16,9 +16,9 @@ namespace DWMPHorde.Audio
     public static partial class VoiceChatService
     {
         /// <summary>A full battery lasts this long switched on and listening.</summary>
-        private const float BatteryStandbySec = 1500f;
+        private const float BatteryStandbySec = 3600f;
         /// <summary>Talking drains this much faster on top.</summary>
-        private const float BatteryTalkSec = 480f;
+        private const float BatteryTalkSec = 1200f;
         /// <summary>Below this share of charge the radio chirps a low-battery warning now and then.</summary>
         private const float LowBattery = 0.1f;
         private const float LowBatteryEverySec = 30f;

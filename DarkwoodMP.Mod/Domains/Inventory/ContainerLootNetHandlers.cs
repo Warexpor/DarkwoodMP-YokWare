@@ -257,7 +257,7 @@ namespace DWMPHorde.Networking
                         FireRemoteContainerStoryTrigger(inv, EventTrigger.Type.onPlaceItem, msg);
                         // Only arm after a successful place (deny must not mark).
                         if (msg.IsPlayerPlaced)
-                            Patches.ItemDoublePickupPatch.MarkContainerSlotPlayerPlaced(pos, msg.SlotIndex);
+                            Patches.ItemDoublePickupPatch.MarkContainerSlotPlayerPlaced(inv, msg.SlotIndex);
                     }
                     else if ((!msg.IsRecipe && slot.invItem.type == msg.ItemType)
                         || (msg.IsRecipe && slot.invItem.isRecipe
@@ -275,7 +275,7 @@ namespace DWMPHorde.Networking
                         slot.invItem.refresh();
                         FireRemoteContainerStoryTrigger(inv, EventTrigger.Type.onPlaceItem, msg);
                         if (msg.IsPlayerPlaced)
-                            Patches.ItemDoublePickupPatch.MarkContainerSlotPlayerPlaced(pos, msg.SlotIndex);
+                            Patches.ItemDoublePickupPatch.MarkContainerSlotPlayerPlaced(inv, msg.SlotIndex);
                     }
                     else if (fromClient)
                     {

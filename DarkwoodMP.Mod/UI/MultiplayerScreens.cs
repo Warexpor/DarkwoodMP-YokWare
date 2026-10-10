@@ -19,6 +19,7 @@ namespace DWMPHorde
         private static VmScreen _root; // process-scoped: menu screens, rebuilt on show
         private static VmScreen _host; // process-scoped: menu screens
         private static VmScreen _join; // process-scoped: menu screens
+        private static VmScreen _friends; // process-scoped: menu screens
         private static VmScreen _settings; // process-scoped: menu screens
         private static VmScreen _hostSettings; // process-scoped: menu screens
         private static VmScreen _picker; // process-scoped: menu screens
@@ -37,6 +38,7 @@ namespace DWMPHorde
             _root = new VmScreen("Multiplayer") { Build = BuildRoot, Signature = RootSignature, Tick = TickStatus };
             _host = new VmScreen("MultiplayerHost") { Build = BuildHost, Parent = _root, Tick = TickStatus };
             _join = new VmScreen("MultiplayerJoin") { Build = BuildJoin, Signature = JoinSignature, Parent = _root, Tick = TickStatus };
+            _friends = new VmScreen("MultiplayerSteamFriends") { Build = BuildFriends, Signature = JoinSignature, Parent = _join, Tick = TickStatus };
             _settings = new VmScreen("MultiplayerSettings") { Build = BuildSettings, Signature = SettingsSignature, Parent = _root };
             _hostSettings = new VmScreen("MultiplayerHostSettings") { Build = BuildHostSettings, Signature = HostSettingsSignature, Parent = _root };
             _settingsPage = new VmSettingsPage(_settings, SettingsEntries);
@@ -169,6 +171,8 @@ namespace DWMPHorde
                 else if (role == NetworkRole.Host)
                 {
                     items.Add(Entry("Choose a profile", ChooseHostProfile));
+                    if (net != null && net.IsSteamSession)
+                        items.Add(Entry("Invite friends", InviteFriends));
                 }
                 else
                 {
@@ -200,7 +204,50 @@ namespace DWMPHorde
             for (int i = 0; i < items.Count; i++)
                 b.Item(items[i].Key, Vm.ItemTopZ - Vm.ItemStep * i, items[i].Value);
             b.Back();
+            // A LAN host has nothing to hand out but this: the address the others type in.
+            if (role == NetworkRole.Host && net != null && !net.IsSteamSession)
+                b.Label(Loc.T("Your address") + ": " + LanAddressText(), 0f, -215f, TextAnchor.MiddleCenter, Vm.Grey, 560);
             b.Label(PluginInfo.Name + " " + PluginInfo.Version, 0f, -250f, TextAnchor.MiddleCenter, Vm.Dim);
+        }
+
+        private static string _lanAddress; // process-scoped: menu text, refreshed every few seconds
+        private static float _lanAddressAt = -100f; // process-scoped: menu text timer
+
+        /// <summary>This computer's local network addresses and the host port ("192.168.1.5:7788").</summary>
+        private static string LanAddressText()
+        {
+            if (_lanAddress != null && Time.realtimeSinceStartup - _lanAddressAt < 5f)
+                return _lanAddress;
+            _lanAddressAt = Time.realtimeSinceStartup;
+            var found = new List<string>(2);
+            try
+            {
+                foreach (var nic in System.Net.NetworkInformation.NetworkInterface.GetAllNetworkInterfaces())
+                {
+                    if (nic.OperationalStatus != System.Net.NetworkInformation.OperationalStatus.Up
+                        || nic.NetworkInterfaceType == System.Net.NetworkInformation.NetworkInterfaceType.Loopback)
+                        continue;
+                    foreach (var ua in nic.GetIPProperties().UnicastAddresses)
+                    {
+                        System.Net.IPAddress ip = ua.Address;
+                        if (ip.AddressFamily != System.Net.Sockets.AddressFamily.InterNetwork || System.Net.IPAddress.IsLoopback(ip))
+                            continue;
+                        string text = ip.ToString();
+                        // 169.254.x.x: a card with no network behind it.
+                        if (text.StartsWith("169.254.", StringComparison.Ordinal) || found.Contains(text))
+                            continue;
+                        if (found.Count < 2)
+                            found.Add(text);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                ModLog.Warn(LogCat.Session, "LAN address lookup failed: " + ex.Message);
+            }
+            int port = ModConfig.GetConnectPort();
+            _lanAddress = found.Count == 0 ? "?:" + port : string.Join(" / ", found.ToArray()) + ":" + port;
+            return _lanAddress;
         }
 
         private static KeyValuePair<string, Action> Entry(string english, Action a) => new KeyValuePair<string, Action>(english, a);
@@ -317,11 +364,8 @@ namespace DWMPHorde
                     v => { if (ModConfig.HostPassword != null) ModConfig.HostPassword.Value = v; }, 64, masked: true);
                 b.Item("Connect", 100f - 70f, MainMenuMultiplayerInject.JoinLan);
 
-                b.TextField("Steam lobby", 100f - 130f, () => ModConfig.SteamLobbyId?.Value ?? "",
-                    v => { if (ModConfig.SteamLobbyId != null) ModConfig.SteamLobbyId.Value = v; }, 24, accept: char.IsDigit,
-                    enabled: true);
                 bool steam = Networking.Steam.SteamCoopTransport.IsSteamReady(out _);
-                b.Item("Join the lobby", 100f - 180f, MainMenuMultiplayerInject.JoinSteam, enabled: steam);
+                b.Item("Steam friends", 100f - 130f, () => Vm.Open(_friends), enabled: steam);
                 b.Back();
                 return;
             }
@@ -345,6 +389,67 @@ namespace DWMPHorde
                     b.Item("Disconnect", Vm.ItemTopZ - Vm.ItemStep, ConfirmDisconnect);
             }
             b.Back();
+        }
+
+        // ------------------------------------------------------------------
+        // Join > Steam friends
+        // ------------------------------------------------------------------
+
+        private const int MaxFriendRows = 3;
+
+        /// <summary>
+        /// Friends who are in a lobby of this game right now, each one click to join. Joining used
+        /// to need the host's lobby id typed in, or an invite found in the Steam overlay.
+        /// </summary>
+        private static void BuildFriends(VmBuilder b)
+        {
+            b.Header("Steam friends");
+            StatusLabel(b);
+            if (Role != NetworkRole.Offline || MainMenuMultiplayerInject.JoinPending)
+            {
+                // The join is under way: its progress and buttons are the Join screen's.
+                b.Item("Cancel", Vm.ItemTopZ - Vm.ItemStep, MainMenuMultiplayerInject.Disconnect);
+                b.Back();
+                return;
+            }
+
+            List<Networking.Steam.SteamCoopTransport.FriendLobby> lobbies =
+                Networking.Steam.SteamCoopTransport.FindFriendLobbies(MaxFriendRows);
+            float z = Vm.ItemTopZ;
+            if (lobbies.Count == 0)
+            {
+                b.Label(Loc.T("No friend is hosting right now. Ask the host for an invite, or type in the lobby id."),
+                    0f, z, TextAnchor.MiddleCenter, Vm.Grey, 560);
+                z -= Vm.ItemStep;
+            }
+            for (int i = 0; i < lobbies.Count; i++)
+            {
+                ulong id = lobbies[i].LobbyId;
+                b.Item(lobbies[i].Name, z, () => JoinFriendLobby(id));
+                z -= Vm.ItemStep;
+            }
+            b.Item("Refresh", z, () => Vm.Current?.Rebuild());
+
+            b.TextField("Steam lobby", -55f, () => ModConfig.SteamLobbyId?.Value ?? "",
+                v => { if (ModConfig.SteamLobbyId != null) ModConfig.SteamLobbyId.Value = v; }, 24, accept: char.IsDigit,
+                enabled: true);
+            b.Item("Join the lobby", -95f, JoinTypedLobby);
+            b.Back();
+        }
+
+        private static void JoinFriendLobby(ulong lobbyId)
+        {
+            if (ModConfig.SteamLobbyId != null)
+                ModConfig.SteamLobbyId.Value = lobbyId.ToString();
+            JoinTypedLobby();
+        }
+
+        private static void JoinTypedLobby()
+        {
+            MainMenuMultiplayerInject.JoinSteam();
+            // The Join screen shows the progress, the cancel button and the world download.
+            if (Role != NetworkRole.Offline || MainMenuMultiplayerInject.JoinPending)
+                Vm.Open(_join);
         }
 
         private static void SetPort(string v)

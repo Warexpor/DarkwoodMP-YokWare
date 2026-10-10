@@ -459,6 +459,9 @@ Listen on the player who did not cause the sound.
 - [ ] Host > Steam creates a lobby; Multiplayer > Invite friends copies its id and opens
       the invite overlay. A friend joins from the invite; the 35 s join timeout applies.
 - [ ] Launching the game from a pending invite (`+connect_lobby`) joins the same way.
+- [ ] Join > Steam friends lists a friend who is hosting (friends-only or public lobby);
+      clicking the name joins. Invite friends also shows on the host's title screen.
+- [ ] A LAN host's Multiplayer screen shows "Your address: ip:port".
 - [ ] A failed join (bad lobby id, Steam not ready) shows a status line, then clears.
 - [ ] A Steam client is killed and rejoins the same lobby: one player, not two; with a
       host password set, the rejoin still has to pass it.

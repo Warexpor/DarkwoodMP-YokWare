@@ -38,6 +38,7 @@ namespace DWMPHorde.Networking
             Sync.PauseMenuSync.Tick(this);
             Sync.PlayerNames.Tick(this);
             StackedLightProbe.Tick(this);
+            Sync.DialogMirror.TickListener();
             BackgroundFrameRate.Tick(this);
             Sync.DialogHandInArbiter.TickClient(this);
             Audio.VoiceChatService.Tick();

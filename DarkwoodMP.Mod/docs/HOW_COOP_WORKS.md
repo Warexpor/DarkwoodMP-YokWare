@@ -240,7 +240,8 @@ shared copy.
 
 - **LAN:** LiteNetLib over UDP, default port 7788.
 - **Steam:** a Steam lobby over SteamNetworkingSockets (friends, public or private;
-  join from the invite overlay or by lobby id).
+  join from Join > Steam friends, from the invite overlay or by lobby id). A LAN host's
+  Multiplayer screen shows the address the others type in.
 - Both carry the same messages. All peers must run the same mod build: the
   handshake carries the protocol number and refuses a mismatch.
 - A GOG copy has no Steam, so a Steam host and a GOG client must use LAN.
@@ -857,7 +858,7 @@ party events.
   - A walkie is crafted at the workbench (level 1) from 2 junk and 1 nail; each player
     makes their own.
   - A walkie is a device: an on/off knob (`B`, in hand), a 9V battery that drains while
-    it is on (faster while talking; `R` swaps in a fresh `battery9v`, as for the
+    it is on (about an hour on standby, faster while talking; `R` swaps in a fresh `battery9v`, as for the
     flashlight), quieter and duller in a pocket than in hand. Off or flat, it neither
     receives, transmits nor makes a sound for creatures: switching it off is how you
     sneak with one.
