@@ -600,6 +600,10 @@ namespace DWMPHorde.Sync
                 NPC npc = all[i];
                 if (npc == null || !npc.trader || npc.inventory == null || string.IsNullOrEmpty(npc.name))
                     continue;
+                // Switched off (culled far away, or kept hidden by the story): a client holds the
+                // host's stock for it in the trade queue until it is out, so its copy here is old.
+                if (!npc.gameObject.activeInHierarchy)
+                    continue;
                 TradeInventorySyncMessage m = TradeInventorySync.BuildMessage(npc);
                 parts.Clear();
                 for (int k = 0; k < m.ItemCount; k++)

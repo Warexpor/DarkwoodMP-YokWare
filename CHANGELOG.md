@@ -88,6 +88,10 @@ Found by an unattended three-player story crawl (host + two clients, every chapt
   non-convex collider on every release (`Non-convex MeshCollider with non-kinematic Rigidbody`,
   `Dynamic actor with illegal collision shapes`). Sync now lets go only of bodies it froze itself
   (`LockKinematic` / `ReleaseKinematic` in `WorldPhysicsSyncService.cs`).
+- Desync check: a trader switched off far away (culled, or hidden by the story) is no longer
+  compared. A client keeps the host's stock for it in the trade queue until it is out, so its
+  copy was always the old roll and every morning restock showed up as a trader "desync"
+  (`CollectTraders` in `DesyncCheck.Sections.cs`).
 
 ## 0.8.195 — The apply-changes question only for changes with consequences
 
