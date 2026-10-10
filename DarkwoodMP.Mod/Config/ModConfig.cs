@@ -12,6 +12,8 @@ namespace DWMPHorde.Config
     {
         public static ModSetting<string> ConnectAddress { get; private set; }
         public static ModSetting<int> ConnectPort { get; private set; }
+        /// <summary>Host: the address the others reach this computer at. Empty = found from the network cards.</summary>
+        public static ModSetting<string> HostAddress { get; private set; }
         public static ModSetting<string> HostPassword { get; private set; }
         /// <summary>Last Steam lobby id (ulong) for Steam join field / host display.</summary>
         public static ModSetting<string> SteamLobbyId { get; private set; }
@@ -108,6 +110,18 @@ namespace DWMPHorde.Config
 
         private static int _lastWarnedPort = int.MinValue;
 
+        /// <summary>The host address the player typed in, when it is a usable IPv4 address.</summary>
+        public static bool TryGetHostAddress(out System.Net.IPAddress address)
+        {
+            address = null;
+            string raw = HostAddress?.Value?.Trim();
+            if (string.IsNullOrEmpty(raw))
+                return false;
+            return System.Net.IPAddress.TryParse(raw, out address)
+                && address.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork
+                && !address.Equals(System.Net.IPAddress.Any) && !System.Net.IPAddress.IsLoopback(address);
+        }
+
         /// <summary>
         /// Configured default port, clamped to a bindable UDP range. A hand-edited cfg with
         /// 0 / 99999 would otherwise reach LiteNetLib as-is; warn once per bad value.
@@ -168,6 +182,8 @@ namespace DWMPHorde.Config
             ConnectAddress = config.Bind("Network", "ConnectAddress", "127.0.0.1", "Default IP address shown in the connect field.");
             ConnectPort = config.Bind("Network", "ConnectPort", PluginInfo.DefaultPort,
                 "Default UDP port for LAN connections (1-65535; out-of-range values are clamped with a warning).");
+            HostAddress = config.Bind("Network", "HostAddress", "",
+                "LAN host: the IPv4 address the other players reach this computer at (a VPN adapter, a forwarded public address). Shown in the menu and handed to the players for reconnects. Empty = found from the network cards. The host listens on every address either way.");
             HostPassword = config.Bind("Network", "HostPassword", "",
                 "Optional join password. Empty = open LAN (trusted subnet). Host and every client must match. Also used as Steam lobby conn key.");
             SteamLobbyId = config.Bind("Network", "SteamLobbyId", "",

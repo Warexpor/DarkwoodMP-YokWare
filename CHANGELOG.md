@@ -3,7 +3,7 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.201**. The current Horde wire protocol is **53**. Every install in a session
+**0.8.202**. The current Horde wire protocol is **53**. Every install in a session
 needs the same DLL; the protocol is checked on join.
 
 Protocol history (newest first):
@@ -59,6 +59,28 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.202 — Host address typed in for LAN, Steam's own windows for inviting and joining
+
+- **A LAN host can type the address the others reach it at.** The Host screen has an
+  Address field and the port, with "Your address: ip:port" under them. Left empty, the
+  address is found from the network cards as before; a VPN adapter or a forwarded public
+  address has to be typed, since nothing on the computer tells which one the others use.
+  The typed address is what the Multiplayer screen shows and what the other players are
+  handed for reconnects and host hand-over. The host still listens on every address, so a
+  join over 127.0.0.1 or the plain LAN address keeps working. New config key `HostAddress`.
+  Files: `ModConfig.cs`, `MultiplayerScreens.cs`, `HostMigration.PeerRoster.cs`.
+- **Hosting over Steam opens Steam's invite window by itself**, as soon as the lobby
+  exists. Before, the host had to find "Invite friends" in the Multiplayer screen after
+  hosting. Files: `LanNetworkManager.Steam.cs`, `MultiplayerScreens.cs`.
+- **Join > Steam friends > Open Steam friends list** brings up Steam's own friends list
+  over the game; "Join Game" on a friend there, or an invite in a chat, joins the same
+  way a row of the in-game list does. Nobody needs the lobby id; the field for it stays
+  at the bottom for the invite-only case.
+- **Steam overlay switched off:** both buttons say so instead of doing nothing.
+- Host screen order is now Steam, then Local network with its address and port.
+- Not playtested: the Host and Steam friends screens have not been seen on screen, and
+  the overlay calls need two Steam accounts to try.
 
 ## 0.8.201 — Map board in the game's own UI, no stamp under the cursor, sharper names
 

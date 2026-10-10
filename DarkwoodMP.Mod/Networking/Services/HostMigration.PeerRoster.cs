@@ -241,6 +241,9 @@ namespace DWMPHorde.Networking
 
         private static string GetPrimaryLanIPv4()
         {
+            // The address this player typed in is the one the others can reach (VPN, forwarded port).
+            if (Config.ModConfig.TryGetHostAddress(out IPAddress chosen))
+                return chosen.ToString();
             try
             {
                 foreach (NetworkInterface ni in NetworkInterface.GetAllNetworkInterfaces())

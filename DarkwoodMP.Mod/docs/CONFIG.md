@@ -26,6 +26,7 @@ In game:
 - **Multiplayer > Host settings** edits `FriendlyFireEnabled`, `LootShareMode` (with
   `DoubleItemsEnabled`), `NightMonsterMultiplier` and `VoiceAlertsEnemies`, and before
   hosting `MaxPlayers`, `SteamLobbyType`, `ConnectPort` and `HostPassword`.
+- **Multiplayer > Host** edits `HostAddress` and `ConnectPort`.
 - **Multiplayer > Join** edits `ConnectAddress`, `ConnectPort`, `HostPassword` and
   `SteamLobbyId`.
 
@@ -40,6 +41,7 @@ changes are kept without asking.
 | Key | Default | Meaning |
 |-----|---------|---------|
 | `ConnectAddress` | `127.0.0.1` | Host address of Multiplayer > Join (Address), used by Connect. |
+| `HostAddress` | empty | LAN host: the IPv4 address the other players reach this computer at (a VPN adapter, a forwarded public address), typed in Multiplayer > Host (Address). Shown as "Your address" and handed to the players for reconnects. Empty means it is found from the network cards. The host listens on every address either way. |
 | `ConnectPort` | `7788` | Default UDP port for hosting and joining on LAN (1-65535; out-of-range values are clamped with a warning). |
 | `HostPassword` | empty | Optional join password. Empty means open LAN. Host and every client must match. Also used as the Steam lobby connection key. |
 | `SteamLobbyId` | empty | Steam lobby id (ulong) for Multiplayer > Join > Steam friends > Join the lobby. The host fills it in when creating a Steam lobby. Friends can also join through the Steam invite overlay. |

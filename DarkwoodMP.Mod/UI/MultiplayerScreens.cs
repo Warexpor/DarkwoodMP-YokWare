@@ -216,6 +216,8 @@ namespace DWMPHorde
         /// <summary>This computer's local network addresses and the host port ("192.168.1.5:7788").</summary>
         private static string LanAddressText()
         {
+            if (ModConfig.TryGetHostAddress(out System.Net.IPAddress typed))
+                return typed + ":" + ModConfig.GetConnectPort();
             if (_lanAddress != null && Time.realtimeSinceStartup - _lanAddressAt < 5f)
                 return _lanAddress;
             _lanAddressAt = Time.realtimeSinceStartup;
@@ -267,7 +269,9 @@ namespace DWMPHorde
                 return;
             Networking.Steam.SteamCoopTransport.CopyToClipboard(net.SteamLobbyIdText);
             net.InviteSteamFriends();
-            MainMenuMultiplayerInject.Flash("Lobby id copied — invite friends in the Steam overlay");
+            MainMenuMultiplayerInject.Flash(Networking.Steam.SteamCoopTransport.OverlayEnabled()
+                ? "Lobby id copied — invite friends in the Steam overlay"
+                : "The Steam overlay is off — lobby id copied, friends can also join from this game's Steam friends list");
         }
 
         private static void ResendWorld()
@@ -321,9 +325,24 @@ namespace DWMPHorde
                     ? "Choose a profile next. Other players join once you are in the game."
                     : "Other players get a copy of this world when they join."),
                 0f, 160f, TextAnchor.MiddleCenter, Vm.Grey, 560);
-            b.Item("Local network", Vm.ItemTopZ - Vm.ItemStep * 1, () => StartHost(steam: false));
-            b.Item("Steam", Vm.ItemTopZ - Vm.ItemStep * 2, () => StartHost(steam: true), enabled: steam);
+            b.Item("Steam", Vm.ItemTopZ - Vm.ItemStep * 1, () => StartHost(steam: true), enabled: steam);
+            b.Item("Local network", Vm.ItemTopZ - Vm.ItemStep * 2, () => StartHost(steam: false));
+            // Local network only: the address the others type in. Empty = this computer's own,
+            // found from its network cards; a VPN or forwarded address has to be typed.
+            b.TextField("Address", Vm.ItemTopZ - Vm.ItemStep * 2 - 45f, () => ModConfig.HostAddress?.Value ?? "", SetHostAddress, 15,
+                accept: c => char.IsDigit(c) || c == '.');
+            b.TextField("Port", Vm.ItemTopZ - Vm.ItemStep * 2 - 85f, () => ModConfig.GetConnectPort().ToString(), SetPort, 5, accept: char.IsDigit);
+            b.Label(Loc.T("Your address") + ": " + LanAddressText(), 0f, Vm.ItemTopZ - Vm.ItemStep * 2 - 125f, TextAnchor.MiddleCenter, Vm.Grey, 560);
             b.Back();
+        }
+
+        private static void SetHostAddress(string v)
+        {
+            if (ModConfig.HostAddress == null)
+                return;
+            ModConfig.HostAddress.Value = (v ?? "").Trim();
+            Networking.LanNetworkManager.InvalidateLanIPv4Cache();
+            Vm.Current?.Rebuild();
         }
 
         private static void StartHost(bool steam)
@@ -331,6 +350,9 @@ namespace DWMPHorde
             bool ok = steam ? MainMenuMultiplayerInject.HostSteam() : MainMenuMultiplayerInject.HostLan();
             if (!ok)
                 return;
+            // A Steam host has one thing to do next: call the others in.
+            if (steam)
+                Net?.InviteSteamFriendsWhenReady();
             if (GameScreen.AtTitle)
                 ChooseHostProfile();
             else
@@ -428,13 +450,23 @@ namespace DWMPHorde
                 b.Item(lobbies[i].Name, z, () => JoinFriendLobby(id));
                 z -= Vm.ItemStep;
             }
+            // Steam's own friends list: "Join Game" on a friend there, or an invite in the chat,
+            // lands in the same join as a row above.
+            b.Item("Open Steam friends list", z, OpenSteamFriends);
+            z -= Vm.ItemStep;
             b.Item("Refresh", z, () => Vm.Current?.Rebuild());
 
-            b.TextField("Steam lobby", -55f, () => ModConfig.SteamLobbyId?.Value ?? "",
+            b.TextField("Steam lobby", -100f, () => ModConfig.SteamLobbyId?.Value ?? "",
                 v => { if (ModConfig.SteamLobbyId != null) ModConfig.SteamLobbyId.Value = v; }, 24, accept: char.IsDigit,
                 enabled: true);
-            b.Item("Join the lobby", -95f, JoinTypedLobby);
+            b.Item("Join the lobby", -140f, JoinTypedLobby);
             b.Back();
+        }
+
+        private static void OpenSteamFriends()
+        {
+            if (!Networking.Steam.SteamCoopTransport.OpenFriendsOverlay())
+                MainMenuMultiplayerInject.Flash("The Steam overlay is off — turn it on in Steam, or pick a friend here");
         }
 
         private static void JoinFriendLobby(ulong lobbyId)

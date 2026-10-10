@@ -245,8 +245,9 @@ shared copy.
 
 - **LAN:** LiteNetLib over UDP, default port 7788.
 - **Steam:** a Steam lobby over SteamNetworkingSockets (friends, public or private;
-  join from Join > Steam friends, from the invite overlay or by lobby id). A LAN host's
-  Multiplayer screen shows the address the others type in.
+  join from Join > Steam friends, from the invite overlay or by lobby id). Hosting opens
+  Steam's invite window. A LAN host's Host and Multiplayer screens show the address the
+  others type in; the host can type its own (VPN, forwarded port).
 - Both carry the same messages. All peers must run the same mod build: the
   handshake carries the protocol number and refuses a mismatch.
 - A GOG copy has no Steam, so a Steam host and a GOG client must use LAN.
@@ -467,6 +468,11 @@ night for players who are still alive, so in co-op:
 Any living player can press F4 to spectate the others and cycle between them;
 wrapping around the list returns to their own body. F4 is blocked in menus, chat,
 dialogue, dream entries, cutscenes and the title screen.
+
+When spectating begins, one line at the bottom of the screen says what F4 does from
+there (next player, and for a living player back to the body). It fades in, stays
+about five seconds and fades away. A dead player with only one other player to
+watch gets no line.
 
 ### Dying in a dream
 

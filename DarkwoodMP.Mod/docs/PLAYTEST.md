@@ -229,6 +229,9 @@ Older, still open:
       permadeath ending for all, and "start over" resets every character. Anyone with
       a life left: a normal all-dead morning.
 - [ ] A living player presses F4: spectates the others; wrapping returns to the body.
+      On entering, "F4 - next player, then back to yourself" fades in at the bottom,
+      stays about 5 s and fades out. Dead at night or in a dream with 2+ others alive:
+      "F4 - next player"; with one other player: no line.
       F4 does nothing in menus, chat, dialogue, cutscenes and dream entries.
 
 ## 10. Enemies
@@ -466,6 +469,12 @@ Listen on the player who did not cause the sound.
 - [ ] Join > Steam friends lists a friend who is hosting (friends-only or public lobby);
       clicking the name joins. Invite friends also shows on the host's title screen.
 - [ ] A LAN host's Multiplayer screen shows "Your address: ip:port".
+- [ ] Host screen: an address typed under Address replaces the found one in "Your
+      address" (Host and Multiplayer screens); cleared, the found one is back. A join
+      over 127.0.0.1 still works with an address typed.
+- [ ] Host > Steam opens Steam's invite window once the lobby is ready (title and in a
+      game). Join > Steam friends > Open Steam friends list opens Steam's friends list;
+      Join Game on a hosting friend there joins.
 - [ ] A failed join (bad lobby id, Steam not ready) shows a status line, then clears.
 - [ ] A Steam client is killed and rejoins the same lobby: one player, not two; with a
       host password set, the rejoin still has to pass it.

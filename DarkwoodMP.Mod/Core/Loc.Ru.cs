@@ -51,6 +51,9 @@ namespace DWMPHorde
             { "Join the lobby", "Войти в лобби" },
             { "Steam friends", "Друзья в Steam" },
             { "Refresh", "Обновить" },
+            { "Open Steam friends list", "Открыть список друзей Steam" },
+            { "The Steam overlay is off — turn it on in Steam, or pick a friend here", "Оверлей Steam выключен — включите его в Steam или выберите друга здесь" },
+            { "The Steam overlay is off — lobby id copied, friends can also join from this game's Steam friends list", "Оверлей Steam выключен — номер лобби скопирован, друзья также могут войти через список друзей Steam в этой игре" },
             { "Your address", "Ваш адрес" },
             { "No friend is hosting right now. Ask the host for an invite, or type in the lobby id.", "Сейчас никто из друзей не создал игру. Попросите хоста прислать приглашение или введите ID лобби." },
             { "Cancel", "Отмена" },
@@ -241,6 +244,8 @@ namespace DWMPHorde
             { "RMB - erase  ·  wheel - change the mark  ·  double click - write on it", "ПКМ - стереть  ·  колесо - сменить метку  ·  двойной щелчок - подписать" },
             { "RMB - mark  ·  wheel - choose the mark  ·  MMB - signal", "ПКМ - поставить метку  ·  колесо - выбрать метку  ·  СКМ - сигнал" },
             { "Enter - save  ·  Esc - cancel", "Enter - сохранить  ·  Esc - отмена" },
+            { "F4 - next player, then back to yourself", "F4 - следующий игрок, затем обратно к себе" },
+            { "F4 - next player", "F4 - следующий игрок" },
         };
 
         private static readonly Pattern[] RuPatterns = // process-scoped: constant table

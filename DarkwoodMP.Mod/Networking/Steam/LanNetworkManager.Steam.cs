@@ -149,6 +149,7 @@ namespace DWMPHorde.Networking
         /// </param>
         public void StartHostSteam(ulong reuseLobbyId = 0)
         {
+            _inviteWhenLobbyReady = false;
             // Half-applied patches would sync half the game: refuse to start a session.
             if (!ModRuntime.CanStartSession(out string patchBlock)) { StatusText = patchBlock; return; }
             // The kept lobby is not an active transport (StopNetwork(keepSteamLobby) shut the
@@ -275,6 +276,22 @@ namespace DWMPHorde.Networking
             Steam.OpenInviteOverlay();
         }
 
+        private bool _inviteWhenLobbyReady; // reset-in: StartHostSteam
+
+        /// <summary>
+        /// Host pressed "Steam" in the menu: open Steam's invite dialog as soon as the lobby
+        /// exists (it is created a moment after hosting starts).
+        /// </summary>
+        public void InviteSteamFriendsWhenReady()
+        {
+            if (!IsSteamSession || _role != NetworkRole.Host)
+                return;
+            if (Steam.LobbyId.IsValid())
+                Steam.OpenInviteOverlay();
+            else
+                _inviteWhenLobbyReady = true;
+        }
+
         /// <summary>Register Steam lobby/SNS callbacks early (overlay invites before HOST/JOIN).</summary>
         public void EnsureSteamCallbacks()
         {
@@ -311,6 +328,11 @@ namespace DWMPHorde.Networking
                 // Persist last lobby id for UI convenience.
                 if (Config.ModConfig.SteamLobbyId != null)
                     Config.ModConfig.SteamLobbyId.Value = lobbyId.m_SteamID.ToString();
+                if (_inviteWhenLobbyReady)
+                {
+                    _inviteWhenLobbyReady = false;
+                    Steam.OpenInviteOverlay();
+                }
                 return;
             }
 
