@@ -393,6 +393,23 @@ namespace DWMPHorde.Sync
                     net.SendTimeSyncTo(-1);
                     Out("  time=" + Singleton<Controller>.Instance.CurrentTime);
                     return;
+                case "rain":
+                {
+                    // rain [on|off]: the host starts or stops rain the way a vanilla event does
+                    // (ignoreDay); every machine prints its own state.
+                    Rain r = Singleton<Rain>.Instance;
+                    if (r == null) { Out("  no Rain"); return; }
+                    if (a.Length > 1)
+                    {
+                        if (net.Role != NetworkRole.Host) { Out("  host only"); return; }
+                        if (a[1] == "on") r.startRain(true, true);
+                        else r.Raining = false;
+                    }
+                    Out("  raining=" + (r.Raining ? 1 : 0) + " fog=" + (r.fogIsActive ? 1 : 0)
+                        + " scenario=" + (Singleton<NightScenarios>.Instance != null ? Singleton<NightScenarios>.Instance.scenarioId : -1)
+                        + " day=" + Singleton<Controller>.Instance.day);
+                    return;
+                }
                 case "prologue":
                 {
                     Dreams d = Dreams.Instance;

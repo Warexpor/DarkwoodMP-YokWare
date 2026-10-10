@@ -55,7 +55,7 @@ tested in the game.
 
 ---
 
-## 0.8.196 — Pilot-run fixes: stuck pad exit, night-dead past dawn, wreck physics, oven portrait callback, join weather, chapter teardown
+## 0.8.196 — Pilot-run fixes: stuck pad exit, night-dead past dawn, wreck physics, oven portrait callback, join weather, client rain, chapter teardown
 
 Found by an unattended three-player story crawl (host + two clients, every chapter 1 location).
 
@@ -102,11 +102,24 @@ Found by an unattended three-player story crawl (host + two clients, every chapt
   gone, `Core.RemovePooledPrefab` indexes a missing pool (null) for each character still carrying
   a message or effect, and the rest of that character's cleanup is skipped. With a pool gone the
   object is destroyed instead, as vanilla does with an object no pool owns
-  (`Patches/PooledPrefabTeardownPatch.cs`).
+  (`Patches/PooledPrefabTeardownPatch.cs`). Each banshee also threw there: vanilla
+  `Character.OnDestroy` runs `onBansheeOutOfSightOfPlayer`, which parents a new overlay under a
+  UI already destroyed; it is skipped once the UI or the player is gone
+  (`BansheeTeardownOverlayPatch`). Verified: chapter change with two banshees spawned, 0 NREs on
+  host and both clients.
 - Desync check: containers and pickups around a client in a place the host never went showed up
   as `host=<none>` (the registry only knew objects that had woken on that machine). The first
   check after each scene load now also takes every object of the type, inactive ones included
   (`DesyncRegistry`).
+- **Rain falling for the host could stay off for a client.** A client applied the host's rain
+  through vanilla `startRain`, which re-runs the "no rain on day 1 or night scenario 1" gate
+  against the client's own `NightScenarios.scenarioId`. Only the host's night pick sets it, so a
+  client could sit on 1 and refuse the rain (desync check: `World raining: host=1 client=0`).
+  The client now starts the host's rain with `ignoreDay` (the host already passed that gate).
+  New pilot command `rain [on|off]`. Verified: host rain off/on reaches both clients, and both
+  clients rejoining while it rains come up raining with no weather exception.
+- Desync check: a dead player's health is no longer compared (the dead machine refills its own
+  bar for the respawn while the host's copy stays at 0).
 - Not a mod bug: vanilla writes `savch.dat` as plain text and always decrypts it when a new
   chapter starts, so it logs a `FormatException` and falls back to the chapter save kept in
   `savs.dat`. Harmless, and the same without the mod.

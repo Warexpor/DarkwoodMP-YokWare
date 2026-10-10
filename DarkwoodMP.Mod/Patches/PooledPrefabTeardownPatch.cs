@@ -24,4 +24,17 @@ namespace DWMPHorde.Patches
             return false;
         }
     }
+
+    /// <summary>
+    /// The same teardown for a banshee: vanilla <c>Character.OnDestroy</c> runs
+    /// <c>onBansheeOutOfSightOfPlayer</c>, which parents a new banshee overlay under the UI. With
+    /// the UI (or the player) already destroyed, <c>UI.initBansheeOverlay</c> throws. Nothing it
+    /// does (walk to the player, fade the overlay) matters while the scene goes.
+    /// </summary>
+    [HarmonyPatch(typeof(Character), "onBansheeOutOfSightOfPlayer")]
+    public static class BansheeTeardownOverlayPatch
+    {
+        [HarmonyPriority(Priority.First)]
+        private static bool Prefix() => Singleton<UI>.Instance != null && Player.Instance != null;
+    }
 }

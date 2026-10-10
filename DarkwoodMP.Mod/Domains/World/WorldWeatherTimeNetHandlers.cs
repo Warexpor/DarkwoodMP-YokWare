@@ -107,7 +107,10 @@ namespace DWMPHorde.Networking
                 if (msg.Raining && Patches.PadWeather.LocalInPad())
                     Patches.PadWeather.StartHidden(rain);
                 else if (msg.Raining)
-                    rain.Raining = true;
+                    // ignoreDay: the host already passed vanilla's first-day / first-night gate.
+                    // The client's own NightScenarios.scenarioId is only set by the night pick the
+                    // host runs, so it can sit on 1 and refuse rain that is falling for the host.
+                    rain.startRain(false, true);
                 else
                     rain.Raining = false;
             }
