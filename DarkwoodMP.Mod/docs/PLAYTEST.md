@@ -473,7 +473,11 @@ Listen on the player who did not cause the sound.
       on A: voice only.
 - [ ] Noise suppression: with a fan or hiss in A's room, B hears A's voice without it;
       Voice > "Noise suppression" off brings it back. The level meter is near empty
-      while A is silent.
+      while A is silent. It is clean from the first second after joining, not only after
+      a few. A holding the key and saying nothing: B hears next to nothing, over the
+      radio too; A typing or clicking in a pause is much quieter than A's voice. The
+      first sound of a word is not cut, and the last word before A lets go of the radio
+      key is heard whole.
 - [ ] The walkie transmits only while playing (the radio talk key, right mouse by default, with the radio in hand), not
       in the inventory, a container, dialogue, the map, the journal, the pause menu,
       while dead or with chat open.

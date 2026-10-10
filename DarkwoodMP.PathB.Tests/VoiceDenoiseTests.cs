@@ -8,7 +8,7 @@ namespace DarkwoodMP.PathB.Tests;
 public class VoiceDenoiseTests
 {
     private const int Rate = VoiceCodec.SampleRate;
-    private const int Delay = 512;
+    private const int Delay = VoiceDenoise.DelaySamples;
 
     private static float[] Noise(int n, float amp, int seed)
     {
@@ -105,6 +105,48 @@ public class VoiceDenoiseTests
         double gapOut = Rms(y, gap + 1600, gap + Rate / 4 - 400);
         Assert.InRange(20 * Math.Log10(sylOut / sylIn), -2.0, 1.0);
         Assert.True(20 * Math.Log10(gapOut / gapIn) < -10, "gap noise went down by " + 20 * Math.Log10(gapOut / gapIn) + " dB");
+    }
+
+    [Fact]
+    public void NoiseIsCleanedFromTheFirstSecondOn()
+    {
+        float[] x = Noise(Rate * 2, 0.05f, 3);
+        float[] y = Run(x);
+        double db = 20 * Math.Log10(Rms(y, Rate / 2, Rate * 3 / 2) / Rms(x, Rate / 2, Rate * 3 / 2));
+        Assert.True(db < -25, "noise 0.5..1.5 s after the start went down by " + db + " dB");
+    }
+
+    [Fact]
+    public void ALongPauseGoesFarQuieterThanAGapBetweenWords()
+    {
+        int n = Rate * 6;
+        float[] voice = Voice(n, 0.3f);
+        // The voice stops at 3 s.
+        Array.Clear(voice, Rate * 3, n - Rate * 3);
+        float[] noise = Noise(n, 0.03f, 4);
+        var mix = new float[n];
+        for (int i = 0; i < n; i++)
+            mix[i] = voice[i] + noise[i];
+        float[] y = Run(mix);
+        double db = 20 * Math.Log10(Rms(y, Rate * 4 + Delay, Rate * 6) / Rms(noise, Rate * 4, Rate * 6 - Delay));
+        Assert.True(db < -30, "noise a second into a pause went down by " + db + " dB");
+    }
+
+    [Fact]
+    public void ClicksBetweenSentencesDoNotOpenTheGate()
+    {
+        int n = Rate * 6;
+        float[] x = Noise(n, 0.002f, 5);
+        var r = new Random(6);
+        // A key every 0.4 s: 8 ms of noise at a fifth of full scale.
+        for (int at = Rate; at < n - 200; at += Rate * 2 / 5)
+        {
+            for (int i = 0; i < 128; i++)
+                x[at + i] += 0.2f * (float)(r.NextDouble() * 2 - 1) * (float)Math.Sin(Math.PI * i / 128);
+        }
+        float[] y = Run(x);
+        double db = 20 * Math.Log10(Rms(y, Rate * 2 + Delay, n) / Rms(x, Rate * 2, n - Delay));
+        Assert.True(db < -12, "clicks went down by " + db + " dB");
     }
 
     [Fact]

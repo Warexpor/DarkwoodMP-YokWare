@@ -211,6 +211,9 @@ namespace DWMPHorde.Audio
         private static bool _localWalkie; // process-scoped: polled every 0.5 s
         private static float _nextWalkieCheck; // process-scoped: polled every 0.5 s
         private static bool _walkieTx;
+        private static float _walkieSendUntil; // process-scoped: compared against the clock
+        /// <summary>The mic's delay (noise suppression, <see cref="VoiceDenoise.DelaySamples"/>) and a packet more.</summary>
+        private const float WalkieSendTailSec = VoiceDenoise.DelaySamples / (float)VoiceCodec.SampleRate + 0.05f;
         private static bool _walkieTxWas;
         private static bool _transmitting;
         private static int _txPackets; // process-scoped: stats
@@ -594,7 +597,12 @@ namespace DWMPHorde.Audio
                 float level = VoiceCodec.LevelOf(frame, frame.Length);
                 int playerId = Math.Max(net.LocalPlayerId, 0);
                 ushort seq = _seq++;
-                byte flags = (byte)(_walkieTx ? VoiceDataMessage.FlagWalkie : 0);
+                // The mic's sound comes out of its cleaning a moment late: what was said as the
+                // key came up is still on its way, and belongs to the transmission.
+                if (_walkieTx)
+                    _walkieSendUntil = Time.unscaledTime + WalkieSendTailSec;
+                bool walkie = _walkieTx || Time.unscaledTime < _walkieSendUntil;
+                byte flags = (byte)(walkie ? VoiceDataMessage.FlagWalkie : 0);
                 // On the radio, a second block: what the radio picked up around this player.
                 bool world = _walkieTx && frame.Length == VoiceCodec.PacketSamples
                     && WorldSoundPickup.Read(_worldTx, VoiceCodec.PacketSamples);
@@ -605,12 +613,12 @@ namespace DWMPHorde.Audio
                 }
                 byte levelByte = (byte)Mathf.RoundToInt(level * 255f);
                 if (net.Role == NetworkRole.Host)
-                    VoiceHearing.Heard(net.LocalPlayerId, level, _walkieTx);
+                    VoiceHearing.Heard(net.LocalPlayerId, level, walkie);
                 net.Broadcast(NetMessageType.VoiceData,
                     w => VoiceDataMessage.WriteSlice(w, playerId, seq, flags, levelByte, _encodeBuf, len),
                     DeliveryMethod.Unreliable);
                 _txPackets++;
-                if (_walkieTx)
+                if (walkie)
                 {
                     float[] heard = frame;
                     if (world)

@@ -3,12 +3,12 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.219**. The current Horde wire protocol is **54**. Every install in a session
+**0.8.220**. The current Horde wire protocol is **54**. Every install in a session
 needs the same DLL; the protocol is checked on join.
 
 Protocol history (newest first):
 
-- **54**, 0.8.212 to 0.8.219: `VoiceData` (129) gains flag 2: a second codec block after the voice,
+- **54**, 0.8.212 to 0.8.220: `VoiceData` (129) gains flag 2: a second codec block after the voice,
   the sounds the talker's radio picked up.
 - **53**, 0.8.200 to 0.8.211: the world share package gains `savplc.dat` (container slots a player
   stored items in). No message layout changed; the bump keeps every player on a build
@@ -61,6 +61,41 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.220 — Mic noise suppression: works from the first second, quiet pauses, clicks between sentences
+
+Asked: the noise suppression was either not working or not good. Checked by simulation
+(the same algorithm run on white, pink, hum, keyboard-click and second-voice noise
+under a voice-like signal); both installs had it switched on. What was found:
+
+- **It did nothing for the first two seconds after the mic started.** The first frames
+  hold the silence before the mic's first sample; their near-zero level became each
+  band's "minimum", everything after counted as speech, and the noise estimate stayed
+  frozen until the minimum window turned over. No statistics are taken from those
+  frames now. Measured 0.3 to 3 s after the start, white noise: -11 dB before, -23 dB
+  and better now.
+- **A mic that started in the middle of a word took the word for noise** and gave it up
+  only over several pauses. A band's noise estimate is now capped by what its minimum
+  allows.
+- **Steady noise came down 19 dB and no further, and the radio undid it.** The radio's
+  drive lifts quiet sound by about as much, so a talker's room noise was nearly as loud
+  over the radio as without suppression. New: a gate after the per-band cleaning. A
+  frame holds speech when the 156 Hz to 3.8 kHz band is well over its noise for 7
+  frames in a row (56 ms); without speech, what is left is turned down by 20 dB more
+  (about -40 dB in a pause). The cleaned sound waits 4 frames so the gate is open before
+  the word, and stays open 0.3 s after it, so gaps between words are untouched.
+- **Clicks.** A key or mouse click lasts 3 to 4 frames and does not open the gate:
+  between sentences clicks come down by 10 dB (loud) to 24 dB (soft). Under speech
+  they still pass.
+- **What it still cannot do:** noise that is not steady while the player talks (typing
+  under speech, another voice, a television). That takes a trained model (RNNoise
+  class), which is not in this build.
+- **Delay** 64 ms (was 32). So the last word is not cut on the radio, the talker's
+  packets carry the radio flag for that long after the key comes up.
+- **Files:** `Audio/VoiceDenoise.cs`, `Audio/VoiceChatService.cs`,
+  `DarkwoodMP.PathB.Tests/VoiceDenoiseTests.cs` (3 new tests, 474 pass), docs. No
+  protocol change.
+- **Status:** measured in simulation and unit tests, not heard in game yet.
 
 ## 0.8.219 — Push to talk on a controller
 

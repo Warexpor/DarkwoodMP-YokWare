@@ -13,8 +13,17 @@ namespace DWMPHorde.Audio
     /// which is what keeps the leftover noise from turning into chirps ("musical noise"), with
     /// a floor so the room does not drop to dead silence between words.
     /// </para>
+    /// <para>
+    /// After that, a gate for the pauses: what is left of the noise between sentences (and
+    /// the radio's drive lifts quiet sound a long way back up) is turned down again unless
+    /// the frame holds speech. Speech is a band well over its noise for longer than a
+    /// click lasts, so a key or a mouse button between sentences does not open it; the
+    /// cleaned sound waits those few frames, and the gate opens before the word, not into it.
+    /// </para>
     /// Managed code only, like the codec: the same on every install. The output is the input
-    /// 32 ms later.
+    /// <see cref="DelaySamples"/> later (64 ms). What it cannot do: a noise that is not
+    /// steady while the player is talking (typing under speech, another voice, a television)
+    /// passes; telling those from the talker takes a trained model.
     /// </summary>
     internal sealed class VoiceDenoise
     {
@@ -34,6 +43,26 @@ namespace DWMPHorde.Audio
         private const float SpeechRatio = 5f;
         /// <summary>Below this the mic's rumble only (bins of 31.25 Hz).</summary>
         private const int FirstBin = 3;
+        /// <summary>The first frames hold the silence before the mic's first sample: no statistics are taken from them (a minimum of near zero called everything after it speech, and nothing was cleaned for the first two seconds).</summary>
+        private const int WarmupFrames = N / Hop - 1;
+
+        /// <summary>The band speech is looked for in (156 Hz .. 3.8 kHz).</summary>
+        private const int GateFirstBin = 5, GateLastBin = 122;
+        /// <summary>That band this far over its noise is a frame with speech in it (steady noise alone sits near 0.8).</summary>
+        private const float GateSpeechRatio = 2.5f;
+        /// <summary>Frames in a row (56 ms) before it counts: a click lasts three or four.</summary>
+        private const int GateOpenFrames = 7;
+        /// <summary>The cleaned sound waits this many frames, so the gate is open when the word it took to recognise comes out.</summary>
+        private const int GateDelayFrames = 4;
+        /// <summary>Open this long after the last speech (0.3 s): the gaps between words stay as they are.</summary>
+        private const int GateHangFrames = 38;
+        /// <summary>Closed, the gate lets this much through (-20 dB, on top of the bands' own).</summary>
+        private const float GateFloor = 0.1f;
+        /// <summary>Frames the gate takes to close (0.1 s); it opens within one.</summary>
+        private const int GateCloseFrames = 12;
+
+        /// <summary>The output is the input this many samples later.</summary>
+        internal const int DelaySamples = N + GateDelayFrames * Hop;
 
         private static readonly float[] Window = MakeWindow();
         private static readonly float[] Cos = MakeTable(cos: true);
@@ -53,8 +82,14 @@ namespace DWMPHorde.Audio
         private readonly float[] _presence = new float[Bins];
         private readonly float[] _noise = new float[Bins];
         private readonly float[] _cleanPrev = new float[Bins];
+        private readonly float[] _wait = new float[GateDelayFrames * Hop];
+        private int _waitPos;
         private int _fill;
         private int _frames;
+        private int _stats;
+        private int _speechRun;
+        private int _openUntil = -1;
+        private float _gate = GateFloor;
 
         private static float[] MakeWindow()
         {
@@ -91,7 +126,7 @@ namespace DWMPHorde.Audio
             return r;
         }
 
-        /// <summary>Clean <paramref name="count"/> samples in place (what comes out is 32 ms behind what goes in).</summary>
+        /// <summary>Clean <paramref name="count"/> samples in place (what comes out is <see cref="DelaySamples"/> behind what goes in).</summary>
         internal void Process(float[] x, int offset, int count)
         {
             for (int i = 0; i < count; i++)
@@ -120,9 +155,16 @@ namespace DWMPHorde.Audio
             for (int k = 0; k < Bins; k++)
                 _power[k] = _re[k] * _re[k] + _im[k] * _im[k];
 
-            bool first = _frames == 0;
-            bool newWindow = _frames % MinWindowFrames == 0;
-            _frames++;
+            if (_frames < WarmupFrames)
+            {
+                _frames++;
+                Emit(silence: true);
+                return;
+            }
+            bool first = _stats == 0;
+            bool newWindow = _stats % MinWindowFrames == 0;
+            _stats++;
+            float bandPower = 0f, bandNoise = 0f;
             for (int k = 0; k < Bins; k++)
             {
                 float p = _power[k];
@@ -153,7 +195,17 @@ namespace DWMPHorde.Audio
                 _presence[k] = pr;
                 float hold = 0.95f + 0.05f * pr;
                 float noise = hold * _noise[k] + (1f - hold) * p;
+                // Never over what the band's minimum allows: a mic that starts in the middle of a
+                // word took the word for its noise, and gave it up only over several pauses.
+                if (noise > _min[k] * SpeechRatio)
+                    noise = _min[k] * SpeechRatio;
                 _noise[k] = noise;
+
+                if (k >= GateFirstBin && k < GateLastBin)
+                {
+                    bandPower += p;
+                    bandNoise += noise * NoiseBias + 1e-12f;
+                }
 
                 float gain;
                 if (k < FirstBin)
@@ -182,7 +234,33 @@ namespace DWMPHorde.Audio
             const float norm = 1f / 1.5f;
             for (int i = 0; i < N; i++)
                 _ola[i] += _re[i] * Window[i] * norm;
-            Array.Copy(_ola, 0, _ready, 0, Hop);
+
+            // Speech in this frame: long enough in a row, the gate is open from before it began.
+            _speechRun = bandPower > bandNoise * GateSpeechRatio ? _speechRun + 1 : 0;
+            if (_speechRun >= GateOpenFrames)
+                _openUntil = _frames + GateHangFrames;
+            Emit(silence: false);
+            _frames++;
+        }
+
+        /// <summary>One finished hop goes into the wait line; the hop that has waited comes out through the gate.</summary>
+        private void Emit(bool silence)
+        {
+            // The hop coming out now was cleaned GateDelayFrames ago.
+            float target = _openUntil >= _frames - GateDelayFrames ? 1f : GateFloor;
+            float step = target > _gate ? (1f - GateFloor) / Hop : -(1f - GateFloor) / (Hop * GateCloseFrames);
+            for (int i = 0; i < Hop; i++)
+            {
+                _gate += step;
+                if (_gate > 1f) _gate = 1f;
+                else if (_gate < GateFloor) _gate = GateFloor;
+                _ready[i] = _wait[_waitPos] * _gate;
+                _wait[_waitPos] = silence ? 0f : _ola[i];
+                if (++_waitPos == _wait.Length)
+                    _waitPos = 0;
+            }
+            if (silence)
+                return;
             Array.Copy(_ola, Hop, _ola, 0, N - Hop);
             Array.Clear(_ola, N - Hop, Hop);
         }
