@@ -3,7 +3,7 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.207**. The current Horde wire protocol is **53**. Every install in a session
+**0.8.208**. The current Horde wire protocol is **53**. Every install in a session
 needs the same DLL; the protocol is checked on join.
 
 Protocol history (newest first):
@@ -59,6 +59,23 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.208 — MULTIPLAYER button keeps its size after a resolution change
+
+- **What broke:** after a big resolution change in Options, MULTIPLAYER on the title and
+  pause menus stayed at its old size next to PLAY / OPTIONS / EXIT (too big after going
+  down, too small after going up) until the game was restarted. Only resolutions above
+  1920x1080 were involved: below that the vanilla rows do not change size.
+- **Cause:** the vanilla rows carry `ScaleToResolution`. The button's art measured one
+  texel of EXIT once, when it was attached, and kept that size. The button itself (a
+  clone of EXIT) kept its own copy of `ScaleToResolution`, which took the already scaled
+  size as its base and scaled it again, so its hitbox was also off above 1080p.
+- **Now:** the clone has no `ScaleToResolution`; it takes EXIT's scale on every menu
+  poll, and the art measures the texel again each frame, refitting the hitbox when it
+  changes.
+- Files: `UI/MenuButtonArt.cs`, `UI/MainMenuMultiplayerInject.cs`,
+  `UI/MainMenuMultiplayerInject.Panel.cs`.
+- Not playtested yet.
 
 ## 0.8.207 — Radio icon less coarse
 

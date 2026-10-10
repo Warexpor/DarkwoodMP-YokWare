@@ -18,6 +18,13 @@ namespace DWMPHorde
             _mpButton = CloneButton(template, template.transform.parent,
                 MpButtonName, "MULTIPLAYER", MultiplayerScreens.OpenRoot, TagKindMp);
 
+            // The clone must not scale itself: its copy of ScaleToResolution would take the
+            // already scaled size as its base and scale it a second time. It follows EXIT's
+            // scale instead (SyncScaleToTemplate).
+            ScaleToResolution ownScale = _mpButton.GetComponent<ScaleToResolution>();
+            if (ownScale != null)
+                UnityEngine.Object.DestroyImmediate(ownScale);
+
             float y = MultiplayerRowOffsetY();
             SetRow(_mpButton, y);
             WireButton(_mpButton, MultiplayerScreens.OpenRoot);
@@ -38,6 +45,21 @@ namespace DWMPHorde
             ModLog.Event(LogCat.Session,
                 "Injected MULTIPLAYER button @ " + Screen.width + "x" + Screen.height
                 + " offsetY=" + y.ToString("F1") + (GameScreen.AtTitle ? " (title)" : " (pause)"));
+        }
+
+        /// <summary>
+        /// The vanilla rows change size with the resolution (ScaleToResolution, above 1080p);
+        /// MULTIPLAYER takes EXIT's scale so its art and hitbox change with them.
+        /// </summary>
+        private static void SyncScaleToTemplate()
+        {
+            if (_mpButton == null || !_mpButton || _menu == null || _menu.quitBtn == null)
+                return;
+            Vector3 want = _menu.quitBtn.transform.localScale;
+            if (_mpButton.transform.localScale == want)
+                return;
+            _mpButton.transform.localScale = want;
+            FitButtonHitbox(_mpButton);
         }
 
         /// <summary>
