@@ -354,11 +354,18 @@ namespace DWMPHorde.Networking
         /// </summary>
         private static void InstallKeyStore(int profileId, List<VerifiedFile> files)
         {
-            string path = Path.Combine(CoopWorldCopyMeta.ProfileDir(profileId), Sync.CosmeticRolls.KeyStoreFileName);
+            InstallSidecar(profileId, files, Sync.CosmeticRolls.KeyStoreFileName);
+            // The same goes for the player-stored container slots.
+            InstallSidecar(profileId, files, Sync.PlacedLootStore.FileName);
+        }
+
+        private static void InstallSidecar(int profileId, List<VerifiedFile> files, string fileName)
+        {
+            string path = Path.Combine(CoopWorldCopyMeta.ProfileDir(profileId), fileName);
             byte[] raw = null;
             for (int i = 0; i < files.Count; i++)
             {
-                if (string.Equals(files[i].Name, Sync.CosmeticRolls.KeyStoreFileName, StringComparison.Ordinal))
+                if (string.Equals(files[i].Name, fileName, StringComparison.Ordinal))
                     raw = files[i].Raw;
             }
             try
@@ -377,7 +384,7 @@ namespace DWMPHorde.Networking
             }
             catch (Exception ex)
             {
-                ModLog.Error(LogCat.Save, "Could not install the host's cosmetic roll seeds into slot " + profileId, ex);
+                ModLog.Error(LogCat.Save, "Could not install the host's " + fileName + " into slot " + profileId, ex);
             }
         }
     }

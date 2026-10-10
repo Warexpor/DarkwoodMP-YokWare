@@ -296,6 +296,9 @@ movie), unless the host sets `AllowJoinDuringDream`.
 - Each save of a co-op world also writes `savcos.dat` next to it: the seed of every cosmetic roll on
   a saved object ([section 16](#16-world-objects-doors-lights-fire-traps)). It is part
   of the world download.
+- It also writes `savplc.dat`: the container slots a player has put items into. Taking a stored
+  stack back never earns the party loot bonus, also after a reload and for a player who joins
+  later. It is part of the world download too.
 - A client's own single-player saves are untouched except the slot it chose for the
   co-op copy. The second install on a dual-box setup uses its own save root.
 - Each campaign carries an id. Character snapshots are tied to it, so a snapshot

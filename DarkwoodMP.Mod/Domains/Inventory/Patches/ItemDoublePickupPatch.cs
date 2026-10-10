@@ -67,16 +67,20 @@ namespace DWMPHorde.Patches
         /// </summary>
         public static void MarkContainerSlotPlayerPlaced(Vector3 pos, int slotIdx)
         {
-            PlayerPlacedContainerKeys.Add(MakeContainerKey(pos, slotIdx));
             Inventory inv = Sync.WorldQueryHelper.FindInventoryByPos(pos);
             if (inv != null)
-                PlayerPlacedSlots.Add(MakeSlotKey(inv, slotIdx));
+                MarkContainerSlotPlayerPlaced(inv, slotIdx);
+            else
+                PlayerPlacedContainerKeys.Add(MakeContainerKey(pos, slotIdx));
         }
 
         public static void MarkContainerSlotPlayerPlaced(Inventory inv, int slotIdx)
         {
-            if (inv == null || slotIdx < 0)
+            if (inv == null || slotIdx < 0 || !IsWorldContainer(inv))
                 return;
+            // Kept with the world when the container is a saved object (Sync.PlacedLootStore);
+            // the in-memory marks cover the rest for this run.
+            Sync.PlacedLootStore.Mark(inv, slotIdx);
             PlayerPlacedSlots.Add(MakeSlotKey(inv, slotIdx));
             PlayerPlacedContainerKeys.Add(MakeContainerKey(inv.transform.position, slotIdx));
         }
@@ -98,7 +102,8 @@ namespace DWMPHorde.Patches
             if (!IsWorldContainer(slot.inventory)) return false;
             int idx = slot.inventory.slots.IndexOf(slot);
             if (idx < 0) return false;
-            return PlayerPlacedSlots.Contains(MakeSlotKey(slot.inventory, idx))
+            return Sync.PlacedLootStore.IsMarked(slot.inventory, idx)
+                || PlayerPlacedSlots.Contains(MakeSlotKey(slot.inventory, idx))
                 || PlayerPlacedContainerKeys.Contains(MakeContainerKey(slot.inventory.transform.position, idx));
         }
 

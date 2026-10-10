@@ -3,11 +3,14 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.199**. The current Horde wire protocol is **52**. Every install in a session
+**0.8.200**. The current Horde wire protocol is **53**. Every install in a session
 needs the same DLL; the protocol is checked on join.
 
 Protocol history (newest first):
 
+- **53**, 0.8.200: the world share package gains `savplc.dat` (container slots a player
+  stored items in). No message layout changed; the bump keeps every player on a build
+  that reads and writes the file.
 - **52**, 0.8.189 to 0.8.199: `PlayerState`'s walkie trailer becomes a state byte,
   `WalkieState`: none, off or flat, on in a pocket, on in hand, plus underground.
 - **51**, 0.8.187 to 0.8.188: `VoiceData` (129) carries the mod's own voice codec
@@ -57,6 +60,26 @@ tested in the game.
 
 ---
 
+## 0.8.200 — Stored stacks stay stored across reloads and joins (protocol 53)
+
+- **The loot-bonus marks are saved with the world.** 0.8.199 marked every container slot a
+  player put items into, in memory. After a reload, or for a player who joined later, a stored
+  stack counted as world loot again and gave the party bonus when taken back. The marks now go
+  into `savplc.dat` next to the save: written on every save, read at the start of every load,
+  removed with the slot, and sent with the world (written fresh right before a share, so stacks
+  stored since the last save are in it). A slot is keyed by the save id of the container's
+  nearest saved object, the names below it and the slot number, the same key the cosmetic rolls
+  use, so it is the same on every machine that loaded this world. A container with no saved
+  object above it keeps the in-memory mark for the run.
+- **Protocol 53.** No message changed; the world package has one more optional file. Every
+  player needs this build.
+- Files: `Domains/Inventory/PlacedLootStore.cs` (new), `ItemDoublePickupPatch.cs`,
+  `CosmeticRolls.Store.cs` (`TryObjectKey`), `CosmeticRollPatches.cs` (load / save / new world /
+  delete hooks), `WorldSaveShareService.cs`, `.HostShare.cs`, `.ClientApply.cs`.
+- Limits: a stack stored before this build is not marked (nothing recorded it). Marks are kept
+  for the slot, not the stack, so world loot left in a slot a player also used gives no bonus.
+- Not yet playtested: build and unit tests only.
+
 ## 0.8.199 — Session notes: loot-bonus dupe, listening in on a talk, Steam friends list, radio and voice tuning
 
 From the host's notes on the same session. No wire change (protocol 52). Build and unit tests
@@ -70,9 +93,7 @@ only; nothing here is playtested yet.
   is now marked where it is sent (`SendContainerAction`) and where it is received, by container
   object and slot. Files: `ItemDoublePickupPatch.cs`, `ContainerSyncPatches.cs`,
   `ContainerLootNetHandlers.cs`.
-  - **Known gap, left open on purpose:** the marks live in memory. After a reload (or for a
-    player who joins later) a stack a player stored counts as world loot again. Closing it needs
-    the marks saved with the world and sent to joiners (a save sidecar and a protocol bump).
+  - The marks lived in memory in this version; 0.8.200 saves them with the world.
 - **Listening in on another player's talk.**
   - **Esc did nothing for the listener** while the talking player moved between screens that
     change the portrait (the bunker door: look, listen, handle). Vanilla drops Esc while the top
