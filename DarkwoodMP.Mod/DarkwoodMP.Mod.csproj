@@ -59,6 +59,8 @@
   <ItemGroup>
     <EmbeddedResource Include="Resources\walkie_talkie.png" LogicalName="DWMPHorde.Resources.walkie_talkie.png" />
     <EmbeddedResource Include="Resources\Radio\key.wav" LogicalName="DWMPHorde.Resources.Radio.key.wav" />
+    <EmbeddedResource Include="Resources\Radio\key16.wav" LogicalName="DWMPHorde.Resources.Radio.key16.wav" />
+    <EmbeddedResource Include="Resources\Radio\release16.wav" LogicalName="DWMPHorde.Resources.Radio.release16.wav" />
     <EmbeddedResource Include="Resources\Radio\release.wav" LogicalName="DWMPHorde.Resources.Radio.release.wav" />
     <EmbeddedResource Include="Resources\Radio\knob1.wav" LogicalName="DWMPHorde.Resources.Radio.knob1.wav" />
     <EmbeddedResource Include="Resources\Radio\knob2.wav" LogicalName="DWMPHorde.Resources.Radio.knob2.wav" />

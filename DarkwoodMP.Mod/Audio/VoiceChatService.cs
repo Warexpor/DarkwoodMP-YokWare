@@ -53,19 +53,15 @@ namespace DWMPHorde.Audio
             public bool TalkerInside;
             /// <summary>Signal on the radio this talker is heard through, 1 clear .. 0 none (0 when heard directly).</summary>
             public float RadioQuality;
-            /// <summary>Someone keying over this talker (0..1): the whistle of two carriers.</summary>
+            /// <summary>Someone keying over this talker (0..1): the two bury each other in static.</summary>
             public float Doubling;
-            /// <summary>Feedback from a radio right by this talker (0..1).</summary>
-            public float Howl;
-            public double HowlPhase;
-            public double HetPhase;
             public float BreakupLeft;
+            /// <summary>Where in the caller's beep this transmission is (-1: not playing).</summary>
+            public int BeepPos = -1;
             public bool RadioMode;
             public bool RadioWasActive;
             public Biquad RadioHp;
             public Biquad RadioLp;
-            /// <summary>Radio hiss level for this talker (grows with the distance between the two radios).</summary>
-            public float RadioHiss;
             public bool Priming = true;
             /// <summary>Seconds of voice buffered before playback starts (the network's jitter; less for a local source).</summary>
             public float PrimeSec = VoiceChatService.PrimeSec;
@@ -101,6 +97,11 @@ namespace DWMPHorde.Audio
             private float _prev;
             private float _cur;
             private float _vol;
+            /// <summary>0..1 over the first samples after a start: a stream that begins at full level clicks.</summary>
+            private float _rise;
+
+            /// <summary>Samples (at the voice rate) a stream takes to come in, and to go out as its buffer runs dry.</summary>
+            private const int EdgeSamples = 128;
 
             private void OnAudioFilterRead(float[] data, int channels)
             {
@@ -129,6 +130,7 @@ namespace DWMPHorde.Audio
                         }
                         s.Priming = false;
                         s.PrimeRelease = false;
+                        _rise = 0f;
                     }
 
                     for (int i = 0; i < frames; i++)
@@ -139,8 +141,13 @@ namespace DWMPHorde.Audio
                             _frac -= 1.0;
                             if (s.Buffered > 0)
                             {
+                                // In over the first samples, out over the last ones buffered: static or a
+                                // voice cut off at full level is a click on every start and stop.
+                                if (_rise < 1f)
+                                    _rise = Mathf.Min(1f, _rise + 1f / EdgeSamples);
+                                float edge = s.Buffered >= EdgeSamples ? _rise : _rise * s.Buffered / EdgeSamples;
                                 _prev = _cur;
-                                _cur = s.Ring[s.ReadPos];
+                                _cur = s.Ring[s.ReadPos] * edge;
                                 s.ReadPos = (s.ReadPos + 1) % s.Ring.Length;
                                 s.Buffered--;
                             }
@@ -184,7 +191,12 @@ namespace DWMPHorde.Audio
         private static readonly List<int> _reap = new List<int>(); // process-scoped: scratch
         private static GameObject _root; // process-scoped: DontDestroyOnLoad speaker parent
         private static readonly float[] _decodeBuf = new float[VoiceCodec.PacketSamples * 2]; // process-scoped: decode scratch
-        private static readonly byte[] _encodeBuf = new byte[VoiceCodec.EncodedSize(VoiceCodec.PacketSamples)]; // process-scoped: encode scratch
+        private static readonly byte[] _encodeBuf = new byte[VoiceCodec.EncodedSize(VoiceCodec.PacketSamples) * 2]; // process-scoped: encode scratch (voice block, then the picked-up sounds)
+        private static readonly float[] _worldTx = new float[VoiceCodec.PacketSamples]; // process-scoped: picked-up sounds of the frame being sent
+        private static readonly float[] _worldRx = new float[VoiceCodec.PacketSamples]; // process-scoped: picked-up sounds of the packet being decoded
+        private static readonly float[] _echoMix = new float[VoiceCodec.PacketSamples]; // process-scoped: scratch
+        /// <summary>The sounds picked up by a talker's radio against their voice, on the radio that plays them.</summary>
+        private const float WorldRxGain = 0.8f;
         private static readonly List<float[]> _frames = new List<float[]>(8); // process-scoped: frames from the mic this tick
         private static float[] _preroll; // process-scoped: the frame before talk began (its first syllable)
         private static bool _localWalkie; // process-scoped: polled every 0.5 s
@@ -218,6 +230,7 @@ namespace DWMPHorde.Audio
             _preroll = null;
             _radioHolder = 0;
             _radioHolderAt = 0f;
+            WorldSoundPickup.Reset();
             VoiceHearing.Reset();
         }
 
@@ -253,6 +266,7 @@ namespace DWMPHorde.Audio
             if (!enabled)
             {
                 _transmitting = false;
+                WorldSoundPickup.SetActive(false);
                 // The radio is a device: its knob and battery work with voice chat off too.
                 if (inGame)
                 {
@@ -266,12 +280,12 @@ namespace DWMPHorde.Audio
             UpdateSpeakers();
             UpdateSelfEcho(net, Time.unscaledDeltaTime);
             TickRemoteKnobs(net);
-            TickHowl(net, Time.unscaledDeltaTime);
 
             if (!inGame)
             {
                 _transmitting = false;
                 _walkieTxWas = false;
+                WorldSoundPickup.SetActive(false);
                 return;
             }
 
@@ -326,6 +340,9 @@ namespace DWMPHorde.Audio
             // word); an always-on mic sends while its gate hears speech over the room.
             if (ptt || _walkieTx)
                 _stopLinger = Time.unscaledTime + 0.25f;
+            // The keyed radio hears the world around its holder too.
+            WorldSoundPickup.SetActive(_walkieTx
+                && ModConfig.VoiceRadioWorldSounds != null && ModConfig.VoiceRadioWorldSounds.Value);
             bool send = ptt || _walkieTx || Time.unscaledTime < _stopLinger || (openMic && VoiceMic.GateOpen);
             if (send && !_transmitting && _preroll != null)
                 SendFrame(net, _preroll);
@@ -395,7 +412,6 @@ namespace DWMPHorde.Audio
               .Append(" devices=").Append(VoiceMic.Devices.Length)
               .Append(" walkie=").Append(WalkieStateText(LocalWalkieState))
               .Append(" battery=").Append(Mathf.RoundToInt(Charge() * 100f)).Append('%')
-              .Append(" howl=").Append(_howlLevel.ToString("0.00"))
               .Append(" sent=").Append(_seq);
             foreach (Speaker s in _speakers.Values)
             {
@@ -407,7 +423,6 @@ namespace DWMPHorde.Audio
                   .Append(" mode=").Append(s.Mode).Append(s.WalkieActive ? " walkie" : "")
                   .Append(" q=").Append(s.RadioQuality.ToString("0.00"))
                   .Append(s.Doubling > 0f ? " doubling=" + s.Doubling.ToString("0.00") : "")
-                  .Append(s.Howl > 0f ? " howl=" + s.Howl.ToString("0.00") : "")
                   .Append(" age=").Append((Time.unscaledTime - s.LastData).ToString("0.0")).Append("s");
             }
             return sb.ToString();
@@ -499,10 +514,19 @@ namespace DWMPHorde.Audio
             try
             {
                 int len = VoiceCodec.Encode(frame, frame.Length, _encodeBuf);
+                // The level is the voice's alone: it says how far the voice carries and what creatures hear.
                 float level = VoiceCodec.LevelOf(frame, frame.Length);
                 int playerId = Math.Max(net.LocalPlayerId, 0);
                 ushort seq = _seq++;
                 byte flags = (byte)(_walkieTx ? VoiceDataMessage.FlagWalkie : 0);
+                // On the radio, a second block: what the radio picked up around this player.
+                bool world = _walkieTx && frame.Length == VoiceCodec.PacketSamples
+                    && WorldSoundPickup.Read(_worldTx, VoiceCodec.PacketSamples);
+                if (world)
+                {
+                    len += VoiceCodec.Encode(_worldTx, VoiceCodec.PacketSamples, _encodeBuf, len);
+                    flags |= VoiceDataMessage.FlagWorld;
+                }
                 byte levelByte = (byte)Mathf.RoundToInt(level * 255f);
                 if (net.Role == NetworkRole.Host)
                     VoiceHearing.Heard(net.LocalPlayerId, level, _walkieTx);
@@ -511,7 +535,16 @@ namespace DWMPHorde.Audio
                     DeliveryMethod.Unreliable);
                 _txPackets++;
                 if (_walkieTx)
-                    FeedSelfEcho(frame, level);
+                {
+                    float[] heard = frame;
+                    if (world)
+                    {
+                        heard = _echoMix;
+                        for (int i = 0; i < VoiceCodec.PacketSamples; i++)
+                            heard[i] = frame[i] + _worldTx[i] * WorldRxGain;
+                    }
+                    FeedSelfEcho(heard, level);
+                }
             }
             catch (Exception ex)
             {
@@ -535,9 +568,27 @@ namespace DWMPHorde.Audio
                 speaker.HasSeq = true;
                 speaker.LastSeq = p.Seq;
 
-                int samples = VoiceCodec.Decode(p.Data, p.Data.Length, _decodeBuf);
+                // Two blocks when the talker's radio sent what it picked up: voice first, a full packet.
+                int voiceBytes = p.Data.Length;
+                int worldSamples = 0;
+                if ((p.Flags & VoiceDataMessage.FlagWorld) != 0)
+                {
+                    voiceBytes = VoiceCodec.EncodedSize(VoiceCodec.PacketSamples);
+                    if (p.Data.Length <= voiceBytes + VoiceCodec.HeaderBytes)
+                        return;
+                    worldSamples = VoiceCodec.Decode(p.Data, voiceBytes, p.Data.Length - voiceBytes, _worldRx);
+                }
+                int samples = VoiceCodec.Decode(p.Data, 0, voiceBytes, _decodeBuf);
                 if (samples <= 0)
                     return;
+                // Only a radio plays the second block: heard directly, the talker is a voice in
+                // a world the listener hears for themselves.
+                if (worldSamples > 0 && speaker.RadioMode)
+                {
+                    int n = Math.Min(samples, worldSamples);
+                    for (int i = 0; i < n; i++)
+                        _decodeBuf[i] += _worldRx[i] * WorldRxGain;
+                }
 
                 bool walkieNow = (p.Flags & VoiceDataMessage.FlagWalkie) != 0;
                 if (walkieNow != speaker.WalkieActive)
@@ -576,7 +627,7 @@ namespace DWMPHorde.Audio
                 speaker.RadioHp = Biquad.HighPass(RadioLowHz, _sampleRate);
                 speaker.RadioLp = Biquad.LowPass(RadioHighHz, _sampleRate);
                 StartStatic(speaker);
-                WriteSquelch(speaker, open: true);
+                speaker.BeepPos = 0;
             }
 
             if (radioMode)

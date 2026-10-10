@@ -21,8 +21,8 @@ In game:
 - **Multiplayer > Settings** edits `PlayerName`, `ShowPlayerNames`, `ChatEnabled` and
   `PeerMovementVolume`.
 - **Settings > Voice** edits `VoiceEnabled` / `VoiceMode`, `VoicePttKey`,
-  `VoiceRadioTalkKey`, `VoiceRadioPowerKey`, `VoiceMicDevice`, `VoiceMicVolume` and
-  `VoiceVolume`; **Voice > Players** edits `VoicePlayerVolumes`.
+  `VoiceRadioTalkKey`, `VoiceRadioPowerKey`, `VoiceRadioWorldSounds`, `VoiceMicDevice`,
+  `VoiceMicVolume`, `VoiceNoiseSuppression` and `VoiceVolume`; **Voice > Players** edits `VoicePlayerVolumes`.
 - **Multiplayer > Host settings** edits `FriendlyFireEnabled`, `LootShareMode` (with
   `DoubleItemsEnabled`), `NightMonsterMultiplier` and `VoiceAlertsEnemies`, and before
   hosting `MaxPlayers`, `SteamLobbyType`, `ConnectPort` and `HostPassword`.
@@ -90,6 +90,8 @@ set in Multiplayer > Settings > Voice.
 | `VoiceRadioPowerKey` | `B` | Unity `KeyCode` name for the walkie's on/off knob; it turns only with the walkie in hand. |
 | `VoiceMicDevice` | empty | Microphone to talk into, by the name the game lists it under; empty for the system default. A device that is not plugged in falls back to the default. |
 | `VoiceMicVolume` | `1` | Microphone volume, 0 to 4 (1 as recorded; the Voice screen sets 0 to 2). It is also how loud you count for how far your voice carries. |
+| `VoiceNoiseSuppression` | `true` | Take steady noise (fans, hiss, hum, the room's tone) out of your microphone before it is sent. Spectral, managed code; it adds 32 ms. |
+| `VoiceRadioWorldSounds` | `true` | Your keyed walkie also sends the sounds around you, each as loud as it reaches you; music, menu sounds and voice chat are left out. Off: your voice only. What other players' radios send is always played. |
 | `VoicePlayerVolumes` | empty | How loud each other player is heard, by the name they go by: `name=volume` entries (0 muted to 2) separated by `|`. Set in Settings > Voice > Players. |
 | `VoiceFullVolumeDistance` | `150` | Distance (game units; a body is about 40 across) within which a shout is at full volume; quieter speech a shorter way. |
 | `VoiceMaxDistance` | `650` | Distance (game units) a shout carries before it is silent, the same range as other sounds from peers. Normal speech carries about three quarters of it, a whisper about a third (the loudness is measured on the talker's machine). |

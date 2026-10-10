@@ -54,7 +54,7 @@ state without changing existing players' state.
 | Story and dialogue | `DialogOutcome`, `DialogTreeState`, `GameEventsFired` + late-join `GameEventsBulk` (136), Examinable **110** (host onExamine; DescriptionPool draw personal) | Code covered; runtime pending |
 | Dreams and epilogue | `DreamSession`, `DreamSyncManager`, dream door and scene paths, `EpilogueNetHandlers` | Code covered (all-dead grace, chain roster, epilogue gate); runtime pending |
 | Audio and spectator mode | player/entity audio, culling, spectator listener and grid | Code covered; runtime pending |
-| Voice and walkie | `VoiceData` (129) with the mod's codec, `VoiceMic`, `VoiceChatService` (proximity, radio channel, walkie speakers, feedback), `PlayerState` `WalkieState` byte, `VoiceAlertsEnemies` on the host | Code covered; runtime pending |
+| Voice and walkie | `VoiceData` (129) with the mod's codec, `VoiceMic`, `VoiceChatService` (proximity, radio channel, walkie speakers), `VoiceDenoise`, `WorldSoundPickup`, `PlayerState` `WalkieState` byte, `VoiceAlertsEnemies` on the host | Code covered; runtime pending |
 | Names and chat | `PlayerName` (168), `PeerRoster` names, `Nameplates` (sight-tested), chat relayed and stamped by the host | Code covered; runtime pending |
 | Multiplayer menus | `MultiplayerScreens` on `UI/VanillaMenu` (Host, Join, Settings, Voice, Host settings, world-copy picker), Apply / Revert to default | Code covered; runtime pending |
 | Balance features | loot sharing and allowlisted dream NPC presence | Code covered; runtime pending |

@@ -860,16 +860,20 @@ party events.
   - Creatures hear it too (host rule, on by default): talk louder than a murmur is a
     sound at the talker's position, like a step or a door. Whispering is safe.
   - Walkie-talkie: hold a `walkie_talkie` and hold the radio talk key (right mouse by default, rebindable in Settings > Voice) to transmit. Carrying one
-    lets you hear the radio from anywhere: a narrow, slightly distorted band, a squelch
-    click and tail, and more static the farther apart the two radios are.
+    lets you hear the radio from anywhere: a narrow, slightly distorted band, the caller's
+    beep at the start and a squelch tail at the end, and more static the farther apart
+    the two radios are. Every sound a radio makes is a recording; none is generated.
+    A keyed radio also sends the sounds around its holder (steps, doors, creatures, the
+    weather), each as loud and as dull as it reaches the holder; not music, menu sounds
+    or voice chat itself. Only radios play that part: a player standing by the talker
+    hears their voice and the world for themselves (`VoiceRadioWorldSounds`).
     Every other walkie plays the talk out loud too: standing near someone who carries
     one, you hear it from them (a short way, muffled through walls), and creatures near
     a playing radio hear it.
     Radios work one way at a time: your own radio is silent while you transmit, and a
     channel carries whoever keyed first until they let go; someone keying over them is
-    heard garbled under a whistle. Players near a talker hear their walkie's call beep
-    and squelch tail, and the knob of a radio switched on or off near them; the far
-    radios end each transmission with a roger beep. A talker hears their own
+    heard garbled under static. Players near a talker hear their walkie's call beep
+    and squelch tail, and the knob of a radio switched on or off near them. A talker hears their own
     transmission from another player's live radio near them, as that radio plays it.
   - A walkie is crafted at the workbench (level 1) from 2 junk and 1 nail; each player
     makes their own.
@@ -881,8 +885,8 @@ party events.
   - The signal fades with distance (clear to 6000 units, breaking up past that, gone at
     18000), carries less out of buildings and barely in or out of underground places, and
     nothing reaches another world (a dream).
-  - Keying right next to another live radio feeds back: a howl on every radio on the
-    channel and from that radio, which creatures hear from far off.
+  - The microphone is cleaned of steady noise (fans, hiss, hum) before it is sent
+    (`VoiceNoiseSuppression`).
   - Indoors a voice gets the same reverb vanilla puts on sounds made inside; walls muffle
     it as vanilla muffles any sound behind a wall.
   - Push-to-talk (`V`) or open mic.

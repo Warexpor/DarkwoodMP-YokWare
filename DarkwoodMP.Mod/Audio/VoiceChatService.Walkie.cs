@@ -19,9 +19,6 @@ namespace DWMPHorde.Audio
         private const float BatteryStandbySec = 3600f;
         /// <summary>Talking drains this much faster on top.</summary>
         private const float BatteryTalkSec = 1200f;
-        /// <summary>Below this share of charge the radio chirps a low-battery warning now and then.</summary>
-        private const float LowBattery = 0.1f;
-        private const float LowBatteryEverySec = 30f;
 
         /// <summary>Clear signal up to here (world units, the map is about 25000 across), gone at <see cref="RadioMaxRange"/>.</summary>
         private const float RadioClearRange = 6000f;
@@ -41,7 +38,6 @@ namespace DWMPHorde.Audio
         private static InvItemClass _walkieItem; // process-scoped: polled every 0.5 s
         private static KeyCode _powerKey = KeyCode.B; // process-scoped: config cache
         private static string _powerKeyText; // process-scoped: the setting text _powerKey was parsed from
-        private static float _nextLowBattery; // process-scoped: warning pacing
         private static float _lastRefreshedCharge = -1f; // process-scoped: item bar redraw pacing
 
         /// <summary>This player's walkie, for PlayerState and this player's own hearing.</summary>
@@ -162,12 +158,6 @@ namespace DWMPHorde.Audio
             {
                 PlayLocalRadioSound(RadioSound.Dead);
                 ModLog.Event(LogCat.Audio, "[Voice] radio battery flat");
-                return;
-            }
-            if (charge < LowBattery && Time.unscaledTime >= _nextLowBattery)
-            {
-                _nextLowBattery = Time.unscaledTime + LowBatteryEverySec;
-                PlayLocalRadioSound(RadioSound.LowBattery);
             }
         }
 

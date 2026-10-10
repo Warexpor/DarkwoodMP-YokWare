@@ -78,7 +78,7 @@ namespace DWMPHorde.Audio
             if (s.RadioWasActive && since > 0.3f)
             {
                 s.RadioWasActive = false;
-                WriteSquelch(s, open: false);
+                WriteSquelchTail(s);
             }
             if (!wanted && since > IdleReapSec && s.Buffered == 0)
             {
@@ -113,7 +113,6 @@ namespace DWMPHorde.Audio
                     outVol *= Mathf.Lerp(1f, WallVolume, s.RadioOcclusion);
                     outCutoff = Mathf.Lerp(hand ? 22000f : PocketCutoff, WallCutoff, s.RadioOcclusion);
                     s.RadioQuality = quality;
-                    s.RadioHiss = Mathf.Lerp(RadioHissNear, RadioHissFar, 1f - quality);
                     s.FarStatic = FarStaticGain(quality);
                     s.Go.transform.position = radioPos;
 

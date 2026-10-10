@@ -133,7 +133,7 @@ namespace DWMPHorde.Audio
                 {
                     ModLog.Trace(LogCat.Audio, () =>
                     {
-                        string line = "[Voice] 10s tx=" + _txPackets;
+                        string line = "[Voice] 10s tx=" + _txPackets + WorldSoundPickup.TakeStats();
                         foreach (Speaker s in _speakers.Values)
                         {
                             int buffered, under;
@@ -184,7 +184,7 @@ namespace DWMPHorde.Audio
                 if (s.RadioWasActive && since > 0.3f)
                 {
                     s.RadioWasActive = false;
-                    WriteSquelch(s, open: false);
+                    WriteSquelchTail(s);
                 }
 
                 // Loudness: up at once with the voice, down slowly between words.
@@ -226,7 +226,7 @@ namespace DWMPHorde.Audio
                 // playing it out loud (a small speaker, heard a short way). Radios are half
                 // duplex: this player's own radio is silent while they key it. A channel carries
                 // the talker who keyed first; a second one keying over them is heard garbled
-                // under a whistle (two carriers beating), as on a real channel.
+                // under static.
                 bool holder = s.WalkieActive && HoldsChannel(s.Id);
                 bool doubling = s.WalkieActive && !holder && _radioHolder != 0 && HoldsChannel(_radioHolder);
                 bool onAir = holder || doubling;
@@ -287,17 +287,8 @@ namespace DWMPHorde.Audio
                 // The signal on the radio it is heard through: static grows as it weakens, and
                 // a weak one breaks up (decode side).
                 s.RadioQuality = mode == HearMode.NearRadio ? nearQuality : mode == HearMode.OwnRadio ? ownQuality : 0f;
-                s.RadioHiss = Mathf.Lerp(RadioHissNear, RadioHissFar, 1f - s.RadioQuality);
                 s.FarStatic = FarStaticGain(s.RadioQuality);
                 s.Doubling = Mathf.MoveTowards(s.Doubling, holder && AnyoneDoubling(s.Id) ? 1f : 0f, dt * 6f);
-
-                // Feedback: the talker keys right by a radio that is on and receiving them; it
-                // plays them back into their own mic and howls, on every radio on the channel.
-                Vector3 howlAt = Vector3.zero;
-                bool feeding = holder && FeedbackRadioNear(net, s.Id, talkerHere, talkerPos, out howlAt);
-                s.Howl = Mathf.MoveTowards(s.Howl, feeding ? 1f : 0f, dt * (feeding ? 1.2f : 3f));
-                if (feeding)
-                    OfferHowl(s.Howl, howlAt);
 
                 float outVol = mode == HearMode.OwnRadio ? ownRadioVol : mode == HearMode.NearRadio ? nearRadioVol : proxVol;
                 float outCutoff = mode == HearMode.OwnRadio ? (WalkieStates.InHand(local) ? 22000f : PocketCutoff)
@@ -356,10 +347,8 @@ namespace DWMPHorde.Audio
             }
         }
 
-        /// <summary>A second talker keying over the one holding the channel is heard at this share, under the whistle.</summary>
+        /// <summary>A second talker keying over the one holding the channel is heard at this share, under the static.</summary>
         private const float DoublingUnderShare = 0.4f;
-        /// <summary>A radio this close to a talker keying feeds back.</summary>
-        private const float FeedbackRange = 90f;
 
         private static bool AnyoneDoubling(int holderId)
         {
@@ -370,33 +359,6 @@ namespace DWMPHorde.Audio
             }
             // This player keying over them counts too: the far radios hear both.
             return _walkieTx;
-        }
-
-        /// <summary>A live radio (not the talker's own) within <see cref="FeedbackRange"/> of the talker; where it is.</summary>
-        private static bool FeedbackRadioNear(LanNetworkManager net, int talkerId, bool talkerHere, Vector3 talkerPos, out Vector3 at)
-        {
-            at = Vector3.zero;
-            if (!talkerHere || net == null)
-                return false;
-            Player p = Player.Instance;
-            if (p != null && LocalRadioLive && !_walkieTx && DistXz(p.transform.position, talkerPos) < FeedbackRange)
-            {
-                at = p.transform.position;
-                return true;
-            }
-            foreach (Players.RemotePlayerProxy o in net.EnumerateRemoteProxies())
-            {
-                if (o == null || !o.isActiveAndEnabled || o.PlayerId == talkerId)
-                    continue;
-                if (!net.RemotePlayers.TryGetValue(o.PlayerId, out RemotePlayerState st) || st == null || !WalkieStates.Live(st.WalkieState))
-                    continue;
-                if (DistXz(o.transform.position, talkerPos) < FeedbackRange)
-                {
-                    at = o.transform.position;
-                    return true;
-                }
-            }
-            return false;
         }
 
         /// <summary><see cref="IsInside"/>, refreshed at most twice a second per talker.</summary>

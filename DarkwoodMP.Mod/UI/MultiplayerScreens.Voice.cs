@@ -45,6 +45,8 @@ namespace DWMPHorde
             yield return Setting(ModConfig.VoiceRadioPowerKey);
             yield return Setting(ModConfig.VoiceMicDevice);
             yield return Setting(ModConfig.VoiceMicVolume);
+            yield return Setting(ModConfig.VoiceNoiseSuppression);
+            yield return Setting(ModConfig.VoiceRadioWorldSounds);
             yield return Setting(ModConfig.VoiceVolume);
         }
 
@@ -66,6 +68,8 @@ namespace DWMPHorde
 
         private static string VoiceSignature() => VoiceIndex() + "/" + string.Join("\n", VoiceMic.Devices);
 
+        private static readonly string[] OffOn = { "Off", "On" };
+
         private static void BuildVoice(VmBuilder b)
         {
             b.Header("Voice", 178f + 100f);
@@ -83,6 +87,10 @@ namespace DWMPHorde
             b.KeyField("Radio on/off key", z, () => ModConfig.VoiceRadioPowerKey?.Value ?? "B",
                 v => { if (ModConfig.VoiceRadioPowerKey != null) ModConfig.VoiceRadioPowerKey.Value = v; });
             z -= step;
+            b.Choice("Radio picks up sounds", z, OffOn,
+                () => ModConfig.VoiceRadioWorldSounds == null || ModConfig.VoiceRadioWorldSounds.Value ? 1 : 0,
+                i => { if (ModConfig.VoiceRadioWorldSounds != null) ModConfig.VoiceRadioWorldSounds.Value = i == 1; });
+            z -= step;
             b.Name("Microphone", z);
             Button mic = null;
             mic = b.Value(MicText(), z, () =>
@@ -93,6 +101,10 @@ namespace DWMPHorde
             z -= step;
             b.Slider("Microphone volume", z, () => (ModConfig.VoiceMicVolume?.Value ?? 1f) / 2f,
                 t => { if (ModConfig.VoiceMicVolume != null) ModConfig.VoiceMicVolume.Value = Mathf.Round(t * 2f * 20f) / 20f; });
+            z -= step;
+            b.Choice("Noise suppression", z, OffOn,
+                () => ModConfig.VoiceNoiseSuppression == null || ModConfig.VoiceNoiseSuppression.Value ? 1 : 0,
+                i => { if (ModConfig.VoiceNoiseSuppression != null) ModConfig.VoiceNoiseSuppression.Value = i == 1; });
             z -= step;
             b.Name("Microphone level", z);
             Button meter = b.Value("", z, null);

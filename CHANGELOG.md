@@ -3,12 +3,14 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.211**. The current Horde wire protocol is **53**. Every install in a session
+**0.8.212**. The current Horde wire protocol is **54**. Every install in a session
 needs the same DLL; the protocol is checked on join.
 
 Protocol history (newest first):
 
-- **53**, 0.8.200: the world share package gains `savplc.dat` (container slots a player
+- **54**, 0.8.212: `VoiceData` (129) gains flag 2: a second codec block after the voice,
+  the sounds the talker's radio picked up.
+- **53**, 0.8.200 to 0.8.211: the world share package gains `savplc.dat` (container slots a player
   stored items in). No message layout changed; the bump keeps every player on a build
   that reads and writes the file.
 - **52**, 0.8.189 to 0.8.199: `PlayerState`'s walkie trailer becomes a state byte,
@@ -59,6 +61,70 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.212 — Radio: no generated sounds, no feedback howl, clean starts and stops, bass cut; mic noise suppression; the radio picks up the world
+
+Protocol **54** (every player needs this build).
+
+**Generated sounds removed.** Every sound of the radio is now a recording; where there
+is none there is silence.
+- The **feedback howl** is gone with its whole mechanic: keying next to another live
+  radio does nothing special any more, and creatures are no longer alerted by it
+  (`TickHowl`, `HowlEmitter`, `FeedbackRadioNear`, the `VoiceHearing` alert).
+- The **whistle** of two talkers keying at once: they are now garbled under the recorded
+  out-of-range static.
+- The far radio's generated **opening click, roger beep and noise tail**: a received
+  transmission now opens with the caller's recorded beep mixed over the first half
+  second of voice and ends with the recorded squelch tail (`key16.wav`, `release16.wav`).
+- The **low-battery chirp** is removed and has no replacement yet (no recording was
+  picked for it). The battery bar on the item is the only warning. Parked until a
+  sound is chosen.
+- The generated stand-ins for a missing knob, beep, squelch or static file are removed.
+
+**Snaps and bass.**
+- The four knob takes had 92 to 99% of their energy in a thump under 120 Hz, and were
+  levelled by that thump, so the click itself was faint and each take started and
+  ended on a thud. All recordings are reprocessed: bass cut, raised-cosine fades at
+  both ends, the knob's room noise pulled down between its sounds, cut from just
+  before the first sound to where the last has died away. The knob is played at
+  `KnobLevel` 0.6 (was 1.6 against the thump).
+- A received voice or radio stream used to start at full level and stop dead when its
+  buffer ran out, which clicks, most audibly with static under it. The speaker now
+  comes in over 8 ms and goes out over the last 8 ms buffered.
+
+**Microphone noise suppression** (`VoiceNoiseSuppression`, on by default; Voice >
+"Noise suppression"). `VoiceDenoise`: spectral, 32 ms windows a quarter apart, noise
+followed per band by minimum tracking with speech presence (MCRA), a decision-directed
+Wiener gain with a -19 dB floor. Managed code, no native library. Adds 32 ms. Tests:
+steady noise alone goes down by more than 14 dB, a clean voice comes out as it went in,
+a voice in noise keeps its level while the gaps go quiet. This is a classic suppressor,
+not a neural one: it removes steady noise well, not keyboards, dogs or other voices. A
+neural one (RNNoise) needs a native library for Windows and Linux; not done.
+
+**The radio picks up the world** (`VoiceRadioWorldSounds`, on by default; Voice >
+"Radio picks up sounds").
+- A keyed walkie sends the sounds around its holder beside their voice. Every sound
+  source gets a pass-through tap in its own effect chain (`WorldSoundPickup`); the tap
+  sees the sound after Unity's volume and distance falloff toward the holder and after
+  the wall muffle, so each sound is as loud and as dull as it reaches the talker.
+  Music, menu sounds and scene transitions are left out by mixer group, and voice chat
+  itself by its root object.
+- It travels as a second codec block in the same `VoiceData` packet (flag 2, about
+  8 kB/s more while keyed and something sounds). Only a radio plays it; heard directly,
+  a talker is their voice only. The packet's loudness byte stays the voice's alone, so
+  how far a voice carries and what creatures hear are unchanged.
+- Not picked up: a proximity voice near the talker (voice chat is left out as a whole,
+  which is also what keeps a radio from sending a transmission on again).
+- Taps are handed out only in a session with voice and the setting on.
+
+Files: `Audio/VoiceChatService*.cs`, `Audio/VoiceDenoise.cs`, `Audio/WorldSoundPickup.cs`,
+`Audio/VoiceMic.cs`, `Audio/VoiceCodec.cs`, `Audio/VoiceHearing.cs`,
+`Networking/Messages/VoiceDataMessage.cs`, `Config/ModConfig.cs`,
+`UI/MultiplayerScreens.Voice.cs`, `Resources/Radio/*`.
+
+Not playtested. Nothing here has been heard by ear: the knob level, the static level,
+the picked-up sounds' level against the voice (`WorldSoundPickup.Gain` 1.2,
+`WorldRxGain` 0.8) and the suppression floor are set from measurement.
 
 ## 0.8.211 — Log review of the 0.8.208 dual-box session: exit backup reaches the host, hidden client no longer at 1 fps
 

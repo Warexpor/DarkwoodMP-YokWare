@@ -32,16 +32,19 @@ namespace DWMPHorde.Audio
         public static int EncodedSize(int samples) => HeaderBytes + (samples + 1) / 2;
 
         /// <summary>Encode <paramref name="count"/> samples (-1..1) into <paramref name="dst"/>; returns the bytes written.</summary>
-        public static int Encode(float[] src, int count, byte[] dst)
+        public static int Encode(float[] src, int count, byte[] dst) => Encode(src, count, dst, 0);
+
+        /// <summary>The same, written from <paramref name="at"/> in <paramref name="dst"/> (a second block after the first).</summary>
+        public static int Encode(float[] src, int count, byte[] dst, int at)
         {
             if (count <= 0)
                 return 0;
             int predictor = ToPcm(src[0]);
             int index = StartIndex(src, count, predictor);
-            dst[0] = (byte)(predictor & 0xFF);
-            dst[1] = (byte)((predictor >> 8) & 0xFF);
-            dst[2] = (byte)index;
-            int o = HeaderBytes;
+            dst[at] = (byte)(predictor & 0xFF);
+            dst[at + 1] = (byte)((predictor >> 8) & 0xFF);
+            dst[at + 2] = (byte)index;
+            int o = at + HeaderBytes;
             for (int i = 0; i < count; i++)
             {
                 int nibble = EncodeOne(ToPcm(src[i]), ref predictor, ref index);
@@ -54,16 +57,19 @@ namespace DWMPHorde.Audio
         }
 
         /// <summary>Decode a packet into <paramref name="dst"/> (-1..1); returns the samples written.</summary>
-        public static int Decode(byte[] src, int length, float[] dst)
+        public static int Decode(byte[] src, int length, float[] dst) => Decode(src, 0, length, dst);
+
+        /// <summary>The same for a block of <paramref name="length"/> bytes that starts at <paramref name="at"/>.</summary>
+        public static int Decode(byte[] src, int at, int length, float[] dst)
         {
-            if (src == null || length < HeaderBytes)
+            if (src == null || length < HeaderBytes || at < 0 || at + length > src.Length)
                 return 0;
-            int predictor = (short)(src[0] | (src[1] << 8));
-            int index = Math.Min(Math.Max((int)src[2], 0), 88);
+            int predictor = (short)(src[at] | (src[at + 1] << 8));
+            int index = Math.Min(Math.Max((int)src[at + 2], 0), 88);
             int samples = Math.Min((length - HeaderBytes) * 2, dst.Length);
             for (int i = 0; i < samples; i++)
             {
-                byte b = src[HeaderBytes + (i >> 1)];
+                byte b = src[at + HeaderBytes + (i >> 1)];
                 int nibble = (i & 1) == 0 ? b & 0x0F : b >> 4;
                 DecodeOne(nibble, ref predictor, ref index);
                 dst[i] = predictor / 32768f;

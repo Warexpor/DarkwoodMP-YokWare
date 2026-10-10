@@ -81,6 +81,8 @@ namespace DWMPHorde.Config
         public static ModSetting<string> VoiceRadioPowerKey { get; private set; }
         public static ModSetting<string> VoiceRadioTalkKey { get; private set; }
         public static ModSetting<float> VoiceMicVolume { get; private set; }
+        public static ModSetting<bool> VoiceNoiseSuppression { get; private set; }
+        public static ModSetting<bool> VoiceRadioWorldSounds { get; private set; }
         public static ModSetting<string> VoicePlayerVolumes { get; private set; }
 
         /// <summary>
@@ -248,6 +250,10 @@ namespace DWMPHorde.Config
                 "Microphone to talk into, by the name the game lists it under (Multiplayer > Settings > Voice). Empty: the system default.");
             VoiceMicVolume = config.Bind("Voice", "VoiceMicVolume", 1f,
                 "Microphone volume, 0..4 (1 as recorded). Also how loud you count for how far your voice carries.");
+            VoiceNoiseSuppression = config.Bind("Voice", "VoiceNoiseSuppression", true,
+                "Take steady noise (fans, hiss, hum, the room) out of your microphone before it is sent.");
+            VoiceRadioWorldSounds = config.Bind("Voice", "VoiceRadioWorldSounds", true,
+                "Your keyed walkie also sends the sounds around you, as loud as they reach you (not music or menu sounds). Off: your voice only.");
             VoicePlayerVolumes = config.Bind("Voice", "VoicePlayerVolumes", "",
                 "How loud each other player is heard, by name: name=volume entries (0 muted .. 2) separated by |. Set in Multiplayer > Settings > Voice > Players.");
             VoiceAlertsEnemies = config.Bind("Voice", "VoiceAlertsEnemies", true,

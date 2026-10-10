@@ -28,8 +28,6 @@ namespace DWMPHorde.Audio
         private const float RadioSilence = 0.15f;
         private const float RadioRange = 160f;
         private const float RadioPocketRange = 100f;
-        /// <summary>Feedback howling from a radio: loud and shrill, heard far.</summary>
-        private const float HowlRange = 420f;
 
         private static readonly Dictionary<int, float> _peak = new Dictionary<int, float>(); // reset-in: Reset
         /// <summary>Who talked on the radio this half second (their own radio does not play it).</summary>
@@ -87,9 +85,6 @@ namespace DWMPHorde.Audio
             }
             if (_radioTalkers.Count > 0)
                 AlertRadios(net);
-            // A radio howling with feedback (worked out by this player's own voice playback).
-            if (VoiceChatService.HowlNow > 0.3f)
-                Character.alertInArea(VoiceChatService.HowlAt, HowlRange * VoiceChatService.HowlNow, dangerousSound: false, 1f);
 
             _ids.Clear();
             _ids.AddRange(_peak.Keys);

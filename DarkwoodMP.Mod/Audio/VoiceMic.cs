@@ -11,7 +11,8 @@ namespace DWMPHorde.Audio
     /// This player's microphone, through Unity's own <c>Microphone</c> (any install, no Steam):
     /// the device chosen in Multiplayer > Settings > Voice (config <c>VoiceMicDevice</c>, empty
     /// for the system default), at the chosen mic volume (<c>VoiceMicVolume</c>), brought to
-    /// 16 kHz and cut into 40 ms packets. It also keeps the live level for the meter on the Voice
+    /// 16 kHz, cleaned of steady noise (<see cref="VoiceDenoise"/>, config
+    /// <c>VoiceNoiseSuppression</c>) and cut into 40 ms packets. It also keeps the live level for the meter on the Voice
     /// screen, and a noise gate for an always-on mic that follows the room's own noise floor.
     /// </summary>
     internal static class VoiceMic
@@ -32,6 +33,7 @@ namespace DWMPHorde.Audio
         private static double _resamplePos; // process-scoped: resampler phase
         private static float _resamplePrev; // process-scoped: resampler history
         private static VoiceChatService.Biquad _antiAlias; // process-scoped: low-pass before going down to 16 kHz
+        private static VoiceDenoise _denoise; // process-scoped: noise suppression state of the running recording (null while off)
         private static float _floorDb = -60f; // process-scoped: tracked noise floor
         private static float _gateUntil; // process-scoped: gate hangover
         private static bool _warnedNoDevice; // process-scoped: log once
@@ -140,6 +142,7 @@ namespace DWMPHorde.Audio
                 _resamplePrev = 0f;
                 _antiAlias = VoiceChatService.Biquad.LowPass(7000f, _rate);
                 _out.Clear();
+                _denoise = null;
                 _warnedNoDevice = false;
                 ModLog.Event(LogCat.Audio, "[Voice] microphone '" + (string.IsNullOrEmpty(device) ? devices[0] + "' (default)" : device + "'")
                     + " at " + _rate + " Hz");
@@ -200,6 +203,16 @@ namespace DWMPHorde.Audio
                     frame[i] = v > 0.9f || v < -0.9f ? Mathf.Sign(v) * (0.9f + 0.1f * (float)Math.Tanh((Math.Abs(v) - 0.9f) * 10f)) : v;
                 }
                 _out.RemoveRange(0, FrameSamples);
+                // Steady noise out, after the mic volume and before the level is taken (the
+                // level decides how far the voice carries and whether the open mic's gate opens).
+                if (ModConfig.VoiceNoiseSuppression == null || ModConfig.VoiceNoiseSuppression.Value)
+                {
+                    if (_denoise == null)
+                        _denoise = new VoiceDenoise();
+                    _denoise.Process(frame, 0, FrameSamples);
+                }
+                else
+                    _denoise = null;
                 Measure(frame);
                 frames.Add(frame);
             }

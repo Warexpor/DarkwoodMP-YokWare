@@ -437,18 +437,28 @@ Listen on the player who did not cause the sound.
 - [ ] Walkie crafting: the workbench (level 1) lists the walkie for 2 junk and 1 nail on
       every player's bench; the made walkie shows the hand-painted icon, sharp at slot
       size.
-- [ ] Walkie as a device: B with it in hand switches it off and on (click, the speaker
-      coming alive); off, nothing comes through and the talk key sends nothing. Its bar drains while
-      on; under 10% it chirps every 30 s; flat, it dies with a click; R with a 9V battery
+- [ ] Walkie as a device: B with it in hand switches it off and on (the knob, one of
+      four takes, a dry click with no thump and no snap at its start or end); off, nothing comes through and the talk key sends nothing. Its bar drains while
+      on; flat, it dies with the knob's click; R with a 9V battery
       fills it. In a pocket it plays quieter and duller than in hand.
 - [ ] A keys the walkie 100 to 250 units from B, whose radio is on: A hears their own
       voice from B's radio (quieter, from B's side, duller if B's is in a pocket), with
-      the roger beep and tail on letting go. B switching their radio off or on in hand:
+      the squelch tail on letting go. B switching their radio off or on in hand:
       A hears the knob from B. Indoors all of it has the room's reverb.
 - [ ] Signal: far apart the radio hisses and breaks up, and from a cellar or the bunker
-      underground barely anything gets through. Each transmission ends with a roger beep.
-- [ ] A keying next to B's live radio: a rising howl, from B and on every radio; B
-      switching off stops it. A and C keying together: a whistle and garble.
+      underground barely anything gets through. Each transmission opens with the
+      caller's beep and ends with a squelch tail; neither a voice nor static starts or
+      stops with a click.
+- [ ] A keying next to B's live radio: no howl. A and C keying together: both garbled
+      under static, no whistle.
+- [ ] World sounds on the radio: A keys far from B and walks, opens a door, stands by a
+      barking dog or in the rain; B hears those through the radio under A's voice,
+      louder the closer they are to A, and no music. B standing next to A hears A's
+      voice only once, without the sounds doubled. Voice > "Radio picks up sounds" off
+      on A: voice only.
+- [ ] Noise suppression: with a fan or hiss in A's room, B hears A's voice without it;
+      Voice > "Noise suppression" off brings it back. The level meter is near empty
+      while A is silent.
 - [ ] The walkie transmits only while playing (the radio talk key, right mouse by default, with the radio in hand), not
       in the inventory, a container, dialogue, the map, the journal, the pause menu,
       while dead or with chat open.
