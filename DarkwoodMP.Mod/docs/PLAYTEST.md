@@ -435,8 +435,8 @@ Listen on the player who did not cause the sound.
       B keying is not heard on the radios. C next to A hears A's click on and off and the
       reply from A's walkie. A voice inside a building has an echo.
 - [ ] Walkie crafting: the workbench (level 1) lists the walkie for 2 junk and 1 nail on
-      every player's bench; the made walkie shows the hand-painted icon, sharp at slot
-      size.
+      every player's bench; the made walkie shows its icon (a handheld with a slat grille, aerial
+      to the upper left), sharp at slot size.
 - [ ] Walkie as a device: B with it in hand switches it off and on (the knob, one of
       four takes, a dry click with no thump and no snap at its start or end); off, nothing comes through and the talk key sends nothing. Its bar drains while
       on; flat, it dies with the knob's click; R with a 9V battery

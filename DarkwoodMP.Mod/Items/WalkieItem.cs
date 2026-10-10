@@ -413,10 +413,10 @@ namespace DWMPHorde.Items
 
         /// <summary>
         /// Vanilla inventory icons are about 30 px across, point filtered, and fill their frame.
-        /// The radio's art is drawn for that size (240 px, eight art pixels per icon pixel: big
-        /// plain shapes, lying at an angle like the game's own items) and averaged down to it.
+        /// The radio's art is twice that (60 px, the size it ships at): 30 px lost its grille
+        /// and knobs. It lies with its aerial to the upper left, 30 degrees from upright.
         /// </summary>
-        private const int IconPixels = 30;
+        private const int IconPixels = 60;
 
         /// <summary>Area average of a square-ish image down to size x size, weighted by alpha.</summary>
         private static Color32[] Downsample(Color32[] src, int w, int h, int size)

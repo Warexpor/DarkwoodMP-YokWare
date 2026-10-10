@@ -3,12 +3,12 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.212**. The current Horde wire protocol is **54**. Every install in a session
+**0.8.213**. The current Horde wire protocol is **54**. Every install in a session
 needs the same DLL; the protocol is checked on join.
 
 Protocol history (newest first):
 
-- **54**, 0.8.212: `VoiceData` (129) gains flag 2: a second codec block after the voice,
+- **54**, 0.8.212 to 0.8.213: `VoiceData` (129) gains flag 2: a second codec block after the voice,
   the sounds the talker's radio picked up.
 - **53**, 0.8.200 to 0.8.211: the world share package gains `savplc.dat` (container slots a player
   stored items in). No message layout changed; the bump keeps every player on a build
@@ -61,6 +61,20 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.213 — Radio inventory icon: new design
+
+- **What changed:** the walkie's inventory icon is a new drawing: a factory handheld of
+  the period (tall case, slat speaker grille, two knobs, telescopic aerial, talk key on
+  the edge), lying with its aerial to the upper left, 30 degrees from upright. The
+  0.8.210 icon lay the other way (aerial to the upper right) and lost its details at
+  icon size.
+- **Resolution:** the icon ships at 60 px, twice the game's own icons (about 30 px). At
+  30 px the grille and knobs turned to noise; at 60 px they read, and it is still point
+  filtered like the vanilla icons.
+- **Files:** `Resources/walkie_talkie.png` (60 px, used as is), `Items/WalkieItem.cs`
+  (`IconPixels = 60`). No protocol change.
+- **Status:** code only, not seen in game yet.
 
 ## 0.8.212 — Radio: no generated sounds, no feedback howl, clean starts and stops, bass cut; mic noise suppression; the radio picks up the world
 
