@@ -81,9 +81,9 @@ tested in the game.
 - Files: `Domains/Map/Pins/MapPinOverlay.cs` (rewritten, no `OnGUI`), `MapPinView.cs`
   (`ShowPopup`, wheel reveal), `UI/Nameplates.cs`, `Core/Loc.Ru.cs`.
 - Code only, not playtested yet.
-- Open question for the user (nothing changed): a dream's story end already wakes the whole
-  party at once, so nobody stays behind and nobody spectates. The only spectating in a dream is
-  after dying in it.
+- Dreams, checked and left as they are (confirmed by the user): a dream's story end wakes the
+  whole party at once, so nobody stays behind; a player who dies in a dream spectates until it
+  ends.
 
 ---
 
