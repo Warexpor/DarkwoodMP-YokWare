@@ -3,7 +3,7 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.196**. The current Horde wire protocol is **52** (held for 0.8.190 to 0.8.196; bumped in 0.8.189: `PlayerState`'s walkie trailer
+**0.8.197**. The current Horde wire protocol is **52** (held for 0.8.190 to 0.8.197; bumped in 0.8.189: `PlayerState`'s walkie trailer
 becomes a state byte, `WalkieState`: none, off or flat, on in a pocket, on in hand, plus underground;
 same DLL on every install).
 51 held for 0.8.187 to 0.8.188, bumped in 0.8.187: `VoiceData` (129) carries the
@@ -54,6 +54,53 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.197 — A player down at night or in a dream leaves a body; ghost Wolfman after loading
+
+- **Dying at night or in a dream now leaves the body where the player fell**, on every machine,
+  the dead player's own included. Before, the body vanished: the dead player's own body moves under
+  the player they spectate, and their stand-in on the other machines was parked under the ground.
+  The body is a copy of the player lying on the last frame of the death clip. It has no collider,
+  so players and creatures walk over it.
+  - **Night death:** the body is also the death bag. Vanilla still drops the bag on the spot; while
+    the body lies there the bag's sprite is hidden under it, so pointing at the body loots the bag
+    as usual (shared, synced, map marker unchanged). The body goes at the morning release,
+    and anything left in the bag shows as a bag again.
+  - **Dream death:** the body stays until the dream ends. It drops no bag (the player keeps their
+    kit, as before), so it is only a body.
+  - **Day death is unchanged:** bag, then vanilla's respawn at home, no body. A one-life death by
+    day (Nightmare, or the last life on Hard), which is also held until morning, counts as a day
+    death here.
+  - Files: `Domains/Players/Runtime/PlayerCorpses.cs` (new; ticked from `LanNetworkManager.Tick`),
+    `DeathStateTracker` (records whether a death fell in the night window), and
+    `FinalDreamsceneManager` (where the local player fell in the dream). No wire change; every
+    machine builds the bodies from the death state it already has. New pilot command `corpses`;
+    pilot `loot` also takes death bags. Verified in a 3-player pilot run:
+    - Night death: the body shows on all three machines, on the last death-clip frame, with no
+      solid collider and the bag hidden under it.
+    - A client looted the body, then the host did. Each time the bag left every machine and the
+      body stayed.
+    - Morning removes the body.
+    - A day death drops a plain bag and leaves no body.
+    - Dream death: the body shows on all three until the dream ends, with no bag.
+- **A client could see and talk to a Wolfman at the hideout that the host did not have.** A
+  save written while he visited holds him, and every machine loads him from it. The host's
+  morning on that load sends him away before any client joins, so he is never streamed and the
+  host's despawn never reaches the clients (a client may not despawn him itself). A client now
+  drops a hideout Wolfman the host has never driven while the host's `wolf_inPlayerHideout` flag
+  says he is not there (`WolfVisitorGhostSweep`). Found in a save and rejoin pilot run
+  (desync check: `Creatures local:Wolfman_att: host=<none>`).
+- **The host kept an empty death bag after a client emptied it.** Every client dropped its copy
+  at the host's "bag looted" message, but the host left its own copy standing. Only the host saw that
+  empty bag, and it went into the host's save. The host now drops its copy too, unless it has that
+  bag open itself; that one still goes when the window closes, as before (`TryHostFanDeathBagEmptied`).
+  The host's own take that empties a bag now ends it for everyone at once, as a client's take
+  does. Before, the clients' copies stood empty until the host closed the window
+  (`ContainerSyncPatches.SendContainerAction`).
+- Pilot softlock check (3 players): a client died at night inside a location, waited for the
+  morning and walked out. The host and a client each went into a location and out again after the
+  night deaths. A clock jump out of the night released the dead client. A save at night, then quit
+  and rejoin. Every step passed.
 
 ## 0.8.196 — Pilot-run fixes: stuck pad exit, night-dead past dawn, wreck physics, oven portrait callback, join weather, client rain, chapter teardown
 

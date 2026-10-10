@@ -130,6 +130,7 @@ namespace DWMPHorde
         private static void ClearRemoteNightState()
         {
             _remoteDeathPositions.Clear();
+            _remoteDiedInNightWindow.Clear();
             _remotePermadeathEligible.Clear();
             RemoteNightDeathCount = 0;
             _nightParticipantIds.Clear();

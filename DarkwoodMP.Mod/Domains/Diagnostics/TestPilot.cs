@@ -1301,7 +1301,8 @@ namespace DWMPHorde.Sync
                     bool take = a[0] == "loot";
                     var conts = new List<Item>();
                     foreach (Item it in UnityEngine.Object.FindObjectsOfType<Item>())
-                        if (it != null && it.hasInventory && it.GetComponent<Inventory>() != null && it.GetComponent<Inventory>().invType == Inventory.InvType.itemInv
+                        if (it != null && it.hasInventory && it.GetComponent<Inventory>() != null && (it.GetComponent<Inventory>().invType == Inventory.InvType.itemInv
+                                || it.GetComponent<Inventory>().invType == Inventory.InvType.deathDrop)
                             && !it.isDroppedItem
                             && (!take || Contents(it.GetComponent<Inventory>()).Length > 0))
                             conts.Add(it);
@@ -1320,6 +1321,12 @@ namespace DWMPHorde.Sync
                     Out("  looted " + c.name + "@" + Pos(c.transform.position) + " [" + before + "] → [" + Contents(c.GetComponent<Inventory>()) + "]");
                     return;
                 }
+                case "corpses":
+                    // Bodies left by players down until morning or the dream's end, and their bags.
+                    foreach (string line in Players.PlayerCorpses.Describe())
+                        Out("  " + line);
+                    Out("  bags: " + UnityEngine.Object.FindObjectsOfType<DeathDrop>().Length);
+                    return;
                 case "save":
                     Singleton<SaveManager>.Instance.Save(doJson: true, doSaveProfile: true, force: true, forceSaveStatic: false,
                         showSavingIndicator: true, closeAndOpenStadiaSave: false);
