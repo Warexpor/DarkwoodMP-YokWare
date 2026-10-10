@@ -3,12 +3,12 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.214**. The current Horde wire protocol is **54**. Every install in a session
+**0.8.215**. The current Horde wire protocol is **54**. Every install in a session
 needs the same DLL; the protocol is checked on join.
 
 Protocol history (newest first):
 
-- **54**, 0.8.212 to 0.8.214: `VoiceData` (129) gains flag 2: a second codec block after the voice,
+- **54**, 0.8.212 to 0.8.215: `VoiceData` (129) gains flag 2: a second codec block after the voice,
   the sounds the talker's radio picked up.
 - **53**, 0.8.200 to 0.8.211: the world share package gains `savplc.dat` (container slots a player
   stored items in). No message layout changed; the bump keeps every player on a build
@@ -61,6 +61,15 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.215 — Radio inventory icon at the game's own 30 px
+
+- **What changed:** the radio icon is now 30 px, the same as the game's own icons (0.8.213
+  shipped it at 60 px, 0.8.214 at 40 px). The grille is drawn with two wide slats: three
+  or five turn into noise at this size.
+- **Files:** `Resources/walkie_talkie.png` (30 px, used as is), `Items/WalkieItem.cs`
+  (`IconPixels = 30`). No protocol change.
+- **Status:** code only, not seen in game yet.
 
 ## 0.8.214 — Radio inventory icon at 40 px, three-slat grille
 
