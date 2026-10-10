@@ -24,8 +24,8 @@ namespace DWMPHorde.Audio
         private const float LowBatteryEverySec = 30f;
 
         /// <summary>Clear signal up to here (world units, the map is about 25000 across), gone at <see cref="RadioMaxRange"/>.</summary>
-        private const float RadioClearRange = 3000f;
-        private const float RadioMaxRange = 9000f;
+        private const float RadioClearRange = 6000f;
+        private const float RadioMaxRange = 18000f;
         /// <summary>Each end inside a building counts as this much farther.</summary>
         private const float RadioInsideFactor = 1.35f;
         /// <summary>What gets through from or to underground.</summary>

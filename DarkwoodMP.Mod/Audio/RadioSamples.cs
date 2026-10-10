@@ -16,6 +16,35 @@ namespace DWMPHorde.Audio
         /// <summary>The recording as a clip, or null when it is missing or not readable.</summary>
         internal static AudioClip Load(string file, string clipName)
         {
+            float[] data = Open(file, out int channels, out int rate);
+            if (data == null)
+                return null;
+            AudioClip clip = AudioClip.Create(clipName, data.Length / channels, channels, rate, false);
+            clip.SetData(data, 0);
+            return clip;
+        }
+
+        /// <summary>
+        /// The recording's samples (a mono file, at the rate it was saved at), for mixing into a
+        /// voice by hand; null when it is missing or not readable.
+        /// </summary>
+        internal static float[] LoadSamples(string file, int expectedRate)
+        {
+            float[] data = Open(file, out int channels, out int rate);
+            if (data == null)
+                return null;
+            if (channels != 1 || rate != expectedRate || data.Length == 0)
+            {
+                ModLog.Warn(LogCat.Audio, "Radio sound " + file + " is not mono " + expectedRate + " Hz");
+                return null;
+            }
+            return data;
+        }
+
+        private static float[] Open(string file, out int channels, out int rate)
+        {
+            channels = 0;
+            rate = 0;
             try
             {
                 using (Stream stream = typeof(RadioSamples).Assembly.GetManifestResourceStream(Prefix + file))
@@ -26,7 +55,7 @@ namespace DWMPHorde.Audio
                         return null;
                     }
                     using (var r = new BinaryReader(stream))
-                        return Read(r, clipName);
+                        return Read(r, out channels, out rate);
                 }
             }
             catch (Exception ex)
@@ -36,7 +65,7 @@ namespace DWMPHorde.Audio
             }
         }
 
-        private static AudioClip Read(BinaryReader r, string clipName)
+        private static float[] Read(BinaryReader r, out int channels, out int rate)
         {
             if (new string(r.ReadChars(4)) != "RIFF")
                 throw new InvalidDataException("not a RIFF file");
@@ -44,7 +73,9 @@ namespace DWMPHorde.Audio
             if (new string(r.ReadChars(4)) != "WAVE")
                 throw new InvalidDataException("not a WAVE file");
 
-            int channels = 0, rate = 0, bits = 0;
+            channels = 0;
+            rate = 0;
+            int bits = 0;
             while (r.BaseStream.Position + 8 <= r.BaseStream.Length)
             {
                 string id = new string(r.ReadChars(4));
@@ -69,9 +100,7 @@ namespace DWMPHorde.Audio
                     var data = new float[frames * channels];
                     for (int i = 0; i < data.Length; i++)
                         data[i] = r.ReadInt16() / 32768f;
-                    AudioClip clip = AudioClip.Create(clipName, frames, channels, rate, false);
-                    clip.SetData(data, 0);
-                    return clip;
+                    return data;
                 }
                 r.BaseStream.Position = next;
             }

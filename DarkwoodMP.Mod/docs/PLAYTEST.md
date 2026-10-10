@@ -441,6 +441,10 @@ Listen on the player who did not cause the sound.
       coming alive); off, nothing comes through and the talk key sends nothing. Its bar drains while
       on; under 10% it chirps every 30 s; flat, it dies with a click; R with a 9V battery
       fills it. In a pocket it plays quieter and duller than in hand.
+- [ ] A keys the walkie 100 to 250 units from B, whose radio is on: A hears their own
+      voice from B's radio (quieter, from B's side, duller if B's is in a pocket), with
+      the roger beep and tail on letting go. B switching their radio off or on in hand:
+      A hears the knob from B. Indoors all of it has the room's reverb.
 - [ ] Signal: far apart the radio hisses and breaks up, and from a cellar or the bunker
       underground barely anything gets through. Each transmission ends with a roger beep.
 - [ ] A keying next to B's live radio: a rising howl, from B and on every radio; B

@@ -3,7 +3,7 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.205**. The current Horde wire protocol is **53**. Every install in a session
+**0.8.206**. The current Horde wire protocol is **53**. Every install in a session
 needs the same DLL; the protocol is checked on join.
 
 Protocol history (newest first):
@@ -59,6 +59,45 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.206 — Radio: recorded static and knob, twice the range, your own talk from a radio near you
+
+- **Radio range doubled.** Clear to 6000 units (was 3000), gone at 18000 (was 9000); the
+  map is about 25000 across. Buildings and underground weaken it as before.
+- **Recorded static under a transmission.** A clear signal carries a handheld's own
+  steady static ("Walkie Talkie radio static" by SEF7); as the signal weakens, an
+  out-of-range static ("Radio static" by LukaCafuka) rises over it, and it is what a
+  dropout sounds like. Both replace the generated hiss, which stays as the fallback.
+  They are mixed into the voice before the listener's wall muffle and room reverb, so
+  they sound from the radio like the voice does.
+- **Recorded knob.** Switching the radio on or off (and a flat battery's click) plays one
+  of four takes cut from "Press radio knob.wav" by greatsoundstube, never the same one
+  twice running. The generated speaker hiss after the click is gone.
+- **Other players hear your knob.** A player near someone who switches their radio on or
+  off hears the click from them (about 150 units), muffled through a wall and with the
+  room's reverb. Read from the radio state already in `PlayerState`; no new message.
+- **Your own transmission comes out of a radio near you.** Keying your walkie with another
+  player's live radio in earshot (260 units in hand, less in a pocket), you hear it play
+  you: your voice through the radio's band and static, its opening click, its roger beep
+  and squelch tail when you let go, from where that player stands, at the level any
+  nearby radio plays at (quieter than your own, falling off with distance, muffled
+  through a wall and duller from a pocket). Nothing extra is sent: the frame just
+  transmitted goes through the same radio path locally, with a 70 ms buffer instead of
+  the network's 150 ms. Closer than 90 units the feedback howl still applies.
+- **Occlusion and reverb, checked and completed.** Already in place: a voice or a nearby
+  radio is muffled through walls and gets the room's reverb; a radio in a backpack or on
+  the hotbar plays to its carrier and to players around them, quieter and duller than in
+  hand. Missing and added: the talker's key beep and squelch tail heard by players near
+  them now lose volume through a wall (they were only dulled) and get the reverb when the
+  talker stands inside; this player's own radio sounds (key, release, knob, low battery)
+  get the reverb when this player stands inside.
+- Still generated: the low-battery chirp, and the opening click and roger beep a far
+  radio's speaker plays.
+- Files: `VoiceChatService.NearRadios.cs` (new), `VoiceChatService.Radio.cs`,
+  `VoiceChatService.Speakers.cs`, `VoiceChatService.Walkie.cs`, `VoiceChatService.cs`,
+  `RadioSamples.cs`, `Resources/Radio/*.wav`.
+- Not playtested. Nothing here has been heard: every level (static, knob, own voice from
+  a near radio) is set by measurement of the files, not by ear.
 
 ## 0.8.205 — Recorded call beep and squelch tail on the radio's talk key
 

@@ -60,6 +60,12 @@
     <EmbeddedResource Include="Resources\walkie_talkie.png" LogicalName="DWMPHorde.Resources.walkie_talkie.png" />
     <EmbeddedResource Include="Resources\Radio\key.wav" LogicalName="DWMPHorde.Resources.Radio.key.wav" />
     <EmbeddedResource Include="Resources\Radio\release.wav" LogicalName="DWMPHorde.Resources.Radio.release.wav" />
+    <EmbeddedResource Include="Resources\Radio\knob1.wav" LogicalName="DWMPHorde.Resources.Radio.knob1.wav" />
+    <EmbeddedResource Include="Resources\Radio\knob2.wav" LogicalName="DWMPHorde.Resources.Radio.knob2.wav" />
+    <EmbeddedResource Include="Resources\Radio\knob3.wav" LogicalName="DWMPHorde.Resources.Radio.knob3.wav" />
+    <EmbeddedResource Include="Resources\Radio\knob4.wav" LogicalName="DWMPHorde.Resources.Radio.knob4.wav" />
+    <EmbeddedResource Include="Resources\Radio\static_near.wav" LogicalName="DWMPHorde.Resources.Radio.static_near.wav" />
+    <EmbeddedResource Include="Resources\Radio\static_far.wav" LogicalName="DWMPHorde.Resources.Radio.static_far.wav" />
     <EmbeddedResource Include="Resources\MenuButtons\multiplayer_idle.png" LogicalName="DWMPHorde.Resources.MenuButtons.multiplayer_idle.png" />
     <EmbeddedResource Include="Resources\MenuButtons\multiplayer_hover.png" LogicalName="DWMPHorde.Resources.MenuButtons.multiplayer_hover.png" />
     <EmbeddedResource Include="Resources\MenuButtons\multiplayer_idle_ru.png" LogicalName="DWMPHorde.Resources.MenuButtons.multiplayer_idle_ru.png" />

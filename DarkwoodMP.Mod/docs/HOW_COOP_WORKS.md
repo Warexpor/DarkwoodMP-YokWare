@@ -867,8 +867,10 @@ party events.
     a playing radio hear it.
     Radios work one way at a time: your own radio is silent while you transmit, and a
     channel carries whoever keyed first until they let go; someone keying over them is
-    heard garbled under a whistle. Players near a talker hear their walkie click on and
-    off; the far radios end each transmission with a roger beep.
+    heard garbled under a whistle. Players near a talker hear their walkie's call beep
+    and squelch tail, and the knob of a radio switched on or off near them; the far
+    radios end each transmission with a roger beep. A talker hears their own
+    transmission from another player's live radio near them, as that radio plays it.
   - A walkie is crafted at the workbench (level 1) from 2 junk and 1 nail; each player
     makes their own.
   - A walkie is a device: an on/off knob (`B`, in hand), a 9V battery that drains while
@@ -876,8 +878,8 @@ party events.
     flashlight), quieter and duller in a pocket than in hand. Off or flat, it neither
     receives, transmits nor makes a sound for creatures: switching it off is how you
     sneak with one.
-  - The signal fades with distance (clear to 3000 units, breaking up past that, gone at
-    9000), carries less out of buildings and barely in or out of underground places, and
+  - The signal fades with distance (clear to 6000 units, breaking up past that, gone at
+    18000), carries less out of buildings and barely in or out of underground places, and
     nothing reaches another world (a dream).
   - Keying right next to another live radio feeds back: a howl on every radio on the
     channel and from that radio, which creatures hear from far off.

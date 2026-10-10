@@ -64,7 +64,13 @@ namespace DWMPHorde.Audio
         {
             if (_speakers.TryGetValue(id, out Speaker existing) && existing.Go != null)
                 return existing;
+            Speaker s = CreateSpeaker(id);
+            _speakers[id] = s;
+            return s;
+        }
 
+        private static Speaker CreateSpeaker(int id)
+        {
             if (_root == null)
             {
                 _root = new GameObject("YokWare_Voice");
@@ -113,7 +119,8 @@ namespace DWMPHorde.Audio
             s.Click.dopplerLevel = 0f;
             s.ClickMuffle = click.AddComponent<AudioLowPassFilter>();
             s.ClickMuffle.cutoffFrequency = 22000f;
-            _speakers[id] = s;
+            s.ClickReverb = click.AddComponent<AudioReverbFilter>();
+            s.ClickReverb.enabled = false;
             return s;
         }
 
@@ -281,6 +288,7 @@ namespace DWMPHorde.Audio
                 // a weak one breaks up (decode side).
                 s.RadioQuality = mode == HearMode.NearRadio ? nearQuality : mode == HearMode.OwnRadio ? ownQuality : 0f;
                 s.RadioHiss = Mathf.Lerp(RadioHissNear, RadioHissFar, 1f - s.RadioQuality);
+                s.FarStatic = FarStaticGain(s.RadioQuality);
                 s.Doubling = Mathf.MoveTowards(s.Doubling, holder && AnyoneDoubling(s.Id) ? 1f : 0f, dt * 6f);
 
                 // Feedback: the talker keys right by a radio that is on and receiving them; it
@@ -304,8 +312,13 @@ namespace DWMPHorde.Audio
                 {
                     if (talkerHere)
                         s.Click.transform.position = talkerPos;
+                    // The talker's key beep is a sound in the world like their voice: the same
+                    // wall muffle, and the room's reverb when they stand inside.
+                    s.Click.volume = Mathf.Lerp(1f, WallVolume, s.Occlusion);
                     if (s.ClickMuffle != null)
                         s.ClickMuffle.cutoffFrequency = Mathf.Lerp(22000f, WallCutoff, s.Occlusion);
+                    if (s.ClickReverb != null && s.ClickReverb.enabled != talkerInside)
+                        s.ClickReverb.enabled = talkerInside;
                 }
                 if (s.Reverb != null && Time.unscaledTime >= s.NextInsideCheck)
                 {
