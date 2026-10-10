@@ -3,7 +3,7 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.208**. The current Horde wire protocol is **53**. Every install in a session
+**0.8.209**. The current Horde wire protocol is **53**. Every install in a session
 needs the same DLL; the protocol is checked on join.
 
 Protocol history (newest first):
@@ -59,6 +59,22 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.209 — Answer buttons of a question box spaced, MULTIPLAYER there when the pause menu opens
+
+- **Question box:** in "Profile N belongs to a different co-op campaign..." the answers
+  read "OverwriteCancel", with no room between them. The vanilla box writes each answer
+  from its left edge at the places meant for "Yes" and "No", so a longer first word ran
+  into the second. The two answers are now laid out after their text is set: centred
+  where the vanilla pair is, with at least the vanilla room (40 units or more) between
+  them. Applies to every yes/no box of the mod's menu (`VmScreen.Confirm`).
+- **Pause menu:** on the first open in a game the rows moved down at once but the
+  MULTIPLAYER button was made up to 15 frames later (the menu's UI pass runs every 15
+  frames), so it popped in. Opening the menu now makes the next update run that pass at
+  once.
+- Files: `UI/VanillaMenu/VanillaMenu.cs`, `UI/MainMenuMultiplayerInject.Panel.cs`.
+- Built but **not deployed** (a session was running) and not playtested. The DLLs in the
+  three game folders are still 0.8.208.
 
 ## 0.8.208 — MULTIPLAYER button keeps its size after a resolution change
 

@@ -438,6 +438,7 @@ namespace YokWare.VanillaMenu
             _confirmNav.Clear();
             WireConfirm("YesBtn", yes != null ? Vm.T(yes) : Vm.Vanilla("Yes"), true);
             WireConfirm("NoBtn", no != null ? Vm.T(no) : Vm.Vanilla("No"), false);
+            LayoutConfirmButtons();
             if (_content != null)
                 _content.SetActive(false);
             _confirm.SetActive(true);
@@ -462,6 +463,39 @@ namespace YokWare.VanillaMenu
                 Vm.FitCollider(t.GetComponent<tk2dTextMesh>());
             }
             _confirmNav.Add(b);
+        }
+
+        /// <summary>Least room between the two answers.</summary>
+        private const float ConfirmGap = 40f;
+
+        /// <summary>
+        /// The answers stand where vanilla wrote "Yes" and "No", each from its left edge. Longer
+        /// words ("Overwrite") run into the second one, so the pair is laid out again: centred
+        /// where the vanilla pair is, with at least the vanilla room between them.
+        /// </summary>
+        private void LayoutConfirmButtons()
+        {
+            Transform yes = _confirm.transform.Find("YesBtn");
+            Transform no = _confirm.transform.Find("NoBtn");
+            tk2dTextMesh yesTm = yes != null ? yes.GetComponent<tk2dTextMesh>() : null;
+            tk2dTextMesh noTm = no != null ? no.GetComponent<tk2dTextMesh>() : null;
+            if (yesTm == null || noTm == null)
+                return;
+            float sy = yes.localScale.x, sn = no.localScale.x;
+            Bounds y0 = yesTm.GetEstimatedMeshBoundsForString(Vm.ForMenuFont(Vm.Vanilla("Yes")));
+            Bounds n0 = noTm.GetEstimatedMeshBoundsForString(Vm.ForMenuFont(Vm.Vanilla("No")));
+            Bounds y1 = yesTm.GetEstimatedMeshBoundsForString(yesTm.text);
+            Bounds n1 = noTm.GetEstimatedMeshBoundsForString(noTm.text);
+            Vector3 yp = yes.localPosition, np = no.localPosition;
+            float left0 = yp.x + y0.min.x * sy;
+            float right0 = np.x + n0.max.x * sn;
+            float gap = Mathf.Max(ConfirmGap, (np.x + n0.min.x * sn) - (yp.x + y0.max.x * sy));
+            float yesW = y1.size.x * Mathf.Abs(sy), noW = n1.size.x * Mathf.Abs(sn);
+            float left = (left0 + right0) * 0.5f - (yesW + gap + noW) * 0.5f;
+            yp.x = left - y1.min.x * sy;
+            np.x = left + yesW + gap - n1.min.x * sn;
+            yes.localPosition = yp;
+            no.localPosition = np;
         }
 
         public void CloseConfirm(bool answer)

@@ -185,6 +185,10 @@ namespace DWMPHorde
                         return;
                     _menu = __instance;
                     _wasAtTitle = GameScreen.AtTitle;
+                    // The next update runs the UI pass at once instead of up to UiPollInterval
+                    // frames later: the menu is not drawn a few frames without MULTIPLAYER (the
+                    // button is not made here, the menu's objects are still being switched on).
+                    _lastUiPoll = Time.frameCount - UiPollInterval;
                     if (__instance.Menu0 == null || !__instance.Menu0.activeInHierarchy)
                         return;
                     ApplyMenuStack();
