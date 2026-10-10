@@ -3,7 +3,7 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.202**. The current Horde wire protocol is **53**. Every install in a session
+**0.8.203**. The current Horde wire protocol is **53**. Every install in a session
 needs the same DLL; the protocol is checked on join.
 
 Protocol history (newest first):
@@ -57,6 +57,21 @@ Protocol history (newest first):
 This file is a public ship log. Code-only status and runtime status are called
 out separately. A runtime item is not considered verified until it has been
 tested in the game.
+
+---
+
+## 0.8.203 — F4 line when spectating begins
+
+- **Spectating had no hint about F4.** Nothing told a spectator that F4 moves between players.
+  When spectating begins (F4, a night death, a death in a dream) one line in the hover-label
+  font shows at the bottom of the screen: "F4 - next player, then back to yourself" for a
+  living player, "F4 - next player" for a dead one. It fades in, stays about five seconds and
+  fades away. A dead player with only one other player to watch gets no line, as F4 has
+  nowhere to go.
+- No protocol change. Files: `UI/SpectatorModeController.Prompt.cs` (new), `Core/Loc.Ru.cs`.
+  The Russian lines and the doc passages for this went into the 0.8.202 commit, which another
+  session made in the same checkout.
+- Code only, not playtested yet.
 
 ---
 
