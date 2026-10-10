@@ -413,8 +413,8 @@ namespace DWMPHorde.Items
 
         /// <summary>
         /// Vanilla inventory icons are about 30 px across, point filtered, and fill their frame.
-        /// The radio's art ships at that size and is used as is: few, wide shapes (a two-slat
-        /// grille), lying with its aerial to the upper left, 30 degrees from upright.
+        /// The radio's art ships at that size and is used as is: a handheld with a fine slat
+        /// grille, lying with its aerial to the upper left, 30 degrees from upright.
         /// </summary>
         private const int IconPixels = 30;
 
