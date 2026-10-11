@@ -883,6 +883,7 @@ party events.
   volume. Creature sounds come from the host within their range of a player.
 - **Text chat** (Ctrl+C): relayed by the host, which stamps the sender, so a
   name cannot be faked. What is said stays in the chat; nothing shows over the players.
+  The chat also says when a player is joining, is in the game, left, or lost connection.
 - **Player names**: each player tells the host their name and the host hands every
   name out with the player roster. A name shows over a player only while you can
   see them (vanilla's enemy sight test), so it never reveals someone behind a wall.

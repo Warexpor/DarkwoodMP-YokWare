@@ -19,8 +19,10 @@ namespace DWMPHorde.Networking
         private void Update()
         {
             Players.LocalGetUpHold.Tick(this);
-            bool perf = IsConnected && _session.Link.HandshakeComplete
-                && (_role == NetworkRole.Client || _role == NetworkRole.Host);
+            // A host is probed with no peers too: a session that lost its last client still runs
+            // the host paths, and its frame trouble must show in the log.
+            bool perf = _role == NetworkRole.Host
+                || (_role == NetworkRole.Client && IsConnected && _session.Link.HandshakeComplete);
             ClientPerfProbe.SetActive(perf, _role);
             if (perf) ClientPerfProbe.FrameBegin();
 

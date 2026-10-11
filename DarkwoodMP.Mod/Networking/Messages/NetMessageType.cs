@@ -493,7 +493,12 @@ namespace DWMPHorde.Networking
         /// Protocol 60.
         /// </summary>
         DreamLeft = 172,
+        /// <summary>
+        /// Host→clients: a player is joining, is in the game, left, or lost its connection, for a
+        /// line in the chat (<c>Sync.PeerNotices</c>). Protocol 62.
+        /// </summary>
+        [HostOnly] PeerNotice = 173,
         /// <summary>Highest used message type ID.</summary>
-        _Highest = 172
+        _Highest = 173
     }
 }

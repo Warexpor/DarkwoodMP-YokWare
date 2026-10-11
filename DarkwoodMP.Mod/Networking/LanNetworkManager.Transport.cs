@@ -326,7 +326,10 @@ namespace DWMPHorde.Networking
             if (_role != NetworkRole.Host || playerId <= 1)
                 return;
             if (_session.Link.LoadingWorld.Remove(playerId))
+            {
                 ModLog.Event(LogCat.Session, "Peer " + playerId + " gameplay-ready (first PlayerState)");
+                Sync.PeerNotices.HostInGame(this, playerId);
+            }
         }
 
         /// <summary>Host: true if peer should receive high-rate gameplay packets.</summary>

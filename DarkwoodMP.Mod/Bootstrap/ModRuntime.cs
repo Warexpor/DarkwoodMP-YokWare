@@ -303,6 +303,7 @@ namespace DWMPHorde
             NetworkResetRegistry.Register(MenuShield.Reset);
             NetworkResetRegistry.Register(PauseMenuSync.Reset);
             NetworkResetRegistry.Register(PlayerNames.Reset);
+            NetworkResetRegistry.Register(PeerNotices.Reset);
             NetworkResetRegistry.Register(PauseMenuNoInputPatch.Reset);
             NetworkResetRegistry.Register(StackedLightProbe.Reset);
             NetworkResetRegistry.Register(BackgroundFrameRate.Reset);

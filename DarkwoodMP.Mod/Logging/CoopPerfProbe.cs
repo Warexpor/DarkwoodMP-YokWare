@@ -8,8 +8,12 @@ namespace DWMPHorde.Logging
 {
     /// <summary>
     /// Co-op frame cost probe for Host and Client. Emits a periodic Event line while
-    /// connected so dual-box FPS bugs show in LogOutput without Trace spam.
-    /// Times are milliseconds accumulated between reports.
+    /// hosting (peers or none) or connected, so dual-box FPS bugs show in LogOutput without
+    /// Trace spam. Times are milliseconds accumulated between reports.
+    /// <c>over=N/budget</c> counts the frames over one and a half times the frame budget
+    /// (refresh interval with vsync, else the fps cap); <c>gc=N</c> the garbage collections in
+    /// the window; <c>worst[...]</c> says what the longest frame held: the mod's network tick
+    /// time, the log lines written, and whether a collection ran in it.
     /// Only runs under LogPreset Dev/Trace or Debug.PerfProbe; otherwise every entry point
     /// is a single bool check (SetActive refuses to arm it).
     /// </summary>
@@ -25,6 +29,19 @@ namespace DWMPHorde.Logging
         private static float _dtSum;
         private static float _dtMax;
         private static float _reportAt;
+
+        /// <summary>Frames over the budget this window, and the budget they were held to (ms).</summary>
+        private static int _lateFrames;
+        private static float _budgetMs;
+        private static int _gcAtWindowStart;
+        /// <summary>The frame in progress: network tick time, log lines, collections at its start.</summary>
+        private static double _frameNetMs;
+        private static int _frameLogLines;
+        private static int _gcAtFrameStart;
+        /// <summary>The same three for the longest frame of the window.</summary>
+        private static double _worstNetMs;
+        private static int _worstLogLines;
+        private static int _worstGc;
 
         private static double _pollMs;
         private static double _updateRestMs;
@@ -120,6 +137,11 @@ namespace DWMPHorde.Logging
             _frames = 0;
             _dtSum = 0f;
             _dtMax = 0f;
+            _lateFrames = 0;
+            _gcAtWindowStart = _gcAtFrameStart = GC.CollectionCount(0);
+            _frameNetMs = _worstNetMs = 0;
+            _frameLogLines = _worstLogLines = 0;
+            _worstGc = 0;
             _pollMs = _updateRestMs = _physBuildMs = 0;
             _lateMs = _objInterpMs = _entityTickMs = 0;
             _entityApplyMs = _physApplyMs = 0;
@@ -188,7 +210,21 @@ namespace DWMPHorde.Logging
             float dt = Time.unscaledDeltaTime * 1000f;
             _frames++;
             _dtSum += dt;
-            if (dt > _dtMax) _dtMax = dt;
+            // dt is the frame that just ended: what was counted since the last FrameBegin is its.
+            int gcNow = GC.CollectionCount(0);
+            if (dt > _dtMax)
+            {
+                _dtMax = dt;
+                _worstNetMs = _frameNetMs;
+                _worstLogLines = _frameLogLines;
+                _worstGc = gcNow - _gcAtFrameStart;
+            }
+            _frameNetMs = 0;
+            _frameLogLines = 0;
+            _gcAtFrameStart = gcNow;
+            _budgetMs = FrameBudgetMs();
+            if (_budgetMs > 0f && dt > _budgetMs * 1.5f)
+                _lateFrames++;
             if (dt >= FrameCliffMs)
             {
                 float now = Time.unscaledTime;
@@ -205,10 +241,37 @@ namespace DWMPHorde.Logging
             Sw.Restart();
         }
 
+        /// <summary>The frame time the game is held to: the refresh interval with vsync, else the fps cap (0 = uncapped).</summary>
+        private static float FrameBudgetMs()
+        {
+            int vsync = QualitySettings.vSyncCount;
+            if (vsync > 0)
+            {
+                int refresh = Screen.currentResolution.refreshRate;
+                return refresh > 0 ? 1000f * vsync / refresh : 0f;
+            }
+            int target = Application.targetFrameRate;
+            return target > 0 ? 1000f / target : 0f;
+        }
+
+        /// <summary>Stopwatch time since the last mark, counted into the frame's network tick total.</summary>
+        private static double Lap()
+        {
+            double ms = Sw.Elapsed.TotalMilliseconds;
+            _frameNetMs += ms;
+            return ms;
+        }
+
+        /// <summary>A log line was written (ModLog), for the longest frame's account.</summary>
+        public static void NoteLogLine()
+        {
+            if (_active) _frameLogLines++;
+        }
+
         public static void MarkPoll()
         {
             if (!_active) return;
-            _pollMs += Sw.Elapsed.TotalMilliseconds;
+            _pollMs += Lap();
             _frameSegMaxMs = 0;
             _frameSegMaxName = "";
             Sw.Restart();
@@ -220,7 +283,7 @@ namespace DWMPHorde.Logging
             // Close any open segment so its time is attributed before we stop upd.
             if (!string.IsNullOrEmpty(_segName))
                 EndUpdateSegment();
-            double frameMs = Sw.Elapsed.TotalMilliseconds;
+            double frameMs = Lap();
             _updateRestMs += frameMs;
             if (frameMs >= SegSpikeMs)
             {
@@ -237,7 +300,7 @@ namespace DWMPHorde.Logging
         public static void MarkPhysBuild()
         {
             if (!_active) return;
-            _physBuildMs += Sw.Elapsed.TotalMilliseconds;
+            _physBuildMs += Lap();
             Sw.Restart();
         }
 
@@ -250,21 +313,21 @@ namespace DWMPHorde.Logging
         public static void MarkObjInterp()
         {
             if (!_active) return;
-            _objInterpMs += Sw.Elapsed.TotalMilliseconds;
+            _objInterpMs += Lap();
             Sw.Restart();
         }
 
         public static void MarkEntityTick()
         {
             if (!_active) return;
-            _entityTickMs += Sw.Elapsed.TotalMilliseconds;
+            _entityTickMs += Lap();
             Sw.Restart();
         }
 
         public static void LateEnd()
         {
             if (!_active) return;
-            _lateMs += Sw.Elapsed.TotalMilliseconds;
+            _lateMs += Lap();
             Sw.Restart();
             MaybeReport();
         }
@@ -394,6 +457,11 @@ namespace DWMPHorde.Logging
             sb.Append(" maxMs=").Append(_dtMax.ToString("F1"));
             if (cliff)
                 sb.Append(" CLIFF");
+            sb.Append(" over=").Append(_lateFrames).Append('/').Append(_budgetMs.ToString("F1")).Append("ms");
+            sb.Append(" gc=").Append(GC.CollectionCount(0) - _gcAtWindowStart);
+            sb.Append(" worst[net=").Append(_worstNetMs.ToString("F1"));
+            sb.Append(" log=").Append(_worstLogLines);
+            sb.Append(" gc=").Append(_worstGc).Append(']');
             sb.Append(" | poll=").Append(_pollMs.ToString("F1"));
             sb.Append(" upd=").Append(_updateRestMs.ToString("F1"));
             sb.Append(" physBuild=").Append(_physBuildMs.ToString("F1"));

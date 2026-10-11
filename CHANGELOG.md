@@ -3,11 +3,12 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.251**. The current Horde wire protocol is **61**. Every install in a session
+**0.8.252**. The current Horde wire protocol is **62**. Every install in a session
 needs the same DLL; the protocol is checked on join.
 
 Protocol history (newest first):
 
+- **62**, 0.8.252: new `PeerNotice` (173).
 - **61**, 0.8.248 to 0.8.251: `VoiceData` (129) carries Opus; with flag 2 its data starts with the voice
   block's length (2 bytes).
 - **60**, 0.8.247: new `DreamLeft` (172).
@@ -71,6 +72,55 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.252 — a chat line when a player joins, is in the game or drops out; unfocused frame cap follows the screen; the perf probe runs for a lone host (protocol 62)
+
+Deployed; not playtested yet.
+
+**A player dropping out showed nowhere but the log.** In a Steam session the joiner's game
+closed its connection while it was still loading the world (the host log: `Steam SNS peer lost
+…: peer dropped`, then `Peer 2 detached during join pipeline`); the host kept playing the
+prologue without knowing it was alone. The mod had no join or leave message anywhere in play.
+
+- The chat now says when a player **is joining** (the host has its name), **is in the game**
+  (its first in-world state; once per connection, a world resend does not repeat it), **left
+  the game** (its side closed the connection) or **lost connection** (timeout, unreachable,
+  stalled). The host decides and tells every client with the new `PeerNotice` (173, host only);
+  each machine words the line in its own language. `Sync.PeerNotices`
+  (`Domains/Players/PeerNotices.cs`), called from `PlayerNames.HandleName`,
+  `MarkPeerGameplayReady` and `OnHostPeerDisconnectedGameplay`.
+- The host's disconnect path now carries whether the peer left or was lost: LiteNetLib's
+  disconnect reason on LAN, `ClosedByPeer` against `ProblemDetectedLocally` on Steam
+  (`OnSteamSessionFailed(remote, closedByPeer)`). The log line reads `SNS closed by peer` or
+  `SNS fail` accordingly.
+- The lines go through the chat, so `ChatEnabled = false` hides them too.
+- Why that joiner's game closed the connection is not known: it is in the joiner's own
+  `LogOutput.log`, which was not available.
+
+**Unfocused, the game ran at 60 fps on a 100 Hz screen.** `BackgroundFrameRate` turns vsync
+off with an fps cap while the window is unfocused in a session (a hidden vsynced window drops
+to one frame a second on this desktop). The cap was a fixed 60. With focus following the mouse
+and the cursor free, a window can lose focus while it is still on screen, and 60 fps without
+vsync on a 100 Hz screen shows as judder until focus is back. The cap is now the screen's
+refresh rate (60 when the screen reports none).
+
+**The perf probe said nothing for a host with no peers.** It armed only with a connected,
+handshaked peer, so the stretch after the last client dropped was unmeasured. It now runs for
+a host for the whole session. Each `[Perf]` line gains, after `maxMs`:
+
+- `over=N/B ms`: frames longer than one and a half times the frame budget `B` (the refresh
+  interval with vsync, else the fps cap);
+- `gc=N`: garbage collections in the window;
+- `worst[net=… log=… gc=…]`: for the longest frame of the window, the mod's network tick time
+  in it (ms), the log lines the mod wrote in it, and the collections that ran in it. A long
+  frame with all three near zero is the game or the display, not the mod's tick.
+
+`Logging/CoopPerfProbe.cs`, `Logging/ModLog.cs`, `Networking/LanNetworkManager.Tick.cs`.
+
+**Seen in the same log, not changed:** with vsync at 100 Hz the host averaged a steady 100 fps
+but every 2 s window held one frame of 13 to 23 ms, while the mod's measured work stayed under
+2 ms a step. The host ran `LogPreset = Trace` (every line written to disk at once). The new
+probe fields are there to tell these apart on the next run.
 
 ## 0.8.251 — a transmission is heard as the voice and on the radio at once
 

@@ -383,13 +383,14 @@ namespace DWMPHorde.Networking
             TryBeginHostMigration("steam host left lobby");
         }
 
-        internal void OnSteamSessionFailed(CSteamID remote)
+        /// <param name="closedByPeer">The other side closed the connection itself (it left); otherwise it was lost.</param>
+        internal void OnSteamSessionFailed(CSteamID remote, bool closedByPeer = false)
         {
             if (_backend != ConnectionBackend.Steam)
                 return;
             if (_steamPeers.TryGetPlayerId(remote.m_SteamID, out int playerId))
             {
-                HandleSteamPeerDisconnected(playerId, "SNS fail");
+                HandleSteamPeerDisconnected(playerId, closedByPeer ? "SNS closed by peer" : "SNS fail", lost: !closedByPeer);
                 return;
             }
 

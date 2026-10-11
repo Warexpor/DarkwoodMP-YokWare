@@ -1629,6 +1629,29 @@ namespace DWMPHorde.Networking
         public static PlayerNameMessage Deserialize(NetReader r) => new PlayerNameMessage { Name = r.GetString() };
     }
 
+    /// <summary>Host→clients: a player is joining, is in the game, or is gone (<c>Sync.PeerNotices</c> kinds).</summary>
+    public struct PeerNoticeMessage
+    {
+        public int PlayerId;
+        public byte Kind;
+        /// <summary>The name the player goes by (a player that is gone is no longer in the roster).</summary>
+        public string Name;
+
+        public void Serialize(NetWriter w)
+        {
+            w.Put(PlayerId);
+            w.Put(Kind);
+            w.Put(Name ?? "");
+        }
+
+        public static PeerNoticeMessage Deserialize(NetReader r) => new PeerNoticeMessage
+        {
+            PlayerId = r.GetInt(),
+            Kind = r.GetByte(),
+            Name = r.GetString()
+        };
+    }
+
     /// <summary>Host→clients: every player is in the pause menu, so the whole world is paused (or no longer is).</summary>
     public struct WorldPauseMessage
     {
