@@ -58,6 +58,8 @@ namespace DWMPHorde.Audio
             /// <summary>Vanilla's indoor reverb (<c>AudioController</c>: a sound from inside a building gets an AudioReverbFilter).</summary>
             public AudioReverbFilter Reverb;
             public float NextInsideCheck;
+            /// <summary>The last inside check's answer (the reverb fades toward it every frame).</summary>
+            public bool ReverbInside;
             public float NextTalkerInsideCheck;
             public bool TalkerInside;
             /// <summary>Signal on the radio this talker is heard through, 1 clear .. 0 none (0 when heard directly).</summary>

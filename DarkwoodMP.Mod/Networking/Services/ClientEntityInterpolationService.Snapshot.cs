@@ -93,6 +93,20 @@ namespace DWMPHorde.Networking
                 }
                 Vector3 targetPos = new Vector3(e.PosX, e.PosY, e.PosZ);
 
+                // The host stops sending this body: it left every player's range there. Its copy
+                // here is put away wherever it stands (a rabbit that calmed down at the edge and
+                // wandered on stayed here as a ghost: in view, hittable, never dying).
+                if (e.LeftRange)
+                {
+                    StopDriving(e.Index);
+                    Character left = CharacterTracker.FindByStableId(e.Index);
+                    if (left != null && left.gameObject != null && left.gameObject.activeSelf
+                        && left.alive && left.GetComponent<Item>() == null)
+                        left.gameObject.SetActive(false);
+                    skipped++;
+                    continue;
+                }
+
                 // Recently despawned: ignore late EntityState until grace ends (host holds
                 // recycled ids longer; this covers in-flight snapshots for the old body).
                 if (_recentlyDespawnedUntil.TryGetValue(e.Index, out float despawnUntil))

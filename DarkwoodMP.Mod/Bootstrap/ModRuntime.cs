@@ -215,6 +215,7 @@ namespace DWMPHorde
             NetworkResetRegistry.Register(HostMeleeSensorPatch.Reset);
             NetworkResetRegistry.Register(ThreatTriggerContext.Reset);
             NetworkResetRegistry.Register(EventTriggersProxyOccupancy.Reset);
+            NetworkResetRegistry.Register(LockBehindPartyGate.Reset);
             NetworkResetRegistry.Register(MorningHideoutHold.Reset);
             NetworkResetRegistry.Register(DreamForestSpiritAggro.Reset);
             NetworkResetRegistry.Register(DreamSyncManager.ResetHostEndClaim);

@@ -3,12 +3,13 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.256**. The current Horde wire protocol is **62**. Every install in a session
+**0.8.257**. The current Horde wire protocol is **62**. Every install in a session
 needs the same DLL; the protocol is checked on join.
 
 Protocol history (newest first):
 
-- **62**, 0.8.252 to 0.8.256: new `PeerNotice` (173).
+- **62**, 0.8.252 to 0.8.257: new `PeerNotice` (173). 0.8.257 uses a spare bit of the entity
+  snapshot (`Flag2LeftRange`, 32); the layout is unchanged.
 - **61**, 0.8.248 to 0.8.251: `VoiceData` (129) carries Opus; with flag 2 its data starts with the voice
   block's length (2 bytes).
 - **60**, 0.8.247: new `DreamLeft` (172).
@@ -72,6 +73,45 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.257 — a door that locks behind the party waits for the whole party; voice room effect quieter and faded; no ghost creature left behind
+
+From the same session's feedback. Built and deployed, not yet played. Protocol unchanged (62);
+every player needs this build.
+
+**Wedding: the host was locked in the groom's room for good.** The corridor trigger
+`area_trigger_removeCreazyVillager` closes and locks the "escape route" door, boards the windows
+and starts the bride. It is built for one player, who is past the door by the time he walks into
+it. The client walked into it while the host was still in the groom's room. Any walk-in trigger
+whose events lock a door (`modifyDoor` / `lockMe`: the wedding, the wolf's room, the cellar dream's
+exits, the acid dream's studio, the train wreck trap) now waits on the host until every living
+player in that location has walked into its volume, then fires once for the party
+(`LockBehindPartyGate`; log: `[PartyGate] ... held until N more player(s) here walk in`). A player
+who dies or leaves the location no longer holds it. Players elsewhere on the map never hold it.
+
+**Voice: the room effect was too strong, and snapped at a doorway.** The indoor reverb was Unity's
+stock `AudioReverbFilter`, as loud as the voice itself, switched on and off in one step: leaving a
+house cut the whole tail (and the level) inside one audio buffer. It is a quieter, shorter room
+now (9 dB under the stock level, 0.8 s) and fades in and out over 0.4 s, on a voice, on a radio and
+on the talker's key beep (`RoomReverb`). The wall muffle keeps more of the voice: 2600 Hz and 0.8
+volume instead of vanilla's 1500 Hz and 0.75, which is tuned for short sounds.
+
+**A rabbit that stood still on the client, could be hit and never died.** The host had that
+rabbit 1600 units away ("[Attack] too far dist=1666 > 200"). A creature that walks out of every
+player's range is simply not sent any more, and a client keeps an unsent creature where it last
+saw it (it cannot tell "left" from "resting"). Only fleeing creatures were hidden. The host now
+sends one last snapshot that says the creature left range (`Flag2LeftRange`) and the client puts
+its copy away; it is back with the first snapshot when someone comes near it again
+(`EntityStateBroadcastService`, `ClientEntityInterpolationService`).
+
+Looked for in the logs, nothing found:
+- **Host frame rate.** The probe counted 314,915 host frames: 100 fps in 91% of the 2 s windows,
+  99 in 7%, lower in about 2%. 0.3% of frames
+  ran over 10 ms, and in those the time is in rendering/present; the mod's own update averaged
+  1.2 ms. Nothing here explains a steady 97 to 98.
+- **Client map marks.** Four "Shelter" marks and several pings by the client reached the host and
+  were logged there; whether they were drawn is not in the log.
+- **Torch without a flame.** Every time the host drew the torch the log has it lit with its emitter.
 
 ## 0.8.256 — host leaving to the menu hands the world over at once; saw with several log stacks; ex-host keeps its character
 

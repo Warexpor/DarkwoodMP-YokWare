@@ -28,8 +28,8 @@ namespace DWMPHorde.Audio
         internal const float NearRadioRange = 260f;
         private const float NearRadioFull = 45f;
         private const float NearRadioVolume = 0.7f;
-        private const float WallVolume = 0.75f;
-        private const float WallCutoff = 1500f;
+        private const float WallVolume = 0.8f;
+        private const float WallCutoff = 2600f;
         /// <summary>A radio stays held by its talker this long after their last packet.</summary>
         private const float ChannelHoldSec = 0.35f;
 
@@ -105,9 +105,9 @@ namespace DWMPHorde.Audio
             s.Src.maxDistance = 100000f;
             s.Src.dopplerLevel = 0f;
             s.Src.spread = 60f;
-            // Same indoor reverb vanilla puts on a sound made inside (default filter, toggled).
+            // The indoor reverb vanilla puts on a sound made inside, quieter and faded (RoomReverb).
             s.Reverb = s.Go.AddComponent<AudioReverbFilter>();
-            s.Reverb.enabled = false;
+            RoomReverb.Setup(s.Reverb);
             s.Src.Play();
 
             var click = new GameObject("YokWare_VoiceClick_" + id);
@@ -122,7 +122,7 @@ namespace DWMPHorde.Audio
             s.ClickMuffle = click.AddComponent<AudioLowPassFilter>();
             s.ClickMuffle.cutoffFrequency = 22000f;
             s.ClickReverb = click.AddComponent<AudioReverbFilter>();
-            s.ClickReverb.enabled = false;
+            RoomReverb.Setup(s.ClickReverb);
             return s;
         }
 
@@ -247,7 +247,8 @@ namespace DWMPHorde.Audio
                     s.OccludedNow = IsOccluded(listen, talkerPos);
                 }
                 s.Occlusion = Mathf.MoveTowards(s.Occlusion, s.OccludedNow ? 1f : 0f, dt * 5f);
-                // Vanilla's own muffle for a sound behind a wall (AudioController: 0.75 volume, 1500 Hz).
+                // A wall between: vanilla muffles its short sounds to 0.75 volume and 1500 Hz; a
+                // voice at that cutoff lost its consonants, so it keeps more (0.8, 2600 Hz).
                 proxVol *= Mathf.Lerp(1f, WallVolume, s.Occlusion);
                 cutoff = Mathf.Lerp(cutoff, Mathf.Min(cutoff, WallCutoff), s.Occlusion);
             }
@@ -361,12 +362,11 @@ namespace DWMPHorde.Audio
                 if (r.Reverb != null && !tail && mode != HearMode.Direct && Time.unscaledTime >= r.NextInsideCheck)
                 {
                     r.NextInsideCheck = Time.unscaledTime + 0.5f;
-                    bool inside = mode == HearMode.OwnRadio
+                    r.ReverbInside = mode == HearMode.OwnRadio
                         ? Player.Instance != null && Player.Instance.isInside
                         : IsInside(net, nearRadioId);
-                    if (r.Reverb.enabled != inside)
-                        r.Reverb.enabled = inside;
                 }
+                RoomReverb.Drive(r.Reverb, r.ReverbInside, dt);
                 if (r.Beh != null)
                     r.Beh.Volume = Mathf.Clamp(radioVol * share * playerVol * VoiceOutLevel, 0f, 2f);
                 if (r.Muffle != null)
@@ -396,11 +396,9 @@ namespace DWMPHorde.Audio
                 s.Click.volume = Mathf.Lerp(1f, WallVolume, s.Occlusion);
                 if (s.ClickMuffle != null)
                     s.ClickMuffle.cutoffFrequency = Mathf.Lerp(22000f, WallCutoff, s.Occlusion);
-                if (s.ClickReverb != null && s.ClickReverb.enabled != talkerInside)
-                    s.ClickReverb.enabled = talkerInside;
+                RoomReverb.Drive(s.ClickReverb, talkerInside, dt);
             }
-            if (s.Reverb != null && s.Reverb.enabled != talkerInside)
-                s.Reverb.enabled = talkerInside;
+            RoomReverb.Drive(s.Reverb, talkerInside, dt);
 
             if (s.Beh != null)
                 s.Beh.Volume = Mathf.Clamp(proxVol * share * playerVol * VoiceOutLevel, 0f, 2f);

@@ -150,6 +150,7 @@ namespace DWMPHorde.Networking
                 if (perf) ClientPerfProbe.BeginUpdateSegment("entityBroadcast");
                 EntityStateBroadcastService.Tick();
                 Patches.HostLocationLeaveKeepRemotePatch.TickHost();
+                Patches.LockBehindPartyGate.TickHost();
                 if (perf) ClientPerfProbe.EndUpdateSegment();
 
                 _proxyMaintenanceTimer += Time.deltaTime;

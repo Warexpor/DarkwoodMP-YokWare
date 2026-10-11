@@ -313,7 +313,7 @@ namespace DWMPHorde.Audio
                 _localRadio.playOnAwake = false;
                 _localRadio.spatialBlend = 0f;
                 _localRadioReverb = go.AddComponent<AudioReverbFilter>();
-                _localRadioReverb.enabled = false;
+                RoomReverb.Setup(_localRadioReverb);
             }
         }
 
@@ -329,8 +329,7 @@ namespace DWMPHorde.Audio
             EnsureLocalRadioSource();
             Player p = Player.Instance;
             bool inside = p != null && p.isInside;
-            if (_localRadioReverb != null && _localRadioReverb.enabled != inside)
-                _localRadioReverb.enabled = inside;
+            RoomReverb.Set(_localRadioReverb, inside);
             _localRadio.PlayOneShot(clip, vol);
         }
 

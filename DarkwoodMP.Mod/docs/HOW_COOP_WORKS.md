@@ -343,6 +343,13 @@ sends its real map, which the client loads. A client that never gets the
 world shows an error and leaves cleanly (it rejoins by hand; see
 [section 20](#20-known-gaps-and-parked-items)).
 
+### Doors that lock behind the party
+
+Some walk-in triggers lock a door behind the player (the wedding's corridor, the wolf's
+room, a dream's exit). They are built for one player. In co-op such a trigger waits until
+every living player in that location has walked into it, then fires once: nobody is locked
+out, or in a dead-end room. A player who dies or leaves the location does not hold it.
+
 ### Host migration
 
 If the host crashes or times out (`HostMigrationEnabled`, on by default), the

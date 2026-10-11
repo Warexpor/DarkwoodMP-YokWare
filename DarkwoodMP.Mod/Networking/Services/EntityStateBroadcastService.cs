@@ -52,6 +52,8 @@ namespace DWMPHorde.Networking
         private static EntitySnapshotNet[] _farBuffer = new EntitySnapshotNet[MaxEntitiesPerPacket]; // process-scoped: scratch buffer, cleared before each use
         /// <summary>Ids streamed last tick: they leave at <see cref="GameplayConstants.EntityInterestLeaveRange"/>, others enter at the activation range.</summary>
         private static readonly HashSet<short> _inRange = new HashSet<short>();
+        /// <summary>Ids given their left-range snapshot this tick.</summary>
+        private static readonly List<short> _leftRange = new List<short>(8);
         private static readonly Dictionary<short, EntitySnapshotNet> _lastSent = new Dictionary<short, EntitySnapshotNet>();
         /// <summary>
         /// Stable stripped name / prefab path per id, keyed to the body that owned the id when
@@ -227,7 +229,19 @@ namespace DWMPHorde.Networking
                 if (dHost > rangeSq && !PlayerPositionManager.IsAnyRemoteWithinSq(cPos, rangeSq))
                 {
                     if (wasInRange)
+                    {
+                        // A living body walking out of range gets one last snapshot that says so
+                        // (Flag2LeftRange); with the packet full it stays in range for a tick more.
+                        if (c.alive && TryBuildSnapshot(c, sid, cPos, true, out EntitySnapshotNet left))
+                        {
+                            if (farCount >= maxEntities)
+                                continue;
+                            left.Flags2 |= EntitySnapshotNet.Flag2LeftRange;
+                            _farBuffer[farCount++] = left;
+                            _leftRange.Add(sid);
+                        }
                         _inRange.Remove(sid);
+                    }
                     continue;
                 }
                 if (!wasInRange)
@@ -285,6 +299,20 @@ namespace DWMPHorde.Networking
                 _lastSent[sent.Index] = sent;
                 MarkClipSent(sent.Index, sent.Clip);
             }
+            // Left range: whatever it is when it comes back counts as changed, and one that did
+            // not fit behind the near bodies stays in range to be told next tick.
+            foreach (short gone in _leftRange)
+            {
+                bool told = false;
+                for (int k = 0; k < count && !told; k++)
+                    told = _buffer[k].Index == gone;
+                if (told)
+                    _lastSent.Remove(gone);
+                else
+                    _inRange.Add(gone);
+                _settleNext.Remove(gone);
+            }
+            _leftRange.Clear();
 
             // Advance scan window for next tick
             _scanStart = (_scanStart + Mathf.Max(1, maxEntities / 2)) % nAll;
@@ -617,6 +645,7 @@ namespace DWMPHorde.Networking
             _epoch = -1;
             _lastTickAt = -1f;
             _inRange.Clear();
+            _leftRange.Clear();
             _clipTrackingOn = false;
             _clipOwners.Clear();
             _clipLogs.Clear();
