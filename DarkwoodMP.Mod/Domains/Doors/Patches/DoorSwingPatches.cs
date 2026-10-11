@@ -113,4 +113,31 @@ namespace DWMPHorde.Patches
             return list;
         }
     }
+
+    /// <summary>
+    /// Vanilla <c>Door.Update</c> plays the hinge creak while the body turns faster than 0.2 rad/s
+    /// and fades it out below that; the next turn starts a new one. A door following another
+    /// player's swing waits at the last sample when the next is late, so the creak stopped and
+    /// restarted at every late sample (15 creaks over one swing on a client in the acid dream
+    /// while the swinger heard one). While the followed swing is under way the creak keeps going;
+    /// it stops when the swing comes to rest or is given up, as the swinger's does.
+    /// </summary>
+    [HarmonyPatch(typeof(Door), "Update")]
+    internal static class DoorFollowCreakPatch
+    {
+        private static readonly AccessTools.FieldRef<Door, AudioObject> RotateSound =
+            AccessTools.FieldRefAccess<Door, AudioObject>("rotateSound");
+        private static readonly AccessTools.FieldRef<Door, Rigidbody> BodyRb =
+            AccessTools.FieldRefAccess<Door, Rigidbody>("bodyRB");
+
+        private static bool Prefix(Door __instance)
+        {
+            Rigidbody rb;
+            if (!DoorSwing.IsFollowingSwing(__instance) || (rb = BodyRb(__instance)) == null)
+                return true;
+            AudioObject creak = RotateSound(__instance);
+            // Turning: vanilla sets the creak's volume from the spin. Held for a late sample: keep it.
+            return creak == null || Mathf.Abs(rb.angularVelocity.y) > 0.2f;
+        }
+    }
 }

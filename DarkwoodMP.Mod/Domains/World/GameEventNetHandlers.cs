@@ -299,8 +299,7 @@ namespace DWMPHorde.Networking
                     // Dream active: only pad children / near dream root (never overworld twin).
                     if (dreamRoot != null
                         && !ge.transform.IsChildOf(dreamRoot)
-                        && (ge.transform.position - dreamRoot.position).sqrMagnitude
-                            > 250f * 250f)
+                        && !DreamSyncManager.IsAtDreamPad(ge.transform.position))
                         continue;
 
                     string eventName = ge.name ?? "";
@@ -337,7 +336,7 @@ namespace DWMPHorde.Networking
                 if (!IsNearLocationAnchor(dPos, root, anchor, maxDistSqr))
                     continue;
                 if (dreamRoot != null
-                    && (dPos - dreamRoot.position).sqrMagnitude > 250f * 250f)
+                    && !DreamSyncManager.IsAtDreamPad(dPos))
                     continue;
                 if (BulkListContains(list, destroyed))
                     continue;

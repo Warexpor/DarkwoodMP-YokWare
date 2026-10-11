@@ -80,14 +80,12 @@ namespace DWMPHorde.Sync
         {
             if (target == null) return false;
             Transform pad = DreamSyncManager.GetDreamLocationTransform();
-            bool posOnPad = pad != null && Vector3.Distance(pos, pad.position) <= DreamPadRadius;
+            bool posOnPad = pad != null && DreamSyncManager.IsAtDreamPad(pos);
             bool targetOnPad = pad != null
                 && (target.IsChildOf(pad)
-                    || Vector3.Distance(target.position, pad.position) <= DreamPadRadius);
+                    || DreamSyncManager.IsAtDreamPad(target.position));
             return posOnPad == targetOnPad;
         }
-
-        private const float DreamPadRadius = 250f;
 
         /// <summary>
         /// The Explodes at that spot with that name, else a same-named one close by (the host moved

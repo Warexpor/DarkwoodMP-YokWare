@@ -305,6 +305,54 @@ namespace DWMPHorde.Sync
             }
         }
 
+        /// <summary>
+        /// Client: where the host put the pad of <paramref name="name"/>. A dream that chains into its
+        /// next part (doctor 1 into doctor 2) loads the next pad while the first one still stands, so
+        /// the host's vanilla spawn takes the next free slot. The client used the first pad's spot
+        /// instead and dreamed the second part 25000 units away from everyone else. Asks the host
+        /// (the same request a client's own pad spawn makes) and waits for the answer; null when the
+        /// host has none (then the caller keeps its own placement).
+        /// </summary>
+        internal static IEnumerator AwaitHostPadPosition(string name, Action<Vector3?> done)
+        {
+            float nextRequestAt = 0f;
+            float waitDeadline = Time.unscaledTime + SlotWaitTimeoutSec;
+            while (true)
+            {
+                var ol = Singleton<OutsideLocations>.Instance;
+                if (ol == null || !IsClientOfHost(out LanNetworkManager net))
+                    break;
+                Bind(ol);
+                if (Logic.TryGet(name, out OutsidePadSlotLogic.Entry e) && !e.Consumed)
+                {
+                    var slots = Positions(ol);
+                    if (e.Slot >= 0 && slots != null && e.Slot < slots.Count)
+                    {
+                        Vector3 p = slots[e.Slot];
+                        done(new Vector3(p.x, 0f, p.z));
+                        yield break;
+                    }
+                    break;
+                }
+                if (Time.unscaledTime >= waitDeadline)
+                {
+                    ModLog.Error(LogCat.World, "[PadSlot] host gave no slot for chained pad '" + name
+                        + "' within " + SlotWaitTimeoutSec.ToString("F0") + "s — it may not line up with the host");
+                    break;
+                }
+                if (Time.unscaledTime >= nextRequestAt)
+                {
+                    nextRequestAt = Time.unscaledTime + RequestRetrySec;
+                    string reqName = name;
+                    net.Send(NetMessageType.LocationPadSlotRequest,
+                        w => new LocationPadSlotRequestMessage { LocationName = reqName }.Serialize(w),
+                        DeliveryMethod.ReliableOrdered);
+                }
+                yield return null;
+            }
+            done(null);
+        }
+
         private static void ReportLocalCollision(OutsideLocations ol, string name, int slot)
         {
             var slots = Positions(ol);

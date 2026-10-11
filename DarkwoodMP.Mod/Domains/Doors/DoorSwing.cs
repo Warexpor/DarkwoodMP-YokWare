@@ -229,6 +229,13 @@ namespace DWMPHorde.Sync
             _touch[door.GetInstanceID()] = new Touch { Door = door, Point = point, At = Time.fixedUnscaledTime };
         }
 
+        /// <summary>
+        /// The door follows another machine's swing that has not come to rest. Its body stops
+        /// between samples when one is late, which is the network's gap, not the door's motion.
+        /// </summary>
+        internal static bool IsFollowingSwing(Door door)
+            => door != null && _drives.TryGetValue(door.GetInstanceID(), out Drive d) && d.Mode == Mode.Follow;
+
         /// <summary>The door's swing is run or followed here: other door state leaves its angle alone.</summary>
         internal static bool IsDriven(Door door)
             => door != null && _drives.ContainsKey(door.GetInstanceID());

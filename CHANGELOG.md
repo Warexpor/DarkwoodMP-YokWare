@@ -77,6 +77,81 @@ tested in the game.
 
 ---
 
+## 0.8.260 — the morning clock runs once anyone walks out; the bunker dream comes with the next level-up; dreams played through by three players: the chained Doctor dream in one place for all, dream residents and the dream's music on every game, dream doors and events far from the scene's centre synced, no repeated door creak
+
+Deployed to the Steam, second and third installs (md5 6865c0db), played by the test pilot in the box (three players, every dream), not by people. Protocol 63, no change.
+
+**The clock stayed stopped all morning while anyone stood in the hideout.** The morning freeze
+held the clock for everyone until the last player walked out, so the players outside lived in a
+frozen day. Now the first player to walk out (host or client) starts the clock for everyone;
+the trader stays until the hideout is empty, and those still inside keep the morning look. A
+morning still held at dusk ends then, so the trader never reaches into the night.
+(`MorningHideoutHold.ClockReleased`, the host clock gate in `ClientTimeAuthorityPatches`, the
+host's own end-of-night look removed on walking out in `MorningHideoutExitPatch`.)
+
+**Dreams, played through by three players in the test box** (`scripts/pilot/dream-soak.sh`: every
+dream, every trigger area walked into and every usable object used by the host and both clients in
+turn, each game's view of the dream scene compared):
+- **The Doctor's second dream was in another place on the clients.** The first Doctor dream
+  chains into the second; the host loads the second scene while the first still stands, so it
+  goes to the next free spot of the map (slot 6), and the clients loaded it on the first scene's
+  spot (slot 5), 25000 units off: no position, door, light or event of that dream lined up. A
+  client now asks the host where the next scene is and loads it there
+  (`OutsidePadSlots.AwaitHostPadPosition`, log `[DreamSync] chained pad '…' at the host's slot`).
+- **The bunker dream's room objects were missing on the clients.** A scene's spawn points
+  (`SpawnPrefab`) build their object at the scene's start; clients skipped them everywhere (the
+  host's objects reach them by the world sync), but a dream or location scene is loaded by each
+  game itself and nothing else builds them there. Clients now run them inside such a scene
+  (`SpawnPrefabSyncPatches`).
+- **Dream residents were hidden on the clients.** The grave dream's corpse (whose death sets off
+  the chompers and the dream's music: the clients missed `dream_tutorial_01_witch_attack` and
+  the music's second part), the church corpse and ravens, the bunker's talking door, the Doctor
+  dream's chickens and dummy. A client puts away a creature the host has never driven once it is
+  more than 1400 units from the player (a far roamer of the open world); a dream or location
+  scene's residents are not roamers, the scene shows its own, and one beyond that range can be
+  on screen. They were hidden at the dream's start and stayed so (the pilot's `traceoff` caught
+  the call). A scene's residents are no longer put away there
+  (`ClientEntityInterpolationService` unmatched cleanup). Also, a creature counted as the "twin" of
+  a host-driven one of the same name anywhere in the world; a twin must now be within 600 units.
+- **Doors, events, items and talks far from a dream scene's centre were treated as not in the
+  dream.** Fifteen checks took "within 200 to 250 units of the dream scene's origin" for "in the
+  dream", but a dream scene is thousands of units across: a client dropped the host's opening of
+  the acid dream's studio door (`drop non-dream DoorOpen 'Door1'`, 288 units out), and the same
+  test decided which doors, game events (and the late-join list of fired ones), usable objects,
+  dialogue closes, unique objects and explosions belonged to the dream. They now ask whether the
+  spot lies in the dream's own map slot (`DreamSyncManager.IsAtDreamPad`, half a slot, 12500
+  units; the overworld and other locations sit at least a slot away). (`DoorNetHandlers`,
+  `DreamDoorSyncPatches`, `GameEventNetHandlers`, `CursorActionNetHandlers`,
+  `DialogOutcomeCloseNetHandlers`, `NpcDialogueLock`, `UniqueObjectsDreamPatch`, the explosion
+  side check.)
+- **The host dreamed without the dream's music.** Vanilla starts a dream's track on the dream
+  scene (`Dreams.startDreaming`, 5 s delay) before it moves the player there; the co-op sound
+  range check judged it from the player's spot in the world and refused it. Clients load the
+  scene with the player already in it and heard it. The dream's own track is never range-checked
+  now (`AudioSuppressionLogic.IsDreamMusic`).
+- **A door swung by another player creaked again and again.** Following another machine's swing,
+  the door waits at the last sample when the next is late; vanilla stops the creak when the door
+  stands and starts a new one when it moves (15 creaks over one swing on a client, one on the
+  swinger's). While the followed swing is under way the creak keeps going (`DoorFollowCreakPatch`).
+
+- The test pilot gained `padsnap`, `padtrig`, `useat`, `firen` and `traceoff` (who disables a
+  named object, with the stack); `scripts/pilot/dream-soak.sh` plays a chained dream's next part too.
+
+Checked, not changed: a Doctor dream lamp settles a few units apart on each game when the scene
+loads (its body is pushed out of a wall); the host's full resync sets it once a player comes within
+40 units. Sound areas (the acid dream's drilling, the wind) play for the player standing in them, as
+in vanilla, and the home dream's cue when the hatted man comes into view plays for whoever sees him.
+A creature the host drives is put away on a client while it is more than 1400 units from that
+client's player (off screen) and shown again when it comes near: the Doctor dream's chickens and
+the church ravens did that in the run, as intended. A dream exit area ends the dream for the player
+who walks into it (the others dream on), as before.
+
+**A world whose level-2 dream was not the bunker never got the bunker.** The bunker comes only
+through the level-2 slot in vanilla; once that slot is used, it was gone for good. The next level
+dream in chapter 1 now plays the bunker while the world has not played it
+(`DreamGetPresetPatch`). The 11 October campaign's played-dream list no longer lists it (edited
+by hand, backup `dwmp_coop_meta.json.bak-before-bunker`), so its next level-up dream is the bunker.
+
 ## 0.8.259 — the host's game no longer stays frozen after a friend joins behind an open menu; no gap in the game's sound at a save; the Wolf's, Piotrek's and the other story traders' standing is shared; a talk listened in on reads in the listener's language; a dream's weapon for every dreamer; a player down for the night is silent and their body holds their whole kit; a player rejoining on a later night is no longer down; the party moves home together; a new world plays the bunker dream; a dream's look (the Doctor, the home dream's clothes) is seen by the others
 
 Deployed to the Steam, second and third installs (md5 29d2f049), not played. Protocol 63 (`TradeCommit` gains `RepDelta`, a `DialogMirror`

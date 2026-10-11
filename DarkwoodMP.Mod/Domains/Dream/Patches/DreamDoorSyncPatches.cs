@@ -115,7 +115,7 @@ namespace DWMPHorde.Patches
                 if (dreamRoot == null)
                     return;
                 if (!door.transform.IsChildOf(dreamRoot)
-                    && Vector3.Distance(pos, dreamRoot.position) > 200f)
+                    && !DreamSyncManager.IsAtDreamPad(pos))
                     return;
             }
 

@@ -26,7 +26,7 @@ namespace DWMPHorde.Patches
 
             if (__result != null
                 && (__result.transform.IsChildOf(dreamRoot)
-                    || Vector3.Distance(__result.transform.position, dreamRoot.position) <= 250f))
+                    || DreamSyncManager.IsAtDreamPad(__result.transform.position)))
                 return;
 
             UniqueObject[] all = WorldQueryHelper.GetCachedSceneComponents<UniqueObject>();
@@ -38,7 +38,7 @@ namespace DWMPHorde.Patches
                 if (u == null || !string.Equals(u.type, type, System.StringComparison.Ordinal))
                     continue;
                 if (!u.transform.IsChildOf(dreamRoot)
-                    && Vector3.Distance(u.transform.position, dreamRoot.position) > 250f)
+                    && !DreamSyncManager.IsAtDreamPad(u.transform.position))
                     continue;
                 float d = Vector3.Distance(u.transform.position, dreamRoot.position);
                 if (d < bestD)

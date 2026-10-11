@@ -143,10 +143,14 @@ namespace DWMPHorde.Patches
             if (UnityEngine.Time.time - LastTimeUpdatedTime(__instance) < __instance.timeChangeInterval)
                 return;
             bool personal = LocalPersonalHold();
+            // The morning holds the clock until the first player walks out of the hideout; the
+            // morning's own freeze (vanilla timeFreeze, DoUpdateTime off) is then not a hold.
+            bool morningHeld = __instance.isAfterNight && !MorningHideoutHold.ClockReleased;
+            bool morningFreezeOnly = __instance.isAfterNight && MorningHideoutHold.ClockReleased;
             // DoUpdateTime off for a reason that is not this player's own (a load, a scripted
             // world freeze) holds everyone, as do the morning and the day-1 prologue wait.
-            bool worldHeld = PrologueDayOneHoldPatch.Holding || __instance.isAfterNight || Core.loadingGame
-                || (!__instance.DoUpdateTime && !personal);
+            bool worldHeld = PrologueDayOneHoldPatch.Holding || morningHeld || Core.loadingGame
+                || (!__instance.DoUpdateTime && !personal && !morningFreezeOnly);
             if (worldHeld)
                 return;
             bool vanillaSteps = __instance.DoUpdateTime && !ol.playerInOutsideLocation;
@@ -172,6 +176,15 @@ namespace DWMPHorde.Patches
                 __instance.refreshTime();
             }
             var net = ModRuntime.Network;
+            // A morning held all day by a player who never walks out ends before the dusk:
+            // the trader and the morning look must not reach into the night.
+            if (net != null && net.Role == NetworkRole.Host && __instance.isAfterNight
+                && MorningHideoutHold.ClockReleased && __instance.CurrentTime >= __instance.nightTime - 60f)
+            {
+                MorningHideoutHold.Reset();
+                __instance.endAfterNight();
+                net.SendTimeSyncTo(-1);
+            }
             if (net != null && net.Role == NetworkRole.Host)
                 DeathStateTracker.HostCheckClockLeftNight(__instance);
         }

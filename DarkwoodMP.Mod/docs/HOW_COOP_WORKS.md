@@ -442,9 +442,10 @@ profile slot the world lands.
   the most players, a tie going to the host's. Each surviving player standing in
   a hideout at dawn gets their own reward (trader standing), trader there or not.
   A player who is not home at dawn, or who died that night, gets none (as in vanilla).
-- **The morning holds until the hideout is empty.** One player walking out does not
-  despawn the trader for the others. The trader restocks only when nobody is
-  trading with it.
+- **The morning holds until the hideout is empty, the clock does not.** One player
+  walking out does not despawn the trader for the others, but the clock runs again
+  for everyone from the moment the first player (host or client) walks out. A morning
+  still held at dusk ends then. The trader restocks only when nobody is trading with it.
 - **Generators:** fuel is host-owned. A client's switch or refuel is a request. The
   Electrician skill applies at the best rate any player has.
 - **Village nights (co-op only).** Vanilla never needed this: friendly villagers go
