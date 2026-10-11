@@ -3,12 +3,12 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.230**. The current Horde wire protocol is **55**. Every install in a session
+**0.8.231**. The current Horde wire protocol is **55**. Every install in a session
 needs the same DLL; the protocol is checked on join.
 
 Protocol history (newest first):
 
-- **55**, 0.8.230: `BarricadeEvent` (destructible items) gains the item's name.
+- **55**, 0.8.230 to 0.8.231: `BarricadeEvent` (destructible items) gains the item's name.
 - **54**, 0.8.212 to 0.8.229: `VoiceData` (129) gains flag 2: a second codec block after the voice,
   the sounds the talker's radio picked up.
 - **53**, 0.8.200 to 0.8.211: the world share package gains `savplc.dat` (container slots a player
@@ -62,6 +62,32 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.231 — a joining or respawning player's stand-up runs in step on the other screens
+
+Still reported after 0.8.160, 0.8.20x and 0.8.222: the stand-up of a player who joins
+(or loads, or respawns) started late on the others' screens and was cut when that
+player, already up, walked off. The logs had no trace of it; this is from the code.
+
+- **The frame sync never worked.** The stand-in "started the clip at the sender's
+  frame" with tk2d's `SetFrame`. That call only swaps the sprite for one frame; the
+  clip time is untouched, so the clip always ran from its own start, late by as long
+  as the first packet was. The stand-in now follows the player's clip time: whenever
+  it is more than a frame off, its clip time is moved (`PlayFromFrame`), and it waits
+  on the first frames while the player is held there (`FollowGetUp`).
+- **The hold on the player's side was often not taken.** It was only taken when the
+  clip was on frame 0 or 1 the first time it was seen, but a load ends on a long
+  frame, which had already run the clip further. The clip is now put back on its
+  first frame and held (`LocalGetUpHold`).
+- A stand-in still in a stand-up its player has left runs out the last 3 frames;
+  more than that is dropped.
+- Logs now show it: `[GetUp] Sleep held for the others (was at frame N)`,
+  `[GetUp] stand-up runs after X s`, and on the watcher `[GetUp] ... copy at frame A
+  moved to the player's B`.
+
+Files: `SecondPlayerAnimController.Apply.cs`, `LocalGetUpHold.cs`.
+
+Not played yet.
 
 ## 0.8.230 — furniture shot apart on one screen breaks on every screen (protocol 55)
 

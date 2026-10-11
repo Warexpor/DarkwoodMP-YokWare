@@ -49,19 +49,23 @@ namespace DWMPHorde.Players
 
             if (!string.IsNullOrEmpty(torsoClip))
             {
-                bool getUp = IsGetUpClip(torsoClip);
-                bool getUpStarts = getUp && _torsoAnimator != null && _torsoAnimator.CurrentClip?.name != torsoClip;
-                PlayTorso(torsoClip);
-                // Sync animation frame if provided. A stand-up joins at the sender's frame once,
-                // as it starts here, and then runs on its own clock (see IsGetUpClip).
-                if (currentFrame >= 0 && (!getUp || getUpStarts)
-                    && _torsoAnimator != null && _torsoAnimator.CurrentClip != null
-                    && _torsoAnimator.CurrentClip.name == torsoClip
-                    && currentFrame < _torsoAnimator.CurrentClip.frames.Length)
-                    _torsoAnimator.SetFrame(currentFrame);
+                if (IsGetUpClip(torsoClip))
+                    FollowGetUp(torsoClip, currentFrame);
+                else
+                {
+                    EndStaleGetUp();
+                    PlayTorso(torsoClip);
+                    // Sync animation frame if provided.
+                    if (currentFrame >= 0
+                        && _torsoAnimator != null && _torsoAnimator.CurrentClip != null
+                        && _torsoAnimator.CurrentClip.name == torsoClip
+                        && currentFrame < _torsoAnimator.CurrentClip.frames.Length)
+                        _torsoAnimator.SetFrame(currentFrame);
+                }
             }
             else if (state == LocomotionState.Idle)
             {
+                EndStaleGetUp();
                 // Don't interrupt transient non-looping clips (e.g. Hit1/Hit2
                 // from PlayerAnimationMessage); let them play to completion.
                 bool transientPlaying = _torsoAnimator != null && _torsoAnimator.Playing
@@ -120,6 +124,66 @@ namespace DWMPHorde.Players
             {
                 _feetNeutralReached = false;
                 AlignLegsToFacing(legFacingY, snapRunToBody: true);
+            }
+        }
+
+        /// <summary>Frames a stand-up may still run on its own after its player left the clip.</summary>
+        private const int GetUpTailFrames = 3;
+
+        /// <summary>
+        /// A stand-up follows its player's clip time. tk2d's SetFrame only shows a sprite for
+        /// one frame and leaves the clip time alone, so a stand-up "started at the sender's
+        /// frame" still ran from its own start: late by as long as the first packet was, and
+        /// cut when the player, already up, walked off. The clip time is moved instead
+        /// (PlayFromFrame) whenever this copy is more than a frame off, and the copy waits on
+        /// the first frames while its player does (LocalGetUpHold holds there).
+        /// </summary>
+        private void FollowGetUp(string clipName, short senderFrame)
+        {
+            PlayTorso(clipName);
+            if (_torsoAnimator == null || _torsoAnimator.CurrentClip == null
+                || _torsoAnimator.CurrentClip.name != clipName)
+                return;
+            tk2dSpriteAnimationClip clip = _torsoAnimator.CurrentClip;
+            int last = clip.frames.Length - 1;
+            if (senderFrame < 0 || senderFrame >= last)
+            {
+                // No frame to follow, or the player is on the last one: run out the rest.
+                if (_torsoAnimator.Paused) _torsoAnimator.Resume();
+                return;
+            }
+
+            int own = _torsoAnimator.Playing ? _torsoAnimator.CurrentFrame : last;
+            if (Mathf.Abs(own - senderFrame) > 1)
+            {
+                if (ModRuntime.VerboseLogging)
+                    ModRuntime.LegacyInfo("[GetUp] " + name + " " + clipName + ": copy at frame " + own
+                        + " moved to the player's " + senderFrame);
+                _torsoAnimator.PlayFromFrame(clip, senderFrame);
+            }
+
+            if (senderFrame <= 1)
+                _torsoAnimator.Pause();
+            else if (_torsoAnimator.Paused)
+                _torsoAnimator.Resume();
+        }
+
+        /// <summary>
+        /// The player is no longer in a stand-up this copy is still playing: the last frames
+        /// run out, more than that is dropped (the copy was behind, or waiting).
+        /// </summary>
+        private void EndStaleGetUp()
+        {
+            if (_torsoAnimator == null || !_torsoAnimator.Playing || _torsoAnimator.CurrentClip == null
+                || !IsGetUpClip(_torsoAnimator.CurrentClip.name))
+                return;
+            if (_torsoAnimator.Paused) _torsoAnimator.Resume();
+            if (_torsoAnimator.CurrentClip.frames.Length - 1 - _torsoAnimator.CurrentFrame > GetUpTailFrames)
+            {
+                if (ModRuntime.VerboseLogging)
+                    ModRuntime.LegacyInfo("[GetUp] " + name + ": player left the stand-up, copy dropped at frame "
+                        + _torsoAnimator.CurrentFrame);
+                _torsoAnimator.Stop();
             }
         }
 
@@ -243,6 +307,8 @@ namespace DWMPHorde.Players
             if (death && _deathClipPlayed)
                 return;
 
+            // A stand-up left waiting on its first frame must not hold the next clip still.
+            if (_torsoAnimator.Paused) _torsoAnimator.Resume();
             _torsoAnimator.Play(clipName);
             UpdateLegVisibility(clipName);
 
@@ -251,13 +317,8 @@ namespace DWMPHorde.Players
         }
 
         /// <summary>
-        /// The stand-up clips a player starts while still loading or respawning: a client sends no
-        /// state until its load ends, so the watcher's first packet is already mid-clip. The proxy
-        /// starts the clip at the frame the sender is on and then plays it at the clip's own rate
-        /// (they are play-once clips, so a following idle lets them finish). Played from the start
-        /// instead, it ran behind the sender by as long as the packet was late, and was cut short
-        /// when the sender, already on its feet, walked off; following the sender's frame on every
-        /// packet cut the clip in half.
+        /// The stand-up clips a player starts while still loading or respawning. The watcher's
+        /// copy follows the player's clip time (see <see cref="FollowGetUp"/>).
         /// </summary>
         internal static bool IsGetUpClip(string torsoClipName)
             => torsoClipName == "Sleep" || torsoClipName == "GetUpFromBed";
