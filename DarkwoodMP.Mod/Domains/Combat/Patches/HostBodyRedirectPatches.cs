@@ -122,6 +122,9 @@ namespace DWMPHorde.Patches
     [HarmonyPatch(typeof(Character), "reactToCharacter")]
     public static class HostRetaliateOnAttackerPatch
     {
+        private static readonly System.Reflection.MethodInfo ResetIgnoreFood =
+            AccessTools.Method(typeof(Character), "resetIgnoreFood");
+
         private static bool Prefix(Character __instance, Character attackerChar, Transform attackerTransform, bool aggressively)
         {
             if (__instance == null || attackerTransform == null || !HostPlayerIdentity.HostWithRemotes())
@@ -135,13 +138,24 @@ namespace DWMPHorde.Patches
                 || (!aggressively && (__instance.aggressiveness == Aggressiveness.neutral
                     || __instance.aggressiveness == Aggressiveness.follower || __instance.npc != null)))
                 return true;
-            if (__instance.eating
-                || __instance.aggressiveness == Aggressiveness.flee
+            if (__instance.aggressiveness == Aggressiveness.flee
                 || __instance.aggressiveness == Aggressiveness.fleeAndDespawn
-                || __instance.behaviour == Character.Behaviour.escaping
-                || __instance.dummy)
+                || __instance.behaviour == Character.Behaviour.escaping)
                 return true;
+            // A feeding creature leaves its food for a while (vanilla, before the chase). This
+            // used to be left to vanilla whole, where a stand-in is no Player: a feeding dog shot
+            // by a client rolled its cowardice (a dog flees half the time) while the same dog
+            // shot by the host always turned on the host.
+            if (__instance.eating)
+            {
+                __instance.ignoreFood = true;
+                __instance.startRoutine(
+                    (System.Action)System.Delegate.CreateDelegate(typeof(System.Action), __instance, ResetIgnoreFood), 100f);
+            }
             __instance.setBehaviour(Character.Behaviour.chasingTarget);
+            // Vanilla attackPlayer: a dummy takes the chase state and no target.
+            if (__instance.dummy)
+                return false;
             if (__instance.aggressiveness != Aggressiveness.defensive)
                 __instance.aggressiveness = Aggressiveness.attackOnSight;
             PlayerTargetArbiter.Commit(__instance, attackerTransform, "reactToCharacter");

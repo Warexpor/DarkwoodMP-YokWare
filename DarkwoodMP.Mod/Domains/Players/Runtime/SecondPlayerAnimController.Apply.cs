@@ -129,60 +129,61 @@ namespace DWMPHorde.Players
 
         /// <summary>Frames a stand-up may still run on its own after its player left the clip.</summary>
         private const int GetUpTailFrames = 3;
+        /// <summary>Packets without the stand-up clip before the copy takes its player to have left it.</summary>
+        private const int GetUpMissPackets = 3;
+        private int _getUpMisses;
 
         /// <summary>
-        /// A stand-up follows its player's clip time. tk2d's SetFrame only shows a sprite for
-        /// one frame and leaves the clip time alone, so a stand-up "started at the sender's
-        /// frame" still ran from its own start: late by as long as the first packet was, and
-        /// cut when the player, already up, walked off. The clip time is moved instead
-        /// (PlayFromFrame) whenever this copy is more than a frame off, and the copy waits on
-        /// the first frames while its player does (LocalGetUpHold holds there).
+        /// A stand-up shows exactly the frame its player is on: the copy's clip is kept paused
+        /// and put on the player's frame with every packet (30 a second for a 15 fps clip).
+        /// tk2d's SetFrame only shows a sprite for one frame and leaves the clip time alone, so
+        /// a stand-up "started at the sender's frame" still ran from its own start, late by as
+        /// long as the first packet was, and was cut when the player, already up, walked off.
+        /// Run on the copy's own clock and only corrected, it drifted both ways behind a player
+        /// whose frames come in bursts (a host that has just loaded).
         /// </summary>
         private void FollowGetUp(string clipName, short senderFrame)
         {
+            _getUpMisses = 0;
             PlayTorso(clipName);
             if (_torsoAnimator == null || _torsoAnimator.CurrentClip == null
                 || _torsoAnimator.CurrentClip.name != clipName)
                 return;
             tk2dSpriteAnimationClip clip = _torsoAnimator.CurrentClip;
-            int last = clip.frames.Length - 1;
-            if (senderFrame < 0 || senderFrame >= last)
+            if (senderFrame < 0)
             {
-                // No frame to follow, or the player is on the last one: run out the rest.
+                // No frame to follow: the clip runs on its own.
                 if (_torsoAnimator.Paused) _torsoAnimator.Resume();
                 return;
             }
 
-            int own = _torsoAnimator.Playing ? _torsoAnimator.CurrentFrame : last;
-            if (Mathf.Abs(own - senderFrame) > 1)
-            {
-                if (ModRuntime.VerboseLogging)
-                    ModRuntime.LegacyInfo("[GetUp] " + name + " " + clipName + ": copy at frame " + own
-                        + " moved to the player's " + senderFrame);
-                _torsoAnimator.PlayFromFrame(clip, senderFrame);
-            }
-
-            if (senderFrame <= 1)
-                _torsoAnimator.Pause();
-            else if (_torsoAnimator.Paused)
-                _torsoAnimator.Resume();
+            int frame = Mathf.Min(senderFrame, clip.frames.Length - 1);
+            if (!_torsoAnimator.Playing || _torsoAnimator.CurrentFrame != frame)
+                _torsoAnimator.PlayFromFrame(clip, frame);
+            _torsoAnimator.Pause();
         }
 
         /// <summary>
-        /// The player is no longer in a stand-up this copy is still playing: the last frames
-        /// run out, more than that is dropped (the copy was behind, or waiting).
+        /// The player is no longer in a stand-up this copy is still showing: the last frames
+        /// run out, more than that is dropped. One packet without the clip is not the end of it.
         /// </summary>
         private void EndStaleGetUp()
         {
             if (_torsoAnimator == null || !_torsoAnimator.Playing || _torsoAnimator.CurrentClip == null
                 || !IsGetUpClip(_torsoAnimator.CurrentClip.name))
                 return;
-            if (_torsoAnimator.Paused) _torsoAnimator.Resume();
-            if (_torsoAnimator.CurrentClip.frames.Length - 1 - _torsoAnimator.CurrentFrame > GetUpTailFrames)
+            if (!_torsoAnimator.Paused)
+                return; // already running out its tail
+            if (++_getUpMisses < GetUpMissPackets)
+                return;
+            _getUpMisses = 0;
+            _torsoAnimator.Resume();
+            int left = _torsoAnimator.CurrentClip.frames.Length - 1 - _torsoAnimator.CurrentFrame;
+            if (left > GetUpTailFrames)
             {
                 if (ModRuntime.VerboseLogging)
-                    ModRuntime.LegacyInfo("[GetUp] " + name + ": player left the stand-up, copy dropped at frame "
-                        + _torsoAnimator.CurrentFrame);
+                    ModRuntime.LegacyInfo("[GetUp] " + name + ": player left the stand-up, copy dropped "
+                        + left + " frames from its end");
                 _torsoAnimator.Stop();
             }
         }

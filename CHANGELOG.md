@@ -3,12 +3,12 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.231**. The current Horde wire protocol is **55**. Every install in a session
+**0.8.232**. The current Horde wire protocol is **55**. Every install in a session
 needs the same DLL; the protocol is checked on join.
 
 Protocol history (newest first):
 
-- **55**, 0.8.230 to 0.8.231: `BarricadeEvent` (destructible items) gains the item's name.
+- **55**, 0.8.230 to 0.8.232: `BarricadeEvent` (destructible items) gains the item's name.
 - **54**, 0.8.212 to 0.8.229: `VoiceData` (129) gains flag 2: a second codec block after the voice,
   the sounds the talker's radio picked up.
 - **53**, 0.8.200 to 0.8.211: the world share package gains `savplc.dat` (container slots a player
@@ -62,6 +62,54 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.232 — repaired furniture is repaired for everyone, a feeding creature shot by a client turns on them, steadier stand-up
+
+From the 0.8.231 session logs.
+
+- **A broken wardrobe the host repaired stayed broken on the client** (`[ConstructibleSync]
+  queued (not loaded yet)`). Repairing lifts the item from the broken layer (y about -50)
+  back to its own (y about 6), and the message carried the position after the repair: 56
+  units above the client's still-broken copy, outside the 2-unit match. The position is
+  now taken before `construct` runs, and a site is also matched without height
+  (`ConstructibleConstructPatch`, `LockNetHandlers.FindConstructible`).
+- **A joiner now gets repairs made since the last save.** Their world is the last save,
+  where the item may still be broken. The host remembers the repaired items themselves
+  (not their positions) and the item bulk sends `Built` for each one still whole
+  (`BarricadeNetHandlers`). A repair is no longer recorded as a "constructed site", which
+  would have rebuilt the item for a later joiner after it was broken again.
+- **A feeding creature shot by a client could flee where it always attacks the host.**
+  Vanilla `reactToCharacter`: a `Player` attacker is always chased; any other attacker
+  goes through the cowardice roll (a dog flees half the time). The mod's patch for
+  stand-ins left feeding creatures to vanilla, where a stand-in is no `Player`. The
+  feeding case is now handled in the patch (food ignored for 100 s as in vanilla, then
+  the chase), for a client's hit and the host's own (`HostRetaliateOnAttackerPatch`).
+  The rest of the audit (58 uses of "the player" in creature AI, every noise alert,
+  hit, touch, smell and sight path) found the client's actions reaching the host's
+  creatures the way the host's do. That a pack reacts differently each time is the
+  base game: a gunshot makes dogs run (`afraidOfGunshots`), each on its own state.
+- **Stand-up on the other screens.** 0.8.231's logs showed the copy drifting both ways
+  (`copy at frame 24 moved to the player's 20`, then `20 → 25`) and being dropped
+  mid-clip by one packet without the clip. The copy no longer runs on its own clock:
+  it is kept paused and shows the frame its player is on with every packet, and it
+  takes 3 packets without the clip before the player counts as out of it.
+- **Blood from a hit further than 120 units from every player was not sent**
+  (`[BloodFX] SKIPPED forward`, 9 times while the host shot dogs from a distance). The
+  range is now the one creatures are shown at (1400).
+
+Seen in the logs, not changed:
+
+- The client had a bag (11 nails) at (11943, 202) that the host did not; the host
+  refused the loot (`H6 deny take ... no inventory`). Both loaded the same save. Origin
+  unknown.
+- The host looted a dog it killed far from the client; the client had no copy of that
+  dog loaded and logged `no inventory` for it.
+
+Files: `DoorSyncPatches.cs`, `LockNetHandlers.cs`, `BarricadeNetHandlers.cs`,
+`BarricadeNetHandlers.Bulk.cs`, `HostBodyRedirectPatches.cs`,
+`SecondPlayerAnimController.Apply.cs`, `BulletFXSyncPatch.cs`.
+
+Not played yet.
 
 ## 0.8.231 — a joining or respawning player's stand-up runs in step on the other screens
 

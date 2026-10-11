@@ -52,10 +52,34 @@ namespace DWMPHorde.Networking
             ApplyConstructible(msg, queueIfMissing: true);
         }
 
+        /// <summary>
+        /// The site at the sender's position. Height is left out when nothing is there in 3D:
+        /// a broken item lies on its own layer (y about -50) and its whole twin on another.
+        /// </summary>
+        private static Constructible FindConstructible(Vector3 pos)
+        {
+            Constructible best = WorldQueryHelper.FindNearest<Constructible>(pos, ConstructibleMatchRadius);
+            if (best != null) return best;
+            float bestSq = ConstructibleMatchRadius * ConstructibleMatchRadius;
+            Constructible[] all = WorldQueryHelper.GetCachedSceneComponents<Constructible>();
+            for (int i = 0; i < all.Length; i++)
+            {
+                Constructible c = all[i];
+                if (c == null || !c.gameObject.scene.IsValid()) continue;
+                float dx = c.transform.position.x - pos.x;
+                float dz = c.transform.position.z - pos.z;
+                float dSq = dx * dx + dz * dz;
+                if (dSq >= bestSq) continue;
+                bestSq = dSq;
+                best = c;
+            }
+            return best;
+        }
+
         internal void ApplyConstructible(ConstructibleMessage msg, bool queueIfMissing)
         {
             Vector3 pos = new Vector3(msg.PosX, msg.PosY, msg.PosZ);
-            Constructible best = WorldQueryHelper.FindNearest<Constructible>(pos, ConstructibleMatchRadius);
+            Constructible best = FindConstructible(pos);
             if (best == null)
             {
                 if (queueIfMissing)
@@ -166,7 +190,7 @@ namespace DWMPHorde.Networking
             {
                 var msg = _pendingConstructibles[i];
                 Vector3 pos = new Vector3(msg.PosX, msg.PosY, msg.PosZ);
-                Constructible best = WorldQueryHelper.FindNearest<Constructible>(pos, ConstructibleMatchRadius);
+                Constructible best = FindConstructible(pos);
                 if (best == null) continue;
                 _pendingConstructibles.RemoveAt(i);
                 ApplyConstructible(msg, queueIfMissing: false);

@@ -144,7 +144,8 @@ namespace DWMPHorde.Networking
                 if (PersonalPrologue.IsOnProloguePad(item.transform))
                     continue;
 
-                bool needSync = item.destroyed
+                bool repaired = !item.destroyed && _repairedItems.Contains(item);
+                bool needSync = repaired || item.destroyed
                     || (item.maxHealth > 0 && item.health < item.maxHealth);
                 if (!needSync)
                     continue;
@@ -159,7 +160,8 @@ namespace DWMPHorde.Networking
                 {
                     PosX = key.x, PosY = key.y, PosZ = key.z,
                     IsWindow = 2,
-                    Action = item.destroyed ? BarricadeAction.Destroyed : BarricadeAction.Damaged,
+                    Action = item.destroyed ? BarricadeAction.Destroyed
+                        : repaired ? BarricadeAction.Built : BarricadeAction.Damaged,
                     Health = item.destroyed ? 0 : item.health,
                     PlayerBarricade = false,
                     MainHealth = BarricadeEventMessage.NoMainHealth,
@@ -214,7 +216,23 @@ namespace DWMPHorde.Networking
             bool playFx = msg.DamageAmount >= 0
                 && ClientWorldMeleeRedirectHelper.ShouldSuppressApplyFx(2, pos) == false;
 
-            if (msg.Action == BarricadeAction.Destroyed || (msg.Action == BarricadeAction.Damaged && msg.Health <= 0))
+            if (msg.Action == BarricadeAction.Built)
+            {
+                // Join bulk: the host's copy was repaired since the save this world came from.
+                if (item.destroyed)
+                {
+                    if (ModRuntime.VerboseLogging)
+                        ModRuntime.LegacyInfo($"[ItemDmgEvent] repairing {item.name}");
+                    Constructible site = item.GetComponent<Constructible>();
+                    if (site != null && site.options != null && site.options.Count > 0)
+                        site.construct(false, Mathf.Clamp(site.chosenOption, 0, site.options.Count - 1));
+                    if (item.destroyed)
+                        item.setNormalState();
+                }
+                if (msg.Health > 0)
+                    Traverse.Create(item).Field("health").SetValue(msg.Health);
+            }
+            else if (msg.Action == BarricadeAction.Destroyed || (msg.Action == BarricadeAction.Damaged && msg.Health <= 0))
             {
                 if (ModRuntime.VerboseLogging)
                     ModRuntime.LegacyInfo($"[ItemDmgEvent] destroying {item.name}");

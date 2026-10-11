@@ -93,7 +93,10 @@ namespace DWMPHorde.Patches
                 && Vector3.SqrMagnitude(position - _lastBloodForwardPos) < 4f)
                 return;
 
-            const float MAX_BLOOD_DISTANCE = 120f;
+            // Blood nobody can see is not sent (host creatures fighting far from everyone). The
+            // range is the one creatures are shown at: 120 units, a few steps, dropped the blood
+            // of anything shot from further than that.
+            const float MAX_BLOOD_DISTANCE = GameplayConstants.EntityActivationRange;
             bool nearPlayer = false;
             if (Player.Instance != null
                 && Vector3.Distance(position, Player.Instance.transform.position) <= MAX_BLOOD_DISTANCE)
