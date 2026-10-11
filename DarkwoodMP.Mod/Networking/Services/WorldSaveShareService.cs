@@ -31,9 +31,10 @@ namespace DWMPHorde.Networking
 
         /// <summary>
         /// The save set: static and dynamic world, chapter save, and the cosmetic roll seeds
-        /// (<c>Sync.CosmeticRolls.KeyStoreFileName</c>, optional: a save from before it has none).
+        /// (<c>Sync.CosmeticRolls.KeyStoreFileName</c>, optional: a save from before it has none)
+        /// and the player-stored container slots (<c>Sync.PlacedLootStore.FileName</c>, optional).
         /// </summary>
-        private static readonly string[] FileNames = { "savs.dat", "sav.dat", "savch.dat", Sync.CosmeticRolls.KeyStoreFileName };
+        private static readonly string[] FileNames = { "savs.dat", "sav.dat", "savch.dat", Sync.CosmeticRolls.KeyStoreFileName, Sync.PlacedLootStore.FileName };
 
         private readonly LanNetworkManager _net;
         private bool _hostShareRunning;

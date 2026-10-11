@@ -126,6 +126,7 @@ namespace DWMPHorde
                 else
                     SetRow(_mpButton, MultiplayerRowOffsetY());
 
+                SyncScaleToTemplate();
                 _menu0WasActive = true;
             }
             else

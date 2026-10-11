@@ -328,7 +328,8 @@ namespace DWMPHorde.Sync
                 int dist = NearDist(ctx, p, NearRadius);
                 if (dist < 0)
                     continue;
-                Add(into, BaseName(d.name) + "@" + PosKey(p),
+                // Object names: Door.name / Item.name are display names in the player's language.
+                Add(into, BaseName(d.gameObject.name) + "@" + PosKey(p),
                     "d=" + I(dist) + "|open=" + B(TraverseHack.ReadDoorOpened(d)) + "|destroyed=" + B(d.destroyed)
                     + "|barricaded=" + B(d.barricaded) + "|bstate=" + I(d.barricadeState) + "|hp=" + I(d.health)
                     + "|bhp=" + I(d.barricadeHealth) + "|blocked=" + B(d.blocked));
@@ -484,7 +485,7 @@ namespace DWMPHorde.Sync
                     continue;
                 Inventory inv = it.GetComponent<Inventory>();
                 InvItemClass stack = inv != null && inv.slots != null && inv.slots.Count > 0 ? inv.slots[0].invItem : null;
-                Add(into, BaseName(it.name) + "@" + PosKey(p), "d=" + I(dist) + "|item=" + ItemText(stack));
+                Add(into, BaseName(it.gameObject.name) + "@" + PosKey(p), "d=" + I(dist) + "|item=" + ItemText(stack));
             }
         }
 

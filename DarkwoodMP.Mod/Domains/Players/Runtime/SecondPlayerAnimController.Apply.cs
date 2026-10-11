@@ -49,10 +49,15 @@ namespace DWMPHorde.Players
 
             if (!string.IsNullOrEmpty(torsoClip))
             {
+                bool getUp = IsGetUpClip(torsoClip);
+                bool getUpStarts = getUp && _torsoAnimator != null && _torsoAnimator.CurrentClip?.name != torsoClip;
                 PlayTorso(torsoClip);
-                // Sync animation frame if provided
-                if (currentFrame >= 0 && !IsGetUpClip(torsoClip)
-                    && _torsoAnimator != null && _torsoAnimator.CurrentClip != null && currentFrame < _torsoAnimator.CurrentClip.frames.Length)
+                // Sync animation frame if provided. A stand-up joins at the sender's frame once,
+                // as it starts here, and then runs on its own clock (see IsGetUpClip).
+                if (currentFrame >= 0 && (!getUp || getUpStarts)
+                    && _torsoAnimator != null && _torsoAnimator.CurrentClip != null
+                    && _torsoAnimator.CurrentClip.name == torsoClip
+                    && currentFrame < _torsoAnimator.CurrentClip.frames.Length)
                     _torsoAnimator.SetFrame(currentFrame);
             }
             else if (state == LocomotionState.Idle)
@@ -241,9 +246,12 @@ namespace DWMPHorde.Players
 
         /// <summary>
         /// The stand-up clips a player starts while still loading or respawning: a client sends no
-        /// state until its load ends, so the watcher's first packet is already mid-clip, and following
-        /// the sender's frame cut the clip in half. The proxy plays these from the start at the
-        /// clip's own rate instead (they are play-once clips, so a following idle lets them finish).
+        /// state until its load ends, so the watcher's first packet is already mid-clip. The proxy
+        /// starts the clip at the frame the sender is on and then plays it at the clip's own rate
+        /// (they are play-once clips, so a following idle lets them finish). Played from the start
+        /// instead, it ran behind the sender by as long as the packet was late, and was cut short
+        /// when the sender, already on its feet, walked off; following the sender's frame on every
+        /// packet cut the clip in half.
         /// </summary>
         internal static bool IsGetUpClip(string torsoClipName)
             => torsoClipName == "Sleep" || torsoClipName == "GetUpFromBed";

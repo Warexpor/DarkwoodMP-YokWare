@@ -889,17 +889,19 @@ namespace DWMPHorde.Sync
             // shows its own options (vanilla closeTrade).
             if (Player.Instance != null && Player.Instance.inShop)
             {
+                // Vanilla closeTrade only brings the options back: whatever the other player's
+                // last screen left behind (a line still written out, an item list, a talk marked
+                // as running) stayed under this player's own options when the trade closed.
+                ClearOtherPlayersScreen(dw);
+                dw.dialogue.gameObject.SetActive(false);
+                dw.showItems.gameObject.SetActive(false);
                 OwnerSimple(dw, DialogMirrorMessage.KindTrade);
                 return;
             }
             ShowOwnOptions(dw);
         }
 
-        private static readonly System.Action<DialogueWindow> ShowMainOptions =
-            AccessTools.MethodDelegate<System.Action<DialogueWindow>>(AccessTools.Method(typeof(DialogueWindow), "showMainOptions"));
-
-        /// <summary>The window held the other player's screen: show this player's own main options.</summary>
-        private static void ShowOwnOptions(DialogueWindow dw)
+        private static void ClearOtherPlayersScreen(DialogueWindow dw)
         {
             dw.currentBoardElements.Clear();
             dw.displayingDialogue = false;
@@ -909,6 +911,15 @@ namespace DWMPHorde.Sync
             dw.currentMenu = DialogueWindow.CurrentMenu.main;
             dw.dialogue.DestroyChildren();
             dw.showItems.DestroyChildren();
+        }
+
+        private static readonly System.Action<DialogueWindow> ShowMainOptions =
+            AccessTools.MethodDelegate<System.Action<DialogueWindow>>(AccessTools.Method(typeof(DialogueWindow), "showMainOptions"));
+
+        /// <summary>The window held the other player's screen: show this player's own main options.</summary>
+        private static void ShowOwnOptions(DialogueWindow dw)
+        {
+            ClearOtherPlayersScreen(dw);
             try { ShowMainOptions(dw); }
             catch (System.Exception ex) { ModLog.Warn(LogCat.Session, "[DialogMirror] own options: " + ex.Message); }
         }
@@ -1300,6 +1311,9 @@ namespace DWMPHorde.Sync
                 dw.npc.characterDialogue.portraitType = (CharacterDialogue.PortraitType)portrait;
             System.Action done = () =>
             {
+                // The view closed while the clip was loading: the close has its own fade.
+                if (!SpectatorActive || dw == null || dw.npc == null)
+                    return;
                 VideoPlayer vp = dw.portrait.GetComponent<VideoPlayer>();
                 if (vp != null)
                     vp.Play();
@@ -1314,6 +1328,9 @@ namespace DWMPHorde.Sync
         {
             if (!SpectatorActive)
                 return;
+            if (_stopFrame == Time.frameCount)
+                return;
+            _stopFrame = Time.frameCount;
             if (sendLeave)
                 SendLeave();
             DialogueWindow dw = Window;
@@ -1328,7 +1345,7 @@ namespace DWMPHorde.Sync
         private static IEnumerator CloseWhenIdle(DialogueWindow dw)
         {
             // Opening or a portrait tween: vanilla close() refuses while tweening.
-            float until = Time.realtimeSinceStartup + 4f;
+            float until = Time.realtimeSinceStartup + 8f;
             while (SpectatorActive && dw.tweening && Time.realtimeSinceStartup < until)
                 yield return null;
             if (!SpectatorActive)
@@ -1339,7 +1356,29 @@ namespace DWMPHorde.Sync
                 SpectatorActive = false;
                 yield break;
             }
+            // The talk ended while this player was in its own trade: vanilla close() leaves the
+            // trading screen up (Esc closes the trade first), with the items laid out in it.
+            if (Player.Instance != null && Player.Instance.inShop)
+                dw.closeTrade();
             dw.close();
+        }
+
+        private static int _stopFrame = -1; // process-scoped: one leave per frame
+
+        /// <summary>
+        /// Every frame: a listener's Esc. Vanilla drops Esc while the top fade screen is up
+        /// (InputScript), and a listener's view raises it on every portrait change of the talk
+        /// (a door talk changes it on each look and listen), so Esc did nothing for as long as
+        /// the talking player kept moving between those screens.
+        /// </summary>
+        internal static void TickListener()
+        {
+            if (!SpectatorActive || !_viewReady || InOwnTrade || !Input.GetKeyDown(KeyCode.Escape))
+                return;
+            UI ui = Singleton<UI>.Instance;
+            if (ui == null || ui.blackScreenTop == null || !ui.blackScreenTop.activeInHierarchy)
+                return; // vanilla's own Esc reaches escPress
+            StopView(sendLeave: true);
         }
 
         private static void ForceCloseView()

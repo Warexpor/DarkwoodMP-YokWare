@@ -100,6 +100,49 @@ namespace DWMPHorde.Networking.Steam
             _owner = owner;
         }
 
+        public struct FriendLobby
+        {
+            public string Name;
+            public ulong LobbyId;
+        }
+
+        /// <summary>
+        /// Steam friends who are in a lobby of this game right now (a host, or someone playing
+        /// with one). Steam only reports a friend's lobby when it is public or friends-only.
+        /// </summary>
+        public static List<FriendLobby> FindFriendLobbies(int max)
+        {
+            var found = new List<FriendLobby>(max);
+            if (!IsSteamReady(out _))
+                return found;
+            try
+            {
+                AppId_t app = SteamUtils.GetAppID();
+                int n = SteamFriends.GetFriendCount(EFriendFlags.k_EFriendFlagImmediate);
+                for (int i = 0; i < n && found.Count < max; i++)
+                {
+                    CSteamID friend = SteamFriends.GetFriendByIndex(i, EFriendFlags.k_EFriendFlagImmediate);
+                    if (!SteamFriends.GetFriendGamePlayed(friend, out FriendGameInfo_t info))
+                        continue;
+                    if (info.m_gameID.AppID() != app || !info.m_steamIDLobby.IsValid())
+                        continue;
+                    ulong lobby = info.m_steamIDLobby.m_SteamID;
+                    bool seen = false;
+                    for (int k = 0; k < found.Count; k++)
+                        seen |= found[k].LobbyId == lobby;
+                    if (seen)
+                        continue;
+                    string name = SteamFriends.GetFriendPersonaName(friend);
+                    found.Add(new FriendLobby { Name = string.IsNullOrEmpty(name) ? lobby.ToString() : name, LobbyId = lobby });
+                }
+            }
+            catch (Exception ex)
+            {
+                ModLog.Warn(LogCat.Network, "Steam friend lobbies: " + ex.Message);
+            }
+            return found;
+        }
+
         public static bool IsSteamReady(out string failReason)
         {
             failReason = null;

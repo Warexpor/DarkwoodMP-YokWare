@@ -1,24 +1,32 @@
+using System.Collections.Generic;
 using UnityEngine;
 
 namespace DWMPHorde.Sync
 {
     /// <summary>
-    /// Text for the party map board while the world map is open: pin labels under their ink, the
-    /// hovered pin's card (stamp, label, who placed it and on which day), the controls strip, and
-    /// the label field. While the field has the keyboard <see cref="UiInputLock"/> holds vanilla
+    /// Text for the party map board while the world map is open, in the game's own hover-label
+    /// font: pin labels under their ink, one quiet line of controls at the bottom of the map, and
+    /// the label being written. (The hovered pin's card is the vanilla location popup, see
+    /// <see cref="MapPinView"/>.) While a label is written <see cref="UiInputLock"/> holds vanilla
     /// input, so typing neither walks nor closes the map (Esc cancels the label, not the map).
     /// </summary>
     internal sealed class MapPinOverlay : MonoBehaviour
     {
         private const string LockOwner = "mappin";
-        private const string FieldName = "YokWareMapPinLabel";
+        /// <summary>The controls line: 1080p pixels above the bottom edge (vanilla's biome name sits at 100).</summary>
+        private const float HintZ = 34f;
+        /// <summary>Under a pin's ink, in 1080p pixels.</summary>
+        private const float LabelDrop = 14f;
+
+        private static readonly Color HintColor = new Color(0.55f, 0.55f, 0.55f, 0.9f);
+        private static readonly Color LabelColor = new Color(0.86f, 0.82f, 0.70f, 0.95f);
+        private static readonly Color DraftColor = new Color(1f, 1f, 1f, 1f);
 
         private static MapPinOverlay _instance; // process-scoped: DontDestroyOnLoad driver
+        private readonly List<tk2dTextMesh> _labels = new List<tk2dTextMesh>(32);
+        private tk2dTextMesh _hint, _draftText;
         private string _draft = "";
-        private bool _focusPending;
-        private int _closeFrame = -1;
-        private GUIStyle _label, _labelShade, _card, _strip;
-        private int _styleScale = -1;
+        private int _openedFrame = -1;
 
         internal static void EnsureExists()
         {
@@ -32,7 +40,7 @@ namespace DWMPHorde.Sync
         {
             EnsureExists();
             _instance._draft = current ?? "";
-            _instance._focusPending = true;
+            _instance._openedFrame = Time.frameCount;
         }
 
         private static bool Editing => MapPinView.Active && MapPinView.EditingId != 0;
@@ -40,19 +48,54 @@ namespace DWMPHorde.Sync
         private void Update()
         {
             UiInputLock.Set(LockOwner, Editing);
-            if (!Editing)
+            if (!Editing || Time.frameCount == _openedFrame)
                 return;
-            // Raw keys too: IMGUI often swallows KeyDown while a TextField has focus.
-            if (Input.GetKeyDown(KeyCode.Return) || Input.GetKeyDown(KeyCode.KeypadEnter))
-                Commit();
-            else if (Input.GetKeyDown(KeyCode.Escape))
+            if (Input.GetKeyDown(KeyCode.Escape))
+            {
                 Cancel();
+                return;
+            }
+            if (Input.GetKeyDown(KeyCode.Return) || Input.GetKeyDown(KeyCode.KeypadEnter))
+            {
+                Commit();
+                return;
+            }
+            bool ctrl = Input.GetKey(KeyCode.LeftControl) || Input.GetKey(KeyCode.RightControl)
+                || Input.GetKey(KeyCode.LeftCommand) || Input.GetKey(KeyCode.RightCommand);
+            if (ctrl && Input.GetKeyDown(KeyCode.V))
+            {
+                foreach (char c in GUIUtility.systemCopyBuffer ?? "")
+                    Append(c == '\n' || c == '\r' || c == '\t' ? ' ' : c);
+                return;
+            }
+            foreach (char c in Input.inputString)
+            {
+                if (c == '\b')
+                {
+                    if (_draft.Length > 0)
+                        _draft = _draft.Substring(0, _draft.Length - 1);
+                }
+                else if (c == '\n' || c == '\r')
+                {
+                    Commit();
+                    return;
+                }
+                else if (!ctrl)
+                {
+                    Append(c);
+                }
+            }
+        }
+
+        private void Append(char c)
+        {
+            if (char.IsControl(c) || _draft.Length >= MapPinBoard.MaxLabelLength)
+                return;
+            _draft += c;
         }
 
         private void Commit()
         {
-            if (_closeFrame == Time.frameCount) return;
-            _closeFrame = Time.frameCount;
             int id = MapPinView.EditingId;
             MapPin pin = MapPinBoard.Find(id);
             string label = MapPinBoard.SanitizeLabel(_draft);
@@ -63,142 +106,128 @@ namespace DWMPHorde.Sync
 
         private void Cancel()
         {
-            _closeFrame = Time.frameCount;
             MapPinView.EditingId = 0;
             _draft = "";
-            _focusPending = false;
-            GUIUtility.keyboardControl = 0;
             // Release now so the Esc frame is stamped for UiInputLock's Esc swallow (the map stays open).
             UiInputLock.Set(LockOwner, false);
         }
 
-        private void EnsureStyles()
+        private void LateUpdate()
         {
-            int scale = Mathf.RoundToInt(Mathf.Max(1f, Screen.height / 1080f) * 100f);
-            if (_label != null && scale == _styleScale)
-                return;
-            _styleScale = scale;
-            float s = scale / 100f;
-            _label = new GUIStyle(GUI.skin.label)
-            {
-                fontSize = Mathf.RoundToInt(13f * s),
-                fontStyle = FontStyle.Bold,
-                alignment = TextAnchor.UpperCenter,
-                wordWrap = false,
-                clipping = TextClipping.Overflow
-            };
-            _label.normal.textColor = new Color(0.13f, 0.09f, 0.05f);
-            _labelShade = new GUIStyle(_label);
-            _labelShade.normal.textColor = new Color(0.93f, 0.88f, 0.75f, 0.85f);
-            _card = new GUIStyle(GUI.skin.box)
-            {
-                fontSize = Mathf.RoundToInt(13f * s),
-                alignment = TextAnchor.UpperLeft,
-                wordWrap = false,
-                richText = true,
-                padding = new RectOffset(8, 8, 6, 6)
-            };
-            _card.normal.textColor = new Color(0.92f, 0.9f, 0.85f);
-            _strip = new GUIStyle(_card) { alignment = TextAnchor.MiddleCenter };
-        }
-
-        private void OnGUI()
-        {
-            if (!MapPinView.Active)
-                return;
             Map map = Map.Instance;
-            if (map == null || !map.opened)
+            if (!MapPinView.Active || map == null || !map.opened || HudText.Source == null)
+            {
+                HideAll();
                 return;
-            EnsureStyles();
-            float s = _styleScale / 100f;
+            }
+            // Over the map: the depth of vanilla's own text on it.
+            float depth = map.biomeName != null ? map.biomeName.transform.position.y : HudText.Source.transform.position.y;
+            float s = HudText.Scale;
 
-            DrawLabels(s);
-            DrawCard(s);
-            DrawStrip(s);
-            if (Editing)
-                DrawEditor(s);
+            DrawLabels(depth, s);
+            DrawDraft(depth, s);
+            DrawHint(depth, s);
         }
 
-        private void DrawLabels(float s)
+        private void DrawLabels(float depth, float s)
         {
+            int used = 0;
             for (int i = 0; i < MapPinView.DrawnCount; i++)
             {
                 MapPin pin = MapPinView.DrawnPin(i);
                 if (string.IsNullOrEmpty(pin.Label) || pin.Id == MapPinView.EditingId)
                     continue;
-                if (!MapPinView.DrawnGuiPoint(i, out Vector2 at))
+                if (!MapPinView.DrawnUiPoint(i, out Vector2 at))
                     continue;
-                var r = new Rect(at.x - 150f * s, at.y + 16f * s, 300f * s, 22f * s);
-                GUI.Label(new Rect(r.x + 1f, r.y + 1f, r.width, r.height), pin.Label, _labelShade);
-                GUI.Label(r, pin.Label, _label);
+                tk2dTextMesh tm = Label(used);
+                if (tm == null)
+                    break;
+                used++;
+                Show(tm, pin.Label, LabelColor, at.x, at.y - LabelDrop * s, depth);
             }
+            for (int i = used; i < _labels.Count; i++)
+                Hide(_labels[i]);
         }
 
-        private void DrawCard(float s)
+        private void DrawDraft(float depth, float s)
         {
-            if (MapPinView.HoveredId == 0 || Editing)
+            if (!Editing)
+            {
+                Hide(_draftText);
                 return;
-            MapPin pin = MapPinBoard.Find(MapPinView.HoveredId);
-            if (pin == null || !MapPinView.TryPinGuiPoint(pin.Id, out Vector2 at))
-                return;
-            Color c = MapPinPalette.Get(pin.Color);
-            string who = MapPinBoard.IsLocalOwner(pin) ? Loc.T("you") : (string.IsNullOrEmpty(pin.OwnerName) ? Loc.T("someone") : pin.OwnerName);
-            string text = "<b>" + Loc.T(MapPinBoard.KindName(pin.Kind)) + "</b>"
-                + (string.IsNullOrEmpty(pin.Label) ? "" : "  “" + pin.Label + "”")
-                + "\n<color=#" + ColorUtility.ToHtmlStringRGB(c) + ">●</color> " + who
-                + (pin.Day > 0 ? (Loc.Russian ? ", день " : ", day ") + pin.Day : "")
-                + "\n<size=" + Mathf.RoundToInt(11f * s) + ">" + Loc.T("RMB erase · wheel restyle · double-click label") + "</size>";
-            Vector2 size = _card.CalcSize(new GUIContent(text));
-            float x = Mathf.Clamp(at.x + 24f * s, 4f, Screen.width - size.x - 4f);
-            float y = Mathf.Clamp(at.y - size.y * 0.5f, 4f, Screen.height - size.y - 4f);
-            GUI.Box(new Rect(x, y, size.x, size.y), text, _card);
-        }
-
-        private void DrawStrip(float s)
-        {
-            string kind = Loc.T(MapPinBoard.KindName(MapPinView.SelectedKind));
-            string text = Loc.Russian
-                ? "Метка: <b>" + kind + "</b> (колесо)    ПКМ — поставить / стереть    СКМ или Shift+ПКМ — сигнал    двойной щелчок по метке — подпись"
-                : "Stamp: <b>" + kind + "</b> (wheel)    RMB place / erase    MMB or Shift+RMB ping    double-click a pin to label it";
-            Vector2 size = _strip.CalcSize(new GUIContent(text));
-            float w = Mathf.Min(size.x + 16f * s, Screen.width - 16f);
-            GUI.Box(new Rect((Screen.width - w) * 0.5f, Screen.height - size.y - 14f * s, w, size.y), text, _strip);
-        }
-
-        private void DrawEditor(float s)
-        {
-            if (!MapPinView.TryPinGuiPoint(MapPinView.EditingId, out Vector2 at))
+            }
+            if (!MapPinView.TryPinUiPoint(MapPinView.EditingId, out Vector2 at))
             {
                 Cancel();
+                Hide(_draftText);
                 return;
             }
-            Event e = Event.current;
-            if (e != null && e.type == EventType.KeyDown)
-            {
-                if (e.keyCode == KeyCode.Return || e.keyCode == KeyCode.KeypadEnter)
-                {
-                    Commit();
-                    e.Use();
-                    return;
-                }
-                if (e.keyCode == KeyCode.Escape)
-                {
-                    Cancel();
-                    e.Use();
-                    return;
-                }
-            }
-            float w = 260f * s, h = 24f * s;
-            var r = new Rect(Mathf.Clamp(at.x - w * 0.5f, 4f, Screen.width - w - 4f), at.y + 16f * s, w, h);
-            GUI.Box(new Rect(r.x - 4f, r.y - 20f * s, r.width + 8f, r.height + 24f * s), Loc.T("Label (Enter save, Esc cancel)"), _card);
-            GUI.SetNextControlName(FieldName);
-            _draft = GUI.TextField(r, _draft ?? "", MapPinBoard.MaxLabelLength);
-            if (_focusPending)
-            {
-                GUI.FocusControl(FieldName);
-                if (e != null && e.type == EventType.Repaint)
-                    _focusPending = false;
-            }
+            if (_draftText == null)
+                _draftText = Create("YokWare_MapPinDraft", 2f);
+            bool caret = ((int)(Time.unscaledTime * 2f) & 1) == 0;
+            Show(_draftText, _draft + (caret ? "_" : " "), DraftColor, at.x, at.y - LabelDrop * s, depth);
+        }
+
+        private void DrawHint(float depth, float s)
+        {
+            if (_hint == null)
+                _hint = Create("YokWare_MapPinHint", 2f);
+            string text;
+            if (Editing)
+                text = Loc.T("Enter - save  ·  Esc - cancel");
+            else if (MapPinView.HoveredId != 0)
+                text = Loc.T("RMB - erase  ·  wheel - change the mark  ·  double click - write on it");
+            else if (MapPinView.GhostShown)
+                text = Loc.T(MapPinBoard.KindName(MapPinView.SelectedKind));
+            else
+                text = Loc.T("RMB - mark  ·  wheel - choose the mark  ·  MMB - signal");
+            Show(_hint, text, HintColor, Screen.width * 0.5f, HintZ * s, depth);
+        }
+
+        private tk2dTextMesh Label(int i)
+        {
+            while (_labels.Count <= i)
+                _labels.Add(null);
+            if (_labels[i] == null)
+                _labels[i] = Create("YokWare_MapPinLabel" + i, 1f);
+            return _labels[i];
+        }
+
+        /// <summary>A copy of the hover label, anchored at its top centre, at a whole multiple of the font's pixels.</summary>
+        private static tk2dTextMesh Create(string name, float size)
+        {
+            tk2dTextMesh tm = HudText.Create(name);
+            if (tm == null)
+                return null;
+            tm.anchor = TextAnchor.UpperCenter;
+            tm.scale = new Vector3(size, size, size);
+            tm.Commit();
+            return tm;
+        }
+
+        private static void Show(tk2dTextMesh tm, string text, Color color, float x, float z, float depth)
+        {
+            if (tm == null)
+                return;
+            HudText.FollowScale(tm);
+            HudText.Set(tm, text, color);
+            tm.transform.position = new Vector3(Mathf.Round(x), depth, Mathf.Round(z));
+            if (!tm.gameObject.activeSelf)
+                tm.gameObject.SetActive(true);
+        }
+
+        private static void Hide(tk2dTextMesh tm)
+        {
+            if (tm != null && tm.gameObject.activeSelf)
+                tm.gameObject.SetActive(false);
+        }
+
+        private void HideAll()
+        {
+            for (int i = 0; i < _labels.Count; i++)
+                Hide(_labels[i]);
+            Hide(_hint);
+            Hide(_draftText);
         }
 
         /// <summary>Session end: drop a half-written label and give the keyboard back.</summary>
@@ -207,7 +236,7 @@ namespace DWMPHorde.Sync
             if (_instance != null)
             {
                 _instance._draft = "";
-                _instance._focusPending = false;
+                _instance.HideAll();
             }
             UiInputLock.Set(LockOwner, false);
         }

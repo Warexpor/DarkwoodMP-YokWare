@@ -89,21 +89,11 @@ namespace DWMPHorde.Patches
             {
                 ModLog.Event(LogCat.Save,
                     "SaveSync suppressed (dream entry window) — no peer fanout");
-                // Client still needs personal backup when the disk Save was blocked.
-                if (ModRuntime.Network.Role == NetworkRole.Client)
-                {
-                    try { ModRuntime.Network.SendClientStateBackup(); }
-                    catch { /* non-fatal */ }
-                }
                 return;
             }
 
-            // Clients also push personal inventory backup to host (multi-client keyed files).
-            if (ModRuntime.Network.Role == NetworkRole.Client)
-            {
-                try { ModRuntime.Network.SendClientStateBackup(); }
-                catch { /* non-fatal */ }
-            }
+            // A client's own Save was blocked: it is not a world save, so its character is not
+            // stored here. The host's SaveSync (asked for below) brings the real one.
 
             // Permanent local co-op copy: re-fingerprint sav files after every local Save.
             // Host-coordinated client SaveSync still writes; blocked client Saves skip this

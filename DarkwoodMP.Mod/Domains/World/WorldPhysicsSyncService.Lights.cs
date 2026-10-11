@@ -229,7 +229,8 @@ namespace DWMPHorde.Sync
         {
             if (string.IsNullOrEmpty(name) && string.IsNullOrEmpty(itemType))
                 return true;
-            string iname = item.name ?? "";
+            // Object name: Item.name is the display name in the player's language.
+            string iname = item.gameObject.name ?? "";
             string bare = iname.Replace("(Clone)", "").Trim();
             if (!string.IsNullOrEmpty(name))
             {

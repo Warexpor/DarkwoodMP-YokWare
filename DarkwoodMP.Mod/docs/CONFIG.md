@@ -20,12 +20,13 @@ In game:
 
 - **Multiplayer > Settings** edits `PlayerName`, `ShowPlayerNames`, `ChatEnabled` and
   `PeerMovementVolume`.
-- **Settings > Voice** edits `VoiceEnabled` / `VoiceMode`, `VoicePttKey`,
-  `VoiceRadioTalkKey`, `VoiceRadioPowerKey`, `VoiceMicDevice`, `VoiceMicVolume` and
-  `VoiceVolume`; **Voice > Players** edits `VoicePlayerVolumes`.
+- **Settings > Voice** edits `VoiceEnabled` / `VoiceMode`, `VoicePttKey`, `VoicePadTalkButton`,
+  `VoiceRadioTalkKey`, `VoiceRadioPowerKey`, `VoiceRadioWorldSounds`, `VoiceMicDevice`,
+  `VoiceMicVolume`, `VoiceNoiseSuppression`, `VoiceNoiseSuppressionStrength` and `VoiceVolume`; **Voice > Players** edits `VoicePlayerVolumes`.
 - **Multiplayer > Host settings** edits `FriendlyFireEnabled`, `LootShareMode` (with
   `DoubleItemsEnabled`), `NightMonsterMultiplier` and `VoiceAlertsEnemies`, and before
   hosting `MaxPlayers`, `SteamLobbyType`, `ConnectPort` and `HostPassword`.
+- **Multiplayer > Host** edits `HostAddress` and `ConnectPort`.
 - **Multiplayer > Join** edits `ConnectAddress`, `ConnectPort`, `HostPassword` and
   `SteamLobbyId`.
 
@@ -40,9 +41,10 @@ changes are kept without asking.
 | Key | Default | Meaning |
 |-----|---------|---------|
 | `ConnectAddress` | `127.0.0.1` | Host address of Multiplayer > Join (Address), used by Connect. |
+| `HostAddress` | empty | LAN host: the IPv4 address the other players reach this computer at (a VPN adapter, a forwarded public address), typed in Multiplayer > Host (Address). Shown as "Your address" and handed to the players for reconnects. Empty means it is found from the network cards. The host listens on every address either way. |
 | `ConnectPort` | `7788` | Default UDP port for hosting and joining on LAN (1-65535; out-of-range values are clamped with a warning). |
 | `HostPassword` | empty | Optional join password. Empty means open LAN. Host and every client must match. Also used as the Steam lobby connection key. |
-| `SteamLobbyId` | empty | Steam lobby id (ulong) for Multiplayer > Join > Join the lobby. The host fills it in when creating a Steam lobby. Friends can also join through the Steam invite overlay. |
+| `SteamLobbyId` | empty | Steam lobby id (ulong) for Multiplayer > Join > Steam friends > Join the lobby. The host fills it in when creating a Steam lobby. Friends can also join through the Steam invite overlay. |
 | `SteamLobbyType` | `friends` | Steam host lobby visibility: `friends`, `public` or `private`. |
 | `PlayerName` | `Player` | Name the other players see: over your character, in chat and on map pins. Left at `Player`, a Steam player goes by their Steam name. |
 | `ChatEnabled` | `true` | Co-op text chat. Ctrl+C opens the input, Enter sends, Esc closes. Gameplay input (movement, hotbar, walkie) is held while typing. |
@@ -82,12 +84,16 @@ set in Multiplayer > Settings > Voice.
 | `VoiceEnabled` | `true` | Proximity and walkie voice chat. |
 | `VoiceMode` | `ptt` | `ptt` is push-to-talk (`VoicePttKey`); `open` sends whenever you speak (a gate that follows the room's own noise). |
 | `VoicePttKey` | `V` | Unity `KeyCode` name for push-to-talk. |
+| `VoicePadTalkButton` | `DpadLeft` | Push to talk on a controller, held: `DpadLeft`, `DpadRight`, `LeftStick`, `RightStick` or `Off`. Every controller button has a vanilla action in play, so the button also does its own (by the default layout: next thing under the cursor, next skill, reload, dodge). Settings > Voice > Controller talk button. |
 | `VoiceVolume` | `1` | Playback volume multiplier for remote voice. |
-| `VoiceGain` | `1.4` | Gain applied to received voice. |
-| `VoiceRadioTalkKey` | `Mouse1` | Unity `KeyCode` name for talking on the walkie, held with it in hand. `Mouse1` is right mouse, `Mouse3` and `Mouse4` the side buttons. Settings > Voice > Radio talk key. |
-| `VoiceRadioPowerKey` | `B` | Unity `KeyCode` name for the walkie's on/off knob; it turns only with the walkie in hand. |
+| `VoiceGain` | `1.4` | Gain applied to received voice, on top of the built-in level (loud peaks are soft-limited, not clipped). |
+| `VoiceRadioTalkKey` | `Mouse1` | Unity `KeyCode` name for talking on the walkie, held with it in hand. `Mouse1` is right mouse, `Mouse3` and `Mouse4` the side buttons. Settings > Voice > Radio talk key. On a controller the game's Aim talks. |
+| `VoiceRadioPowerKey` | `B` | Unity `KeyCode` name for the walkie's on/off knob; it turns only with the walkie in hand. On a controller the game's Attack turns it. |
 | `VoiceMicDevice` | empty | Microphone to talk into, by the name the game lists it under; empty for the system default. A device that is not plugged in falls back to the default. |
 | `VoiceMicVolume` | `1` | Microphone volume, 0 to 4 (1 as recorded; the Voice screen sets 0 to 2). It is also how loud you count for how far your voice carries. |
+| `VoiceNoiseSuppression` | `true` | Clean your microphone before it is sent, with RNNoise 0.2: a trained model that tells speech from noise, in managed code (no extra file, the same on every install). Fans, hum, hiss and the room's tone go down by 60 dB and more within the first second; keys, clicks and clatter in pauses nearly as far, and under speech they are cut between the voice's harmonics. It works on the mic at 48 kHz before the mic volume, on a thread of its own (about a tenth of one CPU core while the mic runs), and adds about 30 ms of delay. Limit: another person's voice or a television is speech to it and passes. Off: the mic as recorded. Settings > Voice > Noise suppression. |
+| `VoiceNoiseSuppressionStrength` | `1.5` | How hard the noise suppression cuts, 0.25 to 3 (Voice > "Suppression strength", in steps of 0.25). Each band's cut in dB is this many times what the model gives: 1 is the model as trained, higher takes out more (keys, clicks, noise that leaks through while you talk) and makes quiet speech thinner, lower is gentler. |
+| `VoiceRadioWorldSounds` | `true` | Your keyed walkie also sends the sounds around you, each as loud as it reaches you; music, menu sounds and voice chat are left out. Off: your voice only. What other players' radios send is always played. |
 | `VoicePlayerVolumes` | empty | How loud each other player is heard, by the name they go by: `name=volume` entries (0 muted to 2) separated by `|`. Set in Settings > Voice > Players. |
 | `VoiceFullVolumeDistance` | `150` | Distance (game units; a body is about 40 across) within which a shout is at full volume; quieter speech a shorter way. |
 | `VoiceMaxDistance` | `650` | Distance (game units) a shout carries before it is silent, the same range as other sounds from peers. Normal speech carries about three quarters of it, a whisper about a third (the loudness is measured on the talker's machine). |

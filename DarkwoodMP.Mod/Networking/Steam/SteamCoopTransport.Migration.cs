@@ -241,6 +241,30 @@ namespace DWMPHorde.Networking.Steam
         }
 
 
+        /// <summary>False when Steam's in-game overlay is off for this game (its dialogs will not show).</summary>
+        public static bool OverlayEnabled()
+        {
+            try { return IsSteamReady(out _) && SteamUtils.IsOverlayEnabled(); }
+            catch { return false; }
+        }
+
+        /// <summary>Open Steam's friends list over the game. False when the overlay is off.</summary>
+        public static bool OpenFriendsOverlay()
+        {
+            if (!OverlayEnabled())
+                return false;
+            try
+            {
+                SteamFriends.ActivateGameOverlay("friends");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                ModLog.Warn(LogCat.Network, "Friends overlay failed: " + ex.Message);
+                return false;
+            }
+        }
+
         public static void CopyToClipboard(string text)
         {
             if (string.IsNullOrEmpty(text))

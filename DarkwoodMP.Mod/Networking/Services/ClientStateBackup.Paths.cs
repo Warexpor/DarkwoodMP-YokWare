@@ -96,13 +96,10 @@ namespace DWMPHorde.Networking
         /// The party chose to start the chapter over (permadeath start-over reloads the chapter
         /// save for everyone). Every character snapshot of this profile (the host's per-client
         /// copies and this machine's own) is from before the wipe and would hand the reset world
-        /// back its levels, skills and bags; the next exit snapshot would write the same again.
+        /// back its levels, skills and bags.
         /// </summary>
-        public static bool ChapterReloadWipePending; // process-scoped: set by a chapter reload, consumed by the next exit snapshot
-
         public static void DiscardAllForChapterReload()
         {
-            ChapterReloadWipePending = true;
             // The party wipe marked every peer's profile dead (vanilla PreparePermadeathVideo); only
             // the player who pressed "start over" had it cleared by vanilla. The profile menu deletes
             // a dead profile's slot on its next visit.

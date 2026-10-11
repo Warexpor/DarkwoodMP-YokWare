@@ -24,6 +24,17 @@ namespace DWMPHorde.Networking
         /// Host: the peer is playing on this link — a phase-3 reconnect, or it has sent an in-world
         /// PlayerState (clients send none on the title or mid-load). It ignores a world package.
         /// </summary>
+        /// <summary>Host: some other player is in the world now (not on the title, downloading or loading).</summary>
+        internal bool AnyPeerInWorld()
+        {
+            foreach (int id in EnumeratePeerIds())
+            {
+                if (id > 1 && !_session.Link.LoadingWorld.Contains(id) && IsPeerInWorld(id))
+                    return true;
+            }
+            return false;
+        }
+
         internal bool IsPeerInWorld(int playerId)
         {
             return playerId > 1

@@ -291,6 +291,48 @@ namespace DWMPHorde.Items
             return true;
         }
 
+        private static string _descShown; // process-scoped: the description last written to the sheet
+
+        /// <summary>
+        /// The radio's description is its manual, and names the buttons as they are set right
+        /// now: the two radio keys from the settings, or the game's Aim and Attack while a
+        /// controller is in use. Called now and then; rewrites the sheet only on a change.
+        /// </summary>
+        internal static void RefreshDescription()
+        {
+            if (_descShown == null)
+                return;
+            string now = Description();
+            if (now == _descShown)
+                return;
+            Dictionary<string, string> sheet = Language.GetAllKeysForSheet("Items");
+            if (sheet == null)
+                return;
+            sheet["walkie_talkie_desc"] = now;
+            _descShown = now;
+        }
+
+        private static string Description()
+        {
+            bool pad = Audio.VoiceChatService.PadMode;
+            string talk = pad ? Loc.T("Aim") : KeyLabel(Audio.VoiceChatService.TalkKeyText);
+            string knob = pad ? Loc.T("Attack") : KeyLabel(Audio.VoiceChatService.PowerKeyText);
+            return string.Format(
+                Loc.T("A crude two-way radio; every player needs their own. With it in hand: hold {0} to talk, {1} switches it on and off. It also receives from a pocket, only quieter. The farther apart you are, the more static. Runs on a 9V battery: Reload puts in a new one."),
+                talk, knob);
+        }
+
+        private static string KeyLabel(string key)
+        {
+            if (string.Equals(key, "Mouse0", StringComparison.OrdinalIgnoreCase))
+                return Loc.T("left mouse button");
+            if (string.Equals(key, "Mouse1", StringComparison.OrdinalIgnoreCase))
+                return Loc.T("right mouse button");
+            if (string.Equals(key, "Mouse2", StringComparison.OrdinalIgnoreCase))
+                return Loc.T("middle mouse button");
+            return key;
+        }
+
         private static void InjectLocalization()
         {
             Dictionary<string, string> sheet = Language.GetAllKeysForSheet("Items");
@@ -299,11 +341,8 @@ namespace DWMPHorde.Items
             // DoSwitch runs before the menu's per-frame language refresh: read the setting now.
             Loc.SetLanguage(GameSettings.GetString("LanguageCode"));
             sheet.Add("walkie_talkie_name", Loc.T("Walkie-Talkie"));
-            if (!sheet.ContainsKey("walkie_talkie_desc"))
-            {
-                sheet.Add("walkie_talkie_desc",
-                    Loc.T("A crude two-way radio. Carry one each to talk over any distance."));
-            }
+            _descShown = Description();
+            sheet["walkie_talkie_desc"] = _descShown;
             if (!_langDone)
             {
                 _langDone = true;
@@ -412,9 +451,43 @@ namespace DWMPHorde.Items
         }
 
         /// <summary>
-        /// The walkie's painted icon (256 px, embedded). The inventory draws it at 30 units, so it
-        /// gets a mip chain and trilinear filtering: shrunk without mips it shimmers and jags.
+        /// Vanilla inventory icons are about 30 px across, point filtered, and fill their frame.
+        /// The radio's art ships at that size and is used as is: a handheld with a fine slat
+        /// grille, lying with its aerial to the upper left, 30 degrees from upright.
         /// </summary>
+        private const int IconPixels = 30;
+
+        /// <summary>Area average of a square-ish image down to size x size, weighted by alpha.</summary>
+        private static Color32[] Downsample(Color32[] src, int w, int h, int size)
+        {
+            var dst = new Color32[size * size];
+            for (int y = 0; y < size; y++)
+            {
+                int y0 = y * h / size, y1 = Math.Max(y0 + 1, (y + 1) * h / size);
+                for (int x = 0; x < size; x++)
+                {
+                    int x0 = x * w / size, x1 = Math.Max(x0 + 1, (x + 1) * w / size);
+                    float r = 0f, g = 0f, b = 0f, a = 0f;
+                    for (int sy = y0; sy < y1; sy++)
+                    {
+                        for (int sx = x0; sx < x1; sx++)
+                        {
+                            Color32 c = src[sy * w + sx];
+                            r += c.r * c.a;
+                            g += c.g * c.a;
+                            b += c.b * c.a;
+                            a += c.a;
+                        }
+                    }
+                    int n = (y1 - y0) * (x1 - x0);
+                    dst[y * size + x] = a <= 0f
+                        ? new Color32(0, 0, 0, 0)
+                        : new Color32((byte)(r / a), (byte)(g / a), (byte)(b / a), (byte)(a / n));
+                }
+            }
+            return dst;
+        }
+
         private static Texture2D LoadIconTexture()
         {
             if (_iconTexture != null)
@@ -449,15 +522,14 @@ namespace DWMPHorde.Items
                     ModLog.Warn(LogCat.Audio, "Walkie sprite decode failed");
                     return null;
                 }
-                var tex = new Texture2D(png.width, png.height, TextureFormat.RGBA32, true)
+                var tex = new Texture2D(IconPixels, IconPixels, TextureFormat.RGBA32, false)
                 {
                     name = "YokWare_WalkieIconTex",
                     wrapMode = TextureWrapMode.Clamp,
-                    filterMode = FilterMode.Trilinear,
-                    anisoLevel = 2
+                    filterMode = FilterMode.Point
                 };
-                tex.SetPixels32(png.GetPixels32());
-                tex.Apply(true, true);
+                tex.SetPixels32(Downsample(png.GetPixels32(), png.width, png.height, IconPixels));
+                tex.Apply(false, true);
                 UnityEngine.Object.Destroy(png);
                 _iconTexture = tex;
                 return tex;

@@ -12,6 +12,8 @@ namespace DWMPHorde.Config
     {
         public static ModSetting<string> ConnectAddress { get; private set; }
         public static ModSetting<int> ConnectPort { get; private set; }
+        /// <summary>Host: the address the others reach this computer at. Empty = found from the network cards.</summary>
+        public static ModSetting<string> HostAddress { get; private set; }
         public static ModSetting<string> HostPassword { get; private set; }
         /// <summary>Last Steam lobby id (ulong) for Steam join field / host display.</summary>
         public static ModSetting<string> SteamLobbyId { get; private set; }
@@ -69,6 +71,7 @@ namespace DWMPHorde.Config
         public static ModSetting<bool> VoiceEnabled { get; private set; }
         public static ModSetting<string> VoiceMode { get; private set; }
         public static ModSetting<string> VoicePttKey { get; private set; }
+        public static ModSetting<string> VoicePadTalkButton { get; private set; }
         public static ModSetting<float> VoiceVolume { get; private set; }
         public static ModSetting<float> VoiceGain { get; private set; }
         public static ModSetting<float> VoiceFullVolumeDistance { get; private set; }
@@ -79,6 +82,10 @@ namespace DWMPHorde.Config
         public static ModSetting<string> VoiceRadioPowerKey { get; private set; }
         public static ModSetting<string> VoiceRadioTalkKey { get; private set; }
         public static ModSetting<float> VoiceMicVolume { get; private set; }
+        public static ModSetting<bool> VoiceNoiseSuppression { get; private set; }
+        public static ModSetting<float> VoiceNoiseSuppressionStrength { get; private set; }
+        public const float DefaultNoiseSuppressionStrength = 1.5f;
+        public static ModSetting<bool> VoiceRadioWorldSounds { get; private set; }
         public static ModSetting<string> VoicePlayerVolumes { get; private set; }
 
         /// <summary>
@@ -107,6 +114,18 @@ namespace DWMPHorde.Config
         public const int MaxPort = 65535;
 
         private static int _lastWarnedPort = int.MinValue;
+
+        /// <summary>The host address the player typed in, when it is a usable IPv4 address.</summary>
+        public static bool TryGetHostAddress(out System.Net.IPAddress address)
+        {
+            address = null;
+            string raw = HostAddress?.Value?.Trim();
+            if (string.IsNullOrEmpty(raw))
+                return false;
+            return System.Net.IPAddress.TryParse(raw, out address)
+                && address.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork
+                && !address.Equals(System.Net.IPAddress.Any) && !System.Net.IPAddress.IsLoopback(address);
+        }
 
         /// <summary>
         /// Configured default port, clamped to a bindable UDP range. A hand-edited cfg with
@@ -168,6 +187,8 @@ namespace DWMPHorde.Config
             ConnectAddress = config.Bind("Network", "ConnectAddress", "127.0.0.1", "Default IP address shown in the connect field.");
             ConnectPort = config.Bind("Network", "ConnectPort", PluginInfo.DefaultPort,
                 "Default UDP port for LAN connections (1-65535; out-of-range values are clamped with a warning).");
+            HostAddress = config.Bind("Network", "HostAddress", "",
+                "LAN host: the IPv4 address the other players reach this computer at (a VPN adapter, a forwarded public address). Shown in the menu and handed to the players for reconnects. Empty = found from the network cards. The host listens on every address either way.");
             HostPassword = config.Bind("Network", "HostPassword", "",
                 "Optional join password. Empty = open LAN (trusted subnet). Host and every client must match. Also used as Steam lobby conn key.");
             SteamLobbyId = config.Bind("Network", "SteamLobbyId", "",
@@ -213,6 +234,8 @@ namespace DWMPHorde.Config
                 "ptt = push-to-talk (VoicePttKey). open = always transmit while connected.");
             VoicePttKey = config.Bind("Voice", "VoicePttKey", "V",
                 "Unity KeyCode name for push-to-talk (default V).");
+            VoicePadTalkButton = config.Bind("Voice", "VoicePadTalkButton", "DpadLeft",
+                "Push to talk on a controller, held: DpadLeft, DpadRight, LeftStick, RightStick or Off. The game has no free controller button, so each also does its vanilla action (by the default layout: next thing under the cursor, next skill, reload, dodge).");
             VoiceVolume = config.Bind("Voice", "VoiceVolume", 1f,
                 "Playback volume multiplier for remote voice.");
             VoiceGain = config.Bind("Voice", "VoiceGain", 1.4f,
@@ -232,6 +255,12 @@ namespace DWMPHorde.Config
                 "Microphone to talk into, by the name the game lists it under (Multiplayer > Settings > Voice). Empty: the system default.");
             VoiceMicVolume = config.Bind("Voice", "VoiceMicVolume", 1f,
                 "Microphone volume, 0..4 (1 as recorded). Also how loud you count for how far your voice carries.");
+            VoiceNoiseSuppression = config.Bind("Voice", "VoiceNoiseSuppression", true,
+                "Take noise (fans, hiss, hum, the room, keys and clicks) out of your microphone before it is sent.");
+            VoiceNoiseSuppressionStrength = config.Bind("Voice", "VoiceNoiseSuppressionStrength", DefaultNoiseSuppressionStrength,
+                "How hard the noise suppression cuts, 0.25..3. 1 is the model as trained; higher takes out more noise (keys, clicks, what leaks through while you talk) and makes quiet speech thinner; lower is gentler.");
+            VoiceRadioWorldSounds = config.Bind("Voice", "VoiceRadioWorldSounds", true,
+                "Your keyed walkie also sends the sounds around you, as loud as they reach you (not music or menu sounds). Off: your voice only.");
             VoicePlayerVolumes = config.Bind("Voice", "VoicePlayerVolumes", "",
                 "How loud each other player is heard, by name: name=volume entries (0 muted .. 2) separated by |. Set in Multiplayer > Settings > Voice > Players.");
             VoiceAlertsEnemies = config.Bind("Voice", "VoiceAlertsEnemies", true,

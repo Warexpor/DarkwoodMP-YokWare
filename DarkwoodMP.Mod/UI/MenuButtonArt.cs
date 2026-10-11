@@ -326,10 +326,15 @@ namespace DWMPHorde
                 if (relang)
                     Set = now;
 
+                // The resolution changed: the vanilla rows are another size now, and so is a texel.
+                bool resized = TryVanillaTexel(Follow.gameObject, out float texel) && !Mathf.Approximately(texel, Texel);
+                if (resized)
+                    Texel = texel;
+
                 GameObject camObj = Core.CamUI;
                 Camera cam = camObj != null ? camObj.GetComponent<Camera>() : null;
                 PlaceFacingCam(transform, Follow, Col, cam, Set.Idle.width * Texel, Set.Idle.height * Texel);
-                if (relang)
+                if (relang || resized)
                     MainMenuMultiplayerInject.FitButtonHitbox(Follow.gameObject);
 
                 if (Renderer == null || Renderer.sharedMaterial == null)

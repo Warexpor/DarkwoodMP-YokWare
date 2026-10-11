@@ -434,11 +434,14 @@ namespace DWMPHorde.Networking
                 return;
             }
 
-            // Offline load already placed the body from sav.dat. A stale backup with
-            // wrong XZ (or Y=16 vs live Y≈-1984) is the dual-box "nowhere / void" bug.
+            // Offline load already placed the body from sav.dat. A backup that names no
+            // campaign may be from another world: one far from where the load put the body
+            // (wrong XZ, or Y=16 vs live Y≈-1984) is the dual-box "nowhere / void" bug. One
+            // taken in this campaign is a place in this world, however far from the host's
+            // spawn the player was: that is where they rejoin.
             Vector3 live = player.transform.position;
             float xz = Vector2.Distance(new Vector2(pos.x, pos.z), new Vector2(live.x, live.z));
-            if (xz > 5000f || Mathf.Abs(pos.y - live.y) > 500f)
+            if (string.IsNullOrEmpty(data.CampaignId) && (xz > 5000f || Mathf.Abs(pos.y - live.y) > 500f))
             {
                 ModRuntime.Log?.LogWarning(
                     "[ClientBackup] skip position restore — backup far from loaded pose backup="
@@ -451,10 +454,6 @@ namespace DWMPHorde.Networking
                 player.teleportTo(pos, Quaternion.Euler(90f, 0f, 0f));
                 if (Singleton<WorldGrid>.Instance != null)
                     Singleton<WorldGrid>.Instance.refreshPosition(pos, instant: true, force: true);
-
-                var net = ModRuntime.Network;
-                if (net != null && net.IsConnected)
-                    net.TeleportRemoteProxyTo(pos, 0f);
 
                 ModRuntime.LegacyInfo(
                     $"[ClientBackup] restored position {pos}");

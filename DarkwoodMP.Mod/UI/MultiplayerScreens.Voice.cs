@@ -41,10 +41,14 @@ namespace DWMPHorde
             yield return Setting(ModConfig.VoiceEnabled, ask: true);
             yield return Setting(ModConfig.VoiceMode, ask: true);
             yield return Setting(ModConfig.VoicePttKey);
+            yield return Setting(ModConfig.VoicePadTalkButton);
             yield return Setting(ModConfig.VoiceRadioTalkKey);
             yield return Setting(ModConfig.VoiceRadioPowerKey);
             yield return Setting(ModConfig.VoiceMicDevice);
             yield return Setting(ModConfig.VoiceMicVolume);
+            yield return Setting(ModConfig.VoiceNoiseSuppression);
+            yield return Setting(ModConfig.VoiceNoiseSuppressionStrength);
+            yield return Setting(ModConfig.VoiceRadioWorldSounds);
             yield return Setting(ModConfig.VoiceVolume);
         }
 
@@ -66,10 +70,13 @@ namespace DWMPHorde
 
         private static string VoiceSignature() => VoiceIndex() + "/" + string.Join("\n", VoiceMic.Devices);
 
+        private static readonly string[] OffOn = { "Off", "On" };
+        private static readonly string[] PadTalkChoices = { "Off", "D-pad left", "D-pad right", "Left stick click", "Right stick click" };
+
         private static void BuildVoice(VmBuilder b)
         {
-            b.Header("Voice", 178f + 100f);
-            float z = 100f + 80f;
+            b.Header("Voice", 178f + 140f);
+            float z = 100f + 120f;
             const float step = Vm.RowStep;
 
             b.Choice("Voice chat", z, VoiceChoices, VoiceIndex, SetVoice);
@@ -77,11 +84,19 @@ namespace DWMPHorde
             b.KeyField("Push to talk key", z, () => ModConfig.VoicePttKey?.Value ?? "V",
                 v => { if (ModConfig.VoicePttKey != null) ModConfig.VoicePttKey.Value = v; }, enabled: VoiceIndex() == 1);
             z -= step;
+            b.Choice("Controller talk button", z, PadTalkChoices, VoiceChatService.PadVoiceIndex,
+                i => { if (ModConfig.VoicePadTalkButton != null) ModConfig.VoicePadTalkButton.Value = VoiceChatService.PadVoiceButtons[i]; },
+                enabled: VoiceIndex() == 1);
+            z -= step;
             b.KeyField("Radio talk key", z, () => ModConfig.VoiceRadioTalkKey?.Value ?? "Mouse1",
                 v => { if (ModConfig.VoiceRadioTalkKey != null) ModConfig.VoiceRadioTalkKey.Value = v; });
             z -= step;
             b.KeyField("Radio on/off key", z, () => ModConfig.VoiceRadioPowerKey?.Value ?? "B",
                 v => { if (ModConfig.VoiceRadioPowerKey != null) ModConfig.VoiceRadioPowerKey.Value = v; });
+            z -= step;
+            b.Choice("Radio picks up sounds", z, OffOn,
+                () => ModConfig.VoiceRadioWorldSounds == null || ModConfig.VoiceRadioWorldSounds.Value ? 1 : 0,
+                i => { if (ModConfig.VoiceRadioWorldSounds != null) ModConfig.VoiceRadioWorldSounds.Value = i == 1; });
             z -= step;
             b.Name("Microphone", z);
             Button mic = null;
@@ -93,6 +108,21 @@ namespace DWMPHorde
             z -= step;
             b.Slider("Microphone volume", z, () => (ModConfig.VoiceMicVolume?.Value ?? 1f) / 2f,
                 t => { if (ModConfig.VoiceMicVolume != null) ModConfig.VoiceMicVolume.Value = Mathf.Round(t * 2f * 20f) / 20f; });
+            z -= step;
+            b.Choice("Noise suppression", z, OffOn,
+                () => ModConfig.VoiceNoiseSuppression == null || ModConfig.VoiceNoiseSuppression.Value ? 1 : 0,
+                i => { if (ModConfig.VoiceNoiseSuppression != null) ModConfig.VoiceNoiseSuppression.Value = i == 1; });
+            z -= step;
+            // Left end 0.25, right end 3, in steps of 0.25.
+            b.Slider("Suppression strength", z,
+                () => ((ModConfig.VoiceNoiseSuppressionStrength?.Value ?? ModConfig.DefaultNoiseSuppressionStrength) - RnNoise.MinStrength)
+                    / (RnNoise.MaxStrength - RnNoise.MinStrength),
+                t =>
+                {
+                    if (ModConfig.VoiceNoiseSuppressionStrength != null)
+                        ModConfig.VoiceNoiseSuppressionStrength.Value = Mathf.Round(
+                            (RnNoise.MinStrength + t * (RnNoise.MaxStrength - RnNoise.MinStrength)) * 4f) / 4f;
+                });
             z -= step;
             b.Name("Microphone level", z);
             Button meter = b.Value("", z, null);

@@ -132,6 +132,7 @@ namespace DWMPHorde.Networking
                 {
                     ModRuntime.LegacyInfo(
                         $"[ClientBackup] skip push → p{playerId} — no SteamId/StableClientKey (cold LAN; peer uses local self)");
+                    SendNoStoredClientBackup(playerId);
                     return;
                 }
                 var data = ClientStateBackup.LoadBackupFileForPlayer(
@@ -143,17 +144,22 @@ namespace DWMPHorde.Networking
                         + (steamId != 0 ? " s" + steamId : "")
                         + (stableKey != null ? " k" + stableKey.Substring(0, System.Math.Min(8, stableKey.Length)) : "")
                         + " — peer may use local self");
+                    SendNoStoredClientBackup(playerId);
                     return;
                 }
                 if (ClientStateBackup.LooksLikeStaleBackupOnFreshWorld(data))
                 {
                     ModRuntime.LegacyInfo(
                         $"[ClientBackup] skip push → p{playerId} — stale/legacy-poison backup");
+                    SendNoStoredClientBackup(playerId);
                     return;
                 }
                 string json = ClientStateBackup.SerializeToJson(data);
                 if (string.IsNullOrEmpty(json))
+                {
+                    SendNoStoredClientBackup(playerId);
                     return;
+                }
                 _net.SendToPlayer(playerId, NetMessageType.ClientStateBackup,
                     w => new ClientStateBackupMessage { JsonData = json }.Serialize(w),
                     LiteNetLib.DeliveryMethod.ReliableOrdered);
@@ -171,6 +177,17 @@ namespace DWMPHorde.Networking
         }
 
         /// <summary>
+        /// Host: nothing stored for this player. Said out loud (an empty backup) so the joiner
+        /// uses its own file at once instead of waiting out the push that will not come.
+        /// </summary>
+        private void SendNoStoredClientBackup(int playerId)
+        {
+            _net.SendToPlayer(playerId, NetMessageType.ClientStateBackup,
+                w => new ClientStateBackupMessage { JsonData = "" }.Serialize(w),
+                LiteNetLib.DeliveryMethod.ReliableOrdered);
+        }
+
+        /// <summary>
         /// Client: after phase-3 reconnect, wait for host backup push then fall back to local self.
         /// </summary>
         internal void BeginClientBackupRestoreWait()
@@ -178,6 +195,8 @@ namespace DWMPHorde.Networking
             if (_net.Role != NetworkRole.Client)
                 return;
             _receivedHostClientBackup = false;
+            _hostHasNoClientBackup = false;
+            ClientPlacementPending = true;
             if (_clientBackupRestoreCo != null)
             {
                 try { _net.StopCoroutine(_clientBackupRestoreCo); }
@@ -189,34 +208,46 @@ namespace DWMPHorde.Networking
 
         private IEnumerator ClientBackupRestoreWaitRoutine()
         {
-            float t = 0f;
-            while (t < ClientBackupHostWaitSec)
+            try
             {
-                if (_net.Role != NetworkRole.Client || !_net.IsConnected)
-                    yield break;
-                if (_receivedHostClientBackup)
-                    yield break;
-                if (Player.Instance != null && !GameScreen.AtTitle && !Core.loadingGame)
-                    t += Time.unscaledDeltaTime;
-                yield return null;
-            }
+                float t = 0f;
+                while (t < ClientBackupHostWaitSec)
+                {
+                    if (_net.Role != NetworkRole.Client || !_net.IsConnected)
+                        yield break;
+                    if (_receivedHostClientBackup)
+                        yield break;
+                    if (Player.Instance != null && !GameScreen.AtTitle && !Core.loadingGame)
+                    {
+                        // Nothing is coming from the host: the local file, now.
+                        if (_hostHasNoClientBackup)
+                            break;
+                        t += Time.unscaledDeltaTime;
+                    }
+                    yield return null;
+                }
 
-            if (_receivedHostClientBackup || _net.Role != NetworkRole.Client)
-                yield break;
+                if (_receivedHostClientBackup || _net.Role != NetworkRole.Client)
+                    yield break;
 
-            var data = ClientStateBackup.LoadLocalSelfBackupFile();
-            if (data == null)
-            {
+                var data = ClientStateBackup.LoadLocalSelfBackupFile();
+                if (data == null)
+                {
+                    ModRuntime.LegacyInfo(
+                        "[ClientBackup] no host push and no local self backup — keeping loaded world character");
+                    yield break;
+                }
+                if (Player.Instance == null)
+                    yield break;
+
+                ClientStateBackup.RestoreFromBackup(data);
                 ModRuntime.LegacyInfo(
-                    "[ClientBackup] no host push and no local self backup — keeping loaded world character");
-                yield break;
+                    "[ClientBackup] restored local self fallback (no host backup for this player id)");
             }
-            if (Player.Instance == null)
-                yield break;
-
-            ClientStateBackup.RestoreFromBackup(data);
-            ModRuntime.LegacyInfo(
-                "[ClientBackup] restored local self fallback (no host backup for this player id)");
+            finally
+            {
+                ClientPlacementPending = false;
+            }
         }
 
         /// <summary>
@@ -226,7 +257,14 @@ namespace DWMPHorde.Networking
         {
             if (string.IsNullOrEmpty(msg.JsonData))
             {
-                ModRuntime.Log?.LogWarning("[ClientBackup] received empty backup data");
+                if (_net.Role == NetworkRole.Client)
+                {
+                    // The host holds nothing for this player: the wait routine goes to the local file now.
+                    _hostHasNoClientBackup = true;
+                    ModRuntime.LegacyInfo("[ClientBackup] host has no stored backup for this player");
+                }
+                else
+                    ModRuntime.Log?.LogWarning("[ClientBackup] received empty backup data");
                 return;
             }
 
@@ -244,7 +282,8 @@ namespace DWMPHorde.Networking
                     // Do NOT set _receivedHostClientBackup yet — only after a successful
                     // apply. Rejected stale/mismatch pushes must leave local fallback free.
 
-                    // Local self is source of truth on this box. Host push only fills a gap.
+                    // Both copies were written by this client at world saves, so their timestamps
+                    // are from one clock: the newer is the last save this client took part in.
                     ClientStateBackupData hostData = data;
                     ClientStateBackupData local = null;
                     try { local = ClientStateBackup.LoadLocalSelfBackupFile(); }
@@ -254,9 +293,9 @@ namespace DWMPHorde.Networking
                     {
                         int localScore = ClientStateBackup.ProgressScore(local);
                         int hostScore = ClientStateBackup.ProgressScore(hostData);
-                        bool localNewer = ClientStateBackup.TryParseBackupTimestamp(local)
-                            >= ClientStateBackup.TryParseBackupTimestamp(hostData);
-                        if (localScore >= hostScore || localNewer)
+                        DateTime localAt = ClientStateBackup.TryParseBackupTimestamp(local);
+                        DateTime hostAt = ClientStateBackup.TryParseBackupTimestamp(hostData);
+                        if (localAt != hostAt ? localAt > hostAt : localScore >= hostScore)
                         {
                             data = local;
                             ModRuntime.LegacyInfo(
@@ -310,6 +349,15 @@ namespace DWMPHorde.Networking
                 {
                     ModRuntime.Log?.LogWarning("[ClientBackup] host push apply failed: " + ex.Message);
                 }
+                finally
+                {
+                    // Applied: placed. Refused, or too early to apply: the wait routine goes to
+                    // the local file as soon as the player is in the world.
+                    if (_receivedHostClientBackup)
+                        ClientPlacementPending = false;
+                    else
+                        _hostHasNoClientBackup = true;
+                }
                 return;
             }
 
@@ -361,6 +409,9 @@ namespace DWMPHorde.Networking
                 return;
 
             ClientStateBackup.SaveBackupFile(json, playerId, steamId, stableKey);
+            ModLog.Event(LogCat.Save, "[ClientBackup] stored backup from p" + playerId + " ("
+                + ((parsed.InventoryItems?.Count ?? 0) + (parsed.HotbarItems?.Count ?? 0)) + " items, level "
+                + parsed.CurrentLevel + ")");
         }
     }
 }

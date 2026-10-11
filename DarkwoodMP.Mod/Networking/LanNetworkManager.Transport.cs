@@ -197,6 +197,46 @@ namespace DWMPHorde.Networking
         /// </summary>
         public void FlushQueuedSends() => _net?.TriggerUpdate();
 
+        /// <summary>How long a leaving player waits for its last reliable messages to go out.</summary>
+        private const int LeaveFlushMs = 250;
+
+        /// <summary>
+        /// LAN, just before the connections are closed: LiteNetLib sends from its own thread
+        /// and closing drops whatever is still queued, so a reliable message written in the same
+        /// call never left. Wake the thread and wait until the
+        /// queues are empty. Steam closes with linger and sends its queue itself.
+        /// </summary>
+        private void FlushReliableBeforeLeave()
+        {
+            if (_net == null || _role == NetworkRole.Offline || _backend != ConnectionBackend.Lan)
+                return;
+            var wait = System.Diagnostics.Stopwatch.StartNew();
+            while (ReliableQueuedToPeers() > 0)
+            {
+                if (wait.ElapsedMilliseconds >= LeaveFlushMs)
+                {
+                    ModLog.Warn(LogCat.Network, "Leaving with reliable messages still queued after "
+                        + LeaveFlushMs + " ms");
+                    return;
+                }
+                _net.TriggerUpdate();
+                System.Threading.Thread.Sleep(2);
+            }
+        }
+
+        private int ReliableQueuedToPeers()
+        {
+            int queued = 0;
+            IReadOnlyList<int> ids = _lanPeers.Ids;
+            for (int i = 0; i < ids.Count; i++)
+            {
+                if (_lanPeers.TryGetPeer(ids[i], out NetPeer peer) && peer != null
+                    && peer.ConnectionState == ConnectionState.Connected)
+                    queued += peer.GetPacketsCountInReliableQueue(0, true) + peer.GetPacketsCountInReliableQueue(0, false);
+            }
+            return queued;
+        }
+
         /// <summary>Send a message to all connected peers.</summary>
         /// <param name="skipLoadingPeers">
         /// When true, skip peers in <see cref="_session.Link.LoadingWorld"/> (title join / LoadScene).

@@ -3,12 +3,17 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.197**. The current Horde wire protocol is **52**. Every install in a session
+**0.8.228**. The current Horde wire protocol is **54**. Every install in a session
 needs the same DLL; the protocol is checked on join.
 
 Protocol history (newest first):
 
-- **52**, 0.8.189 to 0.8.197: `PlayerState`'s walkie trailer becomes a state byte,
+- **54**, 0.8.212 to 0.8.228: `VoiceData` (129) gains flag 2: a second codec block after the voice,
+  the sounds the talker's radio picked up.
+- **53**, 0.8.200 to 0.8.211: the world share package gains `savplc.dat` (container slots a player
+  stored items in). No message layout changed; the bump keeps every player on a build
+  that reads and writes the file.
+- **52**, 0.8.189 to 0.8.199: `PlayerState`'s walkie trailer becomes a state byte,
   `WalkieState`: none, off or flat, on in a pocket, on in hand, plus underground.
 - **51**, 0.8.187 to 0.8.188: `VoiceData` (129) carries the mod's own voice codec
   instead of Steam Voice.
@@ -56,6 +61,822 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.228 — a joining player gets window barricades in far locations
+
+- **A window boarded up or broken since the last save, in a place far from the joining
+  player, stayed as in the save for that player.** The join sends every window's barricade
+  state, but a window was looked up through physics only, and physics does not see the
+  windows of a location that is switched off (far from the player). The update waited
+  30 s and was dropped (`[Barr] pending event expired type=1` in the client log of the
+  0.8.227 session; there the save already matched, so nothing was visibly wrong). Doors
+  already had a fallback for this. `WorldQueryHelper.FindWindowByPosLoose` now falls back
+  to the scene list, an active window first. The same lookup serves a window set on fire
+  and a client's blow on a window.
+- The 0.8.227 session's logs otherwise: no errors or exceptions on either side, no save
+  was made in it, the client joined as a fresh character (no stored one), voice ran both ways.
+
+## 0.8.227 — leaving saves nothing, as in the base game
+
+Decided after 0.8.226. Built, unit-tested and deployed; **not played yet**.
+
+- **Removed: the host's silent world save on quitting to the menu** (the "host leave
+  checkpoint", in the mod since 0.8.71 or earlier, also run before a graceful hand-over
+  to another host), and with it the SaveSync that 0.8.226 sent to the clients at that
+  moment. The base game never saves on leaving (`Core.restartGame` reloads the scene,
+  `Core.quitGame` closes the game), and a save there stored the world without the
+  characters of clients who had left before the host.
+- **The rule, whole:** the world and every player's character are what the last
+  in-game save wrote. Leaving, disconnecting or closing the game stores nothing for
+  anyone. The next session starts from that save for all.
+- A host that hands the session to another player and leaves no longer writes its
+  slot on the way out; its next cold start loads its last in-game save.
+- Files: `SaveNetHandlers.cs`, `LanNetworkManager.HostConnect.cs`,
+  `HostMigration.Handoff.cs`.
+
+## 0.8.226 — a character is stored at real world saves only
+
+Correction asked for after 0.8.224: the rule is that a player's state is stored
+**only** when a real in-game save happens. 0.8.223 kept a leave-time state while the
+host's world ran on, and 0.8.224 added a snapshot when a client closed the game; both
+were against the rule and are **withdrawn**. Built, unit-tested and deployed; **not
+played yet**. No protocol change.
+
+- **Removed:** the snapshot on leaving (menu, disconnect, closing the game); the
+  snapshot when only the client "saved" (a client's own Save is blocked and is not a
+  world save) and at dream entry; the host's in-memory "live" snapshots, the run id in
+  the backup push, the `client_backup_leave_*` file and the patch that stored live
+  snapshots at the host's save (all from 0.8.223); the quit-time snapshot (0.8.224).
+  A leftover `client_backup_leave_*.json` is never read.
+- **What stores a character now:** the host's coordinated world save (SaveSync, the
+  "saving" indicator), nothing else. A rejoin restores that state, position included;
+  a client that was never in a save comes back as a fresh character.
+- **Known consequence, by the rule:** a client that leaves and rejoins while the host
+  keeps playing comes back as at the last save, while the world has moved on. An item
+  they put in a chest after that save is then in the chest and in their bag; one they
+  took out is in neither.
+- **The host's save on quitting to the menu** is a real world save but was silent: the
+  world was written and the clients' characters were not. The host now sends SaveSync
+  with it, and waits up to 250 ms for it to leave (`FlushReliableBeforeLeave`, now for
+  the host as well as the client). Each client saves, writes its own file and sends
+  its copy; if that copy no longer reaches the host, the rejoin uses the client's own,
+  newer file.
+- **Quest item hand-back.** A returning player whose story item was taken by someone
+  else has it removed from their bag, and used to store the character right then so
+  the host could forget its record. The record is now confirmed at the next world
+  save (`QuestItemHandoff.OnSaveTimeBackupSent`); until then the host asks again at
+  each join, so the item cannot come back with a restored bag.
+- **Kept from 0.8.223:** between the host's copy and the client's own, the newer one
+  wins (before, the client's own won whenever it had as much progress).
+- **Kept from 0.8.224:** the host's stand-up wait counts only peers that are in the
+  world, and long frames do not use up its time limit.
+- Old files: a client's own file written by 0.8.222 or earlier may still hold a
+  leave-time state until its next world save overwrites it.
+
+## 0.8.225 — noise suppression strength slider, harder by default
+
+Asked for after a 0.8.224 session: the suppression works but should cut harder, with a
+setting for how hard. Built, unit-tested and deployed; **not played yet**.
+
+- **New setting** `VoiceNoiseSuppressionStrength` (Settings > Voice > "Suppression
+  strength", a slider from 0.25 to 3 in steps of 0.25; **1.5 by default**, so it is
+  harder than before without touching anything). It takes effect at once.
+- **What it does.** The model gives each of its 32 frequency bands a gain between 0
+  and 1 for every 10 ms. That gain is now raised to the power of the setting, so a
+  band's cut in dB is the setting times the model's: at 2, a key click the model took
+  down 15 dB goes down 30. 1 is the model as trained. The cost of going higher is
+  that the parts of speech the model is unsure of (quiet word endings, breathy
+  sounds) are turned down more too, so the voice gets thinner. The model's own
+  frame-to-frame smoothing still runs on its untouched gains (`RnNoise.Strength`,
+  `VoiceMicChain.Strength`).
+- The on/off toggle is unchanged. No protocol change: it is the sender's own setting.
+- Test: `RnNoiseTests.StrengthScalesTheCut` (0.5, 1 and 2 cut in that order, at least
+  3 dB apart).
+
+## 0.8.224 — a client closing the game keeps its character, host stand-up no longer waits for a peer on the title
+
+From the logs of a 0.8.223 session (host and one client, a new world, both closed the
+game; no errors or exceptions). Built, unit-tested and deployed; **not played yet**.
+
+- **A client that closed the game stored nothing.** The leave snapshot was taken when
+  the session was stopped, and on quitting that is after the player object is gone,
+  so it was skipped without a line in the log. In that session no world save had
+  happened while the client was in the world either, so a rejoin would have found no
+  character at all and started fresh at the spawn. The snapshot is now taken in
+  `OnApplicationQuit`, which runs before anything is destroyed
+  (`WorldSaveQuitWatcher`). Leaving through the menu was not affected.
+- **The host lay still at its own world start** (`[GetUp] stand-up let go after 6.0 s
+  (sent 0, placed True)`). The stand-up wait counted a client that was still on the
+  title screen as a watcher, and no position packets go to such a client. A watcher is
+  now a peer that is in the world (`LanNetworkManager.AnyPeerInWorld`). The 6 s limit
+  also counted the long frames of the first save and world share as real time; a frame
+  now counts for 0.1 s at most (`LocalGetUpHold`).
+- Nothing else in the logs: voice at 48 kHz on both sides with no suppression error,
+  the join ran through all three phases, no desync.
+
+## 0.8.223 — a rejoining client comes back as at the last world save
+
+Asked for after 0.8.222. Built, unit-tested and deployed to the three installs;
+**not played yet**. No protocol change (the new fields are in the backup's JSON), but
+every install needs this DLL.
+
+- **What it was.** A client's character snapshot (position, bag, health, skills) was
+  taken at every world save and again when the client left, and a rejoin used the
+  newest. After a host crash or a host reload the world was back at the last save
+  while the client came back as they left: an item put in a chest after the save was
+  in neither place, one taken out was in both.
+- **What it is now.** A rejoin restores the state of the host's last world save,
+  position included. A snapshot taken between saves is marked live
+  (`ClientStateBackupData.Live`): the one on leaving, the one after a quest item
+  hand-back, and the one from a Save only the client ran (a client's own Save is
+  blocked and is not a world save; before, it overwrote the save-time snapshot).
+  The host does not write a live snapshot to disk. It holds it in memory for the
+  current run of its world (from one load to the next), and:
+  - a player who rejoins while that world still runs gets it, so they come back as
+    they left (the world has their later changes in it; the save-time state would
+    duplicate or lose items);
+  - the host's next real world save writes it to that player's file (new patch on
+    `SaveManager.Save`, which checks that the save was really written), the leave
+    checkpoint of a host who quits to the menu included;
+  - a host that loads its save again drops it, and the save-time file stands.
+- **Link already down when leaving.** The client also keeps the leave-time snapshot
+  in its own file (`client_backup_leave_<campaign>.json`), tagged with the host's run
+  id, which the host now names in its backup push (also in the "nothing stored"
+  answer). It is used only on a rejoin into that same run, and is then sent to the
+  host so the next world save stores it. The client's `client_backup_self` file is
+  the save-time state only.
+- **Which copy wins.** Host copy against the client's own: the newer timestamp (both
+  were written by the same client, so one clock). Before, the client's own won
+  whenever it had as much progress, even if older.
+- Files: `SaveNetHandlers.cs`, `SaveNetHandlers.Apply.cs`, `SaveSyncPatches.cs`,
+  `ClientStateBackup.cs`, `ClientStateBackup.Paths.cs`, `QuestItemHandoff.cs`.
+
+## 0.8.222 — RNNoise 0.2, softer radio sounds, steady static with no range cut-off, whole stand-up for watchers, rejoin where you left
+
+From a 0.8.221 session (host and one client; logs had no errors or exceptions).
+Built, unit-tested (478 pass) and deployed to the three installs; **not played yet**.
+**Protocol 54 (unchanged)**,
+but every install needs this DLL (the host now answers a joiner that it holds no backup).
+
+- **Keys were still heard through the noise suppression: RNNoise 0.2 replaces 0.1.1.**
+  The 0.2 network is far larger (two convolutions and three layers of 384 units
+  against 24/48/96 units, 32 bands against 22, one frame of look-ahead) and trained on
+  more data. Its C code and the full model (`rnnoise_data-0b50c45`, from
+  `media.xiph.org`, the 8-bit weights) are ported to C# (`Audio/RnNoise.cs`, 1.3 MB of
+  weights in the DLL, which grows from 2.6 to 4.1 MB). The original, built with
+  its plain-C path, and the port give the same output on the same input (difference
+  about 69 dB below the signal). Measured on the original: noise alone (white, pink,
+  hum) down about 30 dB in the first half second and 60 to 70 dB after (0.1.1: 20 to
+  40, and it left a bright hiss alone); key-like bursts in pauses down 48 to 73 dB
+  (0.1.1: 8 to 21). Speech could only be checked on a synthetic voice. Cost: about
+  0.8 ms per 10 ms of sound under .NET 8 on this machine, on the mic's own thread; not
+  measured under the game's Mono, expect roughly a tenth to a fifth of one core while
+  the mic runs. Delay about 30 ms (was 20). A smaller "little" model ships with 0.2
+  and was not used.
+- **Radio sounds ended too abruptly.** The beep, the squelch tail and the knob takes
+  stopped within 10 ms (the squelch tail fell 30 dB in one step). Each now ends in a
+  short decaying tail (about 0.3 s, made from the recording, kept to the radio's band),
+  and on the listener's radio the static no longer stops dead when the talker lets go:
+  it fades out under the squelch tail over a quarter second
+  (`VoiceChatService.Radio.cs` `WriteSquelchTail`, `StaticFadeSec`).
+- **The out-of-range static crackled.** The recording's loudness jumped by several dB
+  from one 5 ms to the next (2.8 dB spread; plain noise in that band has 1.2). Its level
+  is now evened out over 12 ms windows: a steady hiss, same spectrum, same average
+  level, still a loop (`Resources/Radio/static_far.wav`, see its `SOURCES.md`).
+- **The radio went silent past a distance.** 0.8.218 made the static fade to nothing over
+  the last stretch of the range, and a signal of zero quality was not played at all.
+  Wrong reading of the request. Now distance never silences a radio: from 18000 units
+  on a keyed radio is static alone, anywhere on the map (`FarStaticGain`, and the
+  `quality > 0` tests are gone). What stops a signal is a dream: nothing passes between
+  a player in a dream and one who is not, either way (`RadioLinked`, used for the
+  listener's own radio, a nearby player's radio, the talker's echo from a nearby radio
+  and for creatures hearing a radio on the host). Before, the dream was only "far away".
+- **A joiner's stand-up started late and cut off on the others' screens.** Vanilla
+  starts the get-up clip (`Sleep`, 44 frames at 15 a second: 2.9 s) the moment the load
+  ends. The joiner's position and clip only reach the host after its reconnect and
+  handshake, and the host makes the stand-in when the first packet lands, so the
+  stand-in appeared part-way through the clip, or after it. Earlier fixes worked on the
+  watcher's side, which cannot show what it was never sent. Now the player who stands
+  up waits: the clip is held on its first frame until a few position packets carrying
+  it have gone out and, for a joiner, until their character backup has placed them;
+  then it runs, and the watchers start it at the same frame. Nothing is held with
+  nobody to watch (no session, a host alone); a wait that cannot end lets go after 6 s
+  and logs `[GetUp] stand-up let go`. Covers load, join and respawn, host or client
+  (`Players/Runtime/LocalGetUpHold.cs`, `LanNetworkManager.Tick.cs`).
+- **A rejoining client stood at the host's spawn, not where they left.** Each client's
+  position is already stored with their character backup (at every world save and when
+  they leave, on the host and on their own PC), but it was thrown away when it was more
+  than 5000 units from where the load had put them: this session's log has
+  `skip position restore — backup far from loaded pose ... xz=8447`. That check was for
+  old backups that named no campaign and could belong to another world. A backup of
+  this campaign is a place in this world, so it is now used however far it is
+  (`ClientStateBackup.Restore.cs`, `.Campaign.cs`). Note: the position is the newest
+  of "last world save" and "when the client left".
+- **Found on the way:** after restoring its own position a client moved every other
+  player's stand-in to that position until their next packet (one frame of everyone
+  standing on the joiner, and location triggers could see them there). Removed.
+- **Found on the way:** when the host had no backup for a joiner it said nothing, and
+  the joiner waited 12 s before using its own file, so it was moved 12 s after joining.
+  The host now answers "none" (an empty backup message) and the joiner uses its own
+  file at once (`SaveNetHandlers.Apply.cs`).
+- **Files:** `Audio/RnNoise.cs`, `Audio/VoiceMicChain.cs`, `Audio/VoiceChatService.Radio.cs`,
+  `.Speakers.cs`, `.NearRadios.cs`, `.Walkie.cs`, `Audio/VoiceHearing.cs`,
+  `Resources/Radio/*.wav`, `Resources/RnNoise/*`, `Players/Runtime/LocalGetUpHold.cs`,
+  `Networking/LanNetworkManager.Tick.cs`, `Networking/Session/SaveNetHandlers*.cs`,
+  `Networking/Services/ClientStateBackup.Restore.cs`, `.Campaign.cs`, tests
+  (`RnNoiseTests.cs`, one new), docs, `COPYRIGHT`.
+- **Not verified in game:** all of the above.
+
+## 0.8.221 — Mic noise suppression by a trained model (RNNoise)
+
+Asked for after 0.8.220: a suppressor that also handles noise that is not steady. The
+on/off switch asked for with it already exists (Settings > Voice > "Noise suppression",
+config `VoiceNoiseSuppression`, on by default); it now switches this.
+
+- **RNNoise replaces the old suppressor.** RNNoise (Jean-Marc Valin, Mozilla / Xiph.Org,
+  `xiph/rnnoise` v0.1.1, BSD licence) ported from C to C# (`Audio/RnNoise.cs`), with its
+  trained weights as an 87 KB resource in the DLL. No native library, the same on every
+  install. A small recurrent network that knows what speech sounds like answers, 100
+  times a second, how much of each of 22 bands is voice. The spectral suppressor and its
+  pause gate from 0.8.212 to 0.8.220 (`VoiceDenoise`) are removed, not kept beside it.
+- **Checked against the original.** The C code was built and run on the same input as
+  the port: the outputs differ by about 76 dB below the signal (rounding). A unit test
+  holds the reference's figures.
+- **Measured on the reference, noise only:** fan-like and low-heavy noise down 20 dB in
+  the first second and 40 to 60 dB after; hum with hiss about 20 dB at once, 35 dB in a
+  pause after speech; bursts like key clicks 8 to 21 dB in pauses. Limits: another
+  voice or a television is speech to it; a loud, bright hiss with nothing else (white
+  noise up to 20 kHz at about -40 dBFS) is taken for speech until the player has
+  talked, then goes down in pauses. Speech quality could only be checked on a synthetic
+  voice here; it needs ears in a playtest.
+- **The mic now records at 48 kHz** where the device allows (the model's rate; before:
+  16 kHz), is cleaned there before the mic volume is applied, then brought to the 16 kHz
+  voice rate through a real low-pass (`Audio/VoiceResampler.cs`, Kaiser-windowed sinc,
+  any ratio) instead of one biquad and straight lines between samples. Devices at other
+  rates are converted to 48 kHz the same way.
+- **Off the game's frame.** The whole chain (`Audio/VoiceMicChain.cs`) runs on a worker
+  thread; the frame hands over the recording and collects finished packets, one frame
+  later. Cost about 0.2 ms per 10 ms of sound on this machine under .NET 8; not measured
+  under the game's Mono.
+- **Delay** about 20 ms (was 64 ms). The radio keeps its flag 0.11 s after key-up as
+  before, so the last word is whole.
+- **If the weights cannot be loaded** the mic works without suppression and the log says
+  "[Voice] noise suppression unavailable" once.
+- **Licence:** `Resources/RnNoise/COPYING.txt` (also embedded in the DLL),
+  `Resources/RnNoise/SOURCES.md`, `COPYRIGHT`, README credits.
+- **Files:** `Audio/RnNoise.cs`, `Audio/VoiceResampler.cs`, `Audio/VoiceMicChain.cs`,
+  `Audio/VoiceMic.cs`, `Audio/VoiceChatService.cs`, `Config/ModConfig.cs`, removed
+  `Audio/VoiceDenoise.cs`; tests `RnNoiseTests.cs` replace `VoiceDenoiseTests.cs` (477
+  pass). No protocol change.
+- **Not verified in game:** how it sounds, the 48 kHz recording on the Proton clients,
+  the cost under Mono.
+
+## 0.8.220 — Mic noise suppression: works from the first second, quiet pauses, clicks between sentences
+
+Asked: the noise suppression was either not working or not good. Checked by simulation
+(the same algorithm run on white, pink, hum, keyboard-click and second-voice noise
+under a voice-like signal); both installs had it switched on. What was found:
+
+- **It did nothing for the first two seconds after the mic started.** The first frames
+  hold the silence before the mic's first sample; their near-zero level became each
+  band's "minimum", everything after counted as speech, and the noise estimate stayed
+  frozen until the minimum window turned over. No statistics are taken from those
+  frames now. Measured 0.3 to 3 s after the start, white noise: -11 dB before, -23 dB
+  and better now.
+- **A mic that started in the middle of a word took the word for noise** and gave it up
+  only over several pauses. A band's noise estimate is now capped by what its minimum
+  allows.
+- **Steady noise came down 19 dB and no further, and the radio undid it.** The radio's
+  drive lifts quiet sound by about as much, so a talker's room noise was nearly as loud
+  over the radio as without suppression. New: a gate after the per-band cleaning. A
+  frame holds speech when the 156 Hz to 3.8 kHz band is well over its noise for 7
+  frames in a row (56 ms); without speech, what is left is turned down by 20 dB more
+  (about -40 dB in a pause). The cleaned sound waits 4 frames so the gate is open before
+  the word, and stays open 0.3 s after it, so gaps between words are untouched.
+- **Clicks.** A key or mouse click lasts 3 to 4 frames and does not open the gate:
+  between sentences clicks come down by 10 dB (loud) to 24 dB (soft). Under speech
+  they still pass.
+- **What it still cannot do:** noise that is not steady while the player talks (typing
+  under speech, another voice, a television). That takes a trained model (RNNoise
+  class), which is not in this build.
+- **Delay** 64 ms (was 32). So the last word is not cut on the radio, the talker's
+  packets carry the radio flag for that long after the key comes up.
+- **Files:** `Audio/VoiceDenoise.cs`, `Audio/VoiceChatService.cs`,
+  `DarkwoodMP.PathB.Tests/VoiceDenoiseTests.cs` (3 new tests, 474 pass), docs. No
+  protocol change.
+- **Status:** measured in simulation and unit tests, not heard in game yet.
+
+## 0.8.219 — Push to talk on a controller
+
+- **What changed:** voice chat without a radio has a controller button: hold D-pad left
+  to talk (only while playing, not in a menu). Settings > Voice > "Controller talk
+  button" picks D-pad left, D-pad right, left stick click, right stick click or Off;
+  config key `VoicePadTalkButton`.
+- **Why it shares a button:** in play the game's default controller layout uses every
+  button (read from its Rewired maps: A, B, X, Y, both shoulders, both triggers, Back,
+  Start, both stick clicks and all four D-pad directions), so none is free. The button
+  picked still does its vanilla action too: D-pad left moves to the next thing under the
+  cursor when several are there (nothing otherwise), D-pad right selects the next
+  skill, left stick click reloads, right stick click dodges. D-pad left is the default
+  as the least harmful. The mod reads the vanilla action, so it follows a rebind.
+- **Files:** `Audio/VoiceChatService.cs`, `Config/ModConfig.cs`,
+  `UI/MultiplayerScreens.Voice.cs` (one more row, screen starts 20 units higher),
+  `Core/Loc.Ru.cs`, docs. No protocol change.
+- **Status:** code only, not tried with a controller yet.
+
+## 0.8.218 — Disarmed traps gone for everyone; radio: quieter world, end-of-talk tail, static with no cut-off, manual, controller
+
+From the 0.8.216 playtest logs:
+
+- **A disarmed bear trap stayed set for the other players.** The host disarmed two bear
+  traps (one just placed, one from the world); the client logged `[ObjectDestroy] miss`
+  for both and the desync check then reported them (`DESYNC Traps beartrap@...:
+  host=<none> client=...active=1`). Cause: a trap carries a small inventory of its own
+  (the junk a disarm gives) and is not a dropped item, so the rule that keeps a removal
+  from eating furniture containers turned every trap away. A world trap is now matched
+  by its name before that rule (`WorldPhysicsSyncService.ShouldDestroyWorldPickup`).
+- **`GameObject has multiple AudioSources ... OnAudioFilterRead` errors on the client.**
+  The radio's sound tap sat on a pooled sound object that later got its second source
+  (the game adds one the first time a sound crossfades, here the meadow ambience). A
+  tap is no longer given to an object with two sources or the listener, and is taken
+  off before the game adds the second one (`WorldSoundPickup`, patch on
+  `AudioObject._CreateSecondAudioSource`). Such sounds are not picked up by the radio.
+
+Radio, as asked:
+
+- **World sounds over the radio much quieter.** They came through at the sources' own
+  level (peaks of 1.0 in the log). Now about 16 dB down, well under the voice
+  (`WorldSoundPickup.Gain` 1.2 to 0.3, `WorldRxGain` 0.8 to 0.5).
+- **The end of someone else's transmission was silent.** The squelch tail was written
+  0.3 s after the last packet, by which time the talker was off the air and the
+  listener's radio had gone back to "voice from where they stand", silent at any
+  distance. Now the listener's radio closes the moment the talker's key comes up (the
+  first packet without the radio flag), writes the tail, and stays as it was (volume,
+  place) until the tail has played. The quarter second the mic keeps sending after the
+  key is not on the air.
+- **Losing signal.** No dropouts in pieces and no distance where the radio stops
+  opening. Past the clear range the out-of-range static comes in as one steady sound
+  and rises while the voice (and the world sounds, the beep, the tail) sinks into it;
+  where the voice is gone the static is as loud as a clear voice was; over the last
+  sliver of the range it fades out.
+- **Manual.** The radio's item description says how to use it and names the buttons as
+  they are set right now; it follows the key settings, the language and a controller
+  being picked up.
+- **Controller.** With the radio in hand, the game's Aim talks and the game's Attack
+  turns the knob. Voice chat without a radio has no controller button (use the open
+  mic mode).
+- **Files:** `Audio/VoiceChatService*.cs`, `Audio/WorldSoundPickup.cs`,
+  `Items/WalkieItem.cs`, `Core/Loc.Ru.cs`,
+  `Domains/World/WorldPhysicsSyncService.Pickups.cs`, docs. No protocol change.
+- **Status:** code only, not heard or seen in game yet.
+
+## 0.8.217 — Player names are white when fully shown
+
+- **What was off:** a player's name over their character was drawn grey (62% white at 85%
+  strength) even when fully faded in, greyer than the same font anywhere else in the game.
+- **What changed:** the name is white at full strength. The fade in and out and the
+  fading with distance are unchanged.
+- **Files:** `UI/Nameplates.cs` (the look in use, "hover label"). No protocol change.
+- **Status:** code only, built but not deployed (a playtest of 0.8.216 was running).
+
+## 0.8.216 — Radio inventory icon: the five-slat grille at 30 px
+
+- **What changed:** the 30 px radio icon uses the original five-slat grille (the user's
+  pick from the three 30 px versions) instead of 0.8.215's two wide slats. At this size
+  the slats blur into a soft grey panel, which sits closer to the game's own icons.
+- **Files:** `Resources/walkie_talkie.png`. No protocol change.
+- **Status:** code only, not seen in game yet.
+
+## 0.8.215 — Radio inventory icon at the game's own 30 px
+
+- **What changed:** the radio icon is now 30 px, the same as the game's own icons (0.8.213
+  shipped it at 60 px, 0.8.214 at 40 px). The grille is drawn with two wide slats: three
+  or five turn into noise at this size.
+- **Files:** `Resources/walkie_talkie.png` (30 px, used as is), `Items/WalkieItem.cs`
+  (`IconPixels = 30`). No protocol change.
+- **Status:** code only, not seen in game yet.
+
+## 0.8.214 — Radio inventory icon at 40 px, three-slat grille
+
+- **What changed:** the 0.8.213 icon shipped at 60 px, which looked cleaner than the
+  game's own icons around it. It is now 40 px, a third finer than vanilla's 30 px. At
+  that size the five thin grille slats turned into a checkerboard, so the grille is
+  drawn with three wider slats.
+- **Files:** `Resources/walkie_talkie.png` (40 px, used as is), `Items/WalkieItem.cs`
+  (`IconPixels = 40`). No protocol change.
+- **Status:** code only, not seen in game yet.
+
+## 0.8.213 — Radio inventory icon: new design
+
+- **What changed:** the walkie's inventory icon is a new drawing: a factory handheld of
+  the period (tall case, slat speaker grille, two knobs, telescopic aerial, talk key on
+  the edge), lying with its aerial to the upper left, 30 degrees from upright. The
+  0.8.210 icon lay the other way (aerial to the upper right) and lost its details at
+  icon size.
+- **Resolution:** the icon ships at 60 px, twice the game's own icons (about 30 px). At
+  30 px the grille and knobs turned to noise; at 60 px they read, and it is still point
+  filtered like the vanilla icons.
+- **Files:** `Resources/walkie_talkie.png` (60 px, used as is), `Items/WalkieItem.cs`
+  (`IconPixels = 60`). No protocol change.
+- **Status:** code only, not seen in game yet.
+
+## 0.8.212 — Radio: no generated sounds, no feedback howl, clean starts and stops, bass cut; mic noise suppression; the radio picks up the world
+
+Protocol **54** (every player needs this build).
+
+**Generated sounds removed.** Every sound of the radio is now a recording; where there
+is none there is silence.
+- The **feedback howl** is gone with its whole mechanic: keying next to another live
+  radio does nothing special any more, and creatures are no longer alerted by it
+  (`TickHowl`, `HowlEmitter`, `FeedbackRadioNear`, the `VoiceHearing` alert).
+- The **whistle** of two talkers keying at once: they are now garbled under the recorded
+  out-of-range static.
+- The far radio's generated **opening click, roger beep and noise tail**: a received
+  transmission now opens with the caller's recorded beep mixed over the first half
+  second of voice and ends with the recorded squelch tail (`key16.wav`, `release16.wav`).
+- The **low-battery chirp** is removed and has no replacement yet (no recording was
+  picked for it). The battery bar on the item is the only warning. Parked until a
+  sound is chosen.
+- The generated stand-ins for a missing knob, beep, squelch or static file are removed.
+
+**Snaps and bass.**
+- The four knob takes had 92 to 99% of their energy in a thump under 120 Hz, and were
+  levelled by that thump, so the click itself was faint and each take started and
+  ended on a thud. All recordings are reprocessed: bass cut, raised-cosine fades at
+  both ends, the knob's room noise pulled down between its sounds, cut from just
+  before the first sound to where the last has died away. The knob is played at
+  `KnobLevel` 0.6 (was 1.6 against the thump).
+- A received voice or radio stream used to start at full level and stop dead when its
+  buffer ran out, which clicks, most audibly with static under it. The speaker now
+  comes in over 8 ms and goes out over the last 8 ms buffered.
+
+**Microphone noise suppression** (`VoiceNoiseSuppression`, on by default; Voice >
+"Noise suppression"). `VoiceDenoise`: spectral, 32 ms windows a quarter apart, noise
+followed per band by minimum tracking with speech presence (MCRA), a decision-directed
+Wiener gain with a -19 dB floor. Managed code, no native library. Adds 32 ms. Tests:
+steady noise alone goes down by more than 14 dB, a clean voice comes out as it went in,
+a voice in noise keeps its level while the gaps go quiet. This is a classic suppressor,
+not a neural one: it removes steady noise well, not keyboards, dogs or other voices. A
+neural one (RNNoise) needs a native library for Windows and Linux; not done.
+
+**The radio picks up the world** (`VoiceRadioWorldSounds`, on by default; Voice >
+"Radio picks up sounds").
+- A keyed walkie sends the sounds around its holder beside their voice. Every sound
+  source gets a pass-through tap in its own effect chain (`WorldSoundPickup`); the tap
+  sees the sound after Unity's volume and distance falloff toward the holder and after
+  the wall muffle, so each sound is as loud and as dull as it reaches the talker.
+  Music, menu sounds and scene transitions are left out by mixer group, and voice chat
+  itself by its root object.
+- It travels as a second codec block in the same `VoiceData` packet (flag 2, about
+  8 kB/s more while keyed and something sounds). Only a radio plays it; heard directly,
+  a talker is their voice only. The packet's loudness byte stays the voice's alone, so
+  how far a voice carries and what creatures hear are unchanged.
+- Not picked up: a proximity voice near the talker (voice chat is left out as a whole,
+  which is also what keeps a radio from sending a transmission on again).
+- Taps are handed out only in a session with voice and the setting on.
+
+Files: `Audio/VoiceChatService*.cs`, `Audio/VoiceDenoise.cs`, `Audio/WorldSoundPickup.cs`,
+`Audio/VoiceMic.cs`, `Audio/VoiceCodec.cs`, `Audio/VoiceHearing.cs`,
+`Networking/Messages/VoiceDataMessage.cs`, `Config/ModConfig.cs`,
+`UI/MultiplayerScreens.Voice.cs`, `Resources/Radio/*`.
+
+Not playtested. Nothing here has been heard by ear: the knob level, the static level,
+the picked-up sounds' level against the voice (`WorldSoundPickup.Gain` 1.2,
+`WorldRxGain` 0.8) and the suppression floor are set from measurement.
+
+## 0.8.211 — Log review of the 0.8.208 dual-box session: exit backup reaches the host, hidden client no longer at 1 fps
+
+Both logs of the session (Steam host + Wine client on LAN, day 1, radio handed over and
+used) had no errors or exceptions and no open desyncs. Two faults found in them:
+
+- **A leaving client's backup never reached the host (LAN).** On disconnect or quit the
+  client writes its character (position, bags, hotbar) to its own file and sends it to the
+  host. The send was queued for LiteNetLib's thread and the connection was closed in the
+  same call, so it was dropped every time: the host had no file for this campaign after
+  the session. The rejoin still worked from the client's own file, but the host's copy
+  (used when the client's file is gone, e.g. another PC or a wiped profile) was only as
+  new as the last world save. Now a LAN client wakes the send thread and waits, up to
+  250 ms, until its reliable queues to the host are empty before closing
+  (`FlushReliableToHostBeforeLeave`). Steam already closed with linger. The host logs
+  `[ClientBackup] stored backup from pN`.
+- **Wine client at one frame a second while out of sight with its pause menu open.**
+  `BackgroundFrameRate` turns vsync off for an unfocused window, but with the pause menu
+  open the Wine window took focus back at once and reported "focused" for minutes while
+  the player was in the other window (about 250 frames of exactly 1000 ms in the log).
+  Frames that stop being presented now count as out of sight too: three frames in a row
+  over 0.5 s each with vsync on, outside loading. That state ends at the next key or
+  mouse button the game receives, or when focus really goes. Log lines:
+  `[Frame] focused but frames are not presented`, `[Frame] out of sight`,
+  `[Frame] back in sight`.
+- **Wrong count, not a fault in the data:** "sent backup to host (0 items" and the
+  "Restore my character" question counted the backpack only; the hotbar is counted now.
+  The backup itself had the radio in it.
+- Seen and left as they are: long host frames during world generation and the first
+  save (2 to 4 s, loading); `DOTween safe mode captured 29 errors` on the client at quit
+  (vanilla tweens on destroyed objects, no detail in the log).
+- The session ran at 1280x720, so the 0.8.208 resolution fix was not exercised.
+- Files: `Networking/LanNetworkManager.Transport.cs`,
+  `Networking/LanNetworkManager.HostConnect.cs`, `Networking/Services/BackgroundFrameRate.cs`,
+  `Networking/Session/SaveNetHandlers.cs`, `Networking/Session/SaveNetHandlers.Apply.cs`,
+  `UI/MultiplayerScreens.cs`.
+- Deployed together with 0.8.209 and 0.8.210. Not playtested.
+
+## 0.8.210 — Radio icon redrawn
+
+- The radio's inventory icon was a detailed upright painting shrunk to icon size: thin
+  lines, an antenna taking half the frame, a different angle from every item next to it.
+  It is redrawn for the size it is shown at: a boxy handset lying at an angle like the
+  game's own items, filling its frame, big plain shapes (speaker bars, label plate, short
+  antenna), grey only.
+- The art is 240 px (eight art pixels per icon pixel) and is averaged down to 30 px, the
+  size of vanilla icons (`IconPixels` 48 -> 30).
+- Files: `Resources/walkie_talkie.png`, `Items/WalkieItem.cs`.
+- Deployed with 0.8.211; not seen in game yet.
+
+## 0.8.209 — Answer buttons of a question box spaced, MULTIPLAYER there when the pause menu opens
+
+- **Question box:** in "Profile N belongs to a different co-op campaign..." the answers
+  read "OverwriteCancel", with no room between them. The vanilla box writes each answer
+  from its left edge at the places meant for "Yes" and "No", so a longer first word ran
+  into the second. The two answers are now laid out after their text is set: centred
+  where the vanilla pair is, with at least the vanilla room (40 units or more) between
+  them. Applies to every yes/no box of the mod's menu (`VmScreen.Confirm`).
+- **Pause menu:** on the first open in a game the rows moved down at once but the
+  MULTIPLAYER button was made up to 15 frames later (the menu's UI pass runs every 15
+  frames), so it popped in. Opening the menu now makes the next update run that pass at
+  once.
+- Files: `UI/VanillaMenu/VanillaMenu.cs`, `UI/MainMenuMultiplayerInject.Panel.cs`.
+- Deployed with 0.8.211; not playtested.
+
+## 0.8.208 — MULTIPLAYER button keeps its size after a resolution change
+
+- **What broke:** after a big resolution change in Options, MULTIPLAYER on the title and
+  pause menus stayed at its old size next to PLAY / OPTIONS / EXIT (too big after going
+  down, too small after going up) until the game was restarted. Only resolutions above
+  1920x1080 were involved: below that the vanilla rows do not change size.
+- **Cause:** the vanilla rows carry `ScaleToResolution`. The button's art measured one
+  texel of EXIT once, when it was attached, and kept that size. The button itself (a
+  clone of EXIT) kept its own copy of `ScaleToResolution`, which took the already scaled
+  size as its base and scaled it again, so its hitbox was also off above 1080p.
+- **Now:** the clone has no `ScaleToResolution`; it takes EXIT's scale on every menu
+  poll, and the art measures the texel again each frame, refitting the hitbox when it
+  changes.
+- Files: `UI/MenuButtonArt.cs`, `UI/MainMenuMultiplayerInject.cs`,
+  `UI/MainMenuMultiplayerInject.Panel.cs`.
+- Not playtested yet.
+
+## 0.8.207 — Radio icon less coarse
+
+- **The walkie's icon is drawn from 48 px instead of 30.** 30 px is the size of the
+  game's own icons (measured: flashlight 29x30 in the inventory atlas), but those are
+  drawn to fill their frame, while the radio with its antenna fills about half of it, so
+  at 30 px the body was left with some 16 pixels and turned to mush. 48 px keeps the hard
+  pixel edges and leaves the radio readable. File: `WalkieItem.cs`. Not seen in game.
+
+## 0.8.206 — Radio: recorded static and knob, twice the range, your own talk from a radio near you
+
+- **Radio range doubled.** Clear to 6000 units (was 3000), gone at 18000 (was 9000); the
+  map is about 25000 across. Buildings and underground weaken it as before.
+- **Recorded static under a transmission.** A clear signal carries a handheld's own
+  steady static ("Walkie Talkie radio static" by SEF7); as the signal weakens, an
+  out-of-range static ("Radio static" by LukaCafuka) rises over it, and it is what a
+  dropout sounds like. Both replace the generated hiss, which stays as the fallback.
+  They are mixed into the voice before the listener's wall muffle and room reverb, so
+  they sound from the radio like the voice does.
+- **Recorded knob.** Switching the radio on or off (and a flat battery's click) plays one
+  of four takes cut from "Press radio knob.wav" by greatsoundstube, never the same one
+  twice running. The generated speaker hiss after the click is gone.
+- **Other players hear your knob.** A player near someone who switches their radio on or
+  off hears the click from them (about 150 units), muffled through a wall and with the
+  room's reverb. Read from the radio state already in `PlayerState`; no new message.
+- **Your own transmission comes out of a radio near you.** Keying your walkie with another
+  player's live radio in earshot (260 units in hand, less in a pocket), you hear it play
+  you: your voice through the radio's band and static, its opening click, its roger beep
+  and squelch tail when you let go, from where that player stands, at the level any
+  nearby radio plays at (quieter than your own, falling off with distance, muffled
+  through a wall and duller from a pocket). Nothing extra is sent: the frame just
+  transmitted goes through the same radio path locally, with a 70 ms buffer instead of
+  the network's 150 ms. Closer than 90 units the feedback howl still applies.
+- **Occlusion and reverb, checked and completed.** Already in place: a voice or a nearby
+  radio is muffled through walls and gets the room's reverb; a radio in a backpack or on
+  the hotbar plays to its carrier and to players around them, quieter and duller than in
+  hand. Missing and added: the talker's key beep and squelch tail heard by players near
+  them now lose volume through a wall (they were only dulled) and get the reverb when the
+  talker stands inside; this player's own radio sounds (key, release, knob, low battery)
+  get the reverb when this player stands inside.
+- Still generated: the low-battery chirp, and the opening click and roger beep a far
+  radio's speaker plays.
+- Files: `VoiceChatService.NearRadios.cs` (new), `VoiceChatService.Radio.cs`,
+  `VoiceChatService.Speakers.cs`, `VoiceChatService.Walkie.cs`, `VoiceChatService.cs`,
+  `RadioSamples.cs`, `Resources/Radio/*.wav`.
+- Not playtested. Nothing here has been heard: every level (static, knob, own voice from
+  a near radio) is set by measurement of the files, not by ear.
+
+## 0.8.205 — Recorded call beep and squelch tail on the radio's talk key
+
+- **Pressing the radio's talk key plays a real handheld's call beep** in place of the
+  generated click: for the talker, and for players standing near the talker. It is a CC0
+  recording ("Walkie Talkie famous beep" by SEF7, Freesound), trimmed to 0.59 s, mono,
+  embedded in the DLL. If the recording cannot be read, the old generated click plays.
+- **Letting the talk key go plays a recorded squelch tail** in place of the generated
+  hiss, for the same listeners ("Radio Sign Off / Squelch" by JovianSounds, Freesound,
+  CC0; the file is 1.2 s with 0.2 s of sound, trimmed to 0.25 s).
+- New `RadioSamples` loads embedded 16-bit WAV recordings; sources and licences are
+  listed in `DarkwoodMP.Mod/Resources/Radio/SOURCES.md`. The other radio sounds (power
+  on and off, low battery, flat battery, and what the far radio's speaker plays as a
+  transmission opens and closes) are still generated; recordings for
+  them are being chosen.
+- Files: `RadioSamples.cs`, `VoiceChatService.Radio.cs`, `Resources/Radio/key.wav`, `release.wav`.
+- Not playtested; the level against voice has not been heard.
+
+## 0.8.204 — Voice a little louder
+
+- **Received voice is about 2 dB louder at the same setting.** The built-in level under
+  `VoiceGain` goes from 1.6 to 2.0; the setting and its default (1.4) keep their meaning,
+  and loud peaks are still soft-limited instead of clipped. Applies to plain voice and to
+  the radio alike. File: `VoiceChatService.cs`. Not playtested.
+
+## 0.8.203 — F4 line when spectating begins
+
+- **Spectating had no hint about F4.** Nothing told a spectator that F4 moves between players.
+  When spectating begins (F4, a night death, a death in a dream) one line in the hover-label
+  font shows at the bottom of the screen: "F4 - next player, then back to yourself" for a
+  living player, "F4 - next player" for a dead one. It fades in, stays about five seconds and
+  fades away. A dead player with only one other player to watch gets no line, as F4 has
+  nowhere to go.
+- No protocol change. Files: `UI/SpectatorModeController.Prompt.cs` (new), `Core/Loc.Ru.cs`.
+  The Russian lines and the doc passages for this went into the 0.8.202 commit, which another
+  session made in the same checkout.
+- Code only, not playtested yet.
+
+---
+
+## 0.8.202 — Host address typed in for LAN, Steam's own windows for inviting and joining
+
+- **A LAN host can type the address the others reach it at.** The Host screen has an
+  Address field and the port, with "Your address: ip:port" under them. Left empty, the
+  address is found from the network cards as before; a VPN adapter or a forwarded public
+  address has to be typed, since nothing on the computer tells which one the others use.
+  The typed address is what the Multiplayer screen shows and what the other players are
+  handed for reconnects and host hand-over. The host still listens on every address, so a
+  join over 127.0.0.1 or the plain LAN address keeps working. New config key `HostAddress`.
+  Files: `ModConfig.cs`, `MultiplayerScreens.cs`, `HostMigration.PeerRoster.cs`.
+- **Hosting over Steam opens Steam's invite window by itself**, as soon as the lobby
+  exists. Before, the host had to find "Invite friends" in the Multiplayer screen after
+  hosting. Files: `LanNetworkManager.Steam.cs`, `MultiplayerScreens.cs`.
+- **Join > Steam friends > Open Steam friends list** brings up Steam's own friends list
+  over the game; "Join Game" on a friend there, or an invite in a chat, joins the same
+  way a row of the in-game list does. Nobody needs the lobby id; the field for it stays
+  at the bottom for the invite-only case.
+- **Steam overlay switched off:** both buttons say so instead of doing nothing.
+- Host screen order is now Steam, then Local network with its address and port.
+- Not playtested: the Host and Steam friends screens have not been seen on screen, and
+  the overlay calls need two Steam accounts to try.
+
+## 0.8.201 — Map board in the game's own UI, no stamp under the cursor, sharper names
+
+- **No stamp follows the cursor on the map.** The chosen stamp used to hang under the cursor
+  the whole time the map was open. It is hidden now. The first wheel notch brings it up (its
+  name shows at the bottom of the map), further notches change it, and it fades 2.5 seconds
+  after the last one. Right click still places the chosen stamp at any time.
+- **Map board texts are the game's own UI.** The grey IMGUI boxes are gone. A hovered pin is
+  described by the map's location popup (stamp as the title, then the label, who placed it and
+  the day). Pin labels, the label being written (typed straight under the pin, with a caret)
+  and one dim line of controls at the bottom of the map are in the hover-label font. The
+  controls line follows what the cursor is on: placing, a hovered pin, or writing a label.
+- **Names over players looked smeared.** The hover-label font is an 11 px bitmap; the names
+  drew it at 1.5x and at fractions of a pixel. They are at the hover label's own 2x now, on
+  whole pixels.
+- **"Host" after the host's name** was not added by the mod: the host install's config had
+  `PlayerName = Warexpor Host`. Set to `Warexpor` (local config, not in the repo). A client
+  that set a voice volume for the old name sets it again.
+- No protocol change.
+- Files: `Domains/Map/Pins/MapPinOverlay.cs` (rewritten, no `OnGUI`), `MapPinView.cs`
+  (`ShowPopup`, wheel reveal), `UI/Nameplates.cs`, `Core/Loc.Ru.cs`.
+- Code only, not playtested yet.
+- Dreams, checked and left as they are (confirmed by the user): a dream's story end wakes the
+  whole party at once, so nobody stays behind; a player who dies in a dream spectates until it
+  ends.
+
+---
+
+## 0.8.200 — Stored stacks stay stored across reloads and joins (protocol 53)
+
+- **The loot-bonus marks are saved with the world.** 0.8.199 marked every container slot a
+  player put items into, in memory. After a reload, or for a player who joined later, a stored
+  stack counted as world loot again and gave the party bonus when taken back. The marks now go
+  into `savplc.dat` next to the save: written on every save, read at the start of every load,
+  removed with the slot, and sent with the world (written fresh right before a share, so stacks
+  stored since the last save are in it). A slot is keyed by the save id of the container's
+  nearest saved object, the names below it and the slot number, the same key the cosmetic rolls
+  use, so it is the same on every machine that loaded this world. A container with no saved
+  object above it keeps the in-memory mark for the run.
+- **Protocol 53.** No message changed; the world package has one more optional file. Every
+  player needs this build.
+- Files: `Domains/Inventory/PlacedLootStore.cs` (new), `ItemDoublePickupPatch.cs`,
+  `CosmeticRolls.Store.cs` (`TryObjectKey`), `CosmeticRollPatches.cs` (load / save / new world /
+  delete hooks), `WorldSaveShareService.cs`, `.HostShare.cs`, `.ClientApply.cs`.
+- Limits: a stack stored before this build is not marked (nothing recorded it). Marks are kept
+  for the slot, not the stack, so world loot left in a slot a player also used gives no bonus.
+- Not yet playtested: build and unit tests only.
+
+## 0.8.199 — Session notes: loot-bonus dupe, listening in on a talk, Steam friends list, radio and voice tuning
+
+From the host's notes on the same session. No wire change (protocol 52). Build and unit tests
+only; nothing here is playtested yet.
+
+- **Loot-bonus dupe through a container.** Mushrooms (and every other bonus item) put into the
+  workbench and taken back came out with the party bonus again, each time (host log: took 4 and
+  got +4, put 2 back, took 6 and got +6, twice). Only a cursor drop into a plain container marked
+  the slot as "a player put this here"; a quick transfer, a craft output or any non-`itemInv`
+  container did not, and the mark was keyed by position, so a pushed wardrobe lost it. Every put
+  is now marked where it is sent (`SendContainerAction`) and where it is received, by container
+  object and slot. Files: `ItemDoublePickupPatch.cs`, `ContainerSyncPatches.cs`,
+  `ContainerLootNetHandlers.cs`.
+  - The marks lived in memory in this version; 0.8.200 saves them with the world.
+- **Listening in on another player's talk.**
+  - **Esc did nothing for the listener** while the talking player moved between screens that
+    change the portrait (the bunker door: look, listen, handle). Vanilla drops Esc while the top
+    fade screen is up, and the listener's view raises it for each portrait change. The listener's
+    Esc is now read directly in that state.
+  - **The talk handed over while the listener was in its own trade** (the talking player left)
+    kept the other player's last screen under the new owner's options once the trade closed: old
+    text, an item list, a talk still marked as running. It is cleared at the hand-over.
+  - **The talk ending while the listener was in its own trade** closed the window with the
+    trading screen still up; the trade is closed first now.
+  - A portrait clip that finishes loading after the view closed no longer cuts the close fade.
+  - Files: `DialogMirror.cs`, `LanNetworkManager.Tick.cs`.
+- **A joining player's stand-up on the other screens** started when its first packet arrived,
+  from the first frame, so it ran behind and was cut when the player, already up, walked off.
+  The stand-in now starts the clip at the frame the player is on and plays on from there, ending
+  with it. This partly reverses 0.8.160 (which played it from frame 0 because following every
+  packet's frame cut it in half): the start of the stand-up is not shown when the player was
+  already part-way up. `SecondPlayerAnimController.Apply.cs`.
+- **Multiplayer menu.**
+  - **Join > Steam friends** (new screen): friends who are in a lobby of this game right now, one
+    click to join. The lobby id field moved there. Steam only reports friends-only and public
+    lobbies, so a private lobby still needs an invite or the id.
+  - **Invite friends** is also on the host's title screen (it was pause menu only).
+  - A LAN host's Multiplayer screen shows **Your address: ip:port**.
+  - Files: `MultiplayerScreens.cs`, `SteamCoopTransport.cs` (`FindFriendLobbies`), `Loc.Ru.cs`.
+- **Radio.** A battery lasts 60 minutes on standby (was 25) and 20 minutes of talking on top (was
+  8). The inventory icon is brought down to 30 px with point filtering, the density of the game's
+  own icons (it was a 256 px image with smooth filtering). `VoiceChatService.Walkie.cs`,
+  `WalkieItem.cs`.
+- **Voice is louder.** Received voice gets a built-in 1.6x under the `VoiceGain` setting (existing
+  config files keep their value and still get it), and peaks are soft-limited instead of clipped.
+  `VoiceChatService.cs`.
+- **Looked at, not changed:**
+  - **Aggressive barking with no dog in sight.** The dog's chase and guard sounds are looping 3D
+    sounds with vanilla's own carry (1000 and 1500 units; the screen is about 960 x 540 units
+    from the player), and the mod plays them through vanilla's sources. In co-op a dog barks at
+    the other player too, so it is heard from off screen. Nothing in the logs shows a stuck loop
+    or a wrong source. Whether to cut a creature's voice short for a player it is not reacting
+    to is a rules decision, not made here.
+  - **The Wolfman still in the hideout after the morning ended.** Vanilla: on his first visit he
+    is not the morning trader (`Location.spawnWolf`, not `spawnTrader`), `endAfterNight` removes
+    only the trader, and he goes when the hideout unloads (the player is a screen or two away).
+    The logs show exactly that (despawned once the host was far enough).
+  - **New radio sounds** (recorded, not generated): not done; needs sound files with a licence
+    that fits a public GPLv3 repo.
+
+## 0.8.198 — First real session (Steam, English host + Russian client): ghost traps, furniture left behind, translated names on the wire
+
+Found in the logs of a 40-minute Steam session with a friend. No wire change (protocol 52), but the
+identifiers below changed meaning, so every player needs this DLL.
+
+- **A trap one player disarmed far from another stayed armed for that other player.** The client
+  later walked into a bear trap the host had removed half an hour earlier and was caught by it
+  (`[Trap] host: player 3 trapped` on a trap the host no longer had). The game switches off the
+  world away from the local player, a switched-off trap has no collider, and the removal looked
+  for traps by collider only (the scene scan was skipped for trap names). Removal now also reads
+  the trigger registry, which holds switched-off traps. The host's trap ledger is told about a
+  trap destroyed while it never woke on the host (Unity sends no `OnDestroy` there), so a later
+  joiner does not get it back. Files: `WorldPhysicsSyncService.Pickups.cs` (`DestroyObjectByPos`),
+  `TrapLedger.cs`.
+- **Furniture pushed while another player was far away stayed put on that player's machine.** The
+  host's wardrobe ended 85 units from the client's copy; the client then could not open it
+  (`no activate target near … Wardrobe_Big_1_Burned`, `HandleContainerStateRequest: no inventory`)
+  and its own pushes were refused (`ObjectApply failed=1`). The client dropped every free-body
+  state outside its interest range. It now sets the pose of its (switched-off) copy directly, with
+  no resolve cascade, interpolation or sound. The interpolation tick also moves a switched-off
+  body by its transform (a rigidbody outside the physics scene ignores `rb.position`). Files:
+  `WorldPhysicsSyncService.Apply.cs`, `.ObjectResolve.cs` (`SnapFarObject`), `.Interpolation.cs`.
+  A copy that is already more than 50 units off (an old save from before this fix) is not pulled
+  back by this; it heals on the next world download.
+- **Translated names were used as network identifiers.** `Item.name`, `Door.name` and
+  `Window.name` are vanilla display names in the player's own language, not object names. With an
+  English host and a Russian client:
+  - picking up a sprung bear trap asked the host to remove "Металлолом", which matched nothing
+    (the trap check looked for the English word "scrap");
+  - the desync check reported every door twice, forever (`Wooden door@…` host only,
+    `Деревянная Дверь@…` client only), and would have done the same for dropped items;
+  - lamp switch states, the locked-door attempt, door open / unblock fallbacks and dream prop
+    colliders matched by name only when both players used the same language.
+  All of these now send and compare the object name. Files: `DroppedItemSyncHelpers.cs`,
+  `DesyncCheck.Sections.cs`, `DoorSyncPatches.cs`, `DreamDoorSyncPatches.cs`, `DoorNetHandlers.cs`,
+  `WorldLateJoinNetHandlers.cs`, `WorldPhysicsSyncService.Lights.cs`, `.Interpolation.cs`.
+- Not yet confirmed in a playtest: build and unit tests only.
 
 ## 0.8.197 — A player down at night or in a dream leaves a body; ghost Wolfman after loading
 

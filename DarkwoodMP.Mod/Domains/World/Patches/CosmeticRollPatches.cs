@@ -94,7 +94,11 @@ namespace DWMPHorde.Patches
     [HarmonyPatch(typeof(SaveManager), nameof(SaveManager.Load))]
     public static class CosmeticKeyStoreLoadPatch
     {
-        private static void Prefix(SaveManager __instance) => CosmeticRolls.BeginLoad(__instance);
+        private static void Prefix(SaveManager __instance)
+        {
+            CosmeticRolls.BeginLoad(__instance);
+            PlacedLootStore.BeginLoad(__instance);
+        }
     }
 
     /// <summary>Rolls held while a save object loads run once it has its save id (<see cref="CosmeticRolls.ExitLoadObj"/>).</summary>
@@ -115,7 +119,11 @@ namespace DWMPHorde.Patches
     [HarmonyPatch(typeof(WorldGenerator), nameof(WorldGenerator.generateWorld))]
     public static class CosmeticKeyStoreNewWorldPatch
     {
-        private static void Prefix() => CosmeticRolls.BeginNewWorld();
+        private static void Prefix()
+        {
+            CosmeticRolls.BeginNewWorld();
+            PlacedLootStore.BeginNewWorld();
+        }
     }
 
     /// <summary>
@@ -132,7 +140,10 @@ namespace DWMPHorde.Patches
         private static void Postfix(SaveManager __instance, bool __runOriginal, System.DateTime __state)
         {
             if (__runOriginal && __instance != null && __instance.lastTimeSaved != __state)
+            {
                 CosmeticRolls.WriteStore(__instance);
+                PlacedLootStore.Write(__instance);
+            }
         }
     }
 
@@ -140,7 +151,11 @@ namespace DWMPHorde.Patches
     [HarmonyPatch(typeof(SaveManager), nameof(SaveManager.deleteSave))]
     public static class CosmeticKeyStoreDeletePatch
     {
-        private static void Postfix(SaveManager __instance, int profileId) => CosmeticRolls.DeleteStore(__instance, profileId);
+        private static void Postfix(SaveManager __instance, int profileId)
+        {
+            CosmeticRolls.DeleteStore(__instance, profileId);
+            PlacedLootStore.Delete(__instance, profileId);
+        }
     }
 
     /// <summary>The shared examine decks (<see cref="DescriptionDeck"/>).</summary>

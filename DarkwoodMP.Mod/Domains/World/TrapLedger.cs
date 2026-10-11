@@ -55,6 +55,20 @@ namespace DWMPHorde.Sync
                 _removed.Add(new KeyValuePair<Vector3, string>(p, go.name));
         }
 
+        /// <summary>
+        /// A trap about to be destroyed while switched off. Unity sends OnDestroy only to a
+        /// component that has woken, so a trap the host never came near (a client disarmed it
+        /// across the map) left the ledger without a word and came back for the next joiner.
+        /// </summary>
+        internal static void NoteGoneUnwatched(GameObject go)
+        {
+            if (!Active || go == null || !TrapNetworkId.IsWorldTrap(go))
+                return;
+            TrapLedgerWatch watch = go.GetComponent<TrapLedgerWatch>();
+            if (watch == null || !watch.Awoken)
+                NoteGone(go);
+        }
+
         /// <summary>The world was saved: the save now holds every trap as it is.</summary>
         internal static void OnSaved()
         {
@@ -149,6 +163,11 @@ namespace DWMPHorde.Sync
     internal sealed class TrapLedgerWatch : MonoBehaviour
     {
         private static bool _quitting; // process-scoped: set once when the application quits
+
+        /// <summary>False while the trap has never been switched on: OnDestroy will not come.</summary>
+        internal bool Awoken { get; private set; }
+
+        private void Awake() => Awoken = true;
 
         private void OnApplicationQuit() => _quitting = true;
 

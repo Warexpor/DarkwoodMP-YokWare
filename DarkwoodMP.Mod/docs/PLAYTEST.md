@@ -143,8 +143,12 @@ Older, still open:
 
 - [ ] **Party map board (3 players if possible):** each player right-clicks a pin on
       the world map: it shows for everyone at the clicked spot (also on a screen above
-      1080p), each owner in their own colour. The wheel changes the stamp before
-      placing and restyles a hovered pin; a double click labels it (typing M or J in
+      1080p), each owner in their own colour. No stamp follows the cursor until the wheel
+      is turned: the first notch shows the chosen stamp (its name at the bottom of the
+      map) for a moment, further notches change it, then it fades. The wheel also
+      restyles a hovered pin, which shows the game's location popup (stamp, label,
+      owner, day). The controls line at the bottom and the labels are in the game font,
+      no grey boxes. A double click labels a pin (typing M or J in
       the label does not close the map; Esc cancels the label, not the map). Right
       click erases a pin for everyone, also two pins placed close together (the right
       one goes). Middle click pings: pulses on every open map, "pinged the map" over
@@ -225,6 +229,9 @@ Older, still open:
       permadeath ending for all, and "start over" resets every character. Anyone with
       a life left: a normal all-dead morning.
 - [ ] A living player presses F4: spectates the others; wrapping returns to the body.
+      On entering, "F4 - next player, then back to yourself" fades in at the bottom,
+      stays about 5 s and fades out. Dead at night or in a dream with 2+ others alive:
+      "F4 - next player"; with one other player: no line.
       F4 does nothing in menus, chat, dialogue, cutscenes and dream entries.
 
 ## 10. Enemies
@@ -371,6 +378,7 @@ Older, still open:
 
 - [ ] Doors: one player opens, another closes, a third watches: the same state and
       one sound each time. A barricaded door cannot be opened; door health matches.
+- [ ] A window boarded up after the last save, far from where a player joins, is boarded for that player on arrival.
 - [ ] Lights: lamps, the generator, flares (they go out together), and the other
       player's lantern and flashlight look the same everywhere. A late joiner near lit
       lamps hears no burst of switch clicks.
@@ -428,16 +436,72 @@ Listen on the player who did not cause the sound.
       B keying is not heard on the radios. C next to A hears A's click on and off and the
       reply from A's walkie. A voice inside a building has an echo.
 - [ ] Walkie crafting: the workbench (level 1) lists the walkie for 2 junk and 1 nail on
-      every player's bench; the made walkie shows the hand-painted icon, sharp at slot
-      size.
-- [ ] Walkie as a device: B with it in hand switches it off and on (click, the speaker
-      coming alive); off, nothing comes through and the talk key sends nothing. Its bar drains while
-      on; under 10% it chirps every 30 s; flat, it dies with a click; R with a 9V battery
+      every player's bench; the made walkie shows its icon (a handheld with a slat grille, aerial
+      to the upper left), sharp at slot size.
+- [ ] Walkie as a device: B with it in hand switches it off and on (the knob, one of
+      four takes, a dry click with no thump and no snap at its start or end); off, nothing comes through and the talk key sends nothing. Its bar drains while
+      on; flat, it dies with the knob's click; R with a 9V battery
       fills it. In a pocket it plays quieter and duller than in hand.
-- [ ] Signal: far apart the radio hisses and breaks up, and from a cellar or the bunker
-      underground barely anything gets through. Each transmission ends with a roger beep.
-- [ ] A keying next to B's live radio: a rising howl, from B and on every radio; B
-      switching off stops it. A and C keying together: a whistle and garble.
+- [ ] A keys the walkie 100 to 250 units from B, whose radio is on: A hears their own
+      voice from B's radio (quieter, from B's side, duller if B's is in a pocket), with
+      the squelch tail on letting go. B switching their radio off or on in hand:
+      A hears the knob from B. Indoors all of it has the room's reverb.
+- [ ] Rejoin state: B joins A, the world saves ("saving" shows on both), B then walks
+      away, picks something up and leaves (menu or closing the game). B rejoins: B
+      stands where the save was taken, with the bag as at the save, whether or not A
+      kept playing. B leaving before any save comes back as a fresh character.
+      A quitting to the menu saves nothing: the next session starts from the last
+      in-game save for the world and for everyone in it.
+- [ ] Stand-up: A hosts and is in the world, B joins. A sees B lying where B left the
+      game last time (not at A's spawn, not popping there from it), then B stands up
+      from the first frame and both finish together; B is on their feet on A's screen
+      when B starts to walk. B lies no more than a moment longer than in single
+      player. Same watched from B when A reloads, and for a respawn after a death.
+      No "[GetUp] stand-up let go" line in the log (it means the wait timed out). No
+      other player flashes at B's position for a frame when B is placed.
+- [ ] Signal: walking apart past the clear range, static comes in under the voice as one
+      steady sound (a hiss, not a crackle) and grows while the voice sinks into it, until
+      only static is left; from there on, across the whole map, a keyed radio is static.
+      At no distance does the sound cut off or drop out in pieces. One player in a
+      dream, the other not: nothing is heard either way, and creatures near the
+      listener's radio do not react. From a cellar or the bunker underground it is
+      mostly static. Each transmission opens with the caller's beep; when the talker
+      lets go, the listener's radio plays the squelch tail at once, at the radio's
+      volume, far from the talker too. Neither a voice nor static starts or stops with
+      a click: the beep, the tail and the knob ring out for a moment instead of ending
+      dead, and the static fades out under the tail.
+- [ ] The radio's description (hover it in the inventory) is its manual: the talk and
+      knob keys as set in Settings > Voice, Reload for the battery; with a controller in
+      use it says Aim and Attack. Also in Russian.
+- [ ] Controller voice: holding D-pad left talks (the Voice screen's meter says "talking",
+      B hears it); Settings > Voice > "Controller talk button" changes it or turns it
+      off. The Voice screen fits with the extra row.
+- [ ] Controller: with the radio in hand, holding Aim talks and pressing Attack turns the
+      knob; neither does anything else. Not while a menu is open.
+- [ ] A host disarms a bear trap (one placed by a player, one from the world): it is gone
+      for the client too, and the next desync check is clean.
+- [ ] A keying next to B's live radio: no howl. A and C keying together: both garbled
+      under static, no whistle.
+- [ ] World sounds on the radio: A keys far from B and walks, opens a door, stands by a
+      barking dog or in the rain; B hears those through the radio under A's voice,
+      well under the voice, louder the closer they are to A, and no music. No "multiple
+      AudioSources" error in either log. B standing next to A hears A's
+      voice only once, without the sounds doubled. Voice > "Radio picks up sounds" off
+      on A: voice only.
+- [ ] Suppression strength: A types while talking. B hears the keys less with the
+      slider to the right, more to the left; at the far right A's voice is still
+      understood (thinner). The change is heard at once, with no rejoin.
+- [ ] Noise suppression: with a fan or hiss in A's room, B hears A's voice without it;
+      Voice > "Noise suppression" off brings it back. The level meter is near empty
+      while A is silent. It is clean from the first second after joining, not only after
+      a few. A holding the key and saying nothing: B hears next to nothing, over the
+      radio too; A typing or clicking in a pause is much quieter than A's voice. The
+      first sound of a word is not cut, and the last word before A lets go of the radio
+      key is heard whole.
+      A typing while talking: the keys are clearly quieter than with it off and A's
+      voice is not warbly or cut. The log's "[Voice] microphone ... at 48000 Hz" line
+      shows the rate, and there is no "noise suppression unavailable" line. Frame rate
+      with voice on is the same as with it off.
 - [ ] The walkie transmits only while playing (the radio talk key, right mouse by default, with the radio in hand), not
       in the inventory, a container, dialogue, the map, the journal, the pause menu,
       while dead or with chat open.
@@ -459,6 +523,15 @@ Listen on the player who did not cause the sound.
 - [ ] Host > Steam creates a lobby; Multiplayer > Invite friends copies its id and opens
       the invite overlay. A friend joins from the invite; the 35 s join timeout applies.
 - [ ] Launching the game from a pending invite (`+connect_lobby`) joins the same way.
+- [ ] Join > Steam friends lists a friend who is hosting (friends-only or public lobby);
+      clicking the name joins. Invite friends also shows on the host's title screen.
+- [ ] A LAN host's Multiplayer screen shows "Your address: ip:port".
+- [ ] Host screen: an address typed under Address replaces the found one in "Your
+      address" (Host and Multiplayer screens); cleared, the found one is back. A join
+      over 127.0.0.1 still works with an address typed.
+- [ ] Host > Steam opens Steam's invite window once the lobby is ready (title and in a
+      game). Join > Steam friends > Open Steam friends list opens Steam's friends list;
+      Join Game on a hosting friend there joins.
 - [ ] A failed join (bad lobby id, Steam not ready) shows a status line, then clears.
 - [ ] A Steam client is killed and rejoins the same lobby: one player, not two; with a
       host password set, the rejoin still has to pass it.

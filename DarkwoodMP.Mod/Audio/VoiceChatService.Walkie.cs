@@ -16,23 +16,17 @@ namespace DWMPHorde.Audio
     public static partial class VoiceChatService
     {
         /// <summary>A full battery lasts this long switched on and listening.</summary>
-        private const float BatteryStandbySec = 1500f;
+        private const float BatteryStandbySec = 3600f;
         /// <summary>Talking drains this much faster on top.</summary>
-        private const float BatteryTalkSec = 480f;
-        /// <summary>Below this share of charge the radio chirps a low-battery warning now and then.</summary>
-        private const float LowBattery = 0.1f;
-        private const float LowBatteryEverySec = 30f;
+        private const float BatteryTalkSec = 1200f;
 
-        /// <summary>Clear signal up to here (world units, the map is about 25000 across), gone at <see cref="RadioMaxRange"/>.</summary>
-        private const float RadioClearRange = 3000f;
-        private const float RadioMaxRange = 9000f;
+        /// <summary>Clear signal up to here (world units, the map is about 25000 across), static alone from <see cref="RadioMaxRange"/> on.</summary>
+        private const float RadioClearRange = 6000f;
+        private const float RadioMaxRange = 18000f;
         /// <summary>Each end inside a building counts as this much farther.</summary>
         private const float RadioInsideFactor = 1.35f;
         /// <summary>What gets through from or to underground.</summary>
         private const float RadioUndergroundShare = 0.15f;
-        /// <summary>Below this signal the radio does not open at all.</summary>
-        private const float RadioSquelchQuality = 0.03f;
-
         /// <summary>A radio in a pocket plays quieter and duller than one in hand.</summary>
         private const float PocketVolume = 0.55f;
         private const float PocketCutoff = 2000f;
@@ -41,7 +35,6 @@ namespace DWMPHorde.Audio
         private static InvItemClass _walkieItem; // process-scoped: polled every 0.5 s
         private static KeyCode _powerKey = KeyCode.B; // process-scoped: config cache
         private static string _powerKeyText; // process-scoped: the setting text _powerKey was parsed from
-        private static float _nextLowBattery; // process-scoped: warning pacing
         private static float _lastRefreshedCharge = -1f; // process-scoped: item bar redraw pacing
 
         /// <summary>This player's walkie, for PlayerState and this player's own hearing.</summary>
@@ -100,6 +93,7 @@ namespace DWMPHorde.Audio
             if (Time.unscaledTime < _nextWalkieCheck)
                 return;
             _nextWalkieCheck = Time.unscaledTime + 0.5f;
+            Items.WalkieItem.RefreshDescription();
             _localWalkie = false;
             _walkieItem = null;
             try
@@ -132,7 +126,7 @@ namespace DWMPHorde.Audio
             }
 
             // The knob is on the radio: it turns only with the radio in hand, while playing.
-            if (Input.GetKeyDown(_powerKey) && HoldingWalkie() && WalkieTxAllowed())
+            if ((Input.GetKeyDown(_powerKey) || PadAction(PadKnobAction, down: true)) && HoldingWalkie() && WalkieTxAllowed())
             {
                 _radioOn = !_radioOn;
                 bool live = _radioOn && Charge() > 0f;
@@ -162,18 +156,13 @@ namespace DWMPHorde.Audio
             {
                 PlayLocalRadioSound(RadioSound.Dead);
                 ModLog.Event(LogCat.Audio, "[Voice] radio battery flat");
-                return;
-            }
-            if (charge < LowBattery && Time.unscaledTime >= _nextLowBattery)
-            {
-                _nextLowBattery = Time.unscaledTime + LowBatteryEverySec;
-                PlayLocalRadioSound(RadioSound.LowBattery);
             }
         }
 
         /// <summary>
-        /// How well a signal gets from a talker's radio to a receiving one, 1 clear .. 0 none: by
-        /// the distance between them, longer through buildings, barely at all underground.
+        /// How well a signal gets from a talker's radio to a receiving one, 1 clear .. 0 static
+        /// only: by the distance between them, longer through buildings, barely at all
+        /// underground. Whether it gets there at all is <see cref="RadioLinked"/>.
         /// </summary>
         internal static float RadioQuality(Vector3 talker, Vector3 receiver, bool talkerInside, bool receiverInside,
             bool talkerUnderground, bool receiverUnderground)
@@ -186,6 +175,26 @@ namespace DWMPHorde.Audio
             if (receiverUnderground) q *= RadioUndergroundShare;
             return q;
         }
+
+        /// <summary>
+        /// Whether a radio signal passes between two players at all. Distance never stops it
+        /// (far apart it is static); a dream does: nothing goes between a player in a dream
+        /// and one who is not, either way.
+        /// </summary>
+        internal static bool RadioLinked(int a, int b) => InDream(a) == InDream(b);
+
+        private static bool InDream(int id)
+        {
+            var net = ModRuntime.Network;
+            return net != null && id == net.LocalPlayerId
+                ? Sync.DreamSyncManager.IsLocalDreamActive
+                : Sync.DreamSyncManager.IsRemoteInDream(id);
+        }
+
+        /// <summary>The radio's power key as set (for the item's description).</summary>
+        internal static string PowerKeyText => ModConfig.VoiceRadioPowerKey?.Value ?? "B";
+        /// <summary>The radio's talk key as set (for the item's description).</summary>
+        internal static string TalkKeyText => ModConfig.VoiceRadioTalkKey?.Value ?? "Mouse1";
 
         /// <summary>Whether a peer's PlayerState says they are underground.</summary>
         private static bool PeerUnderground(LanNetworkManager net, int id)

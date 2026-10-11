@@ -28,8 +28,6 @@ namespace DWMPHorde.Audio
         private const float RadioSilence = 0.15f;
         private const float RadioRange = 160f;
         private const float RadioPocketRange = 100f;
-        /// <summary>Feedback howling from a radio: loud and shrill, heard far.</summary>
-        private const float HowlRange = 420f;
 
         private static readonly Dictionary<int, float> _peak = new Dictionary<int, float>(); // reset-in: Reset
         /// <summary>Who talked on the radio this half second (their own radio does not play it).</summary>
@@ -87,9 +85,6 @@ namespace DWMPHorde.Audio
             }
             if (_radioTalkers.Count > 0)
                 AlertRadios(net);
-            // A radio howling with feedback (worked out by this player's own voice playback).
-            if (VoiceChatService.HowlNow > 0.3f)
-                Character.alertInArea(VoiceChatService.HowlAt, HowlRange * VoiceChatService.HowlNow, dangerousSound: false, 1f);
 
             _ids.Clear();
             _ids.AddRange(_peak.Keys);
@@ -107,52 +102,42 @@ namespace DWMPHorde.Audio
 
         /// <summary>
         /// Every live walkie but the talker's own plays the transmission out loud where its
-        /// carrier stands: louder in hand than in a pocket, and not at all where the signal does
-        /// not reach (too far, underground) or the radio is off or flat.
+        /// carrier stands (voice near, static far): louder in hand than in a pocket, and not
+        /// at all where no signal passes (a dream on one side) or the radio is off or flat.
         /// </summary>
         private static void AlertRadios(LanNetworkManager net)
         {
             bool onlyTalker(int id) => _radioTalkers.Count == 1 && _radioTalkers.Contains(id);
-            Vector3 talkerPos = Vector3.zero;
-            bool talkerUnder = false;
-            bool found = false;
+            int talker = 0;
             foreach (int t in _radioTalkers)
             {
-                if (TryPosition(net, t, out talkerPos))
+                if (TryPosition(net, t, out _))
                 {
-                    talkerUnder = WalkieStates.IsUnderground(StateOf(net, t));
-                    found = true;
+                    talker = t;
                     break;
                 }
             }
-            _radioTalkers.Clear();
-            if (!found)
+            if (talker == 0)
+            {
+                _radioTalkers.Clear();
                 return;
+            }
 
-            AlertRadio(net, net.LocalPlayerId, VoiceChatService.LocalWalkieState, talkerPos, talkerUnder, onlyTalker(net.LocalPlayerId));
+            AlertRadio(net, net.LocalPlayerId, VoiceChatService.LocalWalkieState, talker, onlyTalker(net.LocalPlayerId));
             foreach (KeyValuePair<int, RemotePlayerState> kv in net.RemotePlayers)
             {
                 if (kv.Value != null)
-                    AlertRadio(net, kv.Key, kv.Value.WalkieState, talkerPos, talkerUnder, onlyTalker(kv.Key));
+                    AlertRadio(net, kv.Key, kv.Value.WalkieState, talker, onlyTalker(kv.Key));
             }
+            _radioTalkers.Clear();
         }
 
-        private static void AlertRadio(LanNetworkManager net, int id, byte state, Vector3 talkerPos, bool talkerUnder, bool isTalker)
+        private static void AlertRadio(LanNetworkManager net, int id, byte state, int talker, bool isTalker)
         {
-            if (isTalker || !WalkieStates.Live(state) || !TryPosition(net, id, out Vector3 pos))
-                return;
-            float q = VoiceChatService.RadioQuality(talkerPos, pos, false, false, talkerUnder, WalkieStates.IsUnderground(state));
-            if (q <= 0.03f)
+            if (isTalker || !WalkieStates.Live(state) || !VoiceChatService.RadioLinked(talker, id) || !TryPosition(net, id, out Vector3 pos))
                 return;
             float range = WalkieStates.InHand(state) ? RadioRange : RadioPocketRange;
             Character.alertInArea(pos, range, dangerousSound: false, 1f);
-        }
-
-        private static byte StateOf(LanNetworkManager net, int id)
-        {
-            if (id == net.LocalPlayerId)
-                return VoiceChatService.LocalWalkieState;
-            return net.RemotePlayers.TryGetValue(id, out RemotePlayerState st) && st != null ? st.WalkieState : (byte)0;
         }
 
         /// <summary>Where a living player stands: the host's own body, or a client's stand-in.</summary>

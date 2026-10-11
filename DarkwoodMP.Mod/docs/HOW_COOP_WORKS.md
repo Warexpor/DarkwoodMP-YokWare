@@ -205,8 +205,13 @@ glow in its owner's colour, the day it was placed and an optional label.
 
 - Right click places the chosen stamp, or erases the pin under the cursor (any
   player may erase any pin: it is one shared map).
-- The mouse wheel picks the stamp, or restyles the pin under the cursor.
+- The mouse wheel picks the stamp, or restyles the pin under the cursor. The chosen
+  stamp is not drawn under the cursor all the time: the first wheel notch brings it
+  up for a moment (with its name at the bottom of the map), the next ones change it.
 - A double click on a pin writes a label on it.
+- The texts are the game's own: a hovered pin is described by the map's location
+  popup (stamp, label, who placed it and on which day), labels and the one line of
+  controls at the bottom are in the hover-label font.
 - Middle click (or Shift + right click) pings a spot: it pulses on everyone's map
   for 25 seconds, and players with the map closed see "<name> pinged the map".
 - New pins and pings from others show as a `[Map]` line in the chat (not over the player).
@@ -240,7 +245,9 @@ shared copy.
 
 - **LAN:** LiteNetLib over UDP, default port 7788.
 - **Steam:** a Steam lobby over SteamNetworkingSockets (friends, public or private;
-  join from the invite overlay or by lobby id).
+  join from Join > Steam friends, from the invite overlay or by lobby id). Hosting opens
+  Steam's invite window. A LAN host's Host and Multiplayer screens show the address the
+  others type in; the host can type its own (VPN, forwarded port).
 - Both carry the same messages. All peers must run the same mod build: the
   handshake carries the protocol number and refuses a mismatch.
 - A GOG copy has no Steam, so a Steam host and a GOG client must use LAN.
@@ -295,6 +302,9 @@ movie), unless the host sets `AllowJoinDuringDream`.
 - Each save of a co-op world also writes `savcos.dat` next to it: the seed of every cosmetic roll on
   a saved object ([section 16](#16-world-objects-doors-lights-fire-traps)). It is part
   of the world download.
+- It also writes `savplc.dat`: the container slots a player has put items into. Taking a stored
+  stack back never earns the party loot bonus, also after a reload and for a player who joins
+  later. It is part of the world download too.
 - A client's own single-player saves are untouched except the slot it chose for the
   co-op copy. The second install on a dual-box setup uses its own save root.
 - Each campaign carries an id. Character snapshots are tied to it, so a snapshot
@@ -313,8 +323,16 @@ movie), unless the host sets `AllowJoinDuringDream`.
   location or dream. When the player returns, a drop that is still lying there is
   taken back, and a drop someone else picked up is removed from the returner's bag.
   Oxygen tanks and journal items are not dropped (everyone has them already).
-- A returning player gets their own character back from the snapshot the host
-  stored (or their local copy, if that one is newer).
+- A player's character (position, bag, health, skills) is stored at real world saves
+  only (the "saving" indicator), never on leaving or between saves. A returning
+  player comes back as they were at the last world save they were in, not at the
+  host's spawn; one who was never in a save comes back as a fresh character.
+  Leaving saves nothing, for the host or a client, as in the base game.
+- A player who stands up (after a load, a join, a respawn) stays lying until the others
+  can see it: until a few of their position packets have gone out and, for a joiner,
+  until they have been put where they left. The others then see the whole stand-up,
+  in step. With nobody to watch nothing waits; a wait that cannot end lets go after
+  6 seconds.
 
 ### Chapter change
 
@@ -458,6 +476,11 @@ night for players who are still alive, so in co-op:
 Any living player can press F4 to spectate the others and cycle between them;
 wrapping around the list returns to their own body. F4 is blocked in menus, chat,
 dialogue, dream entries, cutscenes and the title screen.
+
+When spectating begins, one line at the bottom of the screen says what F4 does from
+there (next player, and for a living player back to the body). It fades in, stays
+about five seconds and fades away. A dead player with only one other player to
+watch gets no line.
 
 ### Dying in a dream
 
@@ -845,27 +868,48 @@ party events.
   - Creatures hear it too (host rule, on by default): talk louder than a murmur is a
     sound at the talker's position, like a step or a door. Whispering is safe.
   - Walkie-talkie: hold a `walkie_talkie` and hold the radio talk key (right mouse by default, rebindable in Settings > Voice) to transmit. Carrying one
-    lets you hear the radio from anywhere: a narrow, slightly distorted band, a squelch
-    click and tail, and more static the farther apart the two radios are.
+    lets you hear the radio from anywhere: a narrow, slightly distorted band, the caller's
+    beep at the start and a squelch tail at the end (played by the listener's radio the
+    moment the talker lets go, with the static fading out under it). The signal has no
+    cut-off distance: past the clear range static rises under the voice and the voice
+    sinks into it, until only static is left, and from there on it stays static however
+    far apart the two are. Every sound a radio makes is a recording; none is generated.
+    A keyed radio also sends the sounds around its holder (steps, doors, creatures, the
+    weather), each as loud and as dull as it reaches the holder and well under the voice;
+    not music, menu sounds or voice chat itself (nor the game's long ambience loops, which
+    play on two sources and cannot be tapped). Only radios play that part: a player standing by the talker
+    hears their voice and the world for themselves (`VoiceRadioWorldSounds`).
     Every other walkie plays the talk out loud too: standing near someone who carries
     one, you hear it from them (a short way, muffled through walls), and creatures near
     a playing radio hear it.
     Radios work one way at a time: your own radio is silent while you transmit, and a
     channel carries whoever keyed first until they let go; someone keying over them is
-    heard garbled under a whistle. Players near a talker hear their walkie click on and
-    off; the far radios end each transmission with a roger beep.
+    heard garbled under static. Players near a talker hear their walkie's call beep
+    and squelch tail, and the knob of a radio switched on or off near them. A talker hears their own
+    transmission from another player's live radio near them, as that radio plays it.
   - A walkie is crafted at the workbench (level 1) from 2 junk and 1 nail; each player
     makes their own.
+  - On a controller the talk button is the game's Aim and the knob the game's Attack,
+    with the radio in hand (it cannot be aimed and is no weapon, so neither does anything
+    else). The radio's item description is its manual and names the buttons as they are
+    set right now (keys, or Aim and Attack while a controller is in use).
+  - Push to talk without a radio has a controller button too (D-pad left by default,
+    Settings > Voice). The game leaves no controller button free, so the one picked also
+    does its vanilla action.
   - A walkie is a device: an on/off knob (`B`, in hand), a 9V battery that drains while
-    it is on (faster while talking; `R` swaps in a fresh `battery9v`, as for the
+    it is on (about an hour on standby, faster while talking; `R` swaps in a fresh `battery9v`, as for the
     flashlight), quieter and duller in a pocket than in hand. Off or flat, it neither
     receives, transmits nor makes a sound for creatures: switching it off is how you
     sneak with one.
-  - The signal fades with distance (clear to 3000 units, breaking up past that, gone at
-    9000), carries less out of buildings and barely in or out of underground places, and
-    nothing reaches another world (a dream).
-  - Keying right next to another live radio feeds back: a howl on every radio on the
-    channel and from that radio, which creatures hear from far off.
+  - The signal fades with distance (clear to 6000 units, more and more static past that,
+    static alone from 18000 on), carries less out of buildings and barely in or out of
+    underground places. Distance never silences it. A dream does: nothing passes between
+    a player in a dream and one who is not, either way.
+  - The microphone is cleaned before it is sent (`VoiceNoiseSuppression`, on unless the
+    player turns it off in Settings > Voice): a trained model (RNNoise) tells speech from
+    noise, so fans, hum, hiss, keys and clicks go down and the voice stays. Another
+    voice in the room is speech to it and passes. How hard it cuts is the player's
+    choice ("Suppression strength", `VoiceNoiseSuppressionStrength`, 1.5 by default).
   - Indoors a voice gets the same reverb vanilla puts on sounds made inside; walls muffle
     it as vanilla muffles any sound behind a wall.
   - Push-to-talk (`V`) or open mic.

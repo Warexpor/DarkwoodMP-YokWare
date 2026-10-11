@@ -7,21 +7,20 @@ namespace DWMPHorde.Audio
 {
     /// <summary>
     /// How a voice sounds through the walkie: a narrow band like a handheld radio's speaker,
-    /// driven a little into distortion, under a hiss that grows with the distance between the two
-    /// radios, opened by a squelch click and closed by a burst of static. The talker hears their
-    /// own radio click when keying and letting go.
+    /// driven a little into distortion, under static that grows with the distance between the two
+    /// radios, opened by the caller's beep and closed by a squelch tail. The talker hears their
+    /// own radio beep when keying and its squelch when letting go. Every sound of the radio is a
+    /// recording (<see cref="RadioSamples"/>); a missing one is silence, nothing is generated.
     /// </summary>
     public static partial class VoiceChatService
     {
         private const float RadioLowHz = 380f;
         private const float RadioHighHz = 2900f;
         private const float RadioDrive = 2.4f;
-        private const float RadioHissNear = 0.006f;
-        private const float RadioHissFar = 0.045f;
 
         private static AudioSource _localRadio; // process-scoped: 2D source for this player's own radio clicks
-        private static AudioClip _keyClip; // process-scoped: generated asset
-        private static AudioClip _releaseClip; // process-scoped: generated asset
+        private static AudioClip _keyClip; // process-scoped: recorded asset (RadioSamples)
+        private static AudioClip _releaseClip; // process-scoped: recorded asset (RadioSamples)
 
         /// <summary>RBJ cookbook second-order filter (Q 0.707), direct form I.</summary>
         internal struct Biquad
@@ -61,215 +60,174 @@ namespace DWMPHorde.Audio
 
         private static readonly System.Random _noise = new System.Random(); // process-scoped: main thread only (decode side)
 
-        private static float Noise() => (float)(_noise.NextDouble() * 2.0 - 1.0);
+        /// <summary>
+        /// How much of the voice a signal of this quality lets through: all of it while clear,
+        /// less and less as the signal weakens, none over the last stretch of the range, where
+        /// only static is left.
+        /// </summary>
+        internal static float VoiceShareOf(float quality)
+            => Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(VoiceGoneQuality, VoiceClearQuality, quality));
+
+        private const float VoiceGoneQuality = 0.15f;
+        private const float VoiceClearQuality = 0.9f;
 
         /// <summary>
         /// One packet of voice as the radio gets it (decode side, before the radio's band and
-        /// drive): quieter and breaking up as the signal weakens, a whistle under a second
-        /// talker keying over this one, and the howl of feedback.
+        /// drive): fading under the static as the signal weakens, and buried in static under a
+        /// second talker keying over this one.
         /// </summary>
         private static void RadioPacket(Speaker s, float[] x, int n)
         {
-            float q = s.RadioQuality;
-            float voice = Mathf.Lerp(0.55f, 1f, q);
-            // A weak signal drops out in pieces of 10..40 ms, more often the weaker it gets.
-            if (s.BreakupLeft <= 0f && q < 0.6f && _noise.NextDouble() < Math.Pow((0.6f - q) / 0.6f, 1.5) * 0.75)
-                s.BreakupLeft = 160 + (float)_noise.NextDouble() * 480f;
-            double hetStep = 2.0 * Math.PI / VoiceCodec.SampleRate;
+            // Eased over the packet: the share moves a little with every step the players take.
+            float from = s.VoiceShare;
+            float to = VoiceShareOf(s.RadioQuality);
+            s.VoiceShare = to;
             for (int i = 0; i < n; i++)
             {
-                float v = x[i] * voice;
-                if (s.BreakupLeft > 0f)
-                {
-                    v = Noise() * s.RadioHiss * 2.5f;
-                    s.BreakupLeft--;
-                }
+                float v = x[i] * (from + (to - from) * i / n);
+                // Two talkers on one channel: the voice garbles under the static of the clash.
                 if (s.Doubling > 0f)
-                {
-                    // Two carriers a little apart beat into a wobbling whistle; the voice under it garbles.
-                    double f = 950.0 + 320.0 * Math.Sin(s.HetPhase * 0.0021);
-                    s.HetPhase += hetStep * f;
-                    v = v * (1f - 0.35f * s.Doubling) + s.Doubling * (0.16f * (float)Math.Sin(s.HetPhase) + 0.05f * Noise());
-                }
-                if (s.Howl > 0f)
-                    v += s.Howl * s.Howl * 0.5f * HowlWave(ref s.HowlPhase, VoiceCodec.SampleRate);
+                    v = v * (1f - 0.35f * s.Doubling) + s.Doubling * 0.6f * BreakupStatic(s);
                 x[i] = v;
             }
-        }
-
-        /// <summary>Feedback: a tone near 2 kHz that drifts and warbles, with its octave.</summary>
-        internal static float HowlWave(ref double phase, int rate)
-        {
-            double t = phase / (2.0 * Math.PI * 2000.0);
-            double f = 2050.0 + 260.0 * Math.Sin(t * 2.0 * Math.PI * 0.6) + 70.0 * Math.Sin(t * 2.0 * Math.PI * 5.5);
-            phase += 2.0 * Math.PI * f / rate;
-            return (float)(Math.Sin(phase) * 0.8 + Math.Sin(phase * 2.0) * 0.25);
-        }
-
-        /// <summary>
-        /// The feedback heard in the room: one source at the radio that howls. Every frame the
-        /// strongest howl offered (<see cref="OfferHowl"/>) wins; none offered and it fades out.
-        /// </summary>
-        private sealed class HowlEmitter : MonoBehaviour
-        {
-            public volatile float Amp;
-            private double _phase;
-            private float _amp;
-            private int _rate = 48000;
-
-            private void Awake() => _rate = AudioSettings.outputSampleRate > 0 ? AudioSettings.outputSampleRate : 48000;
-
-            private void OnAudioFilterRead(float[] data, int channels)
-            {
-                float from = _amp;
-                float to = Amp;
-                _amp = to;
-                int frames = data.Length / channels;
-                for (int i = 0; i < frames; i++)
-                {
-                    float a = from + (to - from) * i / frames;
-                    float v = a <= 0f ? 0f : HowlWave(ref _phase, _rate) * a;
-                    for (int c = 0; c < channels; c++)
-                        data[i * channels + c] *= v;
-                }
-            }
-        }
-
-        private static HowlEmitter _howl; // process-scoped: the one feedback source
-        private static float _howlOffer; // process-scoped: strongest howl offered this frame
-        private static Vector3 _howlAt; // process-scoped: where it is
-        private static float _howlLevel; // process-scoped: the emitter's smoothed level
-        private static int _howlFrame = -1; // process-scoped: frame the offers belong to
-
-        /// <summary>The loudest feedback this frame and where (host: creatures hear it, <see cref="VoiceHearing"/>).</summary>
-        internal static float HowlNow => _howlLevel;
-        internal static Vector3 HowlAt => _howlAt;
-
-        private static void OfferHowl(float amount, Vector3 at)
-        {
-            if (_howlFrame != Time.frameCount)
-            {
-                _howlFrame = Time.frameCount;
-                _howlOffer = 0f;
-            }
-            if (amount > _howlOffer)
-            {
-                _howlOffer = amount;
-                _howlAt = at;
-            }
-        }
-
-        /// <summary>
-        /// This player keying their walkie right by another player's live radio: it plays them
-        /// back into their own mic and howls (the receivers' side is in <see cref="RadioPacket"/>).
-        /// </summary>
-        private static float _localHowl; // process-scoped: smoothed
-
-        private static void TickHowl(LanNetworkManager net, float dt)
-        {
-            Vector3 at = Vector3.zero;
-            bool feeding = false;
-            Player p = Player.Instance;
-            if (_walkieTx && p != null && net != null)
-            {
-                foreach (Players.RemotePlayerProxy o in net.EnumerateRemoteProxies())
-                {
-                    if (o == null || !o.isActiveAndEnabled)
-                        continue;
-                    if (!net.RemotePlayers.TryGetValue(o.PlayerId, out RemotePlayerState st) || st == null || !WalkieStates.Live(st.WalkieState))
-                        continue;
-                    if (DistXz(o.transform.position, p.transform.position) < FeedbackRange)
-                    {
-                        feeding = true;
-                        at = o.transform.position;
-                        break;
-                    }
-                }
-            }
-            _localHowl = Mathf.MoveTowards(_localHowl, feeding ? 1f : 0f, dt * (feeding ? 1.2f : 3f));
-            if (_localHowl > 0f)
-                OfferHowl(_localHowl, feeding ? at : _howlAt);
-
-            float target = _howlFrame == Time.frameCount ? _howlOffer : 0f;
-            _howlLevel = Mathf.MoveTowards(_howlLevel, target, dt * 4f);
-            if (_howlLevel <= 0f && _howl == null)
-                return;
-            if (_howl == null)
-            {
-                if (_root == null)
-                {
-                    _root = new GameObject("YokWare_Voice");
-                    UnityEngine.Object.DontDestroyOnLoad(_root);
-                }
-                var go = new GameObject("YokWare_RadioHowl");
-                go.transform.SetParent(_root.transform, false);
-                AudioSource src = go.AddComponent<AudioSource>();
-                src.clip = CarrierClip();
-                src.loop = true;
-                src.playOnAwake = false;
-                src.spatialBlend = 1f;
-                src.rolloffMode = AudioRolloffMode.Linear;
-                src.minDistance = NearRadioFull;
-                src.maxDistance = NearRadioRange * 1.5f;
-                src.dopplerLevel = 0f;
-                _howl = go.AddComponent<HowlEmitter>();
-                src.Play();
-            }
-            _howl.transform.position = _howlAt;
-            float vol = Mathf.Clamp01(ModConfig.VoiceVolume?.Value ?? 1f);
-            _howl.Amp = _howlLevel * _howlLevel * 0.35f * vol;
         }
 
         /// <summary>One voice sample through the radio (decode side, main thread).</summary>
         private static float RadioSample(Speaker s, float x)
         {
+            // The caller's beep, as their radio sends it ahead of the voice.
+            if (s.BeepPos >= 0)
+            {
+                float[] beep = _keyTone;
+                if (beep != null && s.BeepPos < beep.Length)
+                    x += beep[s.BeepPos++] * BeepGain * s.VoiceShare;
+                else
+                    s.BeepPos = -1;
+            }
             x = s.RadioHp.Run(x);
             x = s.RadioLp.Run(x);
             x *= RadioDrive;
             x /= 1f + Mathf.Abs(x);
-            return x * 1.3f + Noise() * s.RadioHiss;
+            return x * 1.3f + StaticSample(s);
+        }
+
+        /// <summary>The caller's beep and the squelch tail inside a received transmission, against the voice.</summary>
+        private const float BeepGain = 0.5f;
+        /// <summary>Past the tail's own length: the audio thread reads in blocks and may start late.</summary>
+        private const float TailHoldSlackSec = 0.2f;
+        private const float TailGain = 0.6f;
+        /// <summary>The radio's static goes on under the squelch tail for this long, fading out: a carrier does not stop dead.</summary>
+        private const float StaticFadeSec = 0.25f;
+        /// <summary>The steady static under a clear transmission, at this level (the recording is at RMS 0.055, all of it in the radio's band).</summary>
+        private const float StaticNearGain = 0.1f;
+        /// <summary>
+        /// The out-of-range static at its loudest, where no voice is left (the recording is at
+        /// RMS 0.18): about as loud as a clear voice, so it takes the voice's place and nothing
+        /// seems to go quiet on the way out.
+        /// </summary>
+        private const float StaticFarGain = 1f;
+
+        private static float[] _staticNear; // process-scoped: recorded asset (RadioSamples), at the voice rate
+        private static float[] _staticFar; // process-scoped: recorded asset (RadioSamples), at the voice rate
+        private static float[] _keyTone; // process-scoped: recorded asset (RadioSamples), at the voice rate
+        private static float[] _releaseTail; // process-scoped: recorded asset (RadioSamples), at the voice rate
+        private static bool _staticLoaded; // process-scoped: tried once
+
+        private static void EnsureStatic()
+        {
+            if (_staticLoaded)
+                return;
+            _staticLoaded = true;
+            _staticNear = RadioSamples.LoadSamples("static_near.wav", VoiceCodec.SampleRate);
+            _staticFar = RadioSamples.LoadSamples("static_far.wav", VoiceCodec.SampleRate);
+            _keyTone = RadioSamples.LoadSamples("key16.wav", VoiceCodec.SampleRate);
+            _releaseTail = RadioSamples.LoadSamples("release16.wav", VoiceCodec.SampleRate);
+        }
+
+        /// <summary>A transmission opens on this speaker: its static starts somewhere in the recordings.</summary>
+        private static void StartStatic(Speaker s)
+        {
+            EnsureStatic();
+            if (_staticNear != null)
+                s.StaticNearPos = _noise.Next(_staticNear.Length);
+            if (_staticFar != null)
+                s.StaticFarPos = _noise.Next(_staticFar.Length);
+        }
+
+        /// <summary>How much of the out-of-range static a signal of this quality carries.</summary>
+        private static float FarStaticGain(float quality)
+        {
+            // Rising all the way from the edge of the clear range to where the voice is gone,
+            // and holding from there on: however far apart, a keyed radio is heard as static.
+            float weak = Mathf.InverseLerp(1f, VoiceGoneQuality, quality);
+            return weak * weak * StaticFarGain;
         }
 
         /// <summary>
-        /// The squelch: a short click as the far radio opens, a fading burst of static as it closes.
-        /// Band-limited like the voice so it sounds from the same little speaker.
+        /// The radio's static under a voice: a recorded handheld's steady static while the signal
+        /// is clear, a recorded out-of-range static rising over it as the signal weakens.
         /// </summary>
-        private static void WriteSquelch(Speaker speaker, bool open)
+        private static float StaticSample(Speaker s)
         {
-            if (_sampleRate == 0)
-                return;
-            if (!open && speaker.RadioQuality > RadioSquelchQuality)
-                WriteRogerBeep(speaker);
-            float seconds = open ? 0.035f : 0.16f;
-            float amp = open ? 0.35f : 0.22f;
-            int n = (int)(_sampleRate * seconds);
-            Biquad hp = Biquad.HighPass(RadioLowHz, _sampleRate);
-            Biquad lp = Biquad.LowPass(RadioHighHz * 1.2f, _sampleRate);
+            float[] near = _staticNear, far = _staticFar;
+            if (near == null || far == null)
+                return 0f;
+            if (++s.StaticNearPos >= near.Length) s.StaticNearPos = 0;
+            if (++s.StaticFarPos >= far.Length) s.StaticFarPos = 0;
+            return near[s.StaticNearPos] * StaticNearGain * s.VoiceShare + far[s.StaticFarPos] * s.FarStatic;
+        }
+
+        /// <summary>The static of two talkers clashing: the out-of-range recording (before the radio's band and drive).</summary>
+        private static float BreakupStatic(Speaker s)
+        {
+            float[] far = _staticFar;
+            if (far == null)
+                return 0f;
+            if (++s.StaticFarPos >= far.Length) s.StaticFarPos = 0;
+            return far[s.StaticFarPos] * 0.3f;
+        }
+
+        /// <summary>
+        /// A transmission ends on this speaker: the far radio's squelch tail (a recording), after
+        /// whatever voice is still buffered.
+        /// </summary>
+        private static void WriteSquelchTail(Speaker speaker)
+        {
+            EnsureStatic();
+            speaker.BeepPos = -1;
+            float[] tail = _releaseTail;
+            // As loud as the signal was: at the end of the range the tail is lost in the static too.
+            float gain = TailGain * Mathf.Lerp(0.2f, 1f, speaker.VoiceShare);
             lock (speaker.Lock)
             {
-                for (int i = 0; i < n; i++)
+                // The listener's radio keeps playing until the tail is out (Speaker.RadioHoldUntil).
+                int tailLen = tail != null ? tail.Length : 0;
+                int fadeLen = (int)(StaticFadeSec * VoiceCodec.SampleRate);
+                int total = Math.Max(tailLen, fadeLen);
+                int toPlay = speaker.Buffered + total;
+                speaker.RadioHoldUntil = Time.unscaledTime + toPlay / (float)VoiceCodec.SampleRate + TailHoldSlackSec;
+                for (int i = 0; i < total; i++)
                 {
                     if (speaker.Buffered >= speaker.Ring.Length)
                         break;
-                    float k = (float)i / n;
-                    float env = open ? (1f - k) * (1f - k) * (1f - k) : (1f - k) * (1f - k);
-                    float v = lp.Run(hp.Run(Noise())) * amp * env * 2.5f;
-                    speaker.Ring[speaker.WritePos] = Mathf.Clamp(v, -1f, 1f);
+                    float fade = i < fadeLen ? 0.5f + 0.5f * Mathf.Cos(Mathf.PI * i / fadeLen) : 0f;
+                    float v = (i < tailLen ? tail[i] * gain : 0f) + (fade > 0f ? StaticSample(speaker) * fade : 0f);
+                    speaker.Ring[speaker.WritePos] = SoftLimit(v);
                     speaker.WritePos = (speaker.WritePos + 1) % speaker.Ring.Length;
                     speaker.Buffered++;
                 }
-                // The tail plays even though no voice follows it to fill the prime buffer.
-                if (!open)
-                    speaker.PrimeRelease = true;
+                // What is buffered plays out even though no voice follows it to fill the prime buffer.
+                speaker.PrimeRelease = true;
             }
         }
 
         private static void EnsureSquelchClips()
         {
+            // The talk key: a real handheld's call beep and squelch tail.
             if (_keyClip == null)
-                _keyClip = SquelchClip("yokware_radio_key", 0.03f, 0.5f, cubic: true);
+                _keyClip = RadioSamples.Load("key.wav", "yokware_radio_key");
             if (_releaseClip == null)
-                _releaseClip = SquelchClip("yokware_radio_release", 0.14f, 0.3f, cubic: false);
+                _releaseClip = RadioSamples.Load("release.wav", "yokware_radio_release");
         }
 
         /// <summary>A talker's own radio clicking as they key it and let go, heard by players near them.</summary>
@@ -281,66 +239,61 @@ namespace DWMPHorde.Audio
                     return;
                 EnsureSquelchClips();
                 float vol = Mathf.Clamp01((ModConfig.VoiceVolume?.Value ?? 1f) * 0.3f);
-                s.Click.PlayOneShot(keyDown ? _keyClip : _releaseClip, vol);
+                AudioClip clip = keyDown ? _keyClip : _releaseClip;
+                if (clip != null)
+                    s.Click.PlayOneShot(clip, vol);
             }
             catch { /* audio not ready */ }
         }
 
-        /// <summary>The far radio's roger beep: two short tones as the talker lets go, before the squelch tail.</summary>
-        private static void WriteRogerBeep(Speaker speaker)
-        {
-            int rate = (int)_sampleRate;
-            int each = rate * 70 / 1000;
-            double phase = 0;
-            lock (speaker.Lock)
-            {
-                for (int i = 0; i < each * 2; i++)
-                {
-                    if (speaker.Buffered >= speaker.Ring.Length)
-                        break;
-                    double f = i < each ? 1250.0 : 900.0;
-                    phase += 2.0 * Math.PI * f / rate;
-                    int k = i % each;
-                    float env = Mathf.Min(1f, Mathf.Min(k, each - k) / (rate * 0.004f));
-                    float v = (float)Math.Sin(phase) * 0.22f * env + Noise() * speaker.RadioHiss;
-                    speaker.Ring[speaker.WritePos] = Mathf.Clamp(v, -1f, 1f);
-                    speaker.WritePos = (speaker.WritePos + 1) % speaker.Ring.Length;
-                    speaker.Buffered++;
-                }
-            }
-        }
-
-        internal enum RadioSound { PowerOn, PowerOff, Dead, LowBattery }
-
-        private static AudioClip _powerOnClip; // process-scoped: generated asset
-        private static AudioClip _powerOffClip; // process-scoped: generated asset
-        private static AudioClip _deadClip; // process-scoped: generated asset
-        private static AudioClip _lowBatteryClip; // process-scoped: generated asset
+        internal enum RadioSound { PowerOn, PowerOff, Dead }
 
         /// <summary>
-        /// This player's own radio: the knob's click and the speaker coming alive (on), the click
-        /// and a dying hiss (off), a click and nothing (a flat battery), the low-battery double chirp.
+        /// This player's own radio: its knob, switched on, off, or on with a flat battery. One
+        /// of four recorded takes at random; what differs between the three is whether the
+        /// radio then works, not the knob.
         /// </summary>
         private static void PlayLocalRadioSound(RadioSound which)
         {
             try
             {
-                EnsureLocalRadioSource();
-                if (_powerOnClip == null)
-                {
-                    _powerOnClip = KnobClip("yokware_radio_on", hiss: 0.18f, hissSec: 0.22f);
-                    _powerOffClip = KnobClip("yokware_radio_off", hiss: 0.1f, hissSec: 0.08f);
-                    _deadClip = KnobClip("yokware_radio_dead", hiss: 0f, hissSec: 0f);
-                    _lowBatteryClip = ChirpClip("yokware_radio_lowbatt");
-                }
-                AudioClip clip = which == RadioSound.PowerOn ? _powerOnClip
-                    : which == RadioSound.PowerOff ? _powerOffClip
-                    : which == RadioSound.Dead ? _deadClip : _lowBatteryClip;
-                float vol = Mathf.Clamp01((ModConfig.VoiceVolume?.Value ?? 1f) * (HoldingWalkie() ? 0.4f : 0.22f));
-                _localRadio.PlayOneShot(clip, vol);
+                AudioClip knob = KnobTake();
+                if (knob == null)
+                    return;
+                float vol = Mathf.Clamp01((ModConfig.VoiceVolume?.Value ?? 1f) * (HoldingWalkie() ? 0.4f : 0.22f) * KnobLevel);
+                PlayLocal(knob, vol);
             }
             catch { /* audio not ready */ }
         }
+
+        /// <summary>The knob takes peak at 0.7 on the click itself (their rumble is cut): played this much down.</summary>
+        private const float KnobLevel = 0.6f;
+        private const int KnobTakes = 4;
+
+        private static AudioClip[] _knobClips; // process-scoped: recorded assets (RadioSamples)
+        private static int _lastKnob = -1; // process-scoped: the take played last
+
+        /// <summary>One of the recorded knob takes, not the one played last; null if none loaded.</summary>
+        private static AudioClip KnobTake()
+        {
+            if (_knobClips == null)
+            {
+                _knobClips = new AudioClip[KnobTakes];
+                for (int i = 0; i < KnobTakes; i++)
+                    _knobClips[i] = RadioSamples.Load("knob" + (i + 1) + ".wav", "yokware_radio_knob" + (i + 1));
+            }
+            for (int tries = 0; tries < 8; tries++)
+            {
+                int i = _noise.Next(KnobTakes);
+                if (i == _lastKnob || _knobClips[i] == null)
+                    continue;
+                _lastKnob = i;
+                return _knobClips[i];
+            }
+            return null;
+        }
+
+        private static AudioReverbFilter _localRadioReverb; // process-scoped: with _localRadio
 
         private static void EnsureLocalRadioSource()
         {
@@ -351,66 +304,34 @@ namespace DWMPHorde.Audio
             }
             if (_localRadio == null)
             {
-                _localRadio = _root.AddComponent<AudioSource>();
+                var go = new GameObject("YokWare_LocalRadio");
+                go.transform.SetParent(_root.transform, false);
+                _localRadio = go.AddComponent<AudioSource>();
                 _localRadio.playOnAwake = false;
                 _localRadio.spatialBlend = 0f;
+                _localRadioReverb = go.AddComponent<AudioReverbFilter>();
+                _localRadioReverb.enabled = false;
             }
         }
 
-        /// <summary>A knob's dry click, then (optionally) the speaker's hiss swelling and closing.</summary>
-        private static AudioClip KnobClip(string name, float hiss, float hissSec)
+        /// <summary>
+        /// A sound of this player's own radio. It is in their hands, so nothing stands between
+        /// it and them; it gets the room's reverb when they stand inside, as vanilla gives a
+        /// sound made indoors.
+        /// </summary>
+        private static void PlayLocal(AudioClip clip, float vol)
         {
-            const int rate = 44100;
-            int click = rate * 6 / 1000;
-            int n = click + (int)(rate * hissSec) + 1;
-            var data = new float[n];
-            Biquad hp = Biquad.HighPass(RadioLowHz, rate);
-            Biquad lp = Biquad.LowPass(RadioHighHz * 1.2f, rate);
-            Biquad clickLp = Biquad.LowPass(3500f, rate);
-            for (int i = 0; i < n; i++)
-            {
-                float v = 0f;
-                if (i < click)
-                {
-                    float k = 1f - (float)i / click;
-                    v = clickLp.Run(Noise()) * k * k * 1.4f;
-                }
-                else if (hiss > 0f)
-                {
-                    float k = (float)(i - click) / (n - click);
-                    float env = Mathf.Sin(k * Mathf.PI);
-                    v = lp.Run(hp.Run(Noise())) * hiss * env * 2.5f;
-                }
-                data[i] = Mathf.Clamp(v, -1f, 1f);
-            }
-            AudioClip clip = AudioClip.Create(name, n, 1, rate, false);
-            clip.SetData(data, 0);
-            return clip;
+            if (clip == null)
+                return;
+            EnsureLocalRadioSource();
+            Player p = Player.Instance;
+            bool inside = p != null && p.isInside;
+            if (_localRadioReverb != null && _localRadioReverb.enabled != inside)
+                _localRadioReverb.enabled = inside;
+            _localRadio.PlayOneShot(clip, vol);
         }
 
-        /// <summary>Two short high chirps, as a radio warns of a low battery.</summary>
-        private static AudioClip ChirpClip(string name)
-        {
-            const int rate = 44100;
-            int each = rate * 50 / 1000;
-            int gap = rate * 70 / 1000;
-            int n = each * 2 + gap;
-            var data = new float[n];
-            double phase = 0;
-            for (int i = 0; i < n; i++)
-            {
-                bool on = i < each || i >= each + gap;
-                int k = i < each ? i : i - each - gap;
-                phase += 2.0 * Math.PI * 2400.0 / rate;
-                float env = on ? Mathf.Min(1f, Mathf.Min(k, each - k) / (rate * 0.003f)) : 0f;
-                data[i] = (float)Math.Sin(phase) * 0.3f * env;
-            }
-            AudioClip clip = AudioClip.Create(name, n, 1, rate, false);
-            clip.SetData(data, 0);
-            return clip;
-        }
-
-        /// <summary>This player's own radio: a click when the key goes down, a short hiss when it comes up.</summary>
+        /// <summary>This player's own radio: the call beep when the key goes down, the squelch tail when it comes up.</summary>
         private static void PlayLocalSquelch(bool keyDown)
         {
             try
@@ -418,27 +339,9 @@ namespace DWMPHorde.Audio
                 EnsureLocalRadioSource();
                 EnsureSquelchClips();
                 float vol = Mathf.Clamp01((ModConfig.VoiceVolume?.Value ?? 1f) * 0.35f);
-                _localRadio.PlayOneShot(keyDown ? _keyClip : _releaseClip, vol);
+                PlayLocal(keyDown ? _keyClip : _releaseClip, vol);
             }
             catch { /* audio not ready */ }
-        }
-
-        private static AudioClip SquelchClip(string name, float seconds, float amp, bool cubic)
-        {
-            const int rate = 44100;
-            int n = (int)(rate * seconds);
-            var data = new float[n];
-            Biquad hp = Biquad.HighPass(RadioLowHz, rate);
-            Biquad lp = Biquad.LowPass(RadioHighHz * 1.2f, rate);
-            for (int i = 0; i < n; i++)
-            {
-                float k = (float)i / n;
-                float env = cubic ? (1f - k) * (1f - k) * (1f - k) : (1f - k) * (1f - k);
-                data[i] = Mathf.Clamp(lp.Run(hp.Run(Noise())) * amp * env * 2.5f, -1f, 1f);
-            }
-            AudioClip clip = AudioClip.Create(name, n, 1, rate, false);
-            clip.SetData(data, 0);
-            return clip;
         }
     }
 }

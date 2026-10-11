@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Threading;
 using DWMPHorde.Config;
 using DWMPHorde.Logging;
 using DWMPHorde.Networking;
@@ -10,9 +11,13 @@ namespace DWMPHorde.Audio
     /// <summary>
     /// This player's microphone, through Unity's own <c>Microphone</c> (any install, no Steam):
     /// the device chosen in Multiplayer > Settings > Voice (config <c>VoiceMicDevice</c>, empty
-    /// for the system default), at the chosen mic volume (<c>VoiceMicVolume</c>), brought to
-    /// 16 kHz and cut into 40 ms packets. It also keeps the live level for the meter on the Voice
-    /// screen, and a noise gate for an always-on mic that follows the room's own noise floor.
+    /// for the system default), recorded at 48 kHz where the device allows, cleaned of noise
+    /// (<see cref="RnNoise"/>, config <c>VoiceNoiseSuppression</c>), brought to the voice
+    /// rate at the chosen mic volume (<c>VoiceMicVolume</c>) and cut into 40 ms packets
+    /// (<see cref="VoiceMicChain"/>). That work runs on a thread of its own, so the game's
+    /// frame only hands the recording over and collects the finished packets a frame later.
+    /// It also keeps the live level for the meter on the Voice screen, and a noise gate for
+    /// an always-on mic that follows the room's own noise floor.
     /// </summary>
     internal static class VoiceMic
     {
@@ -27,11 +32,9 @@ namespace DWMPHorde.Audio
         private static string _wanted; // process-scoped: the setting the recording was started for
         private static int _rate; // process-scoped: the recording's own rate
         private static int _readPos; // process-scoped: next unread sample in the looping clip
-        private static float[] _read = new float[0]; // process-scoped: scratch
-        private static readonly List<float> _out = new List<float>(4096); // process-scoped: 16 kHz samples not yet framed
-        private static double _resamplePos; // process-scoped: resampler phase
-        private static float _resamplePrev; // process-scoped: resampler history
-        private static VoiceChatService.Biquad _antiAlias; // process-scoped: low-pass before going down to 16 kHz
+        private static Worker _worker; // process-scoped: the running recording's processing thread
+        private static readonly List<float[]> _done = new List<float[]>(8); // process-scoped: scratch
+        private static bool _warnedSuppression; // process-scoped: log once
         private static float _floorDb = -60f; // process-scoped: tracked noise floor
         private static float _gateUntil; // process-scoped: gate hangover
         private static bool _warnedNoDevice; // process-scoped: log once
@@ -86,7 +89,9 @@ namespace DWMPHorde.Audio
             try { Microphone.End(DeviceArg(_device)); }
             catch { /* already gone */ }
             _clip = null;
-            _out.Clear();
+            if (_worker != null)
+                _worker.Stop();
+            _worker = null;
             Level = 0f;
             Db = -120f;
         }
@@ -125,7 +130,7 @@ namespace DWMPHorde.Audio
             try
             {
                 Microphone.GetDeviceCaps(DeviceArg(device), out int min, out int max);
-                int rate = VoiceCodec.SampleRate;
+                int rate = VoiceMicChain.ModelRate;
                 if (min > 0 || max > 0)
                     rate = Mathf.Clamp(rate, min > 0 ? min : rate, max > 0 ? max : rate);
                 AudioClip clip = Microphone.Start(DeviceArg(device), true, 1, rate);
@@ -136,10 +141,7 @@ namespace DWMPHorde.Audio
                 _wanted = wanted;
                 _rate = clip.frequency > 0 ? clip.frequency : rate;
                 _readPos = 0;
-                _resamplePos = 0;
-                _resamplePrev = 0f;
-                _antiAlias = VoiceChatService.Biquad.LowPass(7000f, _rate);
-                _out.Clear();
+                _worker = new Worker(_rate);
                 _warnedNoDevice = false;
                 ModLog.Event(LogCat.Audio, "[Voice] microphone '" + (string.IsNullOrEmpty(device) ? devices[0] + "' (default)" : device + "'")
                     + " at " + _rate + " Hz");
@@ -161,47 +163,131 @@ namespace DWMPHorde.Audio
             int n = (pos - _readPos + len) % len;
             if (n <= 0)
                 return;
-            if (_read.Length != n)
-                _read = new float[n];
+            // The worker keeps the array: a new one for each hand-over.
+            var read = new float[n];
             // GetData wraps around the end of the looping clip by itself.
-            _clip.GetData(_read, _readPos);
+            _clip.GetData(read, _readPos);
             _readPos = pos;
 
             float gain = Mathf.Clamp(ModConfig.VoiceMicVolume?.Value ?? 1f, 0f, 4f);
-            if (_rate == VoiceCodec.SampleRate)
+            bool suppress = ModConfig.VoiceNoiseSuppression == null || ModConfig.VoiceNoiseSuppression.Value;
+            float strength = ModConfig.VoiceNoiseSuppressionStrength?.Value ?? ModConfig.DefaultNoiseSuppressionStrength;
+            _worker.Push(read, gain, suppress, strength);
+
+            _done.Clear();
+            _worker.Take(_done);
+            // The level is taken after the cleaning: it decides how far the voice carries
+            // and whether the open mic's gate opens.
+            for (int i = 0; i < _done.Count; i++)
             {
-                for (int i = 0; i < n; i++)
-                    _out.Add(_read[i] * gain);
+                Measure(_done[i]);
+                frames.Add(_done[i]);
             }
-            else
+            _done.Clear();
+
+            string error = _worker.Error;
+            if (error != null)
             {
-                // Down (or up) to 16 kHz: low-pass, then linear between neighbours.
-                double step = (double)_rate / VoiceCodec.SampleRate;
-                for (int i = 0; i < n; i++)
+                if (NetLogThrottle.ShouldLog("voice-mic-worker", 60f, out _))
+                    ModLog.Error(LogCat.Audio, "[Voice] microphone processing stopped: " + error);
+                Stop();
+                return;
+            }
+            string suppression = _worker.SuppressionError;
+            if (suppression != null && !_warnedSuppression)
+            {
+                _warnedSuppression = true;
+                ModLog.Warn(LogCat.Audio, "[Voice] noise suppression unavailable: " + suppression);
+            }
+        }
+
+        /// <summary>
+        /// The recording's processing on its own thread: the game's frame pushes what the
+        /// microphone recorded and takes the packets that are ready.
+        /// </summary>
+        private sealed class Worker
+        {
+            private struct Chunk
+            {
+                internal float[] Data;
+                internal float Gain;
+                internal bool Suppress;
+                internal float Strength;
+            }
+
+            private readonly VoiceMicChain _chain;
+            private readonly Queue<Chunk> _in = new Queue<Chunk>();
+            private readonly List<float[]> _ready = new List<float[]>();
+            private readonly AutoResetEvent _wake = new AutoResetEvent(false);
+            private volatile bool _stop;
+            private volatile string _error;
+            private volatile string _suppressionError;
+
+            internal string Error => _error;
+            internal string SuppressionError => _suppressionError;
+
+            internal Worker(int rate)
+            {
+                _chain = new VoiceMicChain(rate);
+                new Thread(Run) { IsBackground = true, Name = "YokWare voice mic" }.Start();
+            }
+
+            internal void Push(float[] data, float gain, bool suppress, float strength)
+            {
+                lock (_in)
+                    _in.Enqueue(new Chunk { Data = data, Gain = gain, Suppress = suppress, Strength = strength });
+                _wake.Set();
+            }
+
+            internal void Take(List<float[]> frames)
+            {
+                lock (_ready)
                 {
-                    float x = _rate > VoiceCodec.SampleRate ? _antiAlias.Run(_read[i]) : _read[i];
-                    while (_resamplePos <= 1.0)
-                    {
-                        _out.Add((_resamplePrev + (x - _resamplePrev) * (float)_resamplePos) * gain);
-                        _resamplePos += step;
-                    }
-                    _resamplePos -= 1.0;
-                    _resamplePrev = x;
+                    frames.AddRange(_ready);
+                    _ready.Clear();
                 }
             }
 
-            while (_out.Count >= FrameSamples)
+            internal void Stop()
             {
-                var frame = new float[FrameSamples];
-                for (int i = 0; i < FrameSamples; i++)
+                _stop = true;
+                _wake.Set();
+            }
+
+            private void Run()
+            {
+                var frames = new List<float[]>(8);
+                try
                 {
-                    float v = _out[i];
-                    // A soft ceiling instead of hard clipping when the mic volume is turned up.
-                    frame[i] = v > 0.9f || v < -0.9f ? Mathf.Sign(v) * (0.9f + 0.1f * (float)Math.Tanh((Math.Abs(v) - 0.9f) * 10f)) : v;
+                    while (!_stop)
+                    {
+                        _wake.WaitOne(250);
+                        while (!_stop)
+                        {
+                            Chunk chunk;
+                            lock (_in)
+                            {
+                                if (_in.Count == 0)
+                                    break;
+                                chunk = _in.Dequeue();
+                            }
+                            _chain.Strength = chunk.Strength;
+                            _chain.Process(chunk.Data, chunk.Data.Length, chunk.Gain, chunk.Suppress, frames);
+                            if (_chain.SuppressionError != null)
+                                _suppressionError = _chain.SuppressionError;
+                            if (frames.Count > 0)
+                            {
+                                lock (_ready)
+                                    _ready.AddRange(frames);
+                                frames.Clear();
+                            }
+                        }
+                    }
                 }
-                _out.RemoveRange(0, FrameSamples);
-                Measure(frame);
-                frames.Add(frame);
+                catch (Exception ex)
+                {
+                    _error = ex.GetType().Name + ": " + ex.Message;
+                }
             }
         }
 

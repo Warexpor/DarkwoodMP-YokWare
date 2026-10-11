@@ -264,6 +264,56 @@ namespace DWMPHorde.Sync
             return targetOnPad == candOnPad;
         }
 
+        /// <summary>
+        /// Client: put this machine's copy of a body that moved out of sight where the host has
+        /// it. The copy is usually switched off (the game culls the world away from the local
+        /// player), so it is read from the item registry and its transform is set directly;
+        /// nothing is spawned, interpolated or sounded.
+        /// </summary>
+        private static bool SnapFarObject(WorldObjectState obj, Vector3 targetPos)
+        {
+            GameObject best = null;
+            float bestSq = FullScanMaxDist * FullScanMaxDist;
+            Item[] items = WorldQueryHelper.GetCachedSceneComponents<Item>();
+            for (int i = 0; i < items.Length; i++)
+            {
+                Item it = items[i];
+                if (it == null) continue;
+                // Distance first: name and component reads only for the few close ones.
+                float dSq = (it.transform.position - targetPos).sqrMagnitude;
+                if (dSq > bestSq) continue;
+                GameObject candidate = it.gameObject;
+                if (!IsUsableResolveCandidate(candidate, obj.Name, targetPos, float.MaxValue)) continue;
+                if (candidate.GetComponent<Rigidbody>() == null) continue;
+                if (!IsSameWorldAsTarget(candidate.transform, targetPos)) continue;
+                bestSq = dSq;
+                best = candidate;
+            }
+            if (best == null || IsInFlightThrownItem(best) || IsSceneFixedLightItem(best))
+                return false;
+
+            Item bestItem = best.GetComponent<Item>();
+            if (bestItem != null && bestItem.beingDragged)
+                return false;
+
+            RemoveObjectFromInterpolation(best);
+            Quaternion rot = Quaternion.Euler(obj.RotX, obj.RotY, obj.RotZ);
+            best.transform.SetPositionAndRotation(targetPos, rot);
+            Rigidbody rb = best.GetComponent<Rigidbody>();
+            ReleaseKinematic(rb);
+            if (rb != null && best.activeInHierarchy)
+            {
+                rb.position = targetPos;
+                rb.rotation = rot;
+                if (!rb.isKinematic)
+                {
+                    rb.velocity = Vector3.zero;
+                    rb.angularVelocity = Vector3.zero;
+                }
+            }
+            return true;
+        }
+
         /// <param name="allowSpawn">False for client-origin snapshots: the host owns item existence
         /// and must never mint a prefab because a client still reports an object the host removed.</param>
         private static GameObject FindOrSpawnObject(WorldObjectState obj, bool allowSpawn)

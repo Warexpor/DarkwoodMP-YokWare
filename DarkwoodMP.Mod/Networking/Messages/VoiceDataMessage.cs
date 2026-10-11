@@ -4,6 +4,11 @@ namespace DWMPHorde.Networking
     public struct VoiceDataMessage
     {
         public const byte FlagWalkie = 1;
+        /// <summary>
+        /// <see cref="Data"/> holds two codec blocks: the voice (one full packet of samples), then
+        /// the sounds the talker's radio picked up around them (the rest). Only radios play the second.
+        /// </summary>
+        public const byte FlagWorld = 2;
 
         public int PlayerId;
         public ushort Seq;

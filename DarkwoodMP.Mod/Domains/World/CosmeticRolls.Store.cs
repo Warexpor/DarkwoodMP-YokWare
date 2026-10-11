@@ -90,6 +90,9 @@ namespace DWMPHorde.Sync
             return true;
         }
 
+        /// <summary>The same key for another per-object store (<see cref="PlacedLootStore"/>).</summary>
+        internal static bool TryObjectKey(Transform t, int salt, out long key) => TryStoreKey(t, salt, out key);
+
         /// <summary>
         /// Sibling places asked for in this frame. A location's objects roll together and share
         /// their upper levels, so each level is counted once per flush.

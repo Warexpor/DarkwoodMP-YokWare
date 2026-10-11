@@ -36,20 +36,6 @@ namespace DWMPHorde.Networking
         }
 
         /// <summary>
-        /// Client disconnect / quit while in-world: write local self (+ host if still linked)
-        /// so exit position is not only whatever the last Save captured.
-        /// </summary>
-        private void TrySnapshotClientBackupOnExit()
-        {
-            SaveHandlers.TrySnapshotClientBackupOnExit();
-        }
-
-        private void TryHostWorldSaveCheckpointOnExit()
-        {
-            SaveHandlers.TryHostWorldSaveCheckpointOnExit();
-        }
-
-        /// <summary>
         /// Host-broadcast SaveSync → clients run full local Save with vanilla Saving UI.
         /// Client-originated SaveSync is host-only (debounced fan-out). Flag blocks loops.
         /// </summary>

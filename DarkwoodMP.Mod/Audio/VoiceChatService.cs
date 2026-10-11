@@ -41,6 +41,11 @@ namespace DWMPHorde.Audio
             /// <summary>The talker's walkie key click and release, heard around them (3D, a short way).</summary>
             public AudioSource Click;
             public AudioLowPassFilter ClickMuffle;
+            public AudioReverbFilter ClickReverb;
+            /// <summary>Where the two static recordings are read from, and how much of the weak-signal one is mixed in.</summary>
+            public int StaticNearPos;
+            public int StaticFarPos;
+            public float FarStatic;
             /// <summary>Vanilla's indoor reverb (<c>AudioController</c>: a sound from inside a building gets an AudioReverbFilter).</summary>
             public AudioReverbFilter Reverb;
             public float NextInsideCheck;
@@ -48,20 +53,27 @@ namespace DWMPHorde.Audio
             public bool TalkerInside;
             /// <summary>Signal on the radio this talker is heard through, 1 clear .. 0 none (0 when heard directly).</summary>
             public float RadioQuality;
-            /// <summary>Someone keying over this talker (0..1): the whistle of two carriers.</summary>
+            /// <summary>Someone keying over this talker (0..1): the two bury each other in static.</summary>
             public float Doubling;
-            /// <summary>Feedback from a radio right by this talker (0..1).</summary>
-            public float Howl;
-            public double HowlPhase;
-            public double HetPhase;
-            public float BreakupLeft;
+            /// <summary>Where in the caller's beep this transmission is (-1: not playing).</summary>
+            public int BeepPos = -1;
             public bool RadioMode;
             public bool RadioWasActive;
+            /// <summary>How much of the voice the signal lets through (1 clear .. 0 static only), as of the last packet.</summary>
+            public float VoiceShare = 1f;
+            /// <summary>
+            /// Until then the radio this talker was heard on plays out what it has and its squelch
+            /// tail, at the volume it had (<see cref="HeldVol"/>): the talker is off the air by
+            /// then, and without the hold the tail played as a voice from where they stand.
+            /// </summary>
+            public float RadioHoldUntil;
+            public float HeldVol;
+            public float HeldCutoff = 22000f;
             public Biquad RadioHp;
             public Biquad RadioLp;
-            /// <summary>Radio hiss level for this talker (grows with the distance between the two radios).</summary>
-            public float RadioHiss;
             public bool Priming = true;
+            /// <summary>Seconds of voice buffered before playback starts (the network's jitter; less for a local source).</summary>
+            public float PrimeSec = VoiceChatService.PrimeSec;
             /// <summary>Set when a short spurt has ended below the prime level: play it out anyway.</summary>
             public bool PrimeRelease;
             public int PacketsIn;
@@ -94,6 +106,11 @@ namespace DWMPHorde.Audio
             private float _prev;
             private float _cur;
             private float _vol;
+            /// <summary>0..1 over the first samples after a start: a stream that begins at full level clicks.</summary>
+            private float _rise;
+
+            /// <summary>Samples (at the voice rate) a stream takes to come in, and to go out as its buffer runs dry.</summary>
+            private const int EdgeSamples = 128;
 
             private void OnAudioFilterRead(float[] data, int channels)
             {
@@ -115,13 +132,14 @@ namespace DWMPHorde.Audio
                 {
                     if (s.Priming)
                     {
-                        if (s.Buffered < (int)(SrcRate * PrimeSec) && !s.PrimeRelease)
+                        if (s.Buffered < (int)(SrcRate * s.PrimeSec) && !s.PrimeRelease)
                         {
                             Array.Clear(data, 0, data.Length);
                             return;
                         }
                         s.Priming = false;
                         s.PrimeRelease = false;
+                        _rise = 0f;
                     }
 
                     for (int i = 0; i < frames; i++)
@@ -132,8 +150,13 @@ namespace DWMPHorde.Audio
                             _frac -= 1.0;
                             if (s.Buffered > 0)
                             {
+                                // In over the first samples, out over the last ones buffered: static or a
+                                // voice cut off at full level is a click on every start and stop.
+                                if (_rise < 1f)
+                                    _rise = Mathf.Min(1f, _rise + 1f / EdgeSamples);
+                                float edge = s.Buffered >= EdgeSamples ? _rise : _rise * s.Buffered / EdgeSamples;
                                 _prev = _cur;
-                                _cur = s.Ring[s.ReadPos];
+                                _cur = s.Ring[s.ReadPos] * edge;
                                 s.ReadPos = (s.ReadPos + 1) % s.Ring.Length;
                                 s.Buffered--;
                             }
@@ -177,12 +200,20 @@ namespace DWMPHorde.Audio
         private static readonly List<int> _reap = new List<int>(); // process-scoped: scratch
         private static GameObject _root; // process-scoped: DontDestroyOnLoad speaker parent
         private static readonly float[] _decodeBuf = new float[VoiceCodec.PacketSamples * 2]; // process-scoped: decode scratch
-        private static readonly byte[] _encodeBuf = new byte[VoiceCodec.EncodedSize(VoiceCodec.PacketSamples)]; // process-scoped: encode scratch
+        private static readonly byte[] _encodeBuf = new byte[VoiceCodec.EncodedSize(VoiceCodec.PacketSamples) * 2]; // process-scoped: encode scratch (voice block, then the picked-up sounds)
+        private static readonly float[] _worldTx = new float[VoiceCodec.PacketSamples]; // process-scoped: picked-up sounds of the frame being sent
+        private static readonly float[] _worldRx = new float[VoiceCodec.PacketSamples]; // process-scoped: picked-up sounds of the packet being decoded
+        private static readonly float[] _echoMix = new float[VoiceCodec.PacketSamples]; // process-scoped: scratch
+        /// <summary>The sounds picked up by a talker's radio against their voice, on the radio that plays them.</summary>
+        private const float WorldRxGain = 0.5f;
         private static readonly List<float[]> _frames = new List<float[]>(8); // process-scoped: frames from the mic this tick
         private static float[] _preroll; // process-scoped: the frame before talk began (its first syllable)
         private static bool _localWalkie; // process-scoped: polled every 0.5 s
         private static float _nextWalkieCheck; // process-scoped: polled every 0.5 s
         private static bool _walkieTx;
+        private static float _walkieSendUntil; // process-scoped: compared against the clock
+        /// <summary>The mic's delay (<see cref="VoiceMicChain.MaxDelaySec"/>), the frame its worker hands packets over in, and a packet more.</summary>
+        private const float WalkieSendTailSec = VoiceMicChain.MaxDelaySec + 0.08f;
         private static bool _walkieTxWas;
         private static bool _transmitting;
         private static int _txPackets; // process-scoped: stats
@@ -202,6 +233,8 @@ namespace DWMPHorde.Audio
                     UnityEngine.Object.Destroy(s.Go);
             }
             _speakers.Clear();
+            ResetSelfEcho();
+            _knobStates.Clear();
             _stopLinger = 0f;
             _walkieTx = false;
             _walkieTxWas = false;
@@ -209,6 +242,7 @@ namespace DWMPHorde.Audio
             _preroll = null;
             _radioHolder = 0;
             _radioHolderAt = 0f;
+            WorldSoundPickup.Reset();
             VoiceHearing.Reset();
         }
 
@@ -244,6 +278,7 @@ namespace DWMPHorde.Audio
             if (!enabled)
             {
                 _transmitting = false;
+                WorldSoundPickup.SetActive(false);
                 // The radio is a device: its knob and battery work with voice chat off too.
                 if (inGame)
                 {
@@ -255,12 +290,14 @@ namespace DWMPHorde.Audio
 
             UpdateLocalWalkie();
             UpdateSpeakers();
-            TickHowl(net, Time.unscaledDeltaTime);
+            UpdateSelfEcho(net, Time.unscaledDeltaTime);
+            TickRemoteKnobs(net);
 
             if (!inGame)
             {
                 _transmitting = false;
                 _walkieTxWas = false;
+                WorldSoundPickup.SetActive(false);
                 return;
             }
 
@@ -281,7 +318,8 @@ namespace DWMPHorde.Audio
             }
 
             // Typing in chat or a menu text field must not key the mic.
-            bool ptt = Input.GetKey(_pttKey) && !UiInputLock.IsHeld;
+            bool ptt = (Input.GetKey(_pttKey) && !UiInputLock.IsHeld)
+                || (PadAction(PadVoiceAction(), down: false) && WalkieTxAllowed());
             bool openMic = !string.Equals(ModConfig.VoiceMode?.Value ?? "ptt", "ptt",
                 StringComparison.OrdinalIgnoreCase);
             _walkieTx = false;
@@ -292,7 +330,7 @@ namespace DWMPHorde.Audio
                 {
                     InvItemClass cur = Player.Instance.currentItem;
                     if (!InvItemClass.isNull(cur) && cur.type == walkie)
-                        _walkieTx = Input.GetKey(RadioTalkKey()) && WalkieTxAllowed() && LocalRadioLive;
+                        _walkieTx = RadioTalkHeld() && WalkieTxAllowed() && LocalRadioLive;
                 }
             }
             catch { /* ignore */ }
@@ -315,6 +353,9 @@ namespace DWMPHorde.Audio
             // word); an always-on mic sends while its gate hears speech over the room.
             if (ptt || _walkieTx)
                 _stopLinger = Time.unscaledTime + 0.25f;
+            // The keyed radio hears the world around its holder too.
+            WorldSoundPickup.SetActive(_walkieTx
+                && ModConfig.VoiceRadioWorldSounds != null && ModConfig.VoiceRadioWorldSounds.Value);
             bool send = ptt || _walkieTx || Time.unscaledTime < _stopLinger || (openMic && VoiceMic.GateOpen);
             if (send && !_transmitting && _preroll != null)
                 SendFrame(net, _preroll);
@@ -384,7 +425,6 @@ namespace DWMPHorde.Audio
               .Append(" devices=").Append(VoiceMic.Devices.Length)
               .Append(" walkie=").Append(WalkieStateText(LocalWalkieState))
               .Append(" battery=").Append(Mathf.RoundToInt(Charge() * 100f)).Append('%')
-              .Append(" howl=").Append(_howlLevel.ToString("0.00"))
               .Append(" sent=").Append(_seq);
             foreach (Speaker s in _speakers.Values)
             {
@@ -396,7 +436,6 @@ namespace DWMPHorde.Audio
                   .Append(" mode=").Append(s.Mode).Append(s.WalkieActive ? " walkie" : "")
                   .Append(" q=").Append(s.RadioQuality.ToString("0.00"))
                   .Append(s.Doubling > 0f ? " doubling=" + s.Doubling.ToString("0.00") : "")
-                  .Append(s.Howl > 0f ? " howl=" + s.Howl.ToString("0.00") : "")
                   .Append(" age=").Append((Time.unscaledTime - s.LastData).ToString("0.0")).Append("s");
             }
             return sb.ToString();
@@ -421,6 +460,72 @@ namespace DWMPHorde.Audio
             }
             return _talkKey;
         }
+
+        /// <summary>The game is played with a controller right now (vanilla's own switch).</summary>
+        internal static bool PadMode
+        {
+            get
+            {
+                try
+                {
+                    Globals g = Singleton<Globals>.Instance;
+                    return g != null && g.controllerMode;
+                }
+                catch
+                {
+                    return false;
+                }
+            }
+        }
+
+        /// <summary>
+        /// A vanilla input action (Rewired, by its name) on the controller. The radio's talk
+        /// button is the game's Aim and its knob the game's Attack: with the radio in hand
+        /// neither does anything else (it cannot be aimed, and it is no weapon).
+        /// </summary>
+        private static bool PadAction(string action, bool down)
+        {
+            if (action == null || !PadMode)
+                return false;
+            try
+            {
+                InputScript input = Singleton<InputScript>.Instance;
+                Rewired.Player rp = input != null ? input.rewiredPlayer : null;
+                return rp != null && (down ? rp.GetButtonDown(action) : rp.GetButton(action));
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Push to talk on a controller. Every button of the controller has a vanilla action in
+        /// play, so there is none to take: the setting picks which one voice shares, by the
+        /// vanilla action it is bound to (<c>VoicePadTalkButton</c>; the names are the buttons
+        /// of the game's default layout).
+        /// </summary>
+        internal static readonly string[] PadVoiceButtons = { "Off", "DpadLeft", "DpadRight", "LeftStick", "RightStick" };
+        private static readonly string[] PadVoiceActions = { null, "Cycle", "Effects Cycle", "Reload", "Dodge" };
+
+        internal static int PadVoiceIndex()
+        {
+            string v = ModConfig.VoicePadTalkButton?.Value ?? "DpadLeft";
+            for (int i = 0; i < PadVoiceButtons.Length; i++)
+            {
+                if (string.Equals(PadVoiceButtons[i], v, StringComparison.OrdinalIgnoreCase))
+                    return i;
+            }
+            return 1;
+        }
+
+        private static string PadVoiceAction() => PadVoiceActions[PadVoiceIndex()];
+
+        internal const string PadTalkAction = "Aim";
+        internal const string PadKnobAction = "Attack";
+
+        /// <summary>The walkie's talk button is held: its key, or Aim on a controller.</summary>
+        private static bool RadioTalkHeld() => Input.GetKey(RadioTalkKey()) || PadAction(PadTalkAction, down: false);
 
         /// <summary>
         /// The talk key (right mouse by default) is also vanilla aim / context click, so it only keys the radio while the player is
@@ -447,6 +552,28 @@ namespace DWMPHorde.Audio
             return pause == null || !pause.gameObject.activeInHierarchy;
         }
 
+        /// <summary>
+        /// Built-in level of received voice, under the VoiceGain setting. Voice sat well below
+        /// the game's own sounds at the old level; the setting keeps its meaning (1.4 = normal).
+        /// </summary>
+        private const float VoiceBaseGain = 2.0f;
+
+        private const float LimitKnee = 0.7f;
+
+        /// <summary>
+        /// Peaks above the knee bend toward full scale instead of being cut flat: the higher
+        /// level would otherwise crackle on every loud syllable.
+        /// </summary>
+        private static float SoftLimit(float x)
+        {
+            float a = x < 0f ? -x : x;
+            if (a <= LimitKnee)
+                return x;
+            float over = (a - LimitKnee) / (1f - LimitKnee);
+            float y = LimitKnee + (1f - LimitKnee) * (float)Math.Tanh(over);
+            return x < 0f ? -y : y;
+        }
+
         public static void OnVoiceData(VoiceDataMessage msg)
         {
             var net = ModRuntime.Network;
@@ -466,17 +593,42 @@ namespace DWMPHorde.Audio
             try
             {
                 int len = VoiceCodec.Encode(frame, frame.Length, _encodeBuf);
+                // The level is the voice's alone: it says how far the voice carries and what creatures hear.
                 float level = VoiceCodec.LevelOf(frame, frame.Length);
                 int playerId = Math.Max(net.LocalPlayerId, 0);
                 ushort seq = _seq++;
-                byte flags = (byte)(_walkieTx ? VoiceDataMessage.FlagWalkie : 0);
+                // The mic's sound comes out of its cleaning a moment late: what was said as the
+                // key came up is still on its way, and belongs to the transmission.
+                if (_walkieTx)
+                    _walkieSendUntil = Time.unscaledTime + WalkieSendTailSec;
+                bool walkie = _walkieTx || Time.unscaledTime < _walkieSendUntil;
+                byte flags = (byte)(walkie ? VoiceDataMessage.FlagWalkie : 0);
+                // On the radio, a second block: what the radio picked up around this player.
+                bool world = _walkieTx && frame.Length == VoiceCodec.PacketSamples
+                    && WorldSoundPickup.Read(_worldTx, VoiceCodec.PacketSamples);
+                if (world)
+                {
+                    len += VoiceCodec.Encode(_worldTx, VoiceCodec.PacketSamples, _encodeBuf, len);
+                    flags |= VoiceDataMessage.FlagWorld;
+                }
                 byte levelByte = (byte)Mathf.RoundToInt(level * 255f);
                 if (net.Role == NetworkRole.Host)
-                    VoiceHearing.Heard(net.LocalPlayerId, level, _walkieTx);
+                    VoiceHearing.Heard(net.LocalPlayerId, level, walkie);
                 net.Broadcast(NetMessageType.VoiceData,
                     w => VoiceDataMessage.WriteSlice(w, playerId, seq, flags, levelByte, _encodeBuf, len),
                     DeliveryMethod.Unreliable);
                 _txPackets++;
+                if (walkie)
+                {
+                    float[] heard = frame;
+                    if (world)
+                    {
+                        heard = _echoMix;
+                        for (int i = 0; i < VoiceCodec.PacketSamples; i++)
+                            heard[i] = frame[i] + _worldTx[i] * WorldRxGain;
+                    }
+                    FeedSelfEcho(heard, level);
+                }
             }
             catch (Exception ex)
             {
@@ -500,65 +652,111 @@ namespace DWMPHorde.Audio
                 speaker.HasSeq = true;
                 speaker.LastSeq = p.Seq;
 
-                int samples = VoiceCodec.Decode(p.Data, p.Data.Length, _decodeBuf);
+                // Two blocks when the talker's radio sent what it picked up: voice first, a full packet.
+                int voiceBytes = p.Data.Length;
+                int worldSamples = 0;
+                if ((p.Flags & VoiceDataMessage.FlagWorld) != 0)
+                {
+                    voiceBytes = VoiceCodec.EncodedSize(VoiceCodec.PacketSamples);
+                    if (p.Data.Length <= voiceBytes + VoiceCodec.HeaderBytes)
+                        return;
+                    worldSamples = VoiceCodec.Decode(p.Data, voiceBytes, p.Data.Length - voiceBytes, _worldRx);
+                }
+                int samples = VoiceCodec.Decode(p.Data, 0, voiceBytes, _decodeBuf);
                 if (samples <= 0)
                     return;
-
+                // Only a radio plays the second block: heard directly, the talker is a voice in
+                // a world the listener hears for themselves.
                 bool walkieNow = (p.Flags & VoiceDataMessage.FlagWalkie) != 0;
+                if (worldSamples > 0 && speaker.RadioMode && walkieNow)
+                {
+                    int n = Math.Min(samples, worldSamples);
+                    for (int i = 0; i < n; i++)
+                        _decodeBuf[i] += _worldRx[i] * WorldRxGain;
+                }
+
                 if (walkieNow != speaker.WalkieActive)
                 {
                     speaker.WalkieActive = walkieNow;
                     PlayTalkerClick(speaker, keyDown: walkieNow);
                 }
                 speaker.Walkie = walkieNow;
-                if (walkieNow)
-                    ClaimChannel(speaker.Id);
                 speaker.Level = p.Level / 255f;
                 speaker.PacketsIn++;
                 speaker.LastData = Time.unscaledTime;
-                float gain = ModConfig.VoiceGain?.Value ?? 1.4f;
-                bool radioMode = speaker.RadioMode;
-                bool radioStart = radioMode && !speaker.RadioWasActive;
-                if (radioMode)
-                    speaker.RadioWasActive = true;
-                if (radioStart)
+                if (walkieNow)
                 {
-                    speaker.RadioHp = Biquad.HighPass(RadioLowHz, _sampleRate);
-                    speaker.RadioLp = Biquad.LowPass(RadioHighHz, _sampleRate);
-                    WriteSquelch(speaker, open: true);
+                    ClaimChannel(speaker.Id);
+                    speaker.RadioHoldUntil = 0f;
                 }
-
-                if (radioMode)
-                    RadioPacket(speaker, _decodeBuf, samples);
-
-                lock (speaker.Lock)
+                else
                 {
-                    for (int i = 0; i < samples; i++)
+                    // The key came up (the mic sends a moment longer, for the last word of a
+                    // voice heard directly): the radio playing this talker closes now, with its
+                    // squelch tail, and what follows is not on the air.
+                    if (speaker.RadioWasActive)
                     {
-                        if (speaker.Buffered >= speaker.Ring.Length)
-                            break;
-                        float sample = _decodeBuf[i] * gain;
-                        if (radioMode)
-                            sample = RadioSample(speaker, sample);
-                        speaker.Ring[speaker.WritePos] = Mathf.Clamp(sample, -1f, 1f);
-                        speaker.WritePos = (speaker.WritePos + 1) % speaker.Ring.Length;
-                        speaker.Buffered++;
+                        speaker.RadioWasActive = false;
+                        WriteSquelchTail(speaker);
                     }
-
-                    // Fell behind (a burst after a stall): skip ahead rather than lag for the rest of the talk.
-                    int maxBuf = (int)(_sampleRate * 0.6f);
-                    if (speaker.Buffered > maxBuf)
-                    {
-                        int drop = speaker.Buffered - (int)(_sampleRate * 0.2f);
-                        speaker.ReadPos = (speaker.ReadPos + drop) % speaker.Ring.Length;
-                        speaker.Buffered -= drop;
-                    }
+                    if (Time.unscaledTime < speaker.RadioHoldUntil)
+                        return;
                 }
+                WriteVoice(speaker, _decodeBuf, samples);
             }
             catch (Exception ex)
             {
                 if (NetLogThrottle.ShouldLog("voice-decode", 10f, out _))
                     ModLog.Warn(LogCat.Audio, "Voice decode: " + ex.Message);
+            }
+        }
+
+        /// <summary>
+        /// One packet of voice into a speaker's buffer: through the radio (squelch, band, static)
+        /// when it is heard on one. <paramref name="buf"/> is changed in place.
+        /// </summary>
+        private static void WriteVoice(Speaker speaker, float[] buf, int samples)
+        {
+            float gain = (ModConfig.VoiceGain?.Value ?? 1.4f) * VoiceBaseGain;
+            // Only what the talker's radio sends goes through the listener's radio.
+            bool radioMode = speaker.RadioMode && speaker.WalkieActive;
+            bool radioStart = radioMode && !speaker.RadioWasActive;
+            if (radioMode)
+                speaker.RadioWasActive = true;
+            if (radioStart)
+            {
+                speaker.RadioHp = Biquad.HighPass(RadioLowHz, _sampleRate);
+                speaker.RadioLp = Biquad.LowPass(RadioHighHz, _sampleRate);
+                StartStatic(speaker);
+                speaker.BeepPos = 0;
+                speaker.VoiceShare = VoiceShareOf(speaker.RadioQuality);
+            }
+
+            if (radioMode)
+                RadioPacket(speaker, buf, samples);
+
+            lock (speaker.Lock)
+            {
+                for (int i = 0; i < samples; i++)
+                {
+                    if (speaker.Buffered >= speaker.Ring.Length)
+                        break;
+                    float sample = buf[i] * gain;
+                    if (radioMode)
+                        sample = RadioSample(speaker, sample);
+                    speaker.Ring[speaker.WritePos] = SoftLimit(sample);
+                    speaker.WritePos = (speaker.WritePos + 1) % speaker.Ring.Length;
+                    speaker.Buffered++;
+                }
+
+                // Fell behind (a burst after a stall): skip ahead rather than lag for the rest of the talk.
+                int maxBuf = (int)(_sampleRate * 0.6f);
+                if (speaker.Buffered > maxBuf)
+                {
+                    int drop = speaker.Buffered - (int)(_sampleRate * 0.2f);
+                    speaker.ReadPos = (speaker.ReadPos + drop) % speaker.Ring.Length;
+                    speaker.Buffered -= drop;
+                }
             }
         }
 

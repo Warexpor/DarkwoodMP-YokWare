@@ -39,7 +39,10 @@ namespace DWMPHorde.Sync
                         continue;
                     }
 
-                    // Client: skip far free-bodies (FindOrSpawn / full RB scan was dual-box thrash).
+                    // Client: a far free-body gets no resolve cascade, interpolation or scrape
+                    // (FindOrSpawn / full RB scan was dual-box thrash), only its pose: dropped
+                    // outright, furniture another player pushed across the map stayed where this
+                    // machine had it, and its container could not be opened from here.
                     // Dream pads sit far from the overworld and remain in interest
                     // while dreaming (door-room props
                     // are often > ClientInterestDistance from spawn).
@@ -50,7 +53,10 @@ namespace DWMPHorde.Sync
                         if (!dreamPad
                             && !Networking.ClientEntityInterpolationService.IsInClientInterest(opos))
                         {
-                            objSkipped++;
+                            if (SnapFarObject(obj, opos))
+                                objApplied++;
+                            else
+                                objSkipped++;
                             continue;
                         }
                     }
