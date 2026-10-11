@@ -378,6 +378,7 @@ Older, still open:
 
 - [ ] Doors: one player opens, another closes, a third watches: the same state and
       one sound each time. A barricaded door cannot be opened; door health matches.
+- [ ] A window boarded up after the last save, far from where a player joins, is boarded for that player on arrival.
 - [ ] Lights: lamps, the generator, flares (they go out together), and the other
       player's lantern and flashlight look the same everywhere. A late joiner near lit
       lamps hears no burst of switch clicks.

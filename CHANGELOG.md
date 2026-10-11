@@ -3,12 +3,12 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.227**. The current Horde wire protocol is **54**. Every install in a session
+**0.8.228**. The current Horde wire protocol is **54**. Every install in a session
 needs the same DLL; the protocol is checked on join.
 
 Protocol history (newest first):
 
-- **54**, 0.8.212 to 0.8.227: `VoiceData` (129) gains flag 2: a second codec block after the voice,
+- **54**, 0.8.212 to 0.8.228: `VoiceData` (129) gains flag 2: a second codec block after the voice,
   the sounds the talker's radio picked up.
 - **53**, 0.8.200 to 0.8.211: the world share package gains `savplc.dat` (container slots a player
   stored items in). No message layout changed; the bump keeps every player on a build
@@ -61,6 +61,20 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.228 — a joining player gets window barricades in far locations
+
+- **A window boarded up or broken since the last save, in a place far from the joining
+  player, stayed as in the save for that player.** The join sends every window's barricade
+  state, but a window was looked up through physics only, and physics does not see the
+  windows of a location that is switched off (far from the player). The update waited
+  30 s and was dropped (`[Barr] pending event expired type=1` in the client log of the
+  0.8.227 session; there the save already matched, so nothing was visibly wrong). Doors
+  already had a fallback for this. `WorldQueryHelper.FindWindowByPosLoose` now falls back
+  to the scene list, an active window first. The same lookup serves a window set on fire
+  and a client's blow on a window.
+- The 0.8.227 session's logs otherwise: no errors or exceptions on either side, no save
+  was made in it, the client joined as a fresh character (no stored one), voice ran both ways.
 
 ## 0.8.227 — leaving saves nothing, as in the base game
 

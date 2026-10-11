@@ -361,6 +361,26 @@ namespace DWMPHorde.Sync
                     best = w;
                 }
             }
+            if (best != null) return best;
+
+            // Physics only reports colliders of active objects: a window of a location that is
+            // switched off (far from this player) is found in the scene list, an active one first.
+            Window[] all = GetCachedSceneComponents<Window>();
+            bool bestActive = false;
+            for (int i = 0; i < all.Length; i++)
+            {
+                Window w = all[i];
+                if (w == null) continue;
+                float d = Vector3.Distance(w.transform.position, pos);
+                if (d > radius) continue;
+                bool active = w.gameObject.activeInHierarchy;
+                if (best == null || (active && !bestActive) || (active == bestActive && d < bestD))
+                {
+                    bestD = d;
+                    best = w;
+                    bestActive = active;
+                }
+            }
             return best;
         }
 
