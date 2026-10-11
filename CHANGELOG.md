@@ -63,7 +63,7 @@ tested in the game.
 
 ---
 
-## 0.8.232 — repaired furniture is repaired for everyone, a feeding creature shot by a client turns on them, steadier stand-up
+## 0.8.232 — repaired furniture is repaired for everyone, steadier stand-up, blood at range
 
 From the 0.8.231 session logs.
 
@@ -78,16 +78,20 @@ From the 0.8.231 session logs.
   (not their positions) and the item bulk sends `Built` for each one still whole
   (`BarricadeNetHandlers`). A repair is no longer recorded as a "constructed site", which
   would have rebuilt the item for a later joiner after it was broken again.
-- **A feeding creature shot by a client could flee where it always attacks the host.**
+- **A feeding creature that a hit does not interrupt reacted differently to a client.**
   Vanilla `reactToCharacter`: a `Player` attacker is always chased; any other attacker
-  goes through the cowardice roll (a dog flees half the time). The mod's patch for
-  stand-ins left feeding creatures to vanilla, where a stand-in is no `Player`. The
-  feeding case is now handled in the patch (food ignored for 100 s as in vanilla, then
-  the chase), for a client's hit and the host's own (`HostRetaliateOnAttackerPatch`).
-  The rest of the audit (58 uses of "the player" in creature AI, every noise alert,
-  hit, touch, smell and sight path) found the client's actions reaching the host's
-  creatures the way the host's do. That a pack reacts differently each time is the
-  base game: a gunshot makes dogs run (`afraidOfGunshots`), each on its own state.
+  goes through the cowardice roll. The mod's patch for stand-ins left feeding creatures
+  to vanilla, where a stand-in is no `Player`. This does NOT cover an ordinary shot:
+  `Character.getHit` runs `getInterrupted` (which ends the feeding) before
+  `reactToCharacter`, so a shot dog was already handled the same for host and client.
+  It covers creatures with `dontGetInterrupted`, hits that cannot interrupt, and a
+  feeding creature with cowardice "always" bumped by a client (it did nothing; bumped
+  by the host it attacks). The feeding case is now handled in the patch (food ignored
+  for 100 s as in vanilla, then the chase) (`HostRetaliateOnAttackerPatch`).
+  The audit (noise alerts, hits, touch, and the uses of "the player" in creature AI
+  that were opened) found the client's actions reaching the host's creatures the way
+  the host's do. That a pack reacts differently each time is the base game: a gunshot
+  makes dogs run (`afraidOfGunshots`), each on its own state.
 - **Stand-up on the other screens.** 0.8.231's logs showed the copy drifting both ways
   (`copy at frame 24 moved to the player's 20`, then `20 → 25`) and being dropped
   mid-clip by one packet without the clip. The copy no longer runs on its own clock:

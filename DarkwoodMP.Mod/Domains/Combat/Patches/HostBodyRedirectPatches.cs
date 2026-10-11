@@ -143,9 +143,10 @@ namespace DWMPHorde.Patches
                 || __instance.behaviour == Character.Behaviour.escaping)
                 return true;
             // A feeding creature leaves its food for a while (vanilla, before the chase). This
-            // used to be left to vanilla whole, where a stand-in is no Player: a feeding dog shot
-            // by a client rolled its cowardice (a dog flees half the time) while the same dog
-            // shot by the host always turned on the host.
+            // used to be left to vanilla whole, where a stand-in is no Player and the cowardice
+            // roll runs instead of the chase. An ordinary hit never gets here feeding (getHit's
+            // getInterrupted ends it first): this is for creatures a hit does not interrupt and
+            // for a feeding creature bumped into.
             if (__instance.eating)
             {
                 __instance.ignoreFood = true;
