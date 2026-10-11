@@ -345,7 +345,7 @@ namespace DWMPHorde.Logging
                 Event(LogCat.Core, "  Bug report: quit cleanly, send every player's " + LoaderLogPath);
                 Event(LogCat.Core, "  Quiet logs: set [Logging] LogPreset=Public (max capture: Trace)");
                 Event(LogCat.Core, "  Path B: Horde host-authoritative sync | GPLv3 | " + PluginInfo.Authors);
-                Event(LogCat.Core, "  Docs: DarkwoodMP.Mod/docs/CONFIG.md + LOGGING.md + PLAYTEST.md");
+                Event(LogCat.Core, "  Docs: DarkwoodMP.Mod/docs/CONFIG.md + LOGGING.md");
                 Event(LogCat.Core, "================================================");
             }
             finally

@@ -83,8 +83,6 @@ for maximum dual-box capture.
 | `clock off/target` | Host clock offset in use and the windowed best case it slews to |
 | `worst id=… coast+hold%` | The body that waited most, with its interval and delay |
 
-Full dual-box soak steps: [`PLAYTEST.md`](PLAYTEST.md).
-
 ## How to file a bug
 
 1. Same mod version on host + client.  

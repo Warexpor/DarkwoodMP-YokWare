@@ -16,7 +16,6 @@ steps are in the [README](../../README.md). What changed and when is in the
 | [ARCHITECTURE.md](ARCHITECTURE.md) | Source layout, wire format, dispatch, patch and test rules (for contributors) |
 | [COOP_COVERAGE.md](COOP_COVERAGE.md) | Per-domain code and runtime coverage, decompile notes on parked mechanics |
 | [CONFIG.md](CONFIG.md) | Every config key and its default |
-| [PLAYTEST.md](PLAYTEST.md) | Manual playtest checklist |
 | [LOGGING.md](LOGGING.md) | Log presets and what to send for support |
 
 **Status note.** "Code covered" and "works" are not the same thing here. A rule in

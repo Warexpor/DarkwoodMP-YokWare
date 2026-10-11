@@ -61,7 +61,7 @@ check_one Host "$HOST_LOG"
 check_one Client "$CLIENT_LOG"
 
 if [[ "$fail" -ne 0 ]]; then
-  echo "=== RESULT: FAIL — see DarkwoodMP.Mod/docs/LOGGING.md + PLAYTEST.md ==="
+  echo "=== RESULT: FAIL — see DarkwoodMP.Mod/docs/LOGGING.md ==="
   exit 1
 fi
 echo "=== RESULT: PASS — both logs clean of PerfCliff ==="

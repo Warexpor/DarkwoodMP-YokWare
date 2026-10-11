@@ -292,7 +292,6 @@ The highest assigned message ID is 170 (`CoHold`). Voice uses message 129.
 | [How co-op works](DarkwoodMP.Mod/docs/HOW_COOP_WORKS.md) | The design and rules of the co-op game |
 | [CONFIG.md](DarkwoodMP.Mod/docs/CONFIG.md) | Every setting and its default |
 | [LOGGING.md](DarkwoodMP.Mod/docs/LOGGING.md) | Log presets, what to send with a bug report |
-| [PLAYTEST.md](DarkwoodMP.Mod/docs/PLAYTEST.md) | Manual playtest checklist |
 | [ARCHITECTURE.md](DarkwoodMP.Mod/docs/ARCHITECTURE.md) | Code layout and the rules for a change |
 | [COOP_COVERAGE.md](DarkwoodMP.Mod/docs/COOP_COVERAGE.md) | Code and runtime coverage per area |
 | [CHANGELOG.md](CHANGELOG.md) | What changed in each release ([older entries](CHANGELOG-ARCHIVE.md)) |

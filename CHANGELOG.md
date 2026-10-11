@@ -100,6 +100,7 @@ tested in the game.
   was really let go.
 - **Tests and README caught up with 0.8.240**: the README's highest message id still read 168
   and the message-id contract test did not list `ItemPose`; a config comment narrated a version.
+- **`docs/PLAYTEST.md` removed** (the manual checklist was not used); links to it are gone.
 - **Protocol 58** (`DragSync` gains the co-holder; new `CoHold`).
 
 ## 0.8.240 — a broken wardrobe lies, turns and gets repaired the same for everyone
