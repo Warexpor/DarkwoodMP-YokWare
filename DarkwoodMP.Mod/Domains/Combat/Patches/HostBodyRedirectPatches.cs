@@ -163,6 +163,36 @@ namespace DWMPHorde.Patches
             return false;
         }
     }
+
+    /// <summary>
+    /// A defensive creature that finishes waking up paths to "the player" (vanilla OnAniFinish,
+    /// the Wakeup clip: <c>AIpath.setTarget(Player.Instance.transform)</c>). Woken by a client
+    /// it turned and walked towards the host, wherever the host was. It paths to the player
+    /// nearest to it, the same rule attackPlayer uses for the attack-on-sight case next to it.
+    /// </summary>
+    [HarmonyPatch(typeof(Character), "OnAniFinish")]
+    public static class HostWakeUpFacesNearestPatch
+    {
+        private static void Prefix(Character __instance, out bool __state)
+        {
+            __state = __instance != null && __instance.wakingUp;
+        }
+
+        private static void Postfix(Character __instance, bool __state)
+        {
+            if (!__state || __instance == null || __instance.wakingUp)
+                return;
+            if (__instance.aggressiveness != Aggressiveness.defensive
+                || __instance.attackClosestCharacerAfterWakingUp || __instance.AIpath == null)
+                return;
+            if (!HostPlayerIdentity.HostWithRemotes())
+                return;
+            Transform nearest = HostPlayerIdentity.NearestLiving(__instance.transform.position);
+            Player host = Player.Instance;
+            if (nearest != null && host != null && nearest != host.transform && nearest != host._transform)
+                __instance.AIpath.setTarget(nearest);
+        }
+    }
 }
 
 namespace DWMPHorde.Patches

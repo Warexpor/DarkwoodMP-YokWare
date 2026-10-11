@@ -92,6 +92,16 @@ From the 0.8.231 session logs.
   that were opened) found the client's actions reaching the host's creatures the way
   the host's do. That a pack reacts differently each time is the base game: a gunshot
   makes dogs run (`afraidOfGunshots`), each on its own state.
+- **Audit of "the player" in creature code, completed.** Every `Player.Instance` use in
+  `Character` (58), `Sniffer`, `AIPath`, `Flier`, `CharBase`, `CharacterSounds`,
+  `AnimationTriggerListener`, `MeleeSensor` and `CharacterSpawner` was matched to a mod
+  patch or to a reason it needs none. One gap, fixed: a defensive creature (a dog) that
+  finishes waking up paths to `Player.Instance`; woken by a client it turned towards the
+  host. It now paths to the nearest player (`HostWakeUpFacesNearestPatch`).
+  Not gaps: `rotateTowardsPlayerWhenPlayingCustomAni` (set on no prefab or scene),
+  hunger damage (unused), the night trader kill and the health bar / kill credit (host
+  UI). One rule that is the mod's own, not vanilla's: the forest spirit leaves only when
+  every player is inside, so a chased client going indoors alone does not shake it.
 - **Stand-up on the other screens.** 0.8.231's logs showed the copy drifting both ways
   (`copy at frame 24 moved to the player's 20`, then `20 → 25`) and being dropped
   mid-clip by one packet without the clip. The copy no longer runs on its own clock:
