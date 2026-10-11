@@ -163,6 +163,8 @@ namespace DWMPHorde.Sync
             Track<JournalNoteReference>();
             Track<KeyReference>();
             Track<QuestItemReference>();
+            // Read by StackedLightProbe (its own scene scan was a hitch every 5 s on both peers).
+            Track<Light2D>();
             // Host trap ledger: every world trap is watched as it is registered (no 10 s rescan).
             SceneRegistry<Trigger>.Added = TrapLedger.OnTriggerRegistered;
         }
@@ -359,6 +361,7 @@ namespace DWMPHorde.Sync
                 PatchTargets.Find(typeof(Location), "Awake", Type.EmptyTypes),
                 PatchTargets.Find(typeof(UniqueObject), "Awake", Type.EmptyTypes),
                 PatchTargets.Find(typeof(ItemSounds), "Awake", Type.EmptyTypes),
+                PatchTargets.Find(typeof(Light2D), "Awake", Type.EmptyTypes),
                 // No Awake: OnEnable on activation, Start as well (OnEnable skips a disabled component).
                 PatchTargets.Find(typeof(CutsceneManager), "OnEnable", Type.EmptyTypes),
                 PatchTargets.Find(typeof(CutsceneManager), "Start", Type.EmptyTypes));

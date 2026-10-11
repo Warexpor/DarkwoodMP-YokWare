@@ -3,12 +3,12 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.248**. The current Horde wire protocol is **61**. Every install in a session
+**0.8.249**. The current Horde wire protocol is **61**. Every install in a session
 needs the same DLL; the protocol is checked on join.
 
 Protocol history (newest first):
 
-- **61**, 0.8.248: `VoiceData` (129) carries Opus; with flag 2 its data starts with the voice
+- **61**, 0.8.248 to 0.8.249: `VoiceData` (129) carries Opus; with flag 2 its data starts with the voice
   block's length (2 bytes).
 - **60**, 0.8.247: new `DreamLeft` (172).
 - **59**, 0.8.243 to 0.8.246: new `DoorSwing` (171); `BarricadeEvent` drops the attacker position.
@@ -71,6 +71,28 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.249 — the stacked-light check no longer scans the scene
+
+Found in a look over frame cost and traffic (both `LogOutput.log` `[Perf]` lines).
+
+- **What broke.** Every 5 s, on host and client, one frame ran 20 ms (host) to 35-40 ms
+  (Wine client) longer: a dropped frame at 60 fps, for as long as a session was in the world.
+  In `[Perf]` it showed as `poll=` jumping from about 4 to 25-45 in every second or third
+  2 s window.
+- **Cause.** `StackedLightProbe` (the "lights look too bright" check from the light work)
+  called `FindObjectsOfType<Light2D>()` on each pass. Unity walks every behaviour in the
+  world for that (about 210 000 here), whatever the number of lights found. The check ran
+  under every log preset.
+- **Fix.** `Light2D` is now a `SceneRegistry` type (world seed, additive scenes, and
+  `Light2D.Awake` for lights made later); the check reads that list. Same lights checked,
+  same log lines, no scan.
+- **Looked at and left as is** (nothing out of proportion): `PlayerState` 30 a second at
+  about 90 bytes (2.7 kB/s a player); entity snapshots 20 a second, dirty entities only,
+  cut to the packet size; free-body physics 10 a second; voice about 30 kbit/s while
+  talking; `TimeSync` 2 a second; `PeerRoster` every 4 s. Host physics build costs about
+  1 ms a pass with nothing moving (1% of a frame).
+- Runtime: not playtested yet. Expect `poll=` to stay flat in `[Perf]` on both boxes.
 
 ## 0.8.248 — voice is carried in Opus
 
