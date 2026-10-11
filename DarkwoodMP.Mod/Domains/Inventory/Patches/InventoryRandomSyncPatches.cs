@@ -142,7 +142,8 @@ namespace DWMPHorde.Patches
                 PosZ = pos.z,
                 EntityHash = entityHash,
                 SlotCount = slots.Count,
-                Slots = slots.ToArray()
+                Slots = slots.ToArray(),
+                SaveId = Sync.WorldQueryHelper.ContainerSaveId(inv)
             };
             // Only to peers playing in the world. A peer on the title waiting for the host's world
             // got every fill of the host's world generation and first location activations (hundreds,

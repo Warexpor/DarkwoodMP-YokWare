@@ -359,6 +359,9 @@ namespace DWMPHorde.Sync
                             doorFailed++;
                             continue;
                         }
+                        if (ds.Opened && ds.AngVelX * ds.AngVelX + ds.AngVelY * ds.AngVelY
+                                + ds.AngVelZ * ds.AngVelZ > 0.01f)
+                            NoteDoorRemoteDrive(door);
 
                         bool currentOpened = TraverseHack.ReadDoorOpened(door);
                         if (currentOpened == ds.Opened)

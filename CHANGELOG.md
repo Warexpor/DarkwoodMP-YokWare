@@ -3,11 +3,13 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.238**. The current Horde wire protocol is **55**. Every install in a session
+**0.8.239**. The current Horde wire protocol is **56**. Every install in a session
 needs the same DLL; the protocol is checked on join.
 
 Protocol history (newest first):
 
+- **56**, 0.8.239: `ContainerItem`, `ContainerStateRequest`, `ContainerStateSync` and
+  `ContainerTakeDenied` gain the furniture's save id; `ContainerTakeDenied` gains mode 2 (return).
 - **55**, 0.8.230 to 0.8.238: `BarricadeEvent` (destructible items) gains the item's name.
 - **54**, 0.8.212 to 0.8.229: `VoiceData` (129) gains flag 2: a second codec block after the voice,
   the sounds the talker's radio picked up.
@@ -62,6 +64,33 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.239 — loot from a broken wardrobe; doors pushed by another player
+
+- **Items vanished when a client looted furniture the host had broken** (reported many times).
+  A broken destructible's body drops to the game's low2 draw layer (y -50, `Item.setDeathState`),
+  and the shotgun blast that broke it shoves the wreck after it broke. The host's physics scan was
+  a 40-unit sphere round each player at y 5, so it never reached y -50: the host's wreck slid about
+  ten units, the client's stayed where it broke, and every container message is keyed by position.
+  The host found no container at the client's spot, refused each take ("no inventory"), and the
+  client's refund took the item out of the bag after its own copy of the wardrobe had already
+  given it up: gone. Three fixes:
+  - The scan is a column from the player's layer down to y -50 (`WorldPhysicsSyncService.Snapshot`),
+    so a wreck's slide reaches everyone again.
+  - Container messages carry the furniture's vanilla save id (`ContainerItem`, `ContainerStateRequest`,
+    `ContainerStateSync`, `ContainerTakeDenied`; `WorldQueryHelper.FindInventory`). Both games
+    loaded the same save, so a wardrobe has the same id everywhere: when nothing is at the sender's
+    spot, the receiver finds it by id (within 40 units). Only furniture: dropped pickups, bags and
+    bodies get their ids from whichever game saves first, so theirs stay position-only.
+  - A take refused because the host has no such container now puts the item back into the
+    taker's own container (new deny mode `ModeTakeReturn`) instead of deleting it.
+- **A door shook when another player pushed it near the hinge.** Both games simulated the push:
+  the pusher's real body on its machine, its stand-in on the other, and each game sent its door's
+  swing (`DoorState`) to the other, so the door snapped between two angles and its creak restarted.
+  Near the hinge a door barely turns, so the stand-in dug in and was thrown back. Now a stand-in
+  stops colliding with a door on first touch (`ProxyDoorPassThrough`), and a swing that arrived
+  from another player is not sent back while it lasts (0.6 s after its last state).
+- **Protocol 56** (container messages gain the save id). Every install needs this DLL.
 
 ## 0.8.238 — a joiner gets the hideout's starting recipes
 

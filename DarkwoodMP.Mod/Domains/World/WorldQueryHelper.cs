@@ -184,6 +184,57 @@ namespace DWMPHorde.Sync
         }
 
         /// <summary>
+        /// How far a container found by its save id may be from the sender's spot. A broken
+        /// wardrobe slides about ten units on each machine its own way; an unrelated object that
+        /// got the same id after the save (each game counts its own new ids) is not this close.
+        /// </summary>
+        private const float SaveIdMatchRange = 40f;
+
+        /// <summary>
+        /// A container's vanilla save id (0: none). Both games load the same save, so a piece of
+        /// furniture from it carries the same id everywhere, wherever its body has slid to. Only
+        /// furniture: a dropped pickup, a bag or a body gets its id from whichever game saves it
+        /// first, and the same number can be another object on another machine.
+        /// </summary>
+        public static int ContainerSaveId(Inventory inv)
+        {
+            if (inv == null || inv.invType != Inventory.InvType.itemInv)
+                return 0;
+            Item item = inv.GetComponent<Item>();
+            if (item == null || item.isDroppedItem || inv.GetComponent<Character>() != null)
+                return 0;
+            SaveableObject so = inv.GetComponent<SaveableObject>();
+            if (so == null)
+                so = inv.GetComponentInParent<SaveableObject>();
+            return so != null && so.assigned && !so.dontSave && so.uniqueId > 0 ? so.uniqueId : 0;
+        }
+
+        /// <summary>The save id of the container at <paramref name="pos"/> (this game's own spot for it).</summary>
+        public static int ContainerSaveIdAt(Vector3 pos) => ContainerSaveId(FindInventoryByPos(pos));
+
+        /// <summary>
+        /// The container a message is about: at the sender's spot, else by its save id. Both
+        /// peers' copies of a broken wardrobe can lie where each one's slide left it, so the
+        /// sender's spot can be empty here.
+        /// </summary>
+        public static Inventory FindInventory(Vector3 pos, int saveId, float maxDist = 2.5f)
+        {
+            Inventory atPos = FindInventoryByPos(pos, maxDist);
+            if (atPos != null || saveId <= 0)
+                return atPos;
+            SaveManager sm = Singleton<SaveManager>.Instance;
+            if (sm == null || sm.uniqueIdDict == null
+                || !sm.uniqueIdDict.TryGetValue(saveId, out Transform t) || t == null)
+                return null;
+            Inventory inv = t.GetComponent<Inventory>() ?? t.GetComponentInChildren<Inventory>();
+            if (inv == null || ContainerSaveId(inv) != saveId
+                || (inv.transform.position - pos).sqrMagnitude > SaveIdMatchRange * SaveIdMatchRange)
+                return null;
+            ModRuntime.LegacyInfo($"[Container] found '{inv.name}' by save id {saveId} at {inv.transform.position} (sender's spot {pos})");
+            return inv;
+        }
+
+        /// <summary>
         /// Find an Inventory by position. OverlapSphere first and return immediately on hit
         /// — the old path always ran SceneScanCache&lt;Inventory&gt; (FindObjectsOfType ~45ms)
         /// even after overlap succeeded, hitching every container/corpse open.

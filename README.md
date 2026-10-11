@@ -5,8 +5,8 @@ join it: the same forest, the same nights, the same story, played together.
 
 | | |
 |--|--|
-| Product | YokWare Branch **0.8.238** |
-| Wire | Horde protocol **55** |
+| Product | YokWare Branch **0.8.239** |
+| Wire | Horde protocol **56** |
 | Players | Up to 8 by default (`MaxPlayers`, host included) |
 | Transport | LAN (LiteNetLib) or Steam lobby (SteamNetworkingSockets) |
 | Loaders | BepInEx 5.x or MelonLoader 0.7.x |

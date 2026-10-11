@@ -211,7 +211,8 @@ namespace DWMPHorde.Patches
                 IsPlayerPlaced = isPlayerPlaced,
                 IsRecipe = isRecipe,
                 Upgrades = upgrades,
-                ShouldBeActive = shouldBeActive
+                ShouldBeActive = shouldBeActive,
+                SaveId = WorldQueryHelper.ContainerSaveIdAt(pos)
             };
             var net = ModRuntime.Network;
             if (net == null) return;

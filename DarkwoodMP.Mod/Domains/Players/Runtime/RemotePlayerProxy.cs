@@ -203,6 +203,9 @@ namespace DWMPHorde.Players
             }
             if (clone.layer != layerCharacters && clone.layer != 21)
                 clone.layer = layerCharacters;
+            // Doors are swung by the pusher's own game (DoorState), not by this stand-in.
+            if (clone.GetComponent<ProxyDoorPassThrough>() == null)
+                clone.AddComponent<ProxyDoorPassThrough>();
             log?.LogInfo($"RemoteProxy: enabled {enabledCount} colliders ({wasTrigger} were triggers, set to non-trigger), layer=Characters");
         }
     }

@@ -65,6 +65,16 @@ namespace DWMPHorde.Sync
 
                 bool stateChanged = !_s.LastDoorOpen.TryGetValue(key, out bool wasOpened) || wasOpened != opened;
                 bool isMoving = opened && angVel.sqrMagnitude > 0.01f;
+                // A swing another player's game is sending is not this game's to send back: the echo
+                // arrived late and snapped the pusher's door back to where it was a moment before,
+                // over and over while it kept pushing (the door shook, its creak restarted).
+                if (isMoving && !stateChanged && _s.DoorRemoteDriveUntil.TryGetValue(key, out float driveUntil))
+                {
+                    if (Time.time < driveUntil)
+                        isMoving = false;
+                    else
+                        _s.DoorRemoteDriveUntil.Remove(key);
+                }
                 NoteStateKey(_s.DoorKeyAge, key, stateChanged || isMoving);
 
                 if (stateChanged || isMoving)

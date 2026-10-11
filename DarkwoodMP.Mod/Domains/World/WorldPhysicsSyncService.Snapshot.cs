@@ -15,12 +15,20 @@ namespace DWMPHorde.Sync
         /// <summary>Turn, in degrees since the last scan, that counts as a body moving.</summary>
         private const float RotMoveThresholdDeg = 0.5f;
 
+        /// <summary>The draw layer a broken destructible's body drops to (vanilla PosType.low2).</summary>
+        private const float WreckLayerY = -50f;
+
         private static void ScanPhysicsAround(Vector3 center, LanNetworkManager net)
         {
             if (_objects.Count >= 256)
                 return;
 
-            int hitCount = Physics.OverlapSphereNonAlloc(center, _scanRadius, _overlap3D);
+            // Y is the draw layer in this top-down game, not height: a broken destructible drops to
+            // low2 (y -50, Item.setDeathState), far below the players' layer, and a sphere round
+            // the player never reached it. The host's wreck slid on its own and the client's stayed
+            // where it broke. A column down to that layer covers every free body under the player.
+            Vector3 low = new Vector3(center.x, Mathf.Min(center.y, WreckLayerY), center.z);
+            int hitCount = Physics.OverlapCapsuleNonAlloc(center, low, _scanRadius, _overlap3D);
             float now = Time.time;
             bool fullResync = (now - _s.FullResyncTimer) >= FullResyncInterval;
 

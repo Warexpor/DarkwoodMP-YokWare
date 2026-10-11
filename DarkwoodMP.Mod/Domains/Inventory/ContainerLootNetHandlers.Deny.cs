@@ -24,10 +24,11 @@ namespace DWMPHorde.Networking
             SendContainerDenied(playerId, msg, reason, ContainerTakeDeniedMessage.ModePlaceRefund);
         }
 
-        private void SendContainerDenied(int playerId, ContainerItemMessage msg, string reason, byte mode)
+        internal void SendContainerDenied(int playerId, ContainerItemMessage msg, string reason, byte mode)
         {
             _net.SuppressRelay();
-            string kind = mode == ContainerTakeDeniedMessage.ModePlaceRefund ? "place" : "take";
+            string kind = mode == ContainerTakeDeniedMessage.ModePlaceRefund ? "place"
+                : mode == ContainerTakeDeniedMessage.ModeTakeReturn ? "take (returned)" : "take";
             ModLog.Event(LogCat.Container,
                 "[Container] H6 deny " + kind + " p" + playerId + " slot=" + msg.SlotIndex
                 + " type=" + msg.ItemType + " amt=" + msg.Amount + " (" + reason + ")");
@@ -46,7 +47,8 @@ namespace DWMPHorde.Networking
                     Durability = msg.Durability,
                     Ammo = msg.Ammo,
                     Upgrades = msg.Upgrades,
-                    ShouldBeActive = msg.ShouldBeActive
+                    ShouldBeActive = msg.ShouldBeActive,
+                    SaveId = msg.SaveId
                 }.Serialize(w);
             }, LiteNetLib.DeliveryMethod.ReliableOrdered);
 
@@ -54,7 +56,7 @@ namespace DWMPHorde.Networking
             try
             {
                 Vector3 pos = new Vector3(msg.PosX, msg.PosY, msg.PosZ);
-                Inventory inv = WorldQueryHelper.FindInventoryByPos(pos);
+                Inventory inv = WorldQueryHelper.FindInventory(pos, msg.SaveId);
                 if (inv != null)
                     SendContainerStateSnapshotTo(playerId, inv, pos);
             }
@@ -90,7 +92,8 @@ namespace DWMPHorde.Networking
                 PosZ = pos.z,
                 EntityHash = 0,
                 SlotCount = slots.Count,
-                Slots = slots.ToArray()
+                Slots = slots.ToArray(),
+                SaveId = WorldQueryHelper.ContainerSaveId(inv)
             };
             _net.SendToPlayer(playerId, NetMessageType.ContainerStateSync,
                 w => sync.Serialize(w), LiteNetLib.DeliveryMethod.ReliableOrdered);
@@ -133,6 +136,8 @@ namespace DWMPHorde.Networking
             // it holding the product for free.
             if (!haveTake && Patches.WorkbenchUndo.TryUndo(containerPos))
                 return;
+
+            bool returnToContainer = msg.Mode == ContainerTakeDeniedMessage.ModeTakeReturn;
 
             try
             {
@@ -182,11 +187,17 @@ namespace DWMPHorde.Networking
                             "[Container] refund: nothing to remove (totalNow=" + totalNow
                             + " preTakeCount=" + take.PreCount + ")");
                     }
+                    else if (returnToContainer)
+                        ReturnToContainer(containerPos, msg, wireType, isRecipe, msg.Amount, durability, ammo);
                     return;
                 }
 
+                int removed = Math.Min(toRemove, totalNow);
                 ContainerSyncHelpers.RemoveGrantedFromPlayer(
-                    wireType, isRecipe, Math.Min(toRemove, totalNow), durability, ammo);
+                    wireType, isRecipe, removed, durability, ammo);
+                if (returnToContainer)
+                    ReturnToContainer(containerPos, msg, wireType, isRecipe,
+                        Math.Min(removed, msg.Amount), durability, ammo);
             }
             catch (System.Exception ex)
             {
@@ -203,6 +214,53 @@ namespace DWMPHorde.Networking
                 }
             }
             catch { /* ignore */ }
+        }
+
+        /// <summary>
+        /// The host has no such container (ModeTakeReturn): the item taken back from the bag goes
+        /// into this game's container slot again. Before, it was only taken out of the bag, and
+        /// the container here had already lost it: it was gone from this game.
+        /// </summary>
+        private static void ReturnToContainer(Vector3 pos, ContainerTakeDeniedMessage msg,
+            string itemType, bool isRecipe, int amount, float durability, int ammo)
+        {
+            if (amount <= 0 || string.IsNullOrEmpty(itemType))
+                return;
+            Inventory inv = WorldQueryHelper.FindInventory(pos, msg.SaveId);
+            if (inv == null || inv.slots == null)
+            {
+                ModLog.Warn(LogCat.Container, "[Container] return: no container here at " + pos
+                    + " for " + itemType + " x" + amount);
+                return;
+            }
+            InvItemClass back = null;
+            if (msg.SlotIndex < inv.slots.Count)
+            {
+                InvSlot slot = inv.slots[msg.SlotIndex];
+                if (InvItemClass.isNull(slot.invItem))
+                    back = slot.createItem(itemType, amount, 1f, InvItem.ModifierQuality.none, isRecipe);
+                else if (ContainerSyncHelpers.ItemTypeMatchesWire(slot.invItem, itemType, isRecipe))
+                {
+                    slot.invItem.amount += amount;
+                    slot.invItem.refresh();
+                    back = slot.invItem;
+                    durability = -1f;
+                }
+            }
+            if (InvItemClass.isNull(back))
+            {
+                InvSlot free = inv.getNextFreeSlot();
+                if (free != null)
+                    back = free.createItem(itemType, amount, 1f, InvItem.ModifierQuality.none, isRecipe);
+            }
+            if (InvItemClass.isNull(back))
+            {
+                ModLog.Warn(LogCat.Container, "[Container] return: no room in " + inv.name + " for " + itemType);
+                return;
+            }
+            if (durability >= 0f)
+                Sync.InvItemTransferApply.ApplyMeta(back, durability, ammo, false);
+            ModLog.Event(LogCat.Container, "[Container] returned " + itemType + " x" + amount + " to " + inv.name);
         }
 
         /// <summary>
