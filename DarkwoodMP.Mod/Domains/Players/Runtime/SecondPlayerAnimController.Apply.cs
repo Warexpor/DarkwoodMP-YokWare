@@ -21,9 +21,8 @@ namespace DWMPHorde.Players
             string legsClip,
             short currentFrame = -1)
         {
-            _networkLegFacingY = legFacingY;
+            SetLegHeading(legFacingY);
             _networkReverseLegs = reverseLegs;
-            _hasNetworkLegFacing = true;
 
             if (flipX != _flipX)
                 SetFlipX(flipX);
@@ -72,7 +71,7 @@ namespace DWMPHorde.Players
                     hideLegs = ShouldHideLegsForTorso(_torsoAnimator.CurrentClip.name);
             }
             else
-                ApplyLocomotion(state, Vector3.zero, legFacingY, reverseLegs);
+                ApplyLocomotion(state, Vector3.zero, reverseLegs);
 
             // Vanilla ProcessAnims: when jumping / beartrap / dodge / etc., legs
             // renderer is disabled and walk clips must not keep playing on the proxy.
@@ -102,23 +101,7 @@ namespace DWMPHorde.Players
                 // so we must stop them immediately.
                 if (_legsAnimator.CurrentClip != null &&
                     _legsAnimator.CurrentClip.name.IndexOf("Run") >= 0)
-                {
                     StopLegsAtNeutral();
-                    _feetNeutralReached = true;
-                    if (_legsAnimator != null)
-                        _legsAnimator.transform.rotation = transform.rotation;
-                }
-            }
-
-            if (state == LocomotionState.Walk)
-            {
-                _feetNeutralReached = false;
-                AlignLegsToFacing(legFacingY, snapRunToBody: false);
-            }
-            else if (state == LocomotionState.Run)
-            {
-                _feetNeutralReached = false;
-                AlignLegsToFacing(legFacingY, snapRunToBody: true);
             }
         }
 
@@ -247,7 +230,6 @@ namespace DWMPHorde.Players
         private void ApplyLocomotion(
             LocomotionState state,
             Vector3 velocity,
-            short legFacingY,
             bool reverseLegs)
         {
             _state = state;
@@ -260,49 +242,17 @@ namespace DWMPHorde.Players
                 case LocomotionState.Run:
                     PlayTorso("Run");
                     PlayLegs("LegsRun");
-                    AlignLegsToFacing(legFacingY, snapRunToBody: true);
                     break;
 
                 case LocomotionState.Walk:
                     PlayTorso("Idle");
                     PlayLegs(reverseLegs ? "LegsWalkReverse" : "LegsWalk");
-                    AlignLegsToFacing(legFacingY, snapRunToBody: false);
                     break;
 
                 default:
                     PlayTorso("Idle");
                     break;
             }
-        }
-
-        /// <summary>
-        /// Smoothly rotates legs back to align with the body rotation when idling.
-        /// </summary>
-        public void ResetLegsToStanding()
-        {
-            if (_legsAnimator == null)
-                return;
-
-            Quaternion target = Quaternion.Euler(90f, transform.eulerAngles.y, 0f);
-            _legsAnimator.transform.rotation = Quaternion.Slerp(
-                _legsAnimator.transform.rotation,
-                target,
-                Time.deltaTime * LegBlendSpeed);
-        }
-
-        private void AlignLegsToFacing(short legFacingY, bool snapRunToBody)
-        {
-            if (_legsAnimator == null)
-                return;
-
-            if (snapRunToBody)
-            {
-                _legsAnimator.transform.rotation = transform.rotation;
-                return;
-            }
-
-            float y = _hasNetworkLegFacing ? legFacingY : transform.eulerAngles.y;
-            _legsAnimator.transform.rotation = Quaternion.Euler(90f, y, 0f);
         }
 
         /// <returns>True when the clip was started now (not already playing).</returns>
@@ -406,10 +356,7 @@ namespace DWMPHorde.Players
             if (_legsRenderer != null)
                 _legsRenderer.enabled = !hide;
             if (hide && _legsAnimator != null && _legsAnimator.Playing)
-            {
                 StopLegsAtNeutral();
-                _feetNeutralReached = true;
-            }
         }
 
         /// <summary>

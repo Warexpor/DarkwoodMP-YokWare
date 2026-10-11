@@ -3,12 +3,12 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.252**. The current Horde wire protocol is **62**. Every install in a session
+**0.8.253**. The current Horde wire protocol is **62**. Every install in a session
 needs the same DLL; the protocol is checked on join.
 
 Protocol history (newest first):
 
-- **62**, 0.8.252: new `PeerNotice` (173).
+- **62**, 0.8.252 to 0.8.253: new `PeerNotice` (173).
 - **61**, 0.8.248 to 0.8.251: `VoiceData` (129) carries Opus; with flag 2 its data starts with the voice
   block's length (2 bytes).
 - **60**, 0.8.247: new `DreamLeft` (172).
@@ -72,6 +72,37 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.253 — another player's legs keep their own heading as in vanilla; their body turns on every frame
+
+Deployed; not playtested yet. Protocol unchanged (62).
+
+**Another player's legs turned with the body when they stood still.** Vanilla turns the legs
+on their own, apart from the body (`Player.Update`: the legs' world rotation eases towards the
+walking direction, `getLegsRotation`): a player who stops keeps the legs on the last direction
+walked while the body turns with the aim, and only a run holds the legs on the body. The copy
+of another player did it differently in three places:
+
+- standing still, at the walk clip's `FeetNeutral` frame it put the legs on the body's rotation
+  and then kept blending them to it every frame, so the legs followed the aim;
+- stopping a run, it put the legs on the body at once (vanilla eases them back to the walking
+  direction);
+- walking, it set the legs' heading straight from each state packet, 30 steps a second, with
+  nothing in between.
+
+Every `PlayerState` already carries the heading the player's own game shows for the legs
+(`LegFacingY`, read from the `PlayerLegs` transform), in every state. The copy now shows that
+heading always: it glides from the heading shown to the newest one over one send interval,
+each frame; while the player runs the legs are held on the body, as vanilla does.
+`SecondPlayerAnimController` (`SetLegHeading`, `TurnLegs`); `ResetLegsToStanding`,
+`AlignLegsToFacing` and the feet-neutral flag are gone.
+
+**Another player's body turned 50 times a second.** `RemotePlayerProxy` eased the body towards
+the player's facing in `FixedUpdate`, so on a 100 Hz screen the turn stepped every other frame.
+It now turns in `Update` at the same pace (`BodyTurnRate`), and still stands down during a
+vault and a shared drag.
+
+A player's own legs are the game's own code and were not touched.
 
 ## 0.8.252 — a chat line when a player joins, is in the game or drops out; unfocused frame cap follows the screen; the perf probe runs for a lone host (protocol 62)
 
