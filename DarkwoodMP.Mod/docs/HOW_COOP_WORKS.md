@@ -821,6 +821,12 @@ party events.
 - **Doors** open and close through the host. A barricaded or broken door cannot be
   opened. Door health travels with the door. Kicking a door alerts creatures the
   same way for every player.
+- **A swinging door** is run by one machine: the one whose player (or, on the host, a
+  creature or a blast) set it moving. That machine sends its angle while it swings and
+  the angle it comes to rest at; the others follow 0.1 s behind and land on the same
+  angle. A player walking into a door another machine runs pushes it there, and a blow
+  on it knocks it back there. If two machines start the same swing, the lower player
+  id keeps it.
 - **Barricades and constructions** are shared world objects.
 - **Lights:** lamps, generators, flares and held lights are synced; every machine
   runs a flare's own burn clock from its age, so flares go out together. A player's

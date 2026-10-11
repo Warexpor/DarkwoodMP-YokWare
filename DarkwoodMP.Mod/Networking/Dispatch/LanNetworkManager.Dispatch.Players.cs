@@ -41,6 +41,16 @@ namespace DWMPHorde.Networking
                 if (hostStamps)
                     RelayStamped(w => co.Serialize(w));
             });
+            OnRaw(NetMessageType.DoorSwing, payload =>
+            {
+                var ds = DoorSwingMessage.Deserialize(new NetReader(payload));
+                bool hostStamps = _role == NetworkRole.Host && _currentReceivePlayerId > 0;
+                if (hostStamps)
+                    ds.SenderId = _currentReceivePlayerId;
+                Sync.DoorSwing.Handle(ds);
+                if (hostStamps)
+                    RelayStamped(w => ds.Serialize(w));
+            });
             On(NetMessageType.PlayerLightState, PlayerLightStateMessage.Deserialize, m => PlayerLightFxApplyHandlers.HandlePlayerLightState(m));
             On(NetMessageType.PlayerAudio, PlayerAudioMessage.Deserialize, m => WorldFxHandlers.HandlePlayerAudio(m));
             On(NetMessageType.PlayerAnimation, PlayerAnimationMessage.Deserialize, m => PlayerFXHandlers.HandlePlayerAnimation(m));

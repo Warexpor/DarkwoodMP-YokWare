@@ -160,6 +160,8 @@ namespace DWMPHorde.Networking
 
             // A shared drag with the leaver: its partner drags on alone, or stops being held.
             Sync.SharedDrag.OnPeerLeft(playerId);
+            // Door swings that player's machine ran stay where they are.
+            Sync.DoorSwing.OnPeerLeft(playerId);
 
             var toRemove = new List<string>();
             foreach (var kv in DragClaims)

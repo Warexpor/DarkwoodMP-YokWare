@@ -359,34 +359,21 @@ namespace DWMPHorde.Sync
                             doorFailed++;
                             continue;
                         }
-                        if (ds.Opened && ds.AngVelX * ds.AngVelX + ds.AngVelY * ds.AngVelY
-                                + ds.AngVelZ * ds.AngVelZ > 0.01f)
-                            NoteDoorRemoteDrive(door);
-
                         bool currentOpened = TraverseHack.ReadDoorOpened(door);
                         if (currentOpened == ds.Opened)
                         {
-                            // DoorOpen often arrives first and flips opened. Still snap body
-                            // rot/angVel from DoorState so kick hinge matches the opener.
-                            if (ds.Opened && door.body != null
-                                && (ds.BodyRotY != 0f
-                                    || ds.AngVelX * ds.AngVelX + ds.AngVelY * ds.AngVelY
-                                        + ds.AngVelZ * ds.AngVelZ > 0f))
+                            // Already open (DoorOpen arrives first, or a joiner's door states): the
+                            // sender's angle, unless a swing is run or followed here (DoorSwing).
+                            if (ds.Opened && ds.BodyRotY != 0f && door.body != null && !DoorSwing.IsDriven(door))
                             {
                                 Rigidbody doorBodyRB = door.body.GetComponent<Rigidbody>();
-                                if (doorBodyRB != null)
+                                if (doorBodyRB != null && !doorBodyRB.isKinematic)
                                 {
-                                    Vector3 currentEuler = door.body.eulerAngles;
-                                    if (ds.BodyRotY != 0f)
-                                    {
-                                        door.body.rotation = Quaternion.Euler(
-                                            currentEuler.x, ds.BodyRotY, currentEuler.z);
-                                        doorBodyRB.velocity = Vector3.zero;
-                                    }
-                                    Vector3 senderAngVel = new Vector3(
-                                        ds.AngVelX, ds.AngVelY, ds.AngVelZ);
-                                    if (senderAngVel.sqrMagnitude > 0f)
-                                        doorBodyRB.angularVelocity = senderAngVel;
+                                    DoorSwing.TurnAboutHinge(door,
+                                        Mathf.DeltaAngle(door.body.eulerAngles.y, ds.BodyRotY));
+                                    doorBodyRB.velocity = Vector3.zero;
+                                    doorBodyRB.angularVelocity = Vector3.zero;
+                                    DoorSwing.NoteAtRest(door);
                                 }
                             }
                             doorSkipped++;
@@ -395,7 +382,7 @@ namespace DWMPHorde.Sync
 
                         if (ModRuntime.VerboseLogging)
                             ModRuntime.LegacyInfo("[DoorApply] " + door.name + " " + (ds.Opened ? "OPEN" : "CLOSE") + " from " + fromPeer);
-                        TraverseHack.SetDoorOpened(door, ds.Opened, new Vector3(ds.OpenerPosX, ds.OpenerPosY, ds.OpenerPosZ), ds.OpenForce, ds.BodyRotY, ds.AngVelX, ds.AngVelY, ds.AngVelZ);
+                        TraverseHack.SetDoorOpened(door, ds.Opened, new Vector3(ds.OpenerPosX, ds.OpenerPosY, ds.OpenerPosZ), ds.OpenForce, ds.BodyRotY);
                         // Vanilla Door.open/close alert the area only when a Player swung it; the
                         // apply passes no Player, so a client's door was silent to host AI. Only
                         // players move doors on a client (its AI is off).

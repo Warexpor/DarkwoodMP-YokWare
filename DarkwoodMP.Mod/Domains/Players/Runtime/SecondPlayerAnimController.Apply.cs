@@ -54,13 +54,8 @@ namespace DWMPHorde.Players
                 else
                 {
                     EndStaleGetUp();
-                    PlayTorso(torsoClip);
-                    // Sync animation frame if provided.
-                    if (currentFrame >= 0
-                        && _torsoAnimator != null && _torsoAnimator.CurrentClip != null
-                        && _torsoAnimator.CurrentClip.name == torsoClip
-                        && currentFrame < _torsoAnimator.CurrentClip.frames.Length)
-                        _torsoAnimator.SetFrame(currentFrame);
+                    bool started = PlayTorso(torsoClip);
+                    FollowTorsoFrame(torsoClip, currentFrame, started);
                 }
             }
             else if (state == LocomotionState.Idle)
@@ -125,6 +120,44 @@ namespace DWMPHorde.Players
                 _feetNeutralReached = false;
                 AlignLegsToFacing(legFacingY, snapRunToBody: true);
             }
+        }
+
+        /// <summary>The copy's clip this many frames off its player's is put back on the player's frame.</summary>
+        private const int TorsoFrameDrift = 2;
+
+        /// <summary>
+        /// The copy's torso clip runs on the player's frames. A clip the player starts part-way
+        /// starts there too: vanilla plays a cancelled swing's AimReturn from the frame the windup
+        /// had reached (Player.setLastClipFrame), and the copy started it from its first frame,
+        /// the fully raised arm, so a swing let go at once snapped up and back down. tk2d's SetFrame,
+        /// used before, shows a frame for one update and leaves the clip time alone. A running clip
+        /// is put back on the player's frame only when it has drifted (packets come about 30 a
+        /// second, a frame is longer): the copy plays smoothly on its own clock in between.
+        /// </summary>
+        private void FollowTorsoFrame(string clipName, short senderFrame, bool started)
+        {
+            if (senderFrame < 0 || _torsoAnimator == null || _torsoAnimator.CurrentClip == null
+                || _torsoAnimator.CurrentClip.name != clipName)
+                return;
+            tk2dSpriteAnimationClip clip = _torsoAnimator.CurrentClip;
+            int len = clip.frames != null ? clip.frames.Length : 0;
+            if (len <= 1 || senderFrame >= len)
+                return;
+            if (started)
+            {
+                if (senderFrame > 0)
+                    _torsoAnimator.PlayFromFrame(clip, senderFrame);
+                return;
+            }
+            int off = _torsoAnimator.CurrentFrame - senderFrame;
+            if (clip.wrapMode == tk2dSpriteAnimationClip.WrapMode.Loop)
+            {
+                off = ((off % len) + len) % len;
+                if (off > len / 2)
+                    off -= len;
+            }
+            if (Mathf.Abs(off) >= TorsoFrameDrift)
+                _torsoAnimator.PlayFromFrame(clip, senderFrame);
         }
 
         /// <summary>Frames a stand-up may still run on its own after its player left the clip.</summary>
@@ -272,10 +305,11 @@ namespace DWMPHorde.Players
             _legsAnimator.transform.rotation = Quaternion.Euler(90f, y, 0f);
         }
 
-        internal void PlayTorso(string clipName)
+        /// <returns>True when the clip was started now (not already playing).</returns>
+        internal bool PlayTorso(string clipName)
         {
             if (_torsoAnimator == null || string.IsNullOrEmpty(clipName))
-                return;
+                return false;
 
             if (_torsoAnimator.GetClipByName(clipName) == null)
             {
@@ -286,7 +320,7 @@ namespace DWMPHorde.Players
                 }
                 else
                 {
-                    return;
+                    return false;
                 }
             }
 
@@ -294,19 +328,19 @@ namespace DWMPHorde.Players
             // Allows replay when a non-looping clip finishes and restarts
             // (for example, double-barrel reload loop; the same clip plays twice).
             if (_torsoAnimator.Playing && _torsoAnimator.CurrentClip?.name == clipName)
-                return;
+                return false;
 
             // A stand-up the proxy already played through (it runs on its own clock) must not
             // restart while the sender is still on its tail.
             if (IsGetUpClip(clipName) && _torsoAnimator.CurrentClip?.name == clipName)
-                return;
+                return false;
 
             // Prevent replay of death clips once played to completion;
             // the host sends "Death1"/"Death2" every 30ms in PlayerStateMessage,
             // but the non-looping clip finishes and restarts endlessly.
             bool death = IsDeathClip(clipName);
             if (death && _deathClipPlayed)
-                return;
+                return false;
 
             // A stand-up left waiting on its first frame must not hold the next clip still.
             if (_torsoAnimator.Paused) _torsoAnimator.Resume();
@@ -315,6 +349,7 @@ namespace DWMPHorde.Players
 
             // One play per death: any other clip (the respawn stand-up) ends that death.
             _deathClipPlayed = death;
+            return true;
         }
 
         /// <summary>

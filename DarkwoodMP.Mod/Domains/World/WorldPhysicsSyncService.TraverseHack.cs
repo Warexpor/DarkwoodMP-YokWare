@@ -68,44 +68,40 @@ namespace DWMPHorde.Sync
 
         /// <summary>
         /// Opens or closes a door: invokes the original open/close method via reflection,
-        /// ensures the "opened" field matches, and syncs the door body's rotation + angular velocity
-        /// so the receiver's door swing matches the sender's physical swing.
+        /// ensures the "opened" field matches, and puts the door body at the sender's angle.
         /// </summary>
-        public static void SetDoorOpened(Door door, bool opened, Vector3 openerPos = default, float openForce = 0f, float bodyRotY = 0f, float angVelX = 0f, float angVelY = 0f, float angVelZ = 0f)
+        public static void SetDoorOpened(Door door, bool opened, Vector3 openerPos = default, float openForce = 0f, float bodyRotY = 0f)
         {
-            DialogHostApplyGuard.RunHostWorldFanout(() =>
-                InvokeDoorMethod(door, opened ? "open" : "close", openerPos, openForce));
+            // An open from another machine's state: that machine pushed its door (DoorSwing runs the swing).
+            DoorSwing.RunEchoOpen(() => DialogHostApplyGuard.RunHostWorldFanout(() =>
+                InvokeDoorMethod(door, opened ? "open" : "close", openerPos, openForce)));
 
             var t = Traverse.Create(door);
             if (t.Field("opened").GetValue<bool>() != opened)
                 t.Field("opened").SetValue(opened);
 
-            if (door.body != null)
+            if (door.body != null && (!opened || !DoorSwing.IsDriven(door)))
             {
                 Rigidbody doorBodyRB = door.body.GetComponent<Rigidbody>();
                 if (doorBodyRB != null)
                 {
                     Vector3 currentEuler = door.body.eulerAngles;
                     bool closeSnap = !opened && Mathf.Abs(Mathf.DeltaAngle(currentEuler.y, bodyRotY)) > 5f;
-                    if (closeSnap || (opened && bodyRotY != 0f))
+                    if (closeSnap)
                     {
-                        Quaternion targetRot = Quaternion.Euler(currentEuler.x, bodyRotY, currentEuler.z);
-                        door.body.rotation = targetRot;
-                        if (opened)
-                        {
-                            doorBodyRB.velocity = Vector3.zero;
-                            doorBodyRB.angularVelocity = Vector3.zero;
-                        }
-                        else
-                        {
-                            doorBodyRB.constraints = RigidbodyConstraints.FreezeAll;
-                            doorBodyRB.isKinematic = true;
-                        }
+                        door.body.rotation = Quaternion.Euler(currentEuler.x, bodyRotY, currentEuler.z);
+                        doorBodyRB.constraints = RigidbodyConstraints.FreezeAll;
+                        doorBodyRB.isKinematic = true;
                     }
-
-                    Vector3 senderAngVel = new Vector3(angVelX, angVelY, angVelZ);
-                    if (senderAngVel.sqrMagnitude > 0f && opened)
-                        doorBodyRB.angularVelocity = senderAngVel;
+                    else if (opened && bodyRotY != 0f)
+                    {
+                        // The sender's resting angle, turned about the hinge (a moving door's swing
+                        // comes from DoorSwing, not from this state's spin).
+                        DoorSwing.TurnAboutHinge(door, Mathf.DeltaAngle(currentEuler.y, bodyRotY));
+                        doorBodyRB.velocity = Vector3.zero;
+                        doorBodyRB.angularVelocity = Vector3.zero;
+                        DoorSwing.NoteAtRest(door);
+                    }
                 }
             }
         }

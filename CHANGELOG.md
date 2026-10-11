@@ -3,11 +3,12 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.242**. The current Horde wire protocol is **58**. Every install in a session
+**0.8.243**. The current Horde wire protocol is **59**. Every install in a session
 needs the same DLL; the protocol is checked on join.
 
 Protocol history (newest first):
 
+- **59**, 0.8.243: new `DoorSwing` (171); `BarricadeEvent` drops the attacker position.
 - **58**, 0.8.241 to 0.8.242: `DragSync` gains the co-holder's id and where it stands; new `CoHold` (170).
 - **57**, 0.8.240: `ConstructibleConstruction` gains the save id and the repaired item's pose;
   new `ItemPose` (169).
@@ -67,6 +68,52 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.243 — door swings run by one machine; a cancelled swing's arm on the stand-in
+
+- **A door hit while it swung ended at a different angle on each machine** and stayed so until
+  closed and opened again. Every game simulated each swing itself (the opener's push, a blow's
+  knock-back, a body walking into it), and the host sent its door's angle about 10 times a
+  second only while its own door moved. The others snapped to those late angles and kept
+  their own momentum, and nothing was sent once the host's door slowed, so each copy settled
+  wherever it was. A blow by the host also hit the client's door twice (the client re-applied
+  the knock-back on top of the host's swing), and a client's blow was knocked back on both
+  machines.
+- **Pushing a door hitched and its creak stuttered.** The snaps threw the door back to an older
+  angle while it was being pushed, and the creak (vanilla plays it from the door's spin)
+  stopped and restarted. A door a client pushed with its body never moved on the host.
+- Now one machine runs a swing (`DoorSwing`, new message 171): the one whose player set the
+  idle door moving (an open, a blow, the body), or on the host a creature or a blast. It sends
+  the door's angle about 20 a second, and once the door has stood still for a quarter second,
+  the angle it rests at. The other machines turn their door to those angles 0.1 s behind by
+  setting its spin each physics step, so it moves smoothly, its creak is the vanilla one, and
+  it lands exactly on the rest angle.
+  - A player walking into a door another machine runs sends its push there (scaled like the
+    two-player push: two pushing turn it 1.5 times as fast), and a blow on it is sent there as
+    a force.
+  - An open from another machine (`DoorOpen`, door states) opens the door without vanilla's
+    push; the opener's swing follows. The host's knock-back for a client's blow is left to the
+    striker's machine. Both are hooked where vanilla pushes (`Door.open` and the knock-back
+    delegate of `Door.getHit`, transpiled).
+  - Two machines starting the same swing at once: the lower player id keeps it, the other
+    follows. A swing whose machine goes quiet is left where it is after 1.5 s; one whose
+    player leaves stays where it is.
+  - On a client, a door nudged with no cause there (a creature copy brushing it) turns back to
+    the angle every machine has it at rest.
+  - The host's door scan sends open/closed changes only; a door state for a door already open
+    turns it about its hinge (it used to set the body's rotation about its centre).
+- **A swing let go at once snapped the other player's arm up.** Vanilla starts the arm's return
+  (`AimReturn`) from the frame the windup had reached; the stand-in started it from its first
+  frame, the arm fully raised. tk2d's `SetFrame`, used to follow the player's frame, shows a
+  frame for one update and leaves the clip time alone. The stand-in now starts a clip on the
+  player's frame and puts a running clip back on it only when it has drifted 2 frames.
+- **Protocol 59**. Every install needs this DLL.
+
+Files: `Doors/DoorSwing.cs`, `Doors/Patches/DoorSwingPatches.cs`, `DoorNetHandlers.cs`,
+`BarricadeNetHandlers.cs`, `BarricadeSyncPatches.cs`, `ClientWorldMeleePatches.cs`,
+`CombatFxImpactNetHandlers.cs`, `WorldPhysicsSyncService` (`SnapshotScan`, `Apply`,
+`TraverseHack`, `TrapsDoors`, `State`), `DreamDoorSyncPatches.cs`,
+`SecondPlayerAnimController.Apply.cs`, `WorldMessages.cs`, `BarricadeMessages.cs`.
 
 ## 0.8.242 — shared drag scrape; no journal popups for a joiner waking in the hideout
 

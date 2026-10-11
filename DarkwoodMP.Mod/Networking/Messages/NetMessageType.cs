@@ -482,7 +482,12 @@ namespace DWMPHorde.Networking
         /// pushes (<c>Sync.SharedDrag</c>, <c>Sync.CoPush</c>). Protocol 58.
         /// </summary>
         [Forwardable] CoHold = 170,
+        /// <summary>
+        /// Either peer: a door's swing from the machine that runs it, and pushes and blows sent
+        /// to that machine (<c>Sync.DoorSwing</c>). Protocol 59.
+        /// </summary>
+        [Forwardable] DoorSwing = 171,
         /// <summary>Highest used message type ID.</summary>
-        _Highest = 170
+        _Highest = 171
     }
 }

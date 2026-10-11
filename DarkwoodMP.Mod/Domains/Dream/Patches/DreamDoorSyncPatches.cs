@@ -140,16 +140,9 @@ namespace DWMPHorde.Patches
                 }.Serialize(w),
                 DeliveryMethod.ReliableOrdered);
 
-            // DoorState still fans body rot / angVel for peers that miss DoorOpen /
-            // need PhysicsState-style apply.
-            float bodyRotY = 0f;
-            Vector3 angVel = Vector3.zero;
-            if (door.body != null)
-            {
-                bodyRotY = door.body.eulerAngles.y;
-                Rigidbody rb = door.body.GetComponent<Rigidbody>();
-                if (rb != null) angVel = rb.angularVelocity;
-            }
+            // DoorState carries the open state for peers that apply it PhysicsState-style. The
+            // swing itself comes from this machine's DoorSwing samples.
+            float bodyRotY = door.body != null ? door.body.eulerAngles.y : 0f;
 
             net.SendDoorState(new DoorState
             {
@@ -161,10 +154,7 @@ namespace DWMPHorde.Patches
                 OpenerPosY = opener.y,
                 OpenerPosZ = opener.z,
                 OpenForce = openForce,
-                BodyRotY = bodyRotY,
-                AngVelX = angVel.x,
-                AngVelY = angVel.y,
-                AngVelZ = angVel.z
+                BodyRotY = bodyRotY
             });
 
             ModRuntime.LegacyInfo(

@@ -148,7 +148,8 @@ namespace DWMPHorde.Networking
                 {
                     if (_net.Role == NetworkRole.Host)
                         DialogHostApplyGuard.BeginWorldOnly();
-                    door.open(openerPos, null, force);
+                    // The opener's machine pushed its door and runs the swing; this one follows it.
+                    DoorSwing.RunEchoOpen(() => door.open(openerPos, null, force));
                     // Vanilla alerts creatures only when the opener is a Player; here it is a peer
                     // whose open the host carries out, so creatures by the door heard nothing.
                     if (_net.Role == NetworkRole.Host && _net.CurrentReceivePlayerId > 0

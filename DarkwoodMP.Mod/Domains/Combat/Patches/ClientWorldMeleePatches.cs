@@ -9,23 +9,19 @@ namespace DWMPHorde.Patches
     /// <summary>
     /// On the client, redirects local-player melee damage on doors, windows, and
     /// destructible items to the host instead of applying it locally.
-    /// Open-door swing force is still applied locally (predictive) so the door moves
-    /// on the striker's machine — host getHit owns damage + authority force.
+    /// An open door's knock-back is the striker's machine's: applied here (or sent to the machine
+    /// running the door's swing) through DoorSwing; the host's getHit leaves it alone.
     /// </summary>
     internal static class ClientWorldMeleeRedirectHelper
     {
         // local combat FX already played on redirect; suppress apply-side hit FX briefly.
         private static readonly Dictionary<string, float> _fxSuppressUntil = new Dictionary<string, float>(16);
-        // Local open-door swing already applied — skip network BarricadeEvent re-force.
-        private static readonly Dictionary<string, float> _swingSuppressUntil = new Dictionary<string, float>(16);
         private const float FxSuppressSeconds = 2f;
-        private const float SwingSuppressSeconds = 1.5f;
         private const float OpenDoorHitForce = -50000f;
 
         internal static void Reset()
         {
             _fxSuppressUntil.Clear();
-            _swingSuppressUntil.Clear();
         }
 
         internal static string MakeKey(byte targetType, Vector3 pos)
@@ -39,12 +35,6 @@ namespace DWMPHorde.Patches
             _fxSuppressUntil[key] = Time.unscaledTime + FxSuppressSeconds;
         }
 
-        internal static void RegisterLocalDoorSwing(Vector3 pos)
-        {
-            string key = MakeKey(0, pos);
-            _swingSuppressUntil[key] = Time.unscaledTime + SwingSuppressSeconds;
-        }
-
         /// <summary>
         /// True if this client already played hit FX for the target (redirect path).
         /// Consumes the suppress entry so only one apply is muted.
@@ -56,21 +46,6 @@ namespace DWMPHorde.Patches
                 return false;
             _fxSuppressUntil.Remove(key);
             return Time.unscaledTime <= until;
-        }
-
-        /// <summary>True if local open-door swing was already predicted (skip network re-force).</summary>
-        internal static bool ShouldSuppressDoorSwingForce(Vector3 pos)
-        {
-            string key = MakeKey(0, pos);
-            if (!_swingSuppressUntil.TryGetValue(key, out float until))
-                return false;
-            if (Time.unscaledTime > until)
-            {
-                _swingSuppressUntil.Remove(key);
-                return false;
-            }
-            _swingSuppressUntil.Remove(key);
-            return true;
         }
 
         internal static bool ShouldRedirect(Transform attacker)
@@ -106,8 +81,9 @@ namespace DWMPHorde.Patches
         }
 
         /// <summary>
-        /// Vanilla Door.getHit defers bodyRB.AddForce by 2 frames when the door is open.
-        /// Redirect skips getHit entirely — re-apply that swing so client sees the door move.
+        /// Vanilla Door.getHit knocks an open door back two frames after the blow. The redirect
+        /// skips getHit, so the striker's machine applies that knock-back itself (DoorSwing sends
+        /// it to the machine running the door's swing, if another one does).
         /// </summary>
         internal static void ApplyOpenDoorSwingPredictive(Door door, Transform attacker)
         {
@@ -116,43 +92,24 @@ namespace DWMPHorde.Patches
             if (!door.opened || door.destroyed || door.barricaded)
                 return;
 
-            RegisterLocalDoorSwing(door.transform.position);
-
-            Rigidbody bodyRB = Traverse.Create(door).Field("bodyRB").GetValue<Rigidbody>();
-            if (bodyRB == null)
-                return;
-
-            // Keep non-kinematic like an opened door so force sticks.
-            if (bodyRB.isKinematic)
-                bodyRB.isKinematic = false;
-
             Transform doorT = door.transform;
             Controller ctrl = Singleton<Controller>.Instance;
-            if (ctrl != null)
+            if (ctrl == null)
+                return;
+            ctrl.waitFramesAndRun(delegate
             {
-                ctrl.waitFramesAndRun(delegate
-                {
-                    if (door == null || doorT == null || attacker == null)
-                        return;
-                    if (!door.opened || door.destroyed || door.barricaded)
-                        return;
-                    Rigidbody rb = Traverse.Create(door).Field("bodyRB").GetValue<Rigidbody>();
-                    if (rb == null)
-                        return;
-                    if (rb.isKinematic)
-                        rb.isKinematic = false;
-                    Vector3 vector = attacker.position - doorT.position;
-                    if (vector.sqrMagnitude < 0.0001f)
-                        return;
-                    rb.AddForce(vector.normalized * OpenDoorHitForce);
-                }, 2);
-            }
-            else
-            {
+                if (door == null || doorT == null || attacker == null || door.body == null)
+                    return;
+                if (!door.opened || door.destroyed || door.barricaded)
+                    return;
+                Rigidbody rb = door.body.GetComponent<Rigidbody>();
+                if (rb == null || rb.isKinematic)
+                    return;
                 Vector3 vector = attacker.position - doorT.position;
-                if (vector.sqrMagnitude >= 0.0001f)
-                    bodyRB.AddForce(vector.normalized * OpenDoorHitForce);
-            }
+                if (vector.sqrMagnitude < 0.0001f)
+                    return;
+                DoorSwing.LocalForce(door, rb, vector.normalized * OpenDoorHitForce);
+            }, 2);
         }
     }
 
