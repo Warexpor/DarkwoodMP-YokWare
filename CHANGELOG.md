@@ -3,12 +3,12 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.250**. The current Horde wire protocol is **61**. Every install in a session
+**0.8.251**. The current Horde wire protocol is **61**. Every install in a session
 needs the same DLL; the protocol is checked on join.
 
 Protocol history (newest first):
 
-- **61**, 0.8.248 to 0.8.250: `VoiceData` (129) carries Opus; with flag 2 its data starts with the voice
+- **61**, 0.8.248 to 0.8.251: `VoiceData` (129) carries Opus; with flag 2 its data starts with the voice
   block's length (2 bytes).
 - **60**, 0.8.247: new `DreamLeft` (172).
 - **59**, 0.8.243 to 0.8.246: new `DoorSwing` (171); `BarricadeEvent` drops the attacker position.
@@ -71,6 +71,33 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.251 — a transmission is heard as the voice and on the radio at once
+
+Asked for after 0.8.250, which played a close talker's transmission on the radio only.
+
+- **What changed.** A talker keying their walkie is now heard both ways wherever both
+  reach: their voice from where they stand, as far as it carries, and the transmission on
+  a radio (this player's own, or another player's playing out loud nearby) with its beep,
+  band, static and squelch tail. Before 0.8.250 the louder of the two played alone (close
+  by, always the plain voice); 0.8.250 gave this player's own radio the say.
+- **How.** Each talker has a second speaker for the radio (`Speaker.Radio`, made on their
+  first walkie packet). Every packet goes to the talker's own speaker as a plain voice;
+  a walkie packet also goes to the radio speaker, with the sounds the talker's radio
+  picked up. All radio state (which radio, signal, static, squelch tail and its hold) is
+  on the radio speaker; the voice speaker no longer changes between ways of being heard.
+  The last word after the key comes up plays as voice while the radio plays its tail
+  (it was dropped while the tail played).
+- **Level.** The two are one voice twice, peak on peak. When their volumes add up to more
+  than one voice may have, each is turned down by its share: next to the talker the pair
+  is about as loud as the voice alone was, half voice and half radio; far apart the
+  radio plays at its full level.
+- **Call beep.** 0.8.250 lowered the key-down beep by 45% (own radio, and heard from a
+  talker nearby); asked back to 30% lower than it was before 0.8.250: 0.35 to 0.245 and
+  0.3 to 0.21 (`KeyBeepShare` 0.7).
+- `HOW_COOP_WORKS.md` updated. The test pilot's voice line shows `radio=` and `radioVol=`
+  per talker in place of `mode=`.
+- Runtime: not playtested yet.
 
 ## 0.8.250 — voice is louder; radio talk is heard on the radio close by too; quieter call beep
 

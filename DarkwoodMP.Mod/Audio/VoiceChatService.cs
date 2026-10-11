@@ -19,12 +19,21 @@ namespace DWMPHorde.Audio
     /// </summary>
     public static partial class VoiceChatService
     {
-        /// <summary>How this player hears a talker: their voice, this player's own radio, or a radio nearby.</summary>
+        /// <summary>
+        /// Which radio plays a talker's transmission to this player: their own, or another
+        /// player's nearby (Direct: none). The talker's voice itself is heard besides, from
+        /// where they stand, on the talker's own speaker.
+        /// </summary>
         private enum HearMode { Direct, OwnRadio, NearRadio }
 
         private sealed class Speaker
         {
             public int Id;
+            /// <summary>
+            /// A talker's second speaker: their transmissions as a radio plays them, beside
+            /// the voice itself on this one. The radio fields below are used on that one.
+            /// </summary>
+            public Speaker Radio;
             public GameObject Go;
             public AudioSource Src;
             public AudioLowPassFilter Muffle;
@@ -242,10 +251,7 @@ namespace DWMPHorde.Audio
         public static void Reset()
         {
             foreach (Speaker s in _speakers.Values)
-            {
-                if (s.Go != null)
-                    UnityEngine.Object.Destroy(s.Go);
-            }
+                DestroySpeaker(s);
             _speakers.Clear();
             ResetSelfEcho();
             _knobStates.Clear();
@@ -271,8 +277,7 @@ namespace DWMPHorde.Audio
             VoiceHearing.Forget(playerId);
             if (!_speakers.TryGetValue(playerId, out Speaker s))
                 return;
-            if (s.Go != null)
-                UnityEngine.Object.Destroy(s.Go);
+            DestroySpeaker(s);
             _speakers.Remove(playerId);
         }
 
@@ -417,7 +422,7 @@ namespace DWMPHorde.Audio
         {
             foreach (Speaker s in _speakers.Values)
             {
-                if (s.Mode == HearMode.OwnRadio && Time.unscaledTime - s.LastData < 0.5f)
+                if (s.Radio != null && s.Radio.Mode == HearMode.OwnRadio && Time.unscaledTime - s.LastData < 0.5f)
                     return true;
             }
             return false;
@@ -446,12 +451,14 @@ namespace DWMPHorde.Audio
             {
                 int buffered, under;
                 lock (s.Lock) { buffered = s.Buffered; under = s.Underruns; }
+                Speaker r = s.Radio;
                 sb.Append(" | p").Append(s.Id).Append(" seq=").Append(s.LastSeq).Append(" buf=").Append(buffered)
                   .Append(" under=").Append(under).Append(" level=").Append(s.LevelEnv.ToString("0.00"))
                   .Append(" vol=").Append(s.Beh != null ? s.Beh.Volume.ToString("0.00") : "-")
-                  .Append(" mode=").Append(s.Mode).Append(s.WalkieActive ? " walkie" : "")
-                  .Append(" q=").Append(s.RadioQuality.ToString("0.00"))
-                  .Append(s.Doubling > 0f ? " doubling=" + s.Doubling.ToString("0.00") : "")
+                  .Append(" radio=").Append(r != null ? r.Mode.ToString() : "-").Append(s.WalkieActive ? " walkie" : "")
+                  .Append(" radioVol=").Append(r != null && r.Beh != null ? r.Beh.Volume.ToString("0.00") : "-")
+                  .Append(" q=").Append(r != null ? r.RadioQuality.ToString("0.00") : "-")
+                  .Append(r != null && r.Doubling > 0f ? " doubling=" + r.Doubling.ToString("0.00") : "")
                   .Append(" age=").Append((Time.unscaledTime - s.LastData).ToString("0.0")).Append("s");
             }
             return sb.ToString();
@@ -744,37 +751,49 @@ namespace DWMPHorde.Audio
                 speaker.Level = p.Level / 255f;
                 speaker.PacketsIn++;
                 speaker.LastData = Time.unscaledTime;
+                Speaker radio = speaker.Radio;
                 if (walkieNow)
                 {
                     ClaimChannel(speaker.Id);
-                    speaker.RadioHoldUntil = 0f;
+                    radio = EnsureRadioSpeaker(speaker);
+                    radio.WalkieActive = true;
+                    radio.Level = speaker.Level;
+                    radio.LastData = speaker.LastData;
+                    radio.RadioHoldUntil = 0f;
                     // The radio this transmission is heard on is picked now, not on the next
-                    // frame: its first packet went out as a plain voice ahead of the beep.
+                    // frame: its first packet would miss the radio and the beep start late.
                     if (keyed)
                         PlaceNow(speaker);
                 }
-                else
+                else if (radio != null)
                 {
                     // The key came up (the mic sends a moment longer, for the last word of a
                     // voice heard directly): the radio playing this talker closes now, with its
                     // squelch tail, and what follows is not on the air.
-                    if (speaker.RadioWasActive)
+                    radio.WalkieActive = false;
+                    if (radio.RadioWasActive)
                     {
-                        speaker.RadioWasActive = false;
-                        WriteSquelchTail(speaker);
+                        radio.RadioWasActive = false;
+                        WriteSquelchTail(radio);
                     }
-                    if (Time.unscaledTime < speaker.RadioHoldUntil)
-                        return;
                 }
-                // Only a radio plays the second block: heard directly, the talker is a voice in
-                // a world the listener hears for themselves.
-                if (worldSamples > 0 && speaker.RadioMode && walkieNow)
-                {
-                    int n = Math.Min(voiceSamples, worldSamples);
-                    for (int i = 0; i < n; i++)
-                        _decodeBuf[voiceStart + i] += _worldRx[i] * WorldRxGain;
-                }
+
+                // The voice itself, always: heard from where the talker stands, as far as it carries.
                 WriteVoice(speaker, _decodeBuf, samples);
+
+                // And the transmission on the radio that plays it. Only a radio plays the second
+                // block: heard directly, the talker is a voice in a world the listener hears for
+                // themselves.
+                if (walkieNow && radio.RadioMode)
+                {
+                    if (worldSamples > 0)
+                    {
+                        int n = Math.Min(voiceSamples, worldSamples);
+                        for (int i = 0; i < n; i++)
+                            _decodeBuf[voiceStart + i] += _worldRx[i] * WorldRxGain;
+                    }
+                    WriteVoice(radio, _decodeBuf, samples);
+                }
             }
             catch (Exception ex)
             {

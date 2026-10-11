@@ -905,10 +905,12 @@ party events.
     A keyed radio also sends the sounds around its holder (steps, doors, creatures, the
     weather), each as loud and as dull as it reaches the holder and well under the voice;
     not music, menu sounds or voice chat itself (nor the game's long ambience loops, which
-    play on two sources and cannot be tapped). Only radios play that part: a player without a live radio
-    standing by the talker hears their voice and the world for themselves (`VoiceRadioWorldSounds`).
-    A transmission your own live radio receives is heard on the radio, however close the
-    talker stands (beep, band, static and squelch tail included), not as their plain voice.
+    play on two sources and cannot be tapped). Only radios play that part: the voice heard
+    from the talker themself is their voice alone, in a world the listener hears for themselves (`VoiceRadioWorldSounds`).
+    A transmission is heard both ways at once where both reach: the talker's voice from
+    where they stand, as far as it carries, and the radio playing it (your own, or another
+    player's nearby), with its beep, band, static and squelch tail. Close together the two
+    share the level one voice has, so the pair is no louder than the voice alone.
     Every other walkie plays the talk out loud too: standing near someone who carries
     one, you hear it from them (a short way, muffled through walls), and creatures near
     a playing radio hear it.

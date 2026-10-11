@@ -247,7 +247,7 @@ namespace DWMPHorde.Audio
         }
 
         /// <summary>The call beep against the squelch tail of the same radio: the beep is a pure tone and cut through at the same level.</summary>
-        private const float KeyBeepShare = 0.55f;
+        private const float KeyBeepShare = 0.7f;
 
         internal enum RadioSound { PowerOn, PowerOff, Dead }
 
