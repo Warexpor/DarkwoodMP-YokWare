@@ -51,6 +51,8 @@ namespace DWMPHorde.Logging
             go.hideFlags = HideFlags.HideAndDontSave;
             _instance = go.AddComponent<PerfFramePhases>();
             go.AddComponent<PerfFramePhasesEnd>();
+            // Every plugin is loaded by the time a session runs the probe.
+            FrameScriptProfiler.Install();
         }
 
         internal static double Now => Clock.Elapsed.TotalMilliseconds;
@@ -71,6 +73,7 @@ namespace DWMPHorde.Logging
                 LastCoMs = _coPrev;
                 LastLateMs = _latePrev;
                 LastRendMs = _rendPrev;
+                FrameScriptProfiler.FrameBoundary();
             }
         }
 

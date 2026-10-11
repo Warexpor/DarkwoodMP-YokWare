@@ -48,6 +48,8 @@ namespace DWMPHorde.Sync
             _clientOkLogAt = 0f;
             _worstMs = 0f;
             _syncedContainers.Clear();
+            _hostJob = null;
+            _clientJob = null;
         }
 
         private static bool Enabled => ModConfig.DesyncCheck == null || ModConfig.DesyncCheck.Value;
@@ -80,10 +82,42 @@ namespace DWMPHorde.Sync
         /// <summary>Host: run the next check on the next tick (test pilot).</summary>
         internal static void RunSoon() => _nextAt = 0f;
 
+        /// <summary>
+        /// A check in progress. Building every section in one frame took 3-3.5 ms on the host (and
+        /// as much on the client comparing them): every 15 s a frame over a 100 Hz budget. A job
+        /// builds one section per network tick instead, and sends (or compares) at the end.
+        /// </summary>
+        private sealed class HostJob
+        {
+            public int Seq;
+            public List<int> Targets;
+            public readonly Dictionary<byte, string> Global = new Dictionary<byte, string>();
+            public int Section;            // next section index while building the world-wide ones
+            public int Target;             // next target once those are done
+            public DesyncDigestMessage Msg;  // the target's digest being filled
+            public bool HasMsg;
+            public Ctx TargetCtx;
+            public double Ms;              // build time summed over its steps
+        }
+
+        private static HostJob _hostJob;     // reset-in: Reset
+
         internal static void Tick(LanNetworkManager net)
         {
-            if (net == null || net.Role != NetworkRole.Host || !Enabled)
+            if (net == null || !Enabled)
                 return;
+            if (net.Role == NetworkRole.Client)
+            {
+                StepClient(net);
+                return;
+            }
+            if (net.Role != NetworkRole.Host)
+                return;
+            if (_hostJob != null)
+            {
+                StepHost(net);
+                return;
+            }
             float now = Time.unscaledTime;
             if (now < _nextAt)
                 return;
@@ -116,20 +150,51 @@ namespace DWMPHorde.Sync
                 return;
 
             _seq++;
-            var watch = System.Diagnostics.Stopwatch.StartNew();
-            // World sections once; the ones around a player per target.
-            var global = new Dictionary<byte, string>();
-            foreach (Section s in Sections)
-                if (!s.Focus)
-                    global[s.Id] = Build(s, HostCtx(net, 0));
+            _hostJob = new HostJob { Seq = _seq, Targets = targets };
+            StepHost(net);
+        }
 
-            foreach (int id in targets)
+        /// <summary>Host: one section of the check in progress (world-wide first, then each target's).</summary>
+        private static void StepHost(LanNetworkManager net)
+        {
+            HostJob job = _hostJob;
+            if (!net.DesyncLinkQuiet || !LocalWorldSettled())
             {
-                Ctx ctx = HostCtx(net, id);
-                int n = Sections.Length;
-                var msg = new DesyncDigestMessage
+                _hostJob = null; // a transition started: this check is void, the next one starts over
+                return;
+            }
+            var watch = System.Diagnostics.Stopwatch.StartNew();
+            int n = Sections.Length;
+            // World sections once; the ones around a player per target.
+            while (job.Section < n && Sections[job.Section].Focus)
+                job.Section++;
+            if (job.Section < n)
+            {
+                Section s = Sections[job.Section++];
+                job.Global[s.Id] = Build(s, HostCtx(net, 0));
+                job.Ms += watch.Elapsed.TotalMilliseconds;
+                return;
+            }
+            if (job.Target >= job.Targets.Count)
+            {
+                Finish();
+                return;
+            }
+            int id = job.Targets[job.Target];
+            if (net.GetProxy(id) == null)
+            {
+                job.Target++;
+                job.HasMsg = false;
+                job.Ms += watch.Elapsed.TotalMilliseconds;
+                return;
+            }
+            if (!job.HasMsg)
+            {
+                job.HasMsg = true;
+                job.TargetCtx = HostCtx(net, id);
+                job.Msg = new DesyncDigestMessage
                 {
-                    Seq = _seq,
+                    Seq = job.Seq,
                     TotalTime = Singleton<Controller>.Instance.totalTime,
                     Chapter = Chapter(),
                     SectionCount = (byte)n,
@@ -140,22 +205,59 @@ namespace DWMPHorde.Sync
                 };
                 for (int i = 0; i < n; i++)
                 {
-                    Section s = Sections[i];
-                    string text = s.Focus ? Build(s, ctx) : global[s.Id];
-                    msg.SectionIds[i] = s.Id;
-                    msg.Hashes[i] = DesyncEntries.Hash(text);
-                    msg.Counts[i] = DesyncEntries.Count(text);
-                    msg.Inline[i] = s.Focus ? Cap(text, out _) : string.Empty;
+                    Section g = Sections[i];
+                    job.Msg.SectionIds[i] = g.Id;
+                    job.Msg.Inline[i] = null;
+                    if (g.Focus)
+                        continue;
+                    string text = job.Global[g.Id];
+                    job.Msg.Hashes[i] = DesyncEntries.Hash(text);
+                    job.Msg.Counts[i] = DesyncEntries.Count(text);
+                    job.Msg.Inline[i] = string.Empty;
                 }
-                net.SendDesyncDigest(id, msg);
             }
-            NoteCost("host digest seq " + _seq + " for " + targets.Count + " peer(s)", watch);
+            // The next focus section of this target not built yet.
+            int next = -1;
+            for (int i = 0; i < n; i++)
+            {
+                if (Sections[i].Focus && job.Msg.Inline[i] == null)
+                {
+                    next = i;
+                    break;
+                }
+            }
+            if (next >= 0)
+            {
+                Section s = Sections[next];
+                string text = Build(s, job.TargetCtx);
+                job.Msg.Hashes[next] = DesyncEntries.Hash(text);
+                job.Msg.Counts[next] = DesyncEntries.Count(text);
+                job.Msg.Inline[next] = Cap(text, out _);
+                job.Ms += watch.Elapsed.TotalMilliseconds;
+                return;
+            }
+            net.SendDesyncDigest(id, job.Msg);
+            job.HasMsg = false;
+            job.Target++;
+            job.Ms += watch.Elapsed.TotalMilliseconds;
+            if (job.Target >= job.Targets.Count)
+                Finish();
+
+            void Finish()
+            {
+                NoteCost("host digest seq " + job.Seq + " for " + job.Targets.Count + " peer(s)", job.Ms);
+                _hostJob = null;
+            }
         }
 
         /// <summary>A check is a frame's work: log one that costs a visible hitch.</summary>
         private static void NoteCost(string what, System.Diagnostics.Stopwatch watch)
+            => NoteCost(what, watch.Elapsed.TotalMilliseconds);
+
+        /// <summary>A check's build time (summed over its steps when it is spread over frames).</summary>
+        private static void NoteCost(string what, double total)
         {
-            float ms = (float)watch.Elapsed.TotalMilliseconds;
+            float ms = (float)total;
             if (ms > _worstMs)
                 _worstMs = ms;
             if (ms > SlowCheckMs)
@@ -220,15 +322,28 @@ namespace DWMPHorde.Sync
 
         // -------------------------------------------------------------- client
 
+        private sealed class ClientJob
+        {
+            public DesyncDigestMessage Msg;
+            public Ctx Ctx;
+            public int Index;
+            public readonly List<string> Lines = new List<string>();
+            public readonly List<byte> Request = new List<byte>();
+            public double Ms;
+        }
+
+        private static ClientJob _clientJob; // reset-in: Reset
+
         internal static void ClientOnDigest(LanNetworkManager net, DesyncDigestMessage msg)
         {
             if (net == null || net.Role != NetworkRole.Client || !Enabled || msg.SectionIds == null)
                 return;
             if (!net.DesyncLinkQuiet || !LocalWorldSettled())
                 return;
+            // A digest that arrives while the last one is still being compared replaces it.
             _clientChecks++;
             var watch = System.Diagnostics.Stopwatch.StartNew();
-            var lines = new List<string>();
+            var job = new ClientJob { Msg = msg, Ctx = ClientCtx(net) };
 
             var clock = new List<DesyncEntries.Diff>(2);
             int chapter = Chapter();
@@ -237,42 +352,64 @@ namespace DWMPHorde.Sync
             int total = Singleton<Controller>.Instance.totalTime;
             if (Math.Abs(total - msg.TotalTime) > ClockToleranceMinutes)
                 clock.Add(new DesyncEntries.Diff { Key = "time", Host = Clock(msg.TotalTime), Client = Clock(total) });
-            lines.AddRange(_ledger.Evaluate(ClockSection, "Clock", clock));
+            job.Lines.AddRange(_ledger.Evaluate(ClockSection, "Clock", clock));
+            job.Ms = watch.Elapsed.TotalMilliseconds;
+            _clientJob = job;
+        }
 
-            Ctx ctx = ClientCtx(net);
-            var request = new List<byte>();
-            for (int i = 0; i < msg.SectionIds.Length; i++)
+        /// <summary>Client: compare one section of the digest in progress; report at the end.</summary>
+        private static void StepClient(LanNetworkManager net)
+        {
+            ClientJob job = _clientJob;
+            if (job == null)
+                return;
+            if (!net.DesyncLinkQuiet || !LocalWorldSettled())
             {
-                Section s = Find(msg.SectionIds[i]);
-                if (s == null)
-                    continue;
-                string mine = Build(s, ctx);
+                _clientJob = null;
+                return;
+            }
+            var watch = System.Diagnostics.Stopwatch.StartNew();
+            DesyncDigestMessage msg = job.Msg;
+            Section s = null;
+            int i = job.Index;
+            while (i < msg.SectionIds.Length && (s = Find(msg.SectionIds[i])) == null)
+                i++;
+            if (s != null)
+            {
+                job.Index = i + 1;
+                // Where the player stands now: the host built its copy around this player's
+                // stand-in a moment ago, and the focus sections carry an edge margin.
+                job.Ctx.FocusPos = Player.Instance != null ? Player.Instance.transform.position : job.Ctx.FocusPos;
+                string mine = Build(s, job.Ctx);
                 if (s.Focus)
                 {
-                    lines.AddRange(_ledger.Evaluate(s.Id, s.Name, DesyncEntries.Compare(
+                    job.Lines.AddRange(_ledger.Evaluate(s.Id, s.Name, DesyncEntries.Compare(
                         DesyncEntries.Parse(msg.Inline != null && i < msg.Inline.Length ? msg.Inline[i] : null),
                         DesyncEntries.Parse(mine), s.Same)));
                 }
                 else if (DesyncEntries.Hash(mine) == (msg.Hashes != null && i < msg.Hashes.Length ? msg.Hashes[i] : 0u))
                 {
-                    lines.AddRange(_ledger.Evaluate(s.Id, s.Name, null));
+                    job.Lines.AddRange(_ledger.Evaluate(s.Id, s.Name, null));
                 }
                 else
                 {
-                    request.Add(s.Id);
+                    job.Request.Add(s.Id);
                 }
+                job.Ms += watch.Elapsed.TotalMilliseconds;
+                return;
             }
-            if (request.Count > 0)
+            _clientJob = null;
+            if (job.Request.Count > 0)
             {
                 net.SendDesyncDetailRequest(new DesyncDetailRequestMessage
                 {
                     Seq = msg.Seq,
-                    SectionCount = (byte)request.Count,
-                    SectionIds = request.ToArray()
+                    SectionCount = (byte)job.Request.Count,
+                    SectionIds = job.Request.ToArray()
                 });
             }
-            NoteCost("client compare seq " + msg.Seq, watch);
-            Emit(net, msg.Seq, lines);
+            NoteCost("client compare seq " + msg.Seq, job.Ms);
+            Emit(net, msg.Seq, job.Lines);
 
             float now = Time.unscaledTime;
             if (now >= _clientOkLogAt)
@@ -280,7 +417,7 @@ namespace DWMPHorde.Sync
                 _clientOkLogAt = now + OkLogEverySec;
                 ModLog.Event(LogCat.Session, "[Desync] check #" + _clientChecks + " seq " + msg.Seq
                     + ": " + _ledger.ReportedCount + " open desync(s)"
-                    + (request.Count > 0 ? ", " + request.Count + " section(s) being compared" : "")
+                    + (job.Request.Count > 0 ? ", " + job.Request.Count + " section(s) being compared" : "")
                     + ", slowest check " + _worstMs.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture) + " ms");
                 _worstMs = 0f;
             }

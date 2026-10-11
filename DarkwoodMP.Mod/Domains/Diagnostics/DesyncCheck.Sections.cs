@@ -55,9 +55,13 @@ namespace DWMPHorde.Sync
         private static string Build(Section s, Ctx ctx)
         {
             var list = new List<KeyValuePair<string, string>>(64);
+            var sw = Logging.FrameScriptProfiler.Enabled ? System.Diagnostics.Stopwatch.StartNew() : null;
             try
             {
                 s.Collect(ctx, list);
+                if (sw != null && sw.Elapsed.TotalMilliseconds >= 0.5)
+                    Logging.ModLog.Event(Logging.LogCat.Core, "[FrameProf] desync section " + s.Name + " ("
+                        + (ctx.Host ? "host" : "client") + ") " + sw.Elapsed.TotalMilliseconds.ToString("F2") + " ms, " + list.Count + " entries");
             }
             catch (Exception ex)
             {

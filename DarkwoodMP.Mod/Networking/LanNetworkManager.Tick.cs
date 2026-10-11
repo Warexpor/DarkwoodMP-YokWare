@@ -29,6 +29,7 @@ namespace DWMPHorde.Networking
             // Message handlers are isolated in ProcessInboundMessage; this catches what is left (a
             // peer connect/disconnect callback). LiteNetLib drops the remaining queued events of the
             // poll when one throws, but the rest of this frame (sends, Steam poll) must still run.
+            if (perf) ClientPerfProbe.BeginUpdateSegment("pollEvents");
             try { _net?.PollEvents(); }
             catch (Exception ex)
             {
@@ -36,15 +37,21 @@ namespace DWMPHorde.Networking
                     ModLog.Error(LogCat.Network,
                         "LiteNetLib PollEvents threw" + NetLogThrottle.SuppressedSuffix(dropped), ex);
             }
+            if (perf) ClientPerfProbe.BeginUpdateSegment("steamPoll");
             PollSteamBackend();
+            if (perf) ClientPerfProbe.BeginUpdateSegment("pilotMenuNames");
             Sync.TestPilot.Tick(this);
             Sync.PauseMenuSync.Tick(this);
             Sync.PlayerNames.Tick(this);
+            if (perf) ClientPerfProbe.BeginUpdateSegment("lightProbe");
             StackedLightProbe.Tick(this);
+            if (perf) ClientPerfProbe.BeginUpdateSegment("dialogFrameRate");
             Sync.DialogMirror.TickListener();
             BackgroundFrameRate.Tick(this);
             Sync.DialogHandInArbiter.TickClient(this);
+            if (perf) ClientPerfProbe.BeginUpdateSegment("voice");
             Audio.VoiceChatService.Tick();
+            if (perf) ClientPerfProbe.EndUpdateSegment();
             if (perf) ClientPerfProbe.MarkPoll();
 
             if (perf) ClientPerfProbe.BeginUpdateSegment("walkie");
@@ -243,15 +250,21 @@ namespace DWMPHorde.Networking
             // Host + clients: periodically sync wards / poison / bleed / skill flags to peers.
             // Include host effect flags so clients can present shadow and forest
             // spirit wards.
+            if (perf) ClientPerfProbe.BeginUpdateSegment("nightVillage");
             Sync.NightVillage.Tick(this);
+            if (perf) ClientPerfProbe.BeginUpdateSegment("peerItems");
             Sync.PeerItemPresence.Tick(this);
+            if (perf) ClientPerfProbe.BeginUpdateSegment("oxygenQuest");
             Sync.OxygenTankParty.Tick(this);
             Sync.QuestItemHandoff.TickClient(this);
             Sync.DreamRetry.Tick(this);
             Sync.MenuShield.Tick(this);
+            if (perf) ClientPerfProbe.BeginUpdateSegment("desyncCheck");
             Sync.DesyncCheck.Tick(this);
+            if (perf) ClientPerfProbe.BeginUpdateSegment("prologueWolf");
             Sync.PersonalPrologue.TickClient(this);
             Patches.WolfVisitorGhostSweep.TickClient(this);
+            if (perf) ClientPerfProbe.BeginUpdateSegment("hostTicks");
             if (_role == NetworkRole.Host)
             {
                 Patches.TraderRestockDefer.Tick();
@@ -263,11 +276,13 @@ namespace DWMPHorde.Networking
             else
                 WorldFxHandlers?.TickEarlySounds();
 
+            if (perf) ClientPerfProbe.BeginUpdateSegment("effects");
             _effectSyncTimer += Time.deltaTime;
             bool effectKeepalive = _effectSyncTimer >= 2f;
             if (effectKeepalive)
                 _effectSyncTimer = 0f;
             WorldProxyEffectHandlers.SendPlayerEffects(effectKeepalive);
+            if (perf) ClientPerfProbe.BeginUpdateSegment("playerState");
 
             // Both sides: send own position to the other side at ~30 Hz
             string torsoClip = PlayerAnimationSnapshot.ReadTorsoClip(local);
@@ -483,6 +498,7 @@ namespace DWMPHorde.Networking
                 // Backup if stopDragging never ran (edge cases). Prefer NotifyLocalDragEnded.
                 NotifyLocalDragEnded(_lastDraggedItemName);
             }
+            if (perf) ClientPerfProbe.EndUpdateSegment();
         }
     }
 }

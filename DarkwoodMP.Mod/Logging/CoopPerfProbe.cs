@@ -210,7 +210,7 @@ namespace DWMPHorde.Logging
                 _frameSegMaxMs = ms;
                 _frameSegMaxName = _segName;
             }
-            if (ms >= SegSpikeMs)
+            if (ms >= (FrameScriptProfiler.Enabled ? 1.0 : SegSpikeMs))
             {
                 ModLog.Event(LogCat.Core,
                     "[PerfSeg] role=" + _roleTag + " " + _segName + "=" + ms.ToString("F1") + "ms");

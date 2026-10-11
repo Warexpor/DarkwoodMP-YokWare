@@ -73,7 +73,7 @@ tested in the game.
 
 ---
 
-## 0.8.254 — a switched-off generator goes quiet; saves hash off the main thread; slow frames split by phase
+## 0.8.254 — a switched-off generator goes quiet; the desync check no longer spikes a frame; saves hash off the main thread
 
 Deployed; not playtested yet. Protocol unchanged (62).
 
@@ -108,7 +108,27 @@ A box run at 100 Hz with vsync (host + one client idle at home, 3 to 4.5 min) sh
 6 to 37 of 90-131 windows at 96-99 fps. Average frame work was 4.6 ms; the slow frames ran
 16-23 ms (one 44 ms) of CPU work, mostly rendering (6-12 ms against an average 1.9) and Update
 (3-10 ms against 0.9), once a 38 ms coroutine; the mod's network tick held them 0.1-6 ms. The mod's
-own tick costs about 0.2 ms a frame on average. No single mod path explains them yet.
+own tick costs about 0.2 ms a frame on average.
+
+**The desync check put a 3-3.5 ms frame on the host every 15 s, and 250 ms on its first run.**
+A script-level profile in the box (every game and plugin Update, LateUpdate, FixedUpdate, OnGUI
+and camera render timed per frame) named it: the network Update spiked from 0.15 ms to 3-3.5 ms
+on each check, and the probe's segments put all of it in `DesyncCheck`, which built all 15 world
+sections in one frame (the client compared them all in one frame too). Its first run after each
+load also scanned the whole scene for five object types: 250 ms on the host, 265 ms on the client
+in the playtest log. The check now builds (and the client compares) one section per network tick
+and sends at the end, at most ~1.4 ms in any frame; its object lists come from the scene registry,
+which is filled during the world load, so there is no scan in play any more (first client check
+265 ms → 28 ms in total, spread over frames). Box runs at 100 Hz: dip windows 6-37 per ~100
+before, 7-9 after. The rest are frames where every game script and camera ran 2-5x slower at
+once, which on one machine running two games is CPU contention, not one code path; your own
+host log will show whether they stay. (`DesyncCheck`, `DesyncRegistry`)
+
+The network Update's untimed tail (night village, peer items, desync check, effects, the player
+state send) and its poll part now have probe segments too. Setting `DWMP_FRAME_PROFILE=1` in the
+game's environment turns on the script profiler (`[FrameProf]` lines: the methods that took the
+most in each slow frame, a per-frame average each minute, desync section costs); it times every
+call, so it is for test runs only. (`FrameScriptProfiler`, `LanNetworkManager.Update`)
 
 **The perf probe went quiet when the host's last peer left.** 0.8.252 arms it for a host with no
 peers, but its 2 s report ran only at the end of the network LateUpdate, which returns early
