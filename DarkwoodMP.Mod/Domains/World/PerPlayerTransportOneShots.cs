@@ -53,6 +53,38 @@ namespace DWMPHorde.Sync
             return moves || lesson || (message && !scene);
         }
 
+        /// <summary>
+        /// A lesson that is only this player's: recipes plus its message, sound or particles
+        /// (no journal page, move or scene step). Nothing in it touches the shared world, so a
+        /// client's own copy may run it for its own player.
+        /// </summary>
+        internal static bool IsPersonalLesson(GameEvents ges)
+        {
+            if (ges == null || ges.multipleFire || ges.events == null || ges.events.Count == 0)
+                return false;
+            bool lesson = false;
+            for (int i = 0; i < ges.events.Count; i++)
+            {
+                GameEvent e = ges.events[i];
+                if (e == null)
+                    continue;
+                switch (e.type)
+                {
+                    case GameEvent.Type.addRecipes:
+                        lesson = true;
+                        break;
+                    case GameEvent.Type.sound:
+                    case GameEvent.Type.particle:
+                    case GameEvent.Type.displayMessage:
+                    case GameEvent.Type.debug:
+                        break;
+                    default:
+                        return false;
+                }
+            }
+            return lesson;
+        }
+
         private static bool IsMove(GameEvent e)
         {
             switch (e.type)
@@ -103,14 +135,6 @@ namespace DWMPHorde.Sync
 
         internal static void NoteLocal(int key) => _localServed.Add(key);
 
-        /// <summary>
-        /// Co-op is on for world events: connected, or between the world download and the
-        /// reconnect of a join (the joiner's copy must stay the host's world meanwhile).
-        /// </summary>
-        internal static bool CoopWorld()
-            => (ModRuntime.Network != null && ModRuntime.Network.IsConnected)
-               || (ChapterSessionResume.IsPending && !ChapterSessionResume.WasHost);
-
         internal static void Note(int key, int actor)
         {
             if (actor <= 0)
@@ -153,8 +177,11 @@ namespace DWMPHorde.Sync
                 return;
             // Vanilla removes some once fired (destroyOnFire): the next player would find nothing.
             // Each player is served once, so it stays (host and clients alike: clients replay it).
-            if (__instance.destroyOnFire && PerPlayerTransportOneShots.CoopWorld()
-                && PerPlayerTransportOneShots.Qualifies(__instance))
+            // Also with no one connected: a host alone for a moment (a joiner reconnecting after
+            // the world download) walked into the hideout's lesson, it was gone from its world,
+            // and the joiner never got the hideout's recipes. Once fired it stays latched, as
+            // vanilla, so keeping it changes nothing in a game that is never hosted.
+            if (__instance.destroyOnFire && PerPlayerTransportOneShots.Qualifies(__instance))
                 __instance.destroyOnFire = false;
             if (!__instance.fired || !PerPlayerTransportOneShots.IsHost())
                 return;

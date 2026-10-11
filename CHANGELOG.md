@@ -3,12 +3,12 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.237**. The current Horde wire protocol is **55**. Every install in a session
+**0.8.238**. The current Horde wire protocol is **55**. Every install in a session
 needs the same DLL; the protocol is checked on join.
 
 Protocol history (newest first):
 
-- **55**, 0.8.230 to 0.8.237: `BarricadeEvent` (destructible items) gains the item's name.
+- **55**, 0.8.230 to 0.8.238: `BarricadeEvent` (destructible items) gains the item's name.
 - **54**, 0.8.212 to 0.8.229: `VoiceData` (129) gains flag 2: a second codec block after the voice,
   the sounds the talker's radio picked up.
 - **53**, 0.8.200 to 0.8.211: the world share package gains `savplc.dat` (container slots a player
@@ -62,6 +62,25 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.238 — a joiner gets the hideout's starting recipes
+
+- A player who joined a new world as a fresh character had only the workbench's own recipes:
+  the five a new character learns on entering the hideout (bandages, alcohol bandages, the two
+  torches, lockpick: `GainRecipes_med_cottage_tree_01`) were missing from its crafting and
+  workbench lists. Two causes. The host was alone for a moment (the joiner reconnecting after the
+  world download), walked into that volume, and vanilla's `destroyOnFire` removed the event from
+  its world: keeping such per-player events alive only applied while someone was connected. And
+  the joiner woke inside the volume after the reconnect, so its own fire was blocked like any
+  client one-shot and waited for a host replay that could never come. A per-player event is now
+  kept whether or not anyone is connected (once fired it stays latched, as vanilla), and a lesson
+  that is only recipes plus its message or sound runs on the client's own copy when the client's
+  own body sets it off; the host's later replay for that player is skipped as already had. Files:
+  `PerPlayerTransportOneShots.cs` (`IsPersonalLesson`, the destroyOnFire keep),
+  `GameEventsFiredPatch.cs`.
+- Test on a new world: in a world saved after the host's copy was removed, the event may be gone
+  for everyone.
+- No protocol change.
 
 ## 0.8.237 — "did you hear that?": random world noises heard by every player near
 
