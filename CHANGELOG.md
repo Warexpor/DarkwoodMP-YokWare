@@ -3,12 +3,12 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.234**. The current Horde wire protocol is **55**. Every install in a session
+**0.8.235**. The current Horde wire protocol is **55**. Every install in a session
 needs the same DLL; the protocol is checked on join.
 
 Protocol history (newest first):
 
-- **55**, 0.8.230 to 0.8.234: `BarricadeEvent` (destructible items) gains the item's name.
+- **55**, 0.8.230 to 0.8.235: `BarricadeEvent` (destructible items) gains the item's name.
 - **54**, 0.8.212 to 0.8.229: `VoiceData` (129) gains flag 2: a second codec block after the voice,
   the sounds the talker's radio picked up.
 - **53**, 0.8.200 to 0.8.211: the world share package gains `savplc.dat` (container slots a player
@@ -62,6 +62,17 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.235 — no action labels through the pause menu
+
+- Action labels (examine, open, talk...) could still show through the pause menu while the world
+  ran on. 0.8.160 stopped the hover pick behind the menu, but other paths still selected an
+  object, some of them forced: the object you had under the cursor breaking (a wardrobe another
+  player smashed reselects itself through `currentlySelectedTransform`, which the menu left set),
+  switching off, a drag finishing, the controller-mode switch. `Player.selectObject` now picks
+  nothing while this player is in the co-op pause menu (`PauseMenuNoSelectPatch`), and the
+  menu clears `currentlySelectedTransform` when it lets go of the cursor object.
+- No protocol change.
 
 ## 0.8.234 — voice carries twice as far; a broken wardrobe stays where it is for everyone; explosions muffled behind walls
 
