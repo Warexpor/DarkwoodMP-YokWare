@@ -132,7 +132,7 @@ namespace DWMPHorde.Patches
             return door.destroyed ? Mathf.Min(door.health, 0) : door.health;
         }
 
-        internal static void SendBarricadeEvent(Vector3 pos, byte targetType, BarricadeAction action, int health, bool playerBarricade, int mainHealth = BarricadeEventMessage.NoMainHealth, int damageAmount = -1, Vector3? attackerPos = null)
+        internal static void SendBarricadeEvent(Vector3 pos, byte targetType, BarricadeAction action, int health, bool playerBarricade, int mainHealth = BarricadeEventMessage.NoMainHealth, int damageAmount = -1, Vector3? attackerPos = null, string itemName = null)
         {
             if (LanNetworkManager.ProcessingBarricadeEvent) { if (ModRuntime.VerboseLogging) ModRuntime.LegacyInfo($"[Barr] suppressed (processing)"); return; }
             if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected) return;
@@ -151,7 +151,8 @@ namespace DWMPHorde.Patches
                 HasAttackerPos = attackerPos.HasValue,
                 AttackerPosX = attackerPos?.x ?? 0f,
                 AttackerPosY = attackerPos?.y ?? 0f,
-                AttackerPosZ = attackerPos?.z ?? 0f
+                AttackerPosZ = attackerPos?.z ?? 0f,
+                ItemName = itemName
             };
             if (ModRuntime.VerboseLogging) ModRuntime.LegacyInfo($"[Barr] SEND type={targetType} act={action} hp={health} pos={key}");
             // Host latch: Destroyed boards must survive soft-reconnect (bulk scan misses them).
@@ -478,7 +479,7 @@ namespace DWMPHorde.Patches
             BarricadeSyncHelpers.SendBarricadeEvent(
                 pos, 2,
                 destroyed ? BarricadeAction.Destroyed : BarricadeAction.Damaged,
-                health, false, damageAmount: damage);
+                health, false, damageAmount: damage, itemName: __instance.name);
         }
     }
 }

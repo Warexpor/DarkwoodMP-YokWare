@@ -471,5 +471,30 @@ namespace DWMPHorde.Sync
             }
             return best;
         }
+
+        /// <summary>
+        /// Nearest destructible item of this name within <paramref name="maxDist"/> (XZ), broken
+        /// ones included: a repeated event for an item already broken must land on that item,
+        /// not on a whole twin standing near it.
+        /// </summary>
+        public static Item FindDestructibleItemByName(string name, Vector3 pos, float maxDist)
+        {
+            if (string.IsNullOrEmpty(name)) return null;
+            Item best = null;
+            float bestSq = maxDist * maxDist;
+            Item[] all = GetCachedSceneComponents<Item>();
+            for (int i = 0; i < all.Length; i++)
+            {
+                Item candidate = all[i];
+                if (candidate == null || !candidate.destructible) continue;
+                float dx = candidate.transform.position.x - pos.x;
+                float dz = candidate.transform.position.z - pos.z;
+                float dSq = dx * dx + dz * dz;
+                if (dSq >= bestSq || candidate.name != name) continue;
+                bestSq = dSq;
+                best = candidate;
+            }
+            return best;
+        }
     }
 }

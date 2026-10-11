@@ -209,7 +209,7 @@ namespace DWMPHorde.Sync
         /// <summary>Full RB walk is last-resort; keep rare (overlap + name cache handle the common path).</summary>
         private const float FullRbScanMinInterval = 2f;
         private const int MaxResolvedByName = 256;
-        private const float ResolvedNameMaxDist = 25f;
+        internal const float ResolvedNameMaxDist = 25f;
         /// <summary>
         /// After motion stops, include the object briefly so peers receive a
         /// final quiet sample. Quiet samples do not refresh the motion timer.

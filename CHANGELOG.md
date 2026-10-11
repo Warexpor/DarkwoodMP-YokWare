@@ -3,11 +3,12 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.229**. The current Horde wire protocol is **54**. Every install in a session
+**0.8.230**. The current Horde wire protocol is **55**. Every install in a session
 needs the same DLL; the protocol is checked on join.
 
 Protocol history (newest first):
 
+- **55**, 0.8.230: `BarricadeEvent` (destructible items) gains the item's name.
 - **54**, 0.8.212 to 0.8.229: `VoiceData` (129) gains flag 2: a second codec block after the voice,
   the sounds the talker's radio picked up.
 - **53**, 0.8.200 to 0.8.211: the world share package gains `savplc.dat` (container slots a player
@@ -61,6 +62,30 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.230 — furniture shot apart on one screen breaks on every screen (protocol 55)
+
+The host broke a wardrobe with two pistol shots; on the client it stayed standing at
+half health. The damage numbers were right (40 → 20 → 0 on both). The second event
+never applied.
+
+- A hit pushes furniture. The first shot moved the host's wardrobe 2.4 units; the
+  client's copy had one position update and was still short of it. The item of a
+  damage event was looked up by position only, within 2 units, so the "destroyed"
+  event found nothing, waited 30 seconds for the item to "load" and expired. Once
+  broken, the host's copy is no longer reported, so the client's never caught up.
+- The event now carries the item's name (`BarricadeEventMessage.ItemName`, live and
+  join bulk). When nothing of that name is at the sender's position, the nearest
+  destructible item of that name within 25 units is taken (the range pushed bodies
+  are already resolved by name), broken ones included, so a repeated event cannot
+  break a whole twin nearby.
+- An item that breaks away from the sender's position is put there first, so what it
+  drops lies in the same place for everyone.
+
+Files: `BarricadeMessages.cs`, `BarricadeSyncPatches.cs`, `BarricadeNetHandlers.cs`,
+`BarricadeNetHandlers.Bulk.cs`, `WorldQueryHelper.cs`.
+
+Not played yet.
 
 ## 0.8.229 — a shot player's blood looks the same for everyone, the death clip plays once
 

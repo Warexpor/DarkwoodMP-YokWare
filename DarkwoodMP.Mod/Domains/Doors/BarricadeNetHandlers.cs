@@ -117,7 +117,7 @@ namespace DWMPHorde.Networking
                     // Match door/window: queue until the pad/chunk wakes (fresh
                     // OutsideLocations.spawnLocation). HandleItemDamageEvent alone
                     // dropped Destroyed crates when the Item was not spawned yet.
-                    if (WorldQueryHelper.FindDestructibleItemXz(pos, ItemMatchRadius) == null)
+                    if (ResolveEventItem(pos, msg) == null)
                     {
                         if (queueIfMissing)
                             QueuePendingBarricade(msg);
@@ -404,7 +404,7 @@ namespace DWMPHorde.Networking
                     : msg.IsWindow == 1
                         ? WorldQueryHelper.FindWindowByPos(pos) != null
                         : msg.IsWindow == 2
-                            && WorldQueryHelper.FindDestructibleItemXz(pos, ItemMatchRadius) != null;
+                            && ResolveEventItem(pos, msg) != null;
                 if (!found) continue;
                 _pendingBarricadeEvents.RemoveAt(i);
                 ApplyBarricadeEvent(msg, queueIfMissing: false);
