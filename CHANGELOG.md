@@ -93,12 +93,13 @@ Not touched, and still in those numbers: about half of the long frames are in re
 (172 of the 332 windows), which the mod does not time any finer, and the Steam packet poll was the
 slowest step in 9 windows (up to 39 ms in one frame).
 
-**Torch without a flame: looks like vanilla.** The log has it: the torch went out at night with the
-game's own `removeItemEmitters`, was then drawn three more times that night with no emitter, and
-the next torches picked up lit normally. That is what vanilla does with a torch burnt down to zero
-(`InvItemClass.drainDurability`: it stays in the bag, used up). No shadows night was running, and
-the day start cleared the shadows flag as it should. The log does not carry durability, so this is
-the likely cause, not a proven one.
+**Torch without a flame: not explained yet.** That night was a shadows night (`shadows_frost` at
+the hideout): the shadows put the host's torch out, as in vanilla, and for the next minute it was
+drawn three times with no flame, which vanilla also does while the wave is on. The host says it
+still had no flame the next day at more than half durability. The log has no torch draw between
+that dawn and the wedding (where it lit), only the torch being moved out of the hotbar early on
+day 3, so the failed draw itself is not in it. A light drawn without its flame now logs why
+(`[Light] <item> drawn without a flame: durability=.. shadowsFlag=.. shadowsLeft=.. day=..`).
 
 ## 0.8.257 — a door that locks behind the party waits for the whole party; voice room effect quieter and faded; no ghost creature left behind
 
