@@ -73,7 +73,8 @@ namespace DWMPHorde.Sync
 
             for (int i = 0; i < all.Length; i++)
             {
-                if (all[i] != null && HasEndDream(all[i]))
+                // A player's own exit (DreamExit) is that player's scene, not every dreamer's.
+                if (all[i] != null && HasEndDream(all[i]) && !DreamExit.IsPersonalEnd(all[i].gameObject))
                     Add(all[i], queue);
             }
             EventTriggers[] triggers = pad.GetComponentsInChildren<EventTriggers>(true);

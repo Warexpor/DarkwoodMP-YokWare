@@ -217,6 +217,7 @@ namespace DWMPHorde.Sync
             SessionId = _nextSessionId++;
             PresetName = presetName;
             Current = State.Starting;
+            DreamExit.ResetForNewSession();
             LevelBits = NextLevelBits;
             NextLevelBits = 0;
             SetPendingHostPreset(presetName);
@@ -256,6 +257,7 @@ namespace DWMPHorde.Sync
 
             PresetName = presetName;
             Current = State.Starting;
+            DreamExit.ResetForNewSession();
             SetPendingHostPreset(presetName);
             FinalDreamsceneManager.OnDreamStarted();
             ArmStartingWatchdog();
@@ -414,6 +416,7 @@ namespace DWMPHorde.Sync
             PresetName = null;
             _pendingHostPreset = null;
             LevelBits = 0;
+            DreamExit.OnSessionOver();
         }
 
         /// <summary>Abort Starting/Active when prepare or pad load failed (no completion mark).</summary>
@@ -426,6 +429,7 @@ namespace DWMPHorde.Sync
             PresetName = null;
             _pendingHostPreset = null;
             LevelBits = 0;
+            DreamExit.OnSessionOver();
         }
 
         public static void Reset()
@@ -437,6 +441,7 @@ namespace DWMPHorde.Sync
             LevelBits = 0;
             NextLevelBits = 0;
             PendingRequestBits = 0;
+            DreamExit.OnSessionOver();
         }
 
         public static void ResetIncludingCompletions()

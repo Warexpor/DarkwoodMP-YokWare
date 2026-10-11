@@ -75,6 +75,32 @@ namespace DWMPHorde.Networking
         };
     }
 
+    /// <summary>One player's own exit from a party dream that goes on for the others.</summary>
+    public struct DreamLeftMessage
+    {
+        /// <summary>Who left (the host stamps the sender on a client's message).</summary>
+        public int PlayerId;
+        public int SessionId;
+        public string PresetName;
+        public string OutcomeName;
+
+        public void Serialize(NetWriter w)
+        {
+            w.Put(PlayerId);
+            w.Put(SessionId);
+            w.Put(PresetName ?? "");
+            w.Put(OutcomeName ?? "");
+        }
+
+        public static DreamLeftMessage Deserialize(NetReader r) => new DreamLeftMessage
+        {
+            PlayerId = r.GetInt(),
+            SessionId = r.GetInt(),
+            PresetName = r.GetString(),
+            OutcomeName = r.GetString()
+        };
+    }
+
     public struct DreamEndedMessage
     {
         public string PresetName;

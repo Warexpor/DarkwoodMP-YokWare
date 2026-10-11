@@ -234,6 +234,61 @@ namespace DWMPHorde.Sync
         }
 
         /// <summary>
+        /// Host: a client left the dream first, so its outcome is what the dream changed in the
+        /// world. Its world events fire here as that player's (the personal steps are its own
+        /// machine's, <see cref="ReplayOutcomeWorldEvent"/>).
+        /// </summary>
+        internal static void HostFireOutcomeWorldFor(int actorPlayerId, string presetName, string outcomeName)
+        {
+            if (DreamSession.IsFailureCleanup(outcomeName))
+                return;
+            DreamPreset.Outcome outcome = ResolveEffectOutcome(FindPreset(presetName), outcomeName);
+            bool pushed = actorPlayerId > 0;
+            if (pushed)
+                GeFireActorContext.Push(actorPlayerId);
+            try
+            {
+                RunOutcomeWorldEffects(outcome, personal: false);
+            }
+            catch (System.Exception ex)
+            {
+                ModRuntime.Log?.LogWarning("[DreamSync] outcome world events for p" + actorPlayerId + ": " + ex.Message);
+            }
+            finally
+            {
+                if (pushed)
+                    GeFireActorContext.Pop();
+            }
+        }
+
+        /// <summary>
+        /// A later leaver's outcome world event: the world's part was the first leaver's, so only
+        /// the steps on this player's own body run (<see cref="DreamExit.PersonalOnlyFire"/>),
+        /// whether or not the event is latched here.
+        /// </summary>
+        internal static void RunOutcomePersonalOnly(string type)
+        {
+            GameEvents ge = FindWorldEvent(type);
+            if (ge == null)
+                return;
+            bool was = ge.fired;
+            ge.fired = false;
+            bool opened = DreamExit.BeginOwnPartFire(null);
+            try
+            {
+                using (new NetworkApplyGuard())
+                    ge.fire();
+            }
+            finally
+            {
+                if (opened)
+                    DreamExit.EndOwnPartFire();
+                ge.fired = was || ge.fired;
+            }
+            ModRuntime.LegacyInfo($"[DreamSync] outcome event '{type}': own part only");
+        }
+
+        /// <summary>
         /// Client whose pad never loaded when the dream ended (DreamEnded during its entry): it woke
         /// from nothing, but the world changed with the host's outcome. World steps only.
         /// </summary>

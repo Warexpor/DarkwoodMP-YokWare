@@ -206,7 +206,9 @@ namespace DWMPHorde.Patches
         {
             if (__instance == null || _releasing) return true;
             if (!NetGuard.ConnectedHost(out var net)) return true;
-            if (DreamSyncManager.IsDreamActive)
+            // In a dream every player leaves together, except the host leaving one that goes on
+            // for others (DreamExit): its place stays up like any pad a remote is in.
+            if (DreamSyncManager.IsDreamActive && !DreamExit.HostKeepsPlace)
                 return true;
             if (!IsRemoteInside(net, __instance))
                 return true;

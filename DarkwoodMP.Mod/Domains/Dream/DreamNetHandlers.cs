@@ -103,6 +103,15 @@ namespace DWMPHorde.Networking
             if (_net.TryGetRemoteState(playerId, out var peerState))
                 wasDeadInDream = peerState.IsDeadInDream;
 
+            // This player is on its own way out (DreamExit) and was the last one in the dream.
+            if (_net.Role == NetworkRole.Client && !DreamSession.IsRejectedOutcome(msg.OutcomeName)
+                && DreamExit.AbsorbSessionEnd())
+            {
+                DreamSession.ApplySnapshot(msg.CompletedPresets);
+                ModRuntime.LegacyInfo("[DreamSession] host closed the dream while this player's own exit plays");
+                return;
+            }
+
             // Host-to-client rejection for a deferred story-end request.
             if (_net.Role == NetworkRole.Client && DreamSession.IsRejectedOutcome(msg.OutcomeName))
             {
@@ -130,6 +139,20 @@ namespace DWMPHorde.Networking
             {
                 ModRuntime.LegacyInfo(
                     $"[DreamSession] p{playerId} story end '{msg.OutcomeName}' for {msg.PresetName} — the host already ran it");
+                return;
+            }
+
+            // The host already left this dream (DreamExit) and a player still in it reached an
+            // ending that is everyone's: it ends for them, the host has no exit of its own.
+            if (_net.Role == NetworkRole.Host
+                && !string.IsNullOrEmpty(msg.OutcomeName)
+                && msg.OutcomeName != "playerDeath"
+                && !DreamSession.IsRejectedOutcome(msg.OutcomeName)
+                && DreamExit.HostHostsFromOutside && DreamSession.IsActive
+                && (msg.SessionId == 0 || msg.SessionId == DreamSession.SessionId)
+                && DreamSyncManager.IsRemoteInDream(playerId) && !wasDeadInDream)
+            {
+                DreamExit.HostEndFromOutside(_net, msg.OutcomeName, runWorld: true, actor: playerId);
                 return;
             }
 
@@ -182,13 +205,20 @@ namespace DWMPHorde.Networking
                 // down under the guard, so the host went into the next dream alone, unannounced,
                 // while every client waited in the old one for a pocket that never came.
                 string endingPreset = DreamSession.PresetName;
+                DreamPreset endingPocket = Dreams.Instance.preset;
                 Singleton<Controller>.Instance.waitFramesAndRun(delegate
                 {
                     // Still that pocket: the host's own copy of the step may have ended it (and
                     // moved on to the next pocket of a chain) meanwhile.
-                    if (Dreams.Instance != null && Dreams.Instance.dreaming && DreamSession.IsActive
-                        && string.Equals(DreamSession.PresetName, endingPreset, StringComparison.OrdinalIgnoreCase))
-                        Dreams.Instance.initiateEndDreaming();
+                    // The session itself is already closed by the fan-out above unless the
+                    // outcome hands over to a next pocket (then it is still this pocket's).
+                    Dreams d = Dreams.Instance;
+                    if (d == null || !d.dreaming || d.preset != endingPocket)
+                        return;
+                    if (DreamSession.IsActive
+                        && !string.Equals(DreamSession.PresetName, endingPreset, StringComparison.OrdinalIgnoreCase))
+                        return;
+                    d.initiateEndDreaming();
                 }, 1);
                 return;
             }

@@ -365,6 +365,9 @@ namespace DWMPHorde.Sync
             if (t == null) return true;
             if (!IsLocalDreamActive && !DreamSession.IsActive)
                 return true; // overworld: all free bodies
+            // The host is awake while the dream runs on for others: both places are its to send.
+            if (DreamExit.HostHostsFromOutside)
+                return true;
             Transform dreamLoc = GetDreamLocationTransform();
             if (dreamLoc == null)
                 return true;

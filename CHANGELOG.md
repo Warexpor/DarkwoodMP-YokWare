@@ -3,11 +3,12 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.246**. The current Horde wire protocol is **59**. Every install in a session
+**0.8.247**. The current Horde wire protocol is **60**. Every install in a session
 needs the same DLL; the protocol is checked on join.
 
 Protocol history (newest first):
 
+- **60**, 0.8.247: new `DreamLeft` (172).
 - **59**, 0.8.243 to 0.8.246: new `DoorSwing` (171); `BarricadeEvent` drops the attacker position.
 - **58**, 0.8.241 to 0.8.242: `DragSync` gains the co-holder's id and where it stands; new `CoHold` (170).
 - **57**, 0.8.240: `ConstructibleConstruction` gains the save id and the repaired item's pose;
@@ -68,6 +69,52 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.247 — a player's own exit from a dream wakes that player alone (protocol 60)
+
+Playtest of 0.8.245: the host lay down in the bunker dream's bed and the dream ended for the
+client too. Rule change (see `HOW_COOP_WORKS.md`, Dreams): an exit a player sets off with its
+own body wakes that player alone, and the dream goes on for the others until each of them
+leaves.
+
+- **Which endings are a player's own.** Read from the dream's scene, the same on every machine:
+  the event has an end-dream step and is set off only by a player's body (an area it walks into,
+  a thing it uses: the bunker bed, the grave, the acid dream's exit). Everyone's, as before: an
+  ending nobody else could set off again (a creature killed, a scripted scene, a dialogue),
+  a dream that hands over to its next part (the doctor's), the epilogue, and "everyone in it is
+  dead". Dying in a dream still means spectating. `DreamExit.IsPersonalEnd`.
+- **The step runs for its player only** and the exit is armed again for the next one
+  (`GameEventDreamAuthorityPatch`, `DreamExit.Rearm`). The leaver tells the host
+  (new `DreamLeft` 172, relayed), plays its own exit and wake-up, and is out of the dream's
+  roster (`DreamSyncManager.IsRemoteInDream`, death tracking, spectator target).
+- **The host keeps the dream running after its own exit.** Vanilla's teardown of the pad waits
+  for the last dreamer (`DreamKeepPadPatch`, `DreamExit.KeepPad` / `ClearKeptPad`), the pad
+  stays entered like any location a remote is in (`HostLocationLeaveKeepRemotePatch`), and the
+  session ends from outside when the last player leaves or an everyone-ending fires
+  (`DreamExit.HostEndFromOutside`).
+- **The world runs from the first wake-up.** Creatures unfreeze, and the clock steps for whoever
+  is awake. While the host is still in the dream its own clock keeps the dream's hour; the
+  world's time is counted aside, sent to the awake players, and is where the host's clock goes
+  when it wakes (`DreamExit.HostWorldTime`, `HostSharedClockPatch`, `SendTimeSyncTo`). The
+  world is still not saved while a dream session runs.
+- **What the dream changed in the world is the first leaver's outcome**, run once on the host
+  (`HostFireOutcomeWorldFor`). Every later leaver gets its outcome's items and only the steps
+  on its own body (`DreamExit.PersonalOnlyOutcome`, `RunOutcomePersonalOnly`): the bunker
+  dream's "in the dream" flag is cleared for each player as it wakes.
+- **Players awake while a dream runs** can enter ordinary outside locations: the host creates
+  and resolves them (they were held back for the whole dream; `LocationEnterExitNetHandlers`,
+  `IsDreamPadName`), sends free bodies of both places, and sends its own location exit
+  (`IsLocalInPartyDream`).
+- **Found on the way:** after a shared ending asked for by a client, the host never played its
+  own wake-up when its own copy of the step had not fired (the session was already closed by
+  the fan-out, and the check required it open). `DreamNetHandlers.HandleDreamEnded`.
+- **Tested** with the pilot, host + one client: host out first then client; client out first
+  then host (flags, clock, session, pad); the host's own exit followed by an everyone-ending
+  from the client; shared endings started by either side.
+- **Known limits.** A night that falls while the host is still inside a dream others have left
+  starts only when the host wakes. Host migration while only some players are in the dream is
+  not handled beyond the existing dream carry-over. Not tested with three players or with a
+  dead spectator in the dream.
 
 ## 0.8.246 — a finished talk closes for its listeners, the dream carousel is the host's, cleaner voice playback
 

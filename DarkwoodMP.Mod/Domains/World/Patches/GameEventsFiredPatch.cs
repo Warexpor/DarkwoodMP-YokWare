@@ -24,6 +24,9 @@ namespace DWMPHorde.Patches
             if (__instance == null) return true;
             if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected)
                 return true;
+            // A leaver's own part of its dream outcome: this machine's alone.
+            if (DWMPHorde.Sync.DreamExit.PersonalOnlyFire)
+                return true;
             // NetworkApplyGuard.IsActive is the durable signal — explicit flag alone can
             // be cleared by nested finally blocks while a guard is still on the stack.
             if (LanNetworkManager.IsApplyingRemoteState || NetworkApplyGuard.IsActive)
@@ -71,6 +74,8 @@ namespace DWMPHorde.Patches
                 return;
 
             if (!NetGuard.Host(out var net))
+                return;
+            if (DWMPHorde.Sync.DreamExit.PersonalOnlyFire)
                 return;
 
             // Skip echo while applying a received GameEventsFired. Exception: host

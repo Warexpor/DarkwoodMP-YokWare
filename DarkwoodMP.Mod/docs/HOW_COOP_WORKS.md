@@ -757,10 +757,18 @@ party events.
 
 - **Everyone alive goes.** A dream started for one player brings every connected,
   living player along. Dead players sit it out.
-- **The host's world waits.** From the start of the entry movie until the dream is
-  up, the host freezes its world (creatures included). New joins are refused for the
+- **The host's world waits.** From the start of the entry movie until the first
+  player wakes, the host freezes its world (creatures included). New joins are refused for the
   duration unless the host allows them, except during the ending, where joiners are
   pulled onto its pad (a finished game reloads into the ending).
+- **Leaving is each player's own.** An exit a player takes with its own body (the
+  bed in the bunker dream, an exit area, the grave) wakes that player alone; the
+  others stay in the dream until each of them leaves, and the host keeps it running
+  after its own exit. From the first wake-up the world runs again for whoever is
+  awake (creatures, clock). What the dream changed in the world is decided by the
+  first player out; everyone gets their own outcome's items. Endings nobody else
+  could trigger again (a creature killed, a scripted scene, a dialogue), a dream that
+  hands over to its next part and the ending still finish it for everyone.
 - **Anyone can drive the story.** A client's talk, lamp, area step or blow on a story
   object moves the dream on for everyone; a dream that hands over to the next one
   (doctor 1 to 2) takes everyone along. Creatures the story sends (the forest spirit,

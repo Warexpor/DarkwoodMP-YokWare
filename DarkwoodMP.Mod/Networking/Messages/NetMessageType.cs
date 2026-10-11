@@ -487,7 +487,13 @@ namespace DWMPHorde.Networking
         /// to that machine (<c>Sync.DoorSwing</c>). Protocol 59.
         /// </summary>
         [Forwardable] DoorSwing = 171,
+        /// <summary>
+        /// A player left a party dream by its own exit while the dream goes on for the others:
+        /// client to host (its own leave), host to clients (who left). <c>Sync.DreamExit</c>.
+        /// Protocol 60.
+        /// </summary>
+        DreamLeft = 172,
         /// <summary>Highest used message type ID.</summary>
-        _Highest = 171
+        _Highest = 172
     }
 }

@@ -49,6 +49,15 @@ namespace DWMPHorde.Patches
                     ScriptedSpin.NoteHostStep(__instance);
             }
 
+            // A later leaver's dream outcome: the steps on its own body only; the world's part
+            // was the first leaver's.
+            if (DreamExit.PersonalOnlyFire)
+            {
+                if (IsPersonalPlayerTargeted(__instance)) return true;
+                __result = HarmonyCoroutineUtil.Empty();
+                return false;
+            }
+
             if (!ShouldSuppressPersonal()) return true;
             // A party dream's opening and endings: each dreamer is "the player" (PartyDreamScene).
             if (PartyDreamScene.Owns(thisGO))

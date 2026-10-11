@@ -333,7 +333,7 @@ namespace DWMPHorde.Networking
                 // receiver can retry after an async location spawn completes.
                 // Dreams: send once on enter or rename instead of every tick.
                 _locationSyncCounter++;
-                bool dreamLocActive = Sync.DreamSyncManager.IsDreamActive;
+                bool dreamLocActive = Sync.DreamSyncManager.IsLocalInPartyDream;
                 bool locChanged = !_previousInOutsideLocation || locName != _previousLocationName;
                 bool heartbeatRetry = !dreamLocActive && _locationSyncCounter >= 30;
                 if (inOutsideLoc && (locChanged || heartbeatRetry))
@@ -365,7 +365,7 @@ namespace DWMPHorde.Networking
                     // Dream transport (dreamPrepared branch) never sets playerInOutsideLocation=true,
                     // so settle hooks set previous=true while live flag stays false → false Exit.
                     // While dreaming / EnteringDream, stay "inside" the dream pad.
-                    bool stayInDreamPad = Sync.DreamSyncManager.IsDreamActive
+                    bool stayInDreamPad = Sync.DreamSyncManager.IsLocalInPartyDream
                         || (Dreams.Instance != null && (Dreams.Instance.dreaming || Dreams.Instance.dreamPrepared))
                         || Core.EnteringDream;
                     // Soft-reconnect / mid OutsideLocations load: playerInOutsideLocation briefly

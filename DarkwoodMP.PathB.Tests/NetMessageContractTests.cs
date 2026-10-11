@@ -73,7 +73,8 @@ public class NetMessageContractTests
         Assert.Equal(169, (byte)NetMessageType.ItemPose);
         Assert.Equal(170, (byte)NetMessageType.CoHold);
         Assert.Equal(171, (byte)NetMessageType.DoorSwing);
-        Assert.Equal(171, (byte)NetMessageType._Highest);
+        Assert.Equal(172, (byte)NetMessageType.DreamLeft);
+        Assert.Equal(172, (byte)NetMessageType._Highest);
         // 68 / 72 (MapMarker / MapMarkerRemove) and 165 (WorldClock) are retired.
         Assert.False(Enum.IsDefined(typeof(NetMessageType), (byte)68));
         Assert.False(Enum.IsDefined(typeof(NetMessageType), (byte)72));

@@ -63,6 +63,20 @@ namespace DWMPHorde.Patches
             if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected)
                 return true;
 
+            // This player's own exit (DreamExit): it leaves, the dream goes on for the others.
+            if (DreamExit.LocalLeaving && DreamExit.BeginLocalLeave(__instance))
+                return true;
+
+            // An ending that is everyone's, reached on a host that already left the dream: it
+            // ends for the players still in it; the host has no exit of its own to play.
+            if (ModRuntime.Network.Role == NetworkRole.Host && DreamExit.HostHostsFromOutside
+                && !__instance.dreaming && DreamSession.IsActive)
+            {
+                DreamExit.HostEndFromOutside(ModRuntime.Network, __instance.outcome ?? "",
+                    runWorld: true, actor: GeFireActorContext.PeekOr(0));
+                return false;
+            }
+
             if (LanNetworkManager.IsApplyingRemoteState)
                 return true;
 

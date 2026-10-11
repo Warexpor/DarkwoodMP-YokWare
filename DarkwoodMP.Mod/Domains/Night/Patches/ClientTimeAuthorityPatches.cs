@@ -125,7 +125,20 @@ namespace DWMPHorde.Patches
                 return;
             var dreams = Singleton<Dreams>.Instance;
             if (dreams != null && dreams.dreaming)
+            {
+                // Vanilla holds the clock while the host dreams. A player who already left the
+                // dream is awake in the world: the clock steps for it (vanilla does not move the
+                // stamp here, so this does).
+                if (UnityEngine.Time.time - LastTimeUpdatedTime(__instance) < __instance.timeChangeInterval)
+                    return;
+                if (PrologueDayOneHoldPatch.Holding || __instance.isAfterNight || Core.loadingGame
+                    || !__instance.DoUpdateTime || !AnyPeerCounts(net))
+                    return;
+                LastTimeUpdatedTime(__instance) = UnityEngine.Time.time;
+                // The host's own clock shows the dream's hour: the world's is counted aside.
+                Sync.DreamExit.StepHostWorldTime();
                 return;
+            }
             // Same interval gate as vanilla; vanilla updates the stamp, the postfix only steps.
             if (UnityEngine.Time.time - LastTimeUpdatedTime(__instance) < __instance.timeChangeInterval)
                 return;

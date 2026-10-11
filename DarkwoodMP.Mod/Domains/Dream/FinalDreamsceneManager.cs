@@ -293,6 +293,28 @@ namespace DWMPHorde.Sync
         }
 
         /// <summary>
+        /// A player left the dream by its own exit (<see cref="DreamExit"/>): it is no longer one
+        /// of the players whose deaths end it, and a dead player watching it watches someone else.
+        /// </summary>
+        internal static void OnPlayerLeftDream(int playerId)
+        {
+            if (!_isActive || playerId <= 0)
+                return;
+            _deadPlayerIds.Remove(playerId);
+            if (_localDeadInDream && !_ending)
+                EnterDreamSpectator();
+        }
+
+        /// <summary>Host: the roster changed; when only dead players are left in the dream it ends for them.</summary>
+        internal static void HostRecheckAllDead(string reason)
+        {
+            if (!_isActive || _ending)
+                return;
+            if (AllDead)
+                TryHostEndAllDead(reason);
+        }
+
+        /// <summary>
         /// Only the host tears down the shared dream on all-dead. Clients stay in spectate
         /// until DreamEnded. This avoids double endDreaming races when both peers call EndDreamForBoth.
         /// </summary>
@@ -389,7 +411,8 @@ namespace DWMPHorde.Sync
 
             // Stable order by PlayerId; prefer living proxies (3+ cycle).
             Transform followTarget = net.GetAllProxies()
-                .Where(p => p != null && p.GetComponent<CharBase>()?.alive != false)
+                .Where(p => p != null && p.GetComponent<CharBase>()?.alive != false
+                    && !DreamExit.HasLeft(p.PlayerId))
                 .OrderBy(p => p.PlayerId)
                 .Select(p => p.transform)
                 .FirstOrDefault();
