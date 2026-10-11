@@ -3,12 +3,12 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.232**. The current Horde wire protocol is **55**. Every install in a session
+**0.8.233**. The current Horde wire protocol is **55**. Every install in a session
 needs the same DLL; the protocol is checked on join.
 
 Protocol history (newest first):
 
-- **55**, 0.8.230 to 0.8.232: `BarricadeEvent` (destructible items) gains the item's name.
+- **55**, 0.8.230 to 0.8.233: `BarricadeEvent` (destructible items) gains the item's name.
 - **54**, 0.8.212 to 0.8.229: `VoiceData` (129) gains flag 2: a second codec block after the voice,
   the sounds the talker's radio picked up.
 - **53**, 0.8.200 to 0.8.211: the world share package gains `savplc.dat` (container slots a player
@@ -62,6 +62,31 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.233 — the player who finds a location gets the notification
+
+Reported: the host explored and found new locations; the client got the journal
+notifications, the host got none (no popup, no sound).
+
+- A player's stand-in is a clone of the local player and kept the game's `WhereAmI`
+  component, which checks every 1.5 s where "the player" is. Run for a stand-in, the
+  other player walking into a place discovered it on the watching machine (popup, sound,
+  journal page, map piece) and the page was sent back. The player who really walked in
+  then found the location already in their journal, and vanilla `Location.discoverMe`
+  shows nothing for a known place. Which machine won was a race between two 1.5 s timers.
+- The same check also set, from the other player's position: the hideout flags
+  (`player_inFirstHideout` and the two others), the location music and the biome
+  message. Those now follow the local player only.
+- A stand-in's check now only finds the location it stands in (the mod reads it for
+  event-trigger requirements). Player corpses are clones too and are covered.
+- The watching players still get the journal page and the map piece, without a popup,
+  as the receive path always intended.
+
+Not in the last session's logs (nothing was discovered in it); this is from the code.
+
+Files: `Players/Patches/StandInWhereAmIPatch.cs`.
+
+Not played yet.
 
 ## 0.8.232 — repaired furniture is repaired for everyone, steadier stand-up, blood at range
 
