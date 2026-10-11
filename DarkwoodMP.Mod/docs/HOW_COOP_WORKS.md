@@ -823,8 +823,8 @@ party events.
   same way for every player.
 - **A swinging door** is run by one machine: the one whose player (or, on the host, a
   creature or a blast) set it moving. That machine sends its angle while it swings and
-  the angle it comes to rest at; the others follow 0.1 s behind and land on the same
-  angle. A player walking into a door another machine runs pushes it there, and a blow
+  the angle it comes to rest at; the others follow 0.1 s behind, along a curve through
+  those angles, and land on the same angle. A player walking into a door another machine runs pushes it there, and a blow
   on it knocks it back there. If two machines start the same swing, the lower player
   id keeps it.
 - **Barricades and constructions** are shared world objects.

@@ -3,12 +3,12 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.243**. The current Horde wire protocol is **59**. Every install in a session
+**0.8.244**. The current Horde wire protocol is **59**. Every install in a session
 needs the same DLL; the protocol is checked on join.
 
 Protocol history (newest first):
 
-- **59**, 0.8.243: new `DoorSwing` (171); `BarricadeEvent` drops the attacker position.
+- **59**, 0.8.243 to 0.8.244: new `DoorSwing` (171); `BarricadeEvent` drops the attacker position.
 - **58**, 0.8.241 to 0.8.242: `DragSync` gains the co-holder's id and where it stands; new `CoHold` (170).
 - **57**, 0.8.240: `ConstructibleConstruction` gains the save id and the repaired item's pose;
   new `ItemPose` (169).
@@ -68,6 +68,31 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.244 — a followed door swing is smoother
+
+- **A door another player pushed moved in small steps.** The follower turned its door in a
+  straight line from one sent angle to the next, so its spin changed abruptly at every sample,
+  20 times a second. It now follows a curve through the same angles at the same times
+  (`DoorSwing.Playback`): the curve's spin through a sample is the turn between its neighbours,
+  or the spin the sender measured when the next sample has not arrived, and between two samples
+  the curve never leaves their range. The door still passes every sent angle and lands exactly
+  on the rest angle.
+- **A late sample made the door wait, then jump.** The follower put its door on the target in
+  one physics step. It now turns at the curve's own spin and closes any gap over 0.05 s.
+  Samples (and the host's relay of a client's) are also sent at once instead of waiting up to
+  15 ms for the transport's next wake, which was most of the unevenness in their arrival.
+- **A door pushed again after standing still drifted toward the new angle early.** The sender
+  skips samples while its door stands still, and the follower read the gap as one slow turn.
+  It now holds the last angle until one sample before the next.
+- **A followed door is drawn between physics steps** (rigidbody interpolation, as a player's
+  stand-in has), put back when the swing ends. Physics runs 100 times a second and a frame
+  showed one or two steps at a time. A door this machine runs is unchanged (vanilla).
+- The follower logs each followed swing's end: samples received, how many came late, the
+  worst lateness. A fresh follow no longer logs "both started it".
+- No message changed; protocol stays **59**. Every install still needs this DLL.
+
+Files: `Doors/DoorSwing.cs`, `Dispatch/LanNetworkManager.Dispatch.Players.cs`.
 
 ## 0.8.243 — door swings run by one machine; a cancelled swing's arm on the stand-in
 

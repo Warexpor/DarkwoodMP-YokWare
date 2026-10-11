@@ -49,7 +49,11 @@ namespace DWMPHorde.Networking
                     ds.SenderId = _currentReceivePlayerId;
                 Sync.DoorSwing.Handle(ds);
                 if (hostStamps)
+                {
                     RelayStamped(w => ds.Serialize(w));
+                    // Passed on now: waiting for the transport's next wake reaches the others unevenly.
+                    FlushQueuedSends();
+                }
             });
             On(NetMessageType.PlayerLightState, PlayerLightStateMessage.Deserialize, m => PlayerLightFxApplyHandlers.HandlePlayerLightState(m));
             On(NetMessageType.PlayerAudio, PlayerAudioMessage.Deserialize, m => WorldFxHandlers.HandlePlayerAudio(m));

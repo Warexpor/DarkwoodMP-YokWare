@@ -17,10 +17,11 @@ namespace DWMPHorde.Sync
     /// so until closed and opened again. A door pushed by a client's body never moved on the host.
     ///
     /// Now the machine whose player (or, on the host, creature or blast) moves an idle door runs
-    /// its swing: it sends the door's angle about 20 a second, and once the door has stood still
-    /// for a moment, the angle it rests at. The other machines turn their door to those angles,
-    /// 0.1 s behind, by setting its spin each physics step, so it moves smoothly and its creak is
-    /// the vanilla one; the rest angle lands exactly. A player walking into a door another machine
+    /// its swing: it sends the door's angle and spin about 20 a second, and once the door has
+    /// stood still for a moment, the angle it rests at. The other machines turn their door along
+    /// a curve through those angles, 0.1 s behind, by setting its spin each physics step, so it
+    /// moves smoothly and its creak is the vanilla one; the rest angle lands exactly. A followed
+    /// door is drawn between physics steps. A player walking into a door another machine
     /// runs sends its push there, and a blow on it is sent there as a force. An open echoed from
     /// another machine opens the door without vanilla's push (the opener's swing follows); the
     /// host's knock-back for a client's blow is left to the striker's machine, which already
@@ -35,6 +36,10 @@ namespace DWMPHorde.Sync
         private const float SampleMinTurn = 0.05f;
         /// <summary>How far behind the sender a follower plays the swing (seconds; two samples and jitter).</summary>
         private const float InterpDelay = 0.1f;
+        /// <summary>A followed door off its curve (a late sample) closes the gap over this long (seconds).</summary>
+        private const float CatchUpTime = 0.05f;
+        /// <summary>Samples further apart than this: the door stood still in between (seconds).</summary>
+        private const float StoodStillGap = SampleInterval * 1.5f;
         /// <summary>An idle door turning faster than this is moving (degrees a second).</summary>
         private const float MovingSpeed = 6f;
         /// <summary>Slower than this for <see cref="SettleTime"/>: the swing is over.</summary>
@@ -65,6 +70,11 @@ namespace DWMPHorde.Sync
         {
             public float T;
             public float Yaw;
+            /// <summary>The sender's spin at the sample (degrees a second).</summary>
+            public float Speed;
+            /// <summary>The curve's spin through the sample, fixed once the playback reaches it.</summary>
+            public float Slope;
+            public bool HasSlope;
         }
 
         private sealed class Push
@@ -110,6 +120,12 @@ namespace DWMPHorde.Sync
             public float RestT;
             public float LastRecvAt;
             public float NextPushAt;
+            /// <summary>Drawn between physics steps while followed; what to put back after.</summary>
+            public bool Smoothed;
+            public RigidbodyInterpolation WasInterpolation;
+            public int Got;
+            public int Late;
+            public float LateMax;
         }
 
         private static readonly Dictionary<int, Drive> _drives = new Dictionary<int, Drive>(8);
@@ -126,6 +142,8 @@ namespace DWMPHorde.Sync
         private static readonly List<int> _pushDone = new List<int>(2); // process-scoped: scratch buffer, cleared before each use
         /// <summary>The door whose vanilla open is running (its push goes through <see cref="OpenForce"/>).</summary>
         private static Door _opening; // process-scoped: call-scoped, restored by the Door.open Finalizer
+        /// <summary>Something was sent since the last physics step: it leaves now, not on the transport's next wake.</summary>
+        private static bool _sent;
         private static int _echoDepth; // process-scoped: call-scoped, unwound in finally
 
         // ------------------------------------------------------------------ hooks
@@ -245,8 +263,17 @@ namespace DWMPHorde.Sync
                     _done.Add(kv.Key);
             }
             for (int i = 0; i < _done.Count; i++)
+            {
+                Smooth(_drives[_done[i]], false);
                 _drives.Remove(_done[i]);
+            }
             _done.Clear();
+            if (_sent)
+            {
+                // The transport sends every 15 ms; a sample waiting on it reaches the follower unevenly.
+                _sent = false;
+                net.FlushQueuedSends();
+            }
         }
 
         /// <summary>
@@ -407,17 +434,23 @@ namespace DWMPHorde.Sync
             }
 
             bool final = true;
-            float target = d.Mode == Mode.Hold ? d.RestYaw : Playback(d, now, out final);
-            float delta = Mathf.DeltaAngle(Yaw(d.Door), target);
+            float rate = 0f;
+            float target = d.Mode == Mode.Hold ? d.RestYaw : Playback(d, now, out final, out rate);
+            float delta = Mathf.DeltaAngle(BodyYaw(d), target);
             if (final && Mathf.Abs(delta) <= RestSnap)
             {
                 Turn(d, delta);
                 Stop(d);
                 _restYaw[d.Door.GetInstanceID()] = target;
+                if (d.Mode == Mode.Follow)
+                    ModLog.Event(LogCat.Physics, $"[DoorSwing] {d.Door.gameObject.name} at {Key(d.Door)}: followed p{d.OwnerId} to rest at {target:F1}"
+                        + $" ({d.Got} samples, {d.Late} late, worst {d.LateMax * 1000f:F0} ms)");
                 return true;
             }
             float dt = Time.fixedDeltaTime > 0f ? Time.fixedDeltaTime : 0.02f;
-            Spin(d, Mathf.Clamp(delta / dt, -MaxDriveSpeed, MaxDriveSpeed));
+            // Followed: the curve's own spin, plus what closes the gap to it. Held: back to rest in one step.
+            float spin = d.Mode == Mode.Hold ? delta / dt : rate + delta / Mathf.Max(CatchUpTime, dt);
+            Spin(d, Mathf.Clamp(spin, -MaxDriveSpeed, MaxDriveSpeed));
 
             if (d.Mode == Mode.Follow && now >= d.NextPushAt && PushingInto(d.Door, now, out Vector3 point))
             {
@@ -427,15 +460,20 @@ namespace DWMPHorde.Sync
             return false;
         }
 
-        /// <summary>The followed angle, <see cref="InterpDelay"/> behind the sender's clock.</summary>
-        private static float Playback(Drive d, float now, out bool final)
+        /// <summary>
+        /// The followed angle and its spin (degrees a second), <see cref="InterpDelay"/> behind the
+        /// sender's clock: a curve through every sample at its time. Between two samples it never
+        /// leaves their range, so the door cannot swing past an angle the sender's door did not reach.
+        /// </summary>
+        private static float Playback(Drive d, float now, out bool final, out float rate)
         {
             final = false;
+            rate = 0f;
             int n = d.Samples.Count;
             if (n == 0)
             {
                 final = d.HasRest;
-                return d.HasRest ? d.RestYaw : Yaw(d.Door);
+                return d.HasRest ? d.RestYaw : BodyYaw(d);
             }
             float t = now - d.Offset - InterpDelay;
             if (t <= d.Samples[0].T)
@@ -451,11 +489,58 @@ namespace DWMPHorde.Sync
                 i++;
             if (i > 0)
                 d.Samples.RemoveRange(0, i);
+            float from = SlopeAt(d, 0);
+            float to = SlopeAt(d, 1);
             Sample a = d.Samples[0];
             Sample b = d.Samples[1];
             float span = b.T - a.T;
-            float u = span > 0.0001f ? Mathf.Clamp01((t - a.T) / span) : 1f;
-            return a.Yaw + Mathf.DeltaAngle(a.Yaw, b.Yaw) * u;
+            if (span <= 0.0001f)
+                return b.Yaw;
+            float turn = Mathf.DeltaAngle(a.Yaw, b.Yaw);
+            float mean = turn / span;
+            from = WithinTurn(from, mean);
+            to = WithinTurn(to, mean);
+            float u = Mathf.Clamp01((t - a.T) / span);
+            float u2 = u * u;
+            float u3 = u2 * u;
+            rate = (3f * u2 - 4f * u + 1f) * from + (6f * u - 6f * u2) * mean + (3f * u2 - 2f * u) * to;
+            return a.Yaw + (u3 - 2f * u2 + u) * span * from + (3f * u2 - 2f * u3) * turn + (u3 - u2) * span * to;
+        }
+
+        /// <summary>
+        /// The curve's spin through a sample: the turn between its neighbours over their time when
+        /// both are known, else the spin the sender measured. Fixed on first use, so the curve
+        /// leaves the sample at the spin it arrived with.
+        /// </summary>
+        private static float SlopeAt(Drive d, int i)
+        {
+            Sample s = d.Samples[i];
+            if (s.HasSlope)
+                return s.Slope;
+            float slope = s.Speed;
+            if (i > 0 && i + 1 < d.Samples.Count)
+            {
+                Sample before = d.Samples[i - 1];
+                Sample after = d.Samples[i + 1];
+                float span = after.T - before.T;
+                if (span > 0.0001f)
+                    slope = (Mathf.DeltaAngle(before.Yaw, s.Yaw) + Mathf.DeltaAngle(s.Yaw, after.Yaw)) / span;
+            }
+            s.Slope = slope;
+            s.HasSlope = true;
+            d.Samples[i] = s;
+            return slope;
+        }
+
+        /// <summary>
+        /// An end spin that keeps the curve between its two samples: the way of the turn, and no
+        /// more than three times its mean spin.
+        /// </summary>
+        private static float WithinTurn(float slope, float mean)
+        {
+            if (Mathf.Abs(mean) < 0.0001f || slope * mean <= 0f)
+                return 0f;
+            return Mathf.Abs(slope) > 3f * Mathf.Abs(mean) ? 3f * mean : slope;
         }
 
         /// <summary>Spin the door about its hinge at this rate (degrees a second) for the coming step.</summary>
@@ -482,6 +567,26 @@ namespace DWMPHorde.Sync
         {
             if (door != null && door.body != null && Mathf.Abs(deltaDeg) > 0.0001f)
                 door.body.RotateAround(Hinge(door), Vector3.up, deltaDeg);
+        }
+
+        /// <summary>
+        /// A followed door is drawn between physics steps (as a player's stand-in is): its spin is
+        /// set at the physics rate, which a frame shows one or two steps of at a time.
+        /// </summary>
+        private static void Smooth(Drive d, bool on)
+        {
+            if (d.Smoothed == on)
+                return;
+            d.Smoothed = on;
+            if (d.Rb == null)
+                return;
+            if (on)
+            {
+                d.WasInterpolation = d.Rb.interpolation;
+                d.Rb.interpolation = RigidbodyInterpolation.Interpolate;
+            }
+            else
+                d.Rb.interpolation = d.WasInterpolation;
         }
 
         private static void Stop(Drive d)
@@ -518,6 +623,7 @@ namespace DWMPHorde.Sync
                 mode == DoorSwingMessage.ModeRest ? DeliveryMethod.ReliableOrdered : DeliveryMethod.Unreliable);
             d.LastSentAt = now;
             d.LastSentYaw = yaw;
+            _sent = true;
         }
 
         private static void SendPush(LanNetworkManager net, Drive d, Vector3 contact)
@@ -540,6 +646,7 @@ namespace DWMPHorde.Sync
                 LocalZ = local.z
             };
             net.BroadcastHot(NetMessageType.DoorSwing, w => msg.Serialize(w), DeliveryMethod.Unreliable);
+            _sent = true;
         }
 
         private static void SendImpulse(LanNetworkManager net, Drive d, Vector3 force)
@@ -557,6 +664,7 @@ namespace DWMPHorde.Sync
                 ForceZ = force.z
             };
             net.BroadcastHot(NetMessageType.DoorSwing, w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);
+            _sent = true;
             ModLog.Event(LogCat.Physics, $"[DoorSwing] blow on {d.Door.gameObject.name} sent to p{d.OwnerId}, who runs it");
         }
 
@@ -599,7 +707,7 @@ namespace DWMPHorde.Sync
                     // Both machines started this swing: the lower player id keeps it.
                     if (m.SenderId > net.LocalPlayerId)
                         return;
-                    ToFollow(d, m.SenderId, now, "yields to");
+                    ToFollow(d, m.SenderId, now, "yields to", true);
                 }
                 else if (d.Mode == Mode.Hold)
                     ToFollow(d, m.SenderId, now, "follows");
@@ -626,9 +734,30 @@ namespace DWMPHorde.Sync
                 d.Offset = offset;
                 d.HasOffset = true;
             }
-            if (n >= MaxSamples)
-                d.Samples.RemoveAt(0);
-            d.Samples.Add(new Sample { T = m.Time, Yaw = m.Yaw });
+            d.Got++;
+            if (n > 0)
+            {
+                Sample prev = d.Samples[n - 1];
+                float gap = m.Time - prev.T;
+                if (gap <= StoodStillGap)
+                {
+                    // The playback has already passed the sample before this one: it waited there.
+                    float behind = now - d.Offset - InterpDelay - prev.T;
+                    if (behind > 0f)
+                    {
+                        d.Late++;
+                        if (behind > d.LateMax)
+                            d.LateMax = behind;
+                    }
+                }
+                else if (m.Mode == DoorSwingMessage.ModeSample)
+                {
+                    // The sender skips samples while its door stands still: the door stood at the
+                    // last angle until one sample before this one, it did not drift here all the while.
+                    AddSample(d, new Sample { T = m.Time - SampleInterval, Yaw = prev.Yaw, HasSlope = true });
+                }
+            }
+            AddSample(d, new Sample { T = m.Time, Yaw = m.Yaw, Speed = m.Speed });
             d.LastRecvAt = now;
             if (m.Mode == DoorSwingMessage.ModeRest)
             {
@@ -639,9 +768,15 @@ namespace DWMPHorde.Sync
             }
         }
 
-        private static void ToFollow(Drive d, int owner, float now, string verb)
+        private static void AddSample(Drive d, Sample s)
         {
-            bool wasOwn = d.Mode == Mode.Own;
+            if (d.Samples.Count >= MaxSamples)
+                d.Samples.RemoveAt(0);
+            d.Samples.Add(s);
+        }
+
+        private static void ToFollow(Drive d, int owner, float now, string verb, bool wasOwn = false)
+        {
             d.Mode = Mode.Follow;
             d.OwnerId = owner;
             d.Samples.Clear();
@@ -650,6 +785,10 @@ namespace DWMPHorde.Sync
             d.Pushes.Clear();
             d.LastRecvAt = now;
             d.NextPushAt = 0f;
+            d.Got = 0;
+            d.Late = 0;
+            d.LateMax = 0f;
+            Smooth(d, true);
             ModLog.Event(LogCat.Physics, $"[DoorSwing] {d.Door.gameObject.name} at {Key(d.Door)}: {verb} p{owner}'s swing"
                 + (wasOwn ? " (both started it; lower id keeps it)" : ""));
         }
@@ -744,6 +883,18 @@ namespace DWMPHorde.Sync
             return Mathf.Atan2(r.x, r.z) * Mathf.Rad2Deg;
         }
 
+        /// <summary>
+        /// A driven door's angle in the physics step: a door drawn between steps has its transform
+        /// at the drawn pose, its body at the stepped one.
+        /// </summary>
+        private static float BodyYaw(Drive d)
+        {
+            if (!d.Smoothed)
+                return Yaw(d.Door);
+            Vector3 r = d.Rb.rotation * Vector3.right;
+            return Mathf.Atan2(r.x, r.z) * Mathf.Rad2Deg;
+        }
+
         private static Vector3 Key(Door door) => WorldPos.Key(door.transform.position);
 
         // ------------------------------------------------------------------ lifecycle
@@ -760,6 +911,7 @@ namespace DWMPHorde.Sync
                 {
                     if (d.Rb != null && d.Door != null)
                         Stop(d);
+                    Smooth(d, false);
                     _done.Add(kv.Key);
                 }
             }
@@ -770,6 +922,9 @@ namespace DWMPHorde.Sync
 
         internal static void Reset()
         {
+            foreach (var kv in _drives)
+                Smooth(kv.Value, false);
+            _sent = false;
             _drives.Clear();
             _restYaw.Clear();
             _lastRest.Clear();
