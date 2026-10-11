@@ -51,14 +51,16 @@ if [[ "$NO_BUILD" -eq 0 ]]; then
 fi
 
 ART="$ROOT/artifacts"
-rm -rf "$ART"
+# Keep earlier versions' packs: only this run's stage dirs and zips are replaced.
 mkdir -p "$ART"
+rm -rf "$ART"/stage-*
 
 make_zip() {
   local loader="$1"
   local src="$ROOT/DarkwoodMP.Mod/bin/Release/$loader"
   local stage="$ART/stage-$loader"
   local zip="$ART/DarkwoodMP-YokWare-$VERSION-$loader.zip"
+  rm -f "$zip"
 
   for f in DarkwoodMP.Mod.dll LiteNetLib.dll; do
     [[ -f "$src/$f" ]] || { echo "error: missing $src/$f (build $loader first)" >&2; exit 1; }
@@ -113,6 +115,7 @@ make_addon_zip() {
   addon_version="$(grep -E 'const string Version *=' "$ROOT/DarkwoodMP.ManualSaves/PluginInfo.cs" | sed -E 's/.*"([^"]+)".*/\1/')"
   local stage="$ART/stage-saves-$loader"
   local zip="$ART/YokWare-ManualSaves-$addon_version-$loader.zip"
+  rm -f "$zip"
   [[ -f "$src" ]] || { echo "error: missing $src (build the add-on first)" >&2; exit 1; }
   mkdir -p "$stage"
   local where
@@ -150,4 +153,4 @@ make_addon_zip BepInEx
 make_addon_zip MelonLoader
 
 echo "Packed:"
-ls -l "$ART"/*.zip
+ls -l "$ART"/DarkwoodMP-YokWare-"$VERSION"-*.zip "$ART"/YokWare-ManualSaves-*.zip

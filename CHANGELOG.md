@@ -91,6 +91,10 @@ Test copies on this machine: `MelonDarkwoodA` / `MelonDarkwoodB` under `~/Work/M
 (GOG build, MelonLoader 0.7.3, Proton prefixes `compatdata/melondarkwooda|b`). Under Wine/Proton
 MelonLoader needs `WINEDLLOVERRIDES=version=n,b`; README now says so.
 
+**Packing a release deleted every older pack.** `scripts/pack-release.sh` (and `.ps1`) cleared the
+whole `artifacts/` folder first, so packing 0.8.255 removed the 0.8.197 to 0.8.253 packs. They
+now clear only their own stage folders and replace only the zips they are about to write.
+
 ## 0.8.254 — a switched-off generator goes quiet; the desync check no longer spikes a frame; saves hash off the main thread
 
 Deployed; not playtested yet. Protocol unchanged (62).
