@@ -1,3 +1,4 @@
+using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 
@@ -34,6 +35,33 @@ namespace DWMPHorde.Sync
             if (_padId != pad.GetInstanceID())
                 Build(pad);
             return _scene.Contains(ge.GetInstanceID());
+        }
+
+        private static int _ownSteps; // process-scoped: call-scoped, unwound by OwnStep.MoveNext's finally
+
+        /// <summary>A step of the party dream's scene is running as this dreamer's own.</summary>
+        internal static bool StepActive => _ownSteps > 0;
+
+        /// <summary>Runs a scene step with <see cref="StepActive"/> set while its body executes.</summary>
+        internal static IEnumerator AsOwnStep(IEnumerator inner)
+            => inner != null ? new OwnStep(inner) : null;
+
+        private sealed class OwnStep : IEnumerator
+        {
+            private readonly IEnumerator _inner;
+
+            internal OwnStep(IEnumerator inner) => _inner = inner;
+
+            public object Current => _inner.Current;
+
+            public void Reset() => _inner.Reset();
+
+            public bool MoveNext()
+            {
+                _ownSteps++;
+                try { return _inner.MoveNext(); }
+                finally { _ownSteps--; }
+            }
         }
 
         private static void Build(Transform pad)

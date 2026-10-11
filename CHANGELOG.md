@@ -3,12 +3,12 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.244**. The current Horde wire protocol is **59**. Every install in a session
+**0.8.245**. The current Horde wire protocol is **59**. Every install in a session
 needs the same DLL; the protocol is checked on join.
 
 Protocol history (newest first):
 
-- **59**, 0.8.243 to 0.8.244: new `DoorSwing` (171); `BarricadeEvent` drops the attacker position.
+- **59**, 0.8.243 to 0.8.245: new `DoorSwing` (171); `BarricadeEvent` drops the attacker position.
 - **58**, 0.8.241 to 0.8.242: `DragSync` gains the co-holder's id and where it stands; new `CoHold` (170).
 - **57**, 0.8.240: `ConstructibleConstruction` gains the save id and the repaired item's pose;
   new `ItemPose` (169).
@@ -68,6 +68,28 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.245 — the bunker dream's door talks as the dream door for every dreamer
+
+Playtest (host + one client, first dream): the door in the bunker dream offered the overworld
+bunker door's talk (handle, listen, keyhole, leave) and no way to open it, so the dream could not
+be finished. When the client left the talk, the host's screen jumped through boards.
+
+- **Wrong door talk.** The door's dialogue picks its dream opening from the flag
+  `player_inBunkerUndergroundDream`, set by the dream's on-enter event. That flag is per player.
+  A party dream's opening is meant to run its player steps for every dreamer (0.8.134), but the
+  later per-player flag gate (`PerPlayerFlagGate`, 5 Oct) still refused the write on a dreamer
+  that received the event from the host, so only the host had the flag. A step the party dream
+  rule lets through now also passes the flag gate (`PartyDreamScene.AsOwnStep` / `StepActive`,
+  `GameEventPersonalActorPatch` postfix).
+- **Host window jumping after a peer left a shared talk.** The host was listening in, so the
+  client's outcomes were queued. When the client left, the talk was handed to the host, and the
+  client's last board (`leave`) was applied straight into the host's own open window, ahead of
+  the five queued outcomes, which then ran in a burst. Now a peer's outcome waits while the host
+  is that NPC's speaker, and nothing passes the queue (`DialogOutcomeApplyNetHandlers`:
+  `QueuedAhead`, lock-owner check in `ApplyBusyFor`, the queue's head keeps its place).
+
+No message changed; protocol stays 59.
 
 ## 0.8.244 — a followed door swing is smoother
 

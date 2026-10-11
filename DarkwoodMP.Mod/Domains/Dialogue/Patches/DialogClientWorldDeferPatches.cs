@@ -26,14 +26,16 @@ namespace DWMPHorde.Patches
     /// (<see cref="DialogClientWorldDefer"/>). A per-player flag (<see cref="PerPlayerFlagPolicy"/>,
     /// e.g. the oven's <c>player_firstOvenInteraction</c> outcome) is the speaker's own: the
     /// speaking client writes it, and the host running a peer's dialogue, trigger or event does
-    /// not take it into its own flags.
+    /// not take it into its own flags. A party dream's opening and endings are every dreamer's
+    /// (<see cref="PartyDreamScene"/>): each dreamer writes the flag (the bunker dream's "in the
+    /// dream" flag, which picks the dream door's dialogue).
     /// </summary>
     internal static class PerPlayerFlagGate
     {
         internal static bool ShouldWrite(string flagName)
         {
             if (PerPlayerFlagPolicy.IsPerPlayer(flagName))
-                return !GameEventPersonalActorPatch.ShouldSuppressPersonal();
+                return PartyDreamScene.StepActive || !GameEventPersonalActorPatch.ShouldSuppressPersonal();
             return !DialogClientWorldDefer.Active;
         }
     }
