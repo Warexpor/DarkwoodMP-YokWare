@@ -39,7 +39,7 @@ namespace DWMPHorde.Networking
         /// Client disconnect / quit while in-world: write local self (+ host if still linked)
         /// so exit position is not only whatever the last Save captured.
         /// </summary>
-        private void TrySnapshotClientBackupOnExit()
+        internal void TrySnapshotClientBackupOnExit()
         {
             SaveHandlers.TrySnapshotClientBackupOnExit();
         }

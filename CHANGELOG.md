@@ -3,12 +3,12 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.223**. The current Horde wire protocol is **54**. Every install in a session
+**0.8.224**. The current Horde wire protocol is **54**. Every install in a session
 needs the same DLL; the protocol is checked on join.
 
 Protocol history (newest first):
 
-- **54**, 0.8.212 to 0.8.223: `VoiceData` (129) gains flag 2: a second codec block after the voice,
+- **54**, 0.8.212 to 0.8.224: `VoiceData` (129) gains flag 2: a second codec block after the voice,
   the sounds the talker's radio picked up.
 - **53**, 0.8.200 to 0.8.211: the world share package gains `savplc.dat` (container slots a player
   stored items in). No message layout changed; the bump keeps every player on a build
@@ -61,6 +61,27 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.224 — a client closing the game keeps its character, host stand-up no longer waits for a peer on the title
+
+From the logs of a 0.8.223 session (host and one client, a new world, both closed the
+game; no errors or exceptions). Built, unit-tested and deployed; **not played yet**.
+
+- **A client that closed the game stored nothing.** The leave snapshot was taken when
+  the session was stopped, and on quitting that is after the player object is gone,
+  so it was skipped without a line in the log. In that session no world save had
+  happened while the client was in the world either, so a rejoin would have found no
+  character at all and started fresh at the spawn. The snapshot is now taken in
+  `OnApplicationQuit`, which runs before anything is destroyed
+  (`WorldSaveQuitWatcher`). Leaving through the menu was not affected.
+- **The host lay still at its own world start** (`[GetUp] stand-up let go after 6.0 s
+  (sent 0, placed True)`). The stand-up wait counted a client that was still on the
+  title screen as a watcher, and no position packets go to such a client. A watcher is
+  now a peer that is in the world (`LanNetworkManager.AnyPeerInWorld`). The 6 s limit
+  also counted the long frames of the first save and world share as real time; a frame
+  now counts for 0.1 s at most (`LocalGetUpHold`).
+- Nothing else in the logs: voice at 48 kHz on both sides with no suppression error,
+  the join ran through all three phases, no desync.
 
 ## 0.8.223 — a rejoining client comes back as at the last world save
 

@@ -26,11 +26,12 @@ namespace DWMPHorde.Players
         /// <summary>Packets (30 a second) that carried the held clip before it runs: the first makes a joiner's stand-in, the rest cover a lost one.</summary>
         private const int PacketsBeforeRelease = 4;
         private const float MaxHoldSec = 6f;
+        private const float MaxFrameSec = 0.1f;
 
         private static bool _holding; // process-scoped: cleared by Tick whenever no stand-up is running
         private static bool _handled; // process-scoped: cleared by Tick whenever no stand-up is running
         private static int _sent; // process-scoped: set when a hold begins
-        private static float _began; // process-scoped: set when a hold begins
+        private static float _held; // process-scoped: set when a hold begins
 
         /// <summary>Every frame, connected or not.</summary>
         internal static void Tick(LanNetworkManager net)
@@ -56,7 +57,7 @@ namespace DWMPHorde.Players
                 {
                     _holding = true;
                     _sent = 0;
-                    _began = Time.unscaledTime;
+                    _held = 0f;
                     torso.Pause();
                 }
                 return;
@@ -64,11 +65,13 @@ namespace DWMPHorde.Players
             if (!_holding)
                 return;
             // A joiner is first put where they were when they left (their character backup).
+            // A long frame (a save, a scene load) counts as a short one: the wait is for packets, which need frames.
+            _held += Mathf.Min(Time.unscaledDeltaTime, MaxFrameSec);
             bool placed = net == null || net.SaveHandlers == null || !net.SaveHandlers.ClientPlacementPending;
-            if ((_sent >= PacketsBeforeRelease && placed) || !HasWatchers(net) || Time.unscaledTime - _began > MaxHoldSec)
+            if ((_sent >= PacketsBeforeRelease && placed) || !HasWatchers(net) || _held > MaxHoldSec)
             {
                 if (_sent < PacketsBeforeRelease || !placed)
-                    ModLog.Event(LogCat.Session, "[GetUp] stand-up let go after " + (Time.unscaledTime - _began).ToString("0.0") + " s (sent " + _sent + ", placed " + placed + ")");
+                    ModLog.Event(LogCat.Session, "[GetUp] stand-up let go after " + _held.ToString("0.0") + " s (sent " + _sent + ", placed " + placed + ")");
                 Release(torso);
                 return;
             }
@@ -83,7 +86,7 @@ namespace DWMPHorde.Players
                 return;
             // The wait for a connection and the wait to be placed each get their own time.
             if (_sent == 0)
-                _began = Time.unscaledTime;
+                _held = 0f;
             _sent++;
         }
 
@@ -93,7 +96,8 @@ namespace DWMPHorde.Players
                 return false;
             if (net.Role == NetworkRole.Client)
                 return true;
-            return net.Role == NetworkRole.Host && net.IsConnected;
+            // A peer on the title screen or still loading has no stand-in of this player to watch.
+            return net.Role == NetworkRole.Host && net.AnyPeerInWorld();
         }
 
         private static void Release(tk2dSpriteAnimator torso)
