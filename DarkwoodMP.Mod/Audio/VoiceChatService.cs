@@ -570,9 +570,17 @@ namespace DWMPHorde.Audio
 
         /// <summary>
         /// Built-in level of received voice, under the VoiceGain setting. Voice sat well below
-        /// the game's own sounds at the old level; the setting keeps its meaning (1.4 = normal).
+        /// the game's own sounds at the old levels (1.0, then 2.0: a quiet microphone's speech
+        /// peaked near 0.3 of full scale); the setting keeps its meaning (1.4 = normal).
         /// </summary>
-        private const float VoiceBaseGain = 2.0f;
+        private const float VoiceBaseGain = 3.2f;
+
+        /// <summary>
+        /// What a speaker plays against what is in its buffer. The limiter holds a voice's peaks
+        /// to <see cref="VoiceLimiter.Ceiling"/> (0.7); this brings them to 0.9 of full scale at
+        /// the default volume, for a voice and a radio alike.
+        /// </summary>
+        private const float VoiceOutLevel = 1.3f;
 
         private const float LimitKnee = 0.7f;
 
@@ -725,16 +733,8 @@ namespace DWMPHorde.Audio
                     VoiceDecoder wdec = speaker.WorldDec ?? (speaker.WorldDec = new VoiceDecoder());
                     worldSamples = wdec.Decode(p.Data, voiceAt + voiceBytes, worldBytes, _worldRx, 0);
                 }
-                // Only a radio plays the second block: heard directly, the talker is a voice in
-                // a world the listener hears for themselves.
                 bool walkieNow = (p.Flags & VoiceDataMessage.FlagWalkie) != 0;
-                if (worldSamples > 0 && speaker.RadioMode && walkieNow)
-                {
-                    int n = Math.Min(voiceSamples, worldSamples);
-                    for (int i = 0; i < n; i++)
-                        _decodeBuf[voiceStart + i] += _worldRx[i] * WorldRxGain;
-                }
-
+                bool keyed = walkieNow && !speaker.WalkieActive;
                 if (walkieNow != speaker.WalkieActive)
                 {
                     speaker.WalkieActive = walkieNow;
@@ -748,6 +748,10 @@ namespace DWMPHorde.Audio
                 {
                     ClaimChannel(speaker.Id);
                     speaker.RadioHoldUntil = 0f;
+                    // The radio this transmission is heard on is picked now, not on the next
+                    // frame: its first packet went out as a plain voice ahead of the beep.
+                    if (keyed)
+                        PlaceNow(speaker);
                 }
                 else
                 {
@@ -761,6 +765,14 @@ namespace DWMPHorde.Audio
                     }
                     if (Time.unscaledTime < speaker.RadioHoldUntil)
                         return;
+                }
+                // Only a radio plays the second block: heard directly, the talker is a voice in
+                // a world the listener hears for themselves.
+                if (worldSamples > 0 && speaker.RadioMode && walkieNow)
+                {
+                    int n = Math.Min(voiceSamples, worldSamples);
+                    for (int i = 0; i < n; i++)
+                        _decodeBuf[voiceStart + i] += _worldRx[i] * WorldRxGain;
                 }
                 WriteVoice(speaker, _decodeBuf, samples);
             }

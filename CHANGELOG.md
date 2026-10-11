@@ -3,12 +3,12 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.249**. The current Horde wire protocol is **61**. Every install in a session
+**0.8.250**. The current Horde wire protocol is **61**. Every install in a session
 needs the same DLL; the protocol is checked on join.
 
 Protocol history (newest first):
 
-- **61**, 0.8.248 to 0.8.249: `VoiceData` (129) carries Opus; with flag 2 its data starts with the voice
+- **61**, 0.8.248 to 0.8.250: `VoiceData` (129) carries Opus; with flag 2 its data starts with the voice
   block's length (2 bytes).
 - **60**, 0.8.247: new `DreamLeft` (172).
 - **59**, 0.8.243 to 0.8.246: new `DoorSwing` (171); `BarricadeEvent` drops the attacker position.
@@ -71,6 +71,43 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.250 — voice is louder; radio talk is heard on the radio close by too; quieter call beep
+
+From the 0.8.249 playtest (host on Steam, client on SecondDarkwood).
+
+- **Voice was too quiet.** Received voice is played louder, a plain voice and a radio alike.
+  The built-in gain under `VoiceGain` goes from 2.0 to 3.2, and a speaker now plays its
+  buffer at 1.3 (`VoiceOutLevel`): the limiter holds peaks to 0.7 of full scale, so they
+  now reach 0.9 where they stopped at 0.7. A quiet microphone (the playtest's speech was
+  sent at loudness 0.05 to 0.44, where 0.65 is the scale's "normal speech") comes out
+  about twice as loud; a loud one, already at the limiter, about 1.3 times and denser.
+  The settings keep their meaning and no config value changes. Volume settings pushed well
+  above 1 can now reach full scale sooner.
+- **Radio talk next to the listener was not on the radio.** A talker keying their walkie
+  while standing close to a player with a live radio was heard only as a plain voice: no
+  call beep, no radio band, no static, no squelch tail. The radio took over only from some
+  distance on. Cause: one talker is heard one way at a time, and the way was picked by
+  loudness alone; close by, the plain voice (full volume) always beat the listener's own
+  radio (0.9). Now a transmission this player's own radio receives is heard on it however
+  close the talker stands. A player with no live radio still hears the talker's voice, and
+  another player's radio playing out loud still competes with the voice by loudness
+  (`VoiceChatService.UpdateSpeaker`).
+- **First packet of a transmission.** The way a talker is heard was set once a frame, after
+  the packets of that frame were decoded, so the first 40 ms of every transmission went
+  into the buffer as a plain voice ahead of the beep. It is now set the moment the first
+  walkie packet arrives (`PlaceNow`), before that packet is written.
+- **Call beep.** The beep on pressing the radio's talk key is quieter: on the talker's own
+  radio 0.35 to 0.19, heard from a talker nearby 0.3 to 0.17, and inside a received
+  transmission about a fifth lower than before (`BeepGain` 0.5 to 0.3, under the new 1.3).
+  The squelch tail keeps its level (`TailGain` 0.6 to 0.46, under the new 1.3).
+- **Logs of that playtest.** No errors or exceptions from the mod on either box. The 5 s
+  frame spike of 0.8.249 is gone from `[Perf]`. While talking, `poll=` on the talker reads
+  about 100 ms per 2 s: the Opus encoding (1.3 to 1.6 ms a packet), as measured in 0.8.248.
+  The frames over 100 ms are world load, save, the world share and the window losing focus.
+- **Docs.** `HOW_COOP_WORKS.md`: the radio rule above; the shout range read 650, the
+  default is 1300 since the range was doubled.
+- Runtime: not playtested yet.
 
 ## 0.8.249 — the stacked-light check no longer scans the scene
 

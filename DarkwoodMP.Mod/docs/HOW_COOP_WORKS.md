@@ -891,7 +891,7 @@ party events.
   next one). Mic, mic volume, voice volume and each
   player's volume are in Settings > Voice:
   - Proximity voice comes from where the talker stands (panned toward them) and
-    carries as far as they spoke loud: a shout to 650 units, normal speech about three
+    carries as far as they spoke loud: a shout to 1300 units, normal speech about three
     quarters of that, a whisper about a third. Muffled through walls.
   - Creatures hear it too (host rule, on by default): talk louder than a murmur is a
     sound at the talker's position, like a step or a door. Whispering is safe.
@@ -905,8 +905,10 @@ party events.
     A keyed radio also sends the sounds around its holder (steps, doors, creatures, the
     weather), each as loud and as dull as it reaches the holder and well under the voice;
     not music, menu sounds or voice chat itself (nor the game's long ambience loops, which
-    play on two sources and cannot be tapped). Only radios play that part: a player standing by the talker
-    hears their voice and the world for themselves (`VoiceRadioWorldSounds`).
+    play on two sources and cannot be tapped). Only radios play that part: a player without a live radio
+    standing by the talker hears their voice and the world for themselves (`VoiceRadioWorldSounds`).
+    A transmission your own live radio receives is heard on the radio, however close the
+    talker stands (beep, band, static and squelch tail included), not as their plain voice.
     Every other walkie plays the talk out loud too: standing near someone who carries
     one, you hear it from them (a short way, muffled through walls), and creatures near
     a playing radio hear it.

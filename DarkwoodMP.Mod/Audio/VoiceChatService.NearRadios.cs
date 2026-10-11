@@ -137,7 +137,7 @@ namespace DWMPHorde.Audio
             s.LevelEnv = since > 0.4f ? 0f : s.Level;
 
             if (s.Beh != null)
-                s.Beh.Volume = Mathf.Clamp(outVol, 0f, 2f);
+                s.Beh.Volume = Mathf.Clamp(outVol * VoiceOutLevel, 0f, 2f);
             if (s.Muffle != null)
             {
                 s.SmoothCutoff = Mathf.Lerp(s.SmoothCutoff, outCutoff, Mathf.Clamp01(dt * 8f));
