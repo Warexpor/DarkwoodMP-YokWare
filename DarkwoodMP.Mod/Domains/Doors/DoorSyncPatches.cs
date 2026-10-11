@@ -488,14 +488,26 @@ namespace DWMPHorde.Sync
             if (!repair)
                 RegisterConstructed(key, option);
 
-            ModRuntime.Network.SendConstructible(new ConstructibleMessage
+            var cmsg = new ConstructibleMessage
             {
                 PosX = key.x,
                 PosY = key.y,
                 PosZ = key.z,
                 UseIngredients = false,
-                OptionIndex = option
-            });
+                OptionIndex = option,
+                SaveId = Sync.WorldQueryHelper.FurnitureSaveId(__instance.gameObject)
+            };
+            // A repaired item stands up where this machine's wreck lay: the others' wrecks may lie
+            // elsewhere, so they put theirs here.
+            if (repair)
+            {
+                Vector3 p = __instance.transform.position;
+                Vector3 r = __instance.transform.eulerAngles;
+                cmsg.HasPose = true;
+                cmsg.PoseX = p.x; cmsg.PoseY = p.y; cmsg.PoseZ = p.z;
+                cmsg.RotX = r.x; cmsg.RotY = r.y; cmsg.RotZ = r.z;
+            }
+            ModRuntime.Network.SendConstructible(cmsg);
             ModRuntime.LegacyInfo($"[ConstructibleSync] sent construct at {key} option={option}");
         }
 

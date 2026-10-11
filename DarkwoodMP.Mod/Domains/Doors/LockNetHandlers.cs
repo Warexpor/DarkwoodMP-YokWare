@@ -80,6 +80,14 @@ namespace DWMPHorde.Networking
         {
             Vector3 pos = new Vector3(msg.PosX, msg.PosY, msg.PosZ);
             Constructible best = FindConstructible(pos);
+            // Nothing at the sender's spot: a broken wardrobe the sender repaired lies where this
+            // machine's slide left it. Its save id finds it (the repair stayed queued forever).
+            if (best == null && msg.SaveId > 0)
+            {
+                best = WorldQueryHelper.FindFurnitureBySaveId<Constructible>(msg.SaveId, pos);
+                if (best != null)
+                    ModRuntime.LegacyInfo($"[ConstructibleSync] found {best.name} by save id {msg.SaveId} at {best.transform.position} (sender's spot {pos})");
+            }
             if (best == null)
             {
                 if (queueIfMissing)
@@ -110,6 +118,20 @@ namespace DWMPHorde.Networking
             // selectedIcon is null when the menu isn't open).
             int option = msg.OptionIndex >= 0 ? msg.OptionIndex : best.chosenOption;
             best.construct(false, option);
+            if (msg.HasPose)
+            {
+                // Stand it where the repairer's stands, turned the same way.
+                Vector3 to = new Vector3(msg.PoseX, msg.PoseY, msg.PoseZ);
+                Quaternion rot = Quaternion.Euler(msg.RotX, msg.RotY, msg.RotZ);
+                best.transform.SetPositionAndRotation(to, rot);
+                Rigidbody rb = best.GetComponent<Rigidbody>();
+                if (rb != null)
+                {
+                    rb.position = to;
+                    rb.rotation = rot;
+                }
+                WorldPhysicsSyncService.NoteRemoteRelocated(best.gameObject);
+            }
         }
 
         /// <summary>Host registry of constructed sites for late-join bulk.</summary>

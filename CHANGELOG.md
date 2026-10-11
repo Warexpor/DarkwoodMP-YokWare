@@ -3,11 +3,13 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.239**. The current Horde wire protocol is **56**. Every install in a session
+**0.8.240**. The current Horde wire protocol is **57**. Every install in a session
 needs the same DLL; the protocol is checked on join.
 
 Protocol history (newest first):
 
+- **57**, 0.8.240: `ConstructibleConstruction` gains the save id and the repaired item's pose;
+  new `ItemPose` (169).
 - **56**, 0.8.239: `ContainerItem`, `ContainerStateRequest`, `ContainerStateSync` and
   `ContainerTakeDenied` gain the furniture's save id; `ContainerTakeDenied` gains mode 2 (return).
 - **55**, 0.8.230 to 0.8.238: `BarricadeEvent` (destructible items) gains the item's name.
@@ -64,6 +66,26 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.240 — a broken wardrobe lies, turns and gets repaired the same for everyone
+
+- **A client's repair of a broken wardrobe did not reach the host.** The repair message
+  (`ConstructibleConstruction`) is keyed by position, and the wreck still lay about ten units apart
+  on the two machines: the host found nothing at the client's spot and queued the repair forever
+  ("queued (not loaded yet)"). The message now carries the furniture's save id, and the receiver
+  finds the wreck by it when the spot is empty. A repair also carries where the repaired item
+  stands and how it is turned, and the others stand theirs there.
+- **The wreck lay and turned differently on each machine.** The blow that breaks a wardrobe shoves
+  the wreck on the breaking machine only, and the free-body stream did not bring that slide over
+  (the 0.8.239 scan change was not enough: the logs still show 9.6 units between the copies). The
+  breaking machine now waits until its wreck is at rest (or 5 s) and sends that pose: new message
+  `ItemPose` (169, relayed by the host), found by save id, else by name near where it broke
+  (`Sync.WreckPoseSync`). The pose lands without being sent back as a push.
+- **Save-id matches measured height.** Height is the draw layer in this game: a standing copy
+  (y 6) and a broken one (y -50) of the same wardrobe counted as 57 units apart and the id match
+  was refused (the host's "Searched" missed the client's repaired wardrobe). The match is now across
+  the ground only.
+- **Protocol 57** (`ConstructibleConstruction` gains the save id and the repair pose; new `ItemPose`).
 
 ## 0.8.239 — loot from a broken wardrobe; doors pushed by another player
 

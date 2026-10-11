@@ -673,21 +673,80 @@ namespace DWMPHorde.Networking
         public float PosX, PosY, PosZ;
         public bool UseIngredients;
         public int OptionIndex;
+        /// <summary>
+        /// The site's vanilla save id when it is furniture (0: none). A broken wardrobe lies where
+        /// each machine's slide left it; the receiver finds it by id when the sender's spot is empty.
+        /// </summary>
+        public int SaveId;
+        /// <summary>A repaired item: where it stands and how it is turned on the sender after the repair.</summary>
+        public bool HasPose;
+        public float PoseX, PoseY, PoseZ;
+        public float RotX, RotY, RotZ;
 
         public void Serialize(NetWriter w)
         {
             w.Put(PosX); w.Put(PosY); w.Put(PosZ);
             w.Put(UseIngredients);
             w.Put(OptionIndex);
+            w.Put(SaveId);
+            w.Put(HasPose);
+            if (HasPose)
+            {
+                w.Put(PoseX); w.Put(PoseY); w.Put(PoseZ);
+                w.Put(RotX); w.Put(RotY); w.Put(RotZ);
+            }
         }
 
-        public static ConstructibleMessage Deserialize(NetReader r) => new ConstructibleMessage
+        public static ConstructibleMessage Deserialize(NetReader r)
         {
-            PosX = r.GetFloat(),
-            PosY = r.GetFloat(),
-            PosZ = r.GetFloat(),
-            UseIngredients = r.GetBool(),
-            OptionIndex = r.GetInt()
+            var msg = new ConstructibleMessage
+            {
+                PosX = r.GetFloat(),
+                PosY = r.GetFloat(),
+                PosZ = r.GetFloat(),
+                UseIngredients = r.GetBool(),
+                OptionIndex = r.GetInt(),
+                SaveId = r.GetInt(),
+                HasPose = r.GetBool()
+            };
+            if (msg.HasPose)
+            {
+                msg.PoseX = r.GetFloat(); msg.PoseY = r.GetFloat(); msg.PoseZ = r.GetFloat();
+                msg.RotX = r.GetFloat(); msg.RotY = r.GetFloat(); msg.RotZ = r.GetFloat();
+            }
+            return msg;
+        }
+    }
+
+    /// <summary>
+    /// Where a broken destructible came to rest on the machine that broke it (its wreck is pushed
+    /// by the blow that broke it, on that machine only). Found by save id, else by name near the
+    /// spot where it broke.
+    /// </summary>
+    public struct ItemPoseMessage
+    {
+        public int SaveId;
+        public string Name;
+        public float BreakX, BreakY, BreakZ;
+        public float PosX, PosY, PosZ;
+        public float RotX, RotY, RotZ;
+
+        public void Serialize(NetWriter w)
+        {
+            w.Put(SaveId);
+            w.Put(Name ?? "");
+            w.Put(BreakX); w.Put(BreakY); w.Put(BreakZ);
+            w.Put(PosX); w.Put(PosY); w.Put(PosZ);
+            w.Put(RotX); w.Put(RotY); w.Put(RotZ);
+        }
+
+        public static ItemPoseMessage Deserialize(NetReader r) => new ItemPoseMessage
+        {
+            SaveId = r.GetInt(),
+            Name = r.GetString(),
+            BreakX = r.GetFloat(), BreakY = r.GetFloat(), BreakZ = r.GetFloat(),
+            PosX = r.GetFloat(), PosY = r.GetFloat(), PosZ = r.GetFloat(),
+            RotX = r.GetFloat(), RotY = r.GetFloat(), RotZ = r.GetFloat()
         };
     }
 

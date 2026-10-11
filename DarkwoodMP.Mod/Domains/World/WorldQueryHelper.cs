@@ -197,16 +197,46 @@ namespace DWMPHorde.Sync
         /// first, and the same number can be another object on another machine.
         /// </summary>
         public static int ContainerSaveId(Inventory inv)
+            => inv != null && inv.invType == Inventory.InvType.itemInv ? FurnitureSaveId(inv.gameObject) : 0;
+
+        /// <summary>
+        /// A piece of furniture's vanilla save id (0: none, or not furniture): the same on every
+        /// machine that loaded the shared save. A dropped pickup, a bag or a body has none here.
+        /// </summary>
+        public static int FurnitureSaveId(GameObject go)
         {
-            if (inv == null || inv.invType != Inventory.InvType.itemInv)
+            if (go == null)
                 return 0;
-            Item item = inv.GetComponent<Item>();
-            if (item == null || item.isDroppedItem || inv.GetComponent<Character>() != null)
+            Item item = go.GetComponent<Item>();
+            if (item == null || item.isDroppedItem || go.GetComponent<Character>() != null)
                 return 0;
-            SaveableObject so = inv.GetComponent<SaveableObject>();
+            SaveableObject so = go.GetComponent<SaveableObject>();
             if (so == null)
-                so = inv.GetComponentInParent<SaveableObject>();
+                so = go.GetComponentInParent<SaveableObject>();
             return so != null && so.assigned && !so.dontSave && so.uniqueId > 0 ? so.uniqueId : 0;
+        }
+
+        /// <summary>
+        /// This machine's copy of the furniture with save id <paramref name="saveId"/>, when it is
+        /// within <see cref="SaveIdMatchRange"/> of <paramref name="near"/>.
+        /// </summary>
+        public static T FindFurnitureBySaveId<T>(int saveId, Vector3 near) where T : Component
+        {
+            if (saveId <= 0)
+                return null;
+            SaveManager sm = Singleton<SaveManager>.Instance;
+            if (sm == null || sm.uniqueIdDict == null
+                || !sm.uniqueIdDict.TryGetValue(saveId, out Transform t) || t == null)
+                return null;
+            T c = t.GetComponent<T>() ?? t.GetComponentInChildren<T>();
+            if (c == null || FurnitureSaveId(c.gameObject) != saveId)
+                return null;
+            // Across the ground only: height is the draw layer here, and a broken copy lies 56
+            // below a standing one (one machine repaired it, the other not yet).
+            float dx = c.transform.position.x - near.x, dz = c.transform.position.z - near.z;
+            if (dx * dx + dz * dz > SaveIdMatchRange * SaveIdMatchRange)
+                return null;
+            return c;
         }
 
         /// <summary>The save id of the container at <paramref name="pos"/> (this game's own spot for it).</summary>
@@ -222,13 +252,8 @@ namespace DWMPHorde.Sync
             Inventory atPos = FindInventoryByPos(pos, maxDist);
             if (atPos != null || saveId <= 0)
                 return atPos;
-            SaveManager sm = Singleton<SaveManager>.Instance;
-            if (sm == null || sm.uniqueIdDict == null
-                || !sm.uniqueIdDict.TryGetValue(saveId, out Transform t) || t == null)
-                return null;
-            Inventory inv = t.GetComponent<Inventory>() ?? t.GetComponentInChildren<Inventory>();
-            if (inv == null || ContainerSaveId(inv) != saveId
-                || (inv.transform.position - pos).sqrMagnitude > SaveIdMatchRange * SaveIdMatchRange)
+            Inventory inv = FindFurnitureBySaveId<Inventory>(saveId, pos);
+            if (inv == null || ContainerSaveId(inv) != saveId)
                 return null;
             ModRuntime.LegacyInfo($"[Container] found '{inv.name}' by save id {saveId} at {inv.transform.position} (sender's spot {pos})");
             return inv;

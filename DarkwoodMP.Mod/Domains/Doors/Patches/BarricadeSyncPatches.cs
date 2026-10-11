@@ -480,6 +480,9 @@ namespace DWMPHorde.Patches
                 pos, 2,
                 destroyed ? BarricadeAction.Destroyed : BarricadeAction.Damaged,
                 health, false, damageAmount: damage, itemName: __instance.name);
+            // The blow that broke it pushes the wreck here only: the others get where it rests.
+            if (destroyed)
+                Sync.WreckPoseSync.WatchLocalBreak(__instance, pos);
         }
     }
 }
