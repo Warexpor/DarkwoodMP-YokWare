@@ -81,7 +81,8 @@ namespace DWMPHorde.Patches
                 PosY = pos.y,
                 PosZ = pos.z,
                 Action = ContainerAction.CloseContainer,
-                ItemType = ""
+                ItemType = "",
+                SaveId = Sync.WorldQueryHelper.ContainerSaveId(__instance)
             };
             net.Send(NetMessageType.ContainerItem, w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);
         }

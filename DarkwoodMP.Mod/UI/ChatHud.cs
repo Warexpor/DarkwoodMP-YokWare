@@ -100,7 +100,7 @@ namespace DWMPHorde
             _instance.AddLine(name, msg.Message);
         }
 
-        /// <summary>A line from the mod itself (map pins and pings), shown with the chat history.</summary>
+        /// <summary>A line from the mod itself (map pings), shown with the chat history.</summary>
         public static void AddSystemLine(string line)
         {
             if (!Enabled || string.IsNullOrEmpty(line)) return;

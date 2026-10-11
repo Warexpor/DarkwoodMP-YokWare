@@ -122,6 +122,9 @@ namespace DWMPHorde.Patches
     [HarmonyPatch(typeof(Character), "reactToCharacter")]
     public static class HostRetaliateOnAttackerPatch
     {
+        private static readonly System.Reflection.MethodInfo ResetIgnoreFood =
+            AccessTools.Method(typeof(Character), "resetIgnoreFood");
+
         private static bool Prefix(Character __instance, Character attackerChar, Transform attackerTransform, bool aggressively)
         {
             if (__instance == null || attackerTransform == null || !HostPlayerIdentity.HostWithRemotes())
@@ -135,17 +138,59 @@ namespace DWMPHorde.Patches
                 || (!aggressively && (__instance.aggressiveness == Aggressiveness.neutral
                     || __instance.aggressiveness == Aggressiveness.follower || __instance.npc != null)))
                 return true;
-            if (__instance.eating
-                || __instance.aggressiveness == Aggressiveness.flee
+            if (__instance.aggressiveness == Aggressiveness.flee
                 || __instance.aggressiveness == Aggressiveness.fleeAndDespawn
-                || __instance.behaviour == Character.Behaviour.escaping
-                || __instance.dummy)
+                || __instance.behaviour == Character.Behaviour.escaping)
                 return true;
+            // A feeding creature leaves its food for a while (vanilla, before the chase). This
+            // used to be left to vanilla whole, where a stand-in is no Player and the cowardice
+            // roll runs instead of the chase. An ordinary hit never gets here feeding (getHit's
+            // getInterrupted ends it first): this is for creatures a hit does not interrupt and
+            // for a feeding creature bumped into.
+            if (__instance.eating)
+            {
+                __instance.ignoreFood = true;
+                __instance.startRoutine(
+                    (System.Action)System.Delegate.CreateDelegate(typeof(System.Action), __instance, ResetIgnoreFood), 100f);
+            }
             __instance.setBehaviour(Character.Behaviour.chasingTarget);
+            // Vanilla attackPlayer: a dummy takes the chase state and no target.
+            if (__instance.dummy)
+                return false;
             if (__instance.aggressiveness != Aggressiveness.defensive)
                 __instance.aggressiveness = Aggressiveness.attackOnSight;
             PlayerTargetArbiter.Commit(__instance, attackerTransform, "reactToCharacter");
             return false;
+        }
+    }
+
+    /// <summary>
+    /// A defensive creature that finishes waking up paths to "the player" (vanilla OnAniFinish,
+    /// the Wakeup clip: <c>AIpath.setTarget(Player.Instance.transform)</c>). Woken by a client
+    /// it turned and walked towards the host, wherever the host was. It paths to the player
+    /// nearest to it, the same rule attackPlayer uses for the attack-on-sight case next to it.
+    /// </summary>
+    [HarmonyPatch(typeof(Character), "OnAniFinish")]
+    public static class HostWakeUpFacesNearestPatch
+    {
+        private static void Prefix(Character __instance, out bool __state)
+        {
+            __state = __instance != null && __instance.wakingUp;
+        }
+
+        private static void Postfix(Character __instance, bool __state)
+        {
+            if (!__state || __instance == null || __instance.wakingUp)
+                return;
+            if (__instance.aggressiveness != Aggressiveness.defensive
+                || __instance.attackClosestCharacerAfterWakingUp || __instance.AIpath == null)
+                return;
+            if (!HostPlayerIdentity.HostWithRemotes())
+                return;
+            Transform nearest = HostPlayerIdentity.NearestLiving(__instance.transform.position);
+            Player host = Player.Instance;
+            if (nearest != null && host != null && nearest != host.transform && nearest != host._transform)
+                __instance.AIpath.setTarget(nearest);
         }
     }
 }

@@ -62,7 +62,7 @@ namespace DWMPHorde.Networking
             if (inv == null)
             {
                 Vector3 pos = new Vector3(msg.PosX, msg.PosY, msg.PosZ);
-                inv = WorldQueryHelper.FindInventoryByPos(pos);
+                inv = WorldQueryHelper.FindInventory(pos, msg.SaveId);
                 if (inv == null)
                 {
                     // Final fallback: scan dead Characters near the position. A dead
@@ -123,7 +123,8 @@ namespace DWMPHorde.Networking
                 PosZ = msg.PosZ,
                 EntityHash = entityHash,
                 SlotCount = count,
-                Slots = new SlotStateEntry[count]
+                Slots = new SlotStateEntry[count],
+                SaveId = WorldQueryHelper.ContainerSaveId(inv)
             };
             int idx = 0;
             for (int i = 0; i < inv.slots.Count; i++)
@@ -177,7 +178,8 @@ namespace DWMPHorde.Networking
                     ItemType = "",
                     Amount = 0,
                     Durability = 0,
-                    Ammo = 0
+                    Ammo = 0,
+                    SaveId = WorldQueryHelper.ContainerSaveId(inv)
                 }.Serialize(w), DeliveryMethod.ReliableOrdered);
             }
         }

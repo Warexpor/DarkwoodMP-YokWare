@@ -131,8 +131,11 @@ namespace DWMPHorde.Audio
             Player p = Player.Instance;
             if (p != null)
             {
+                // A shared drag's co-holder holds it but does not move it: the dragger's machine
+                // does, and the scrape comes from there like any remote drag's.
                 if (p.dragging && p.itemBeingDragged != null
-                    && string.Equals(p.itemBeingDragged.gameObject.name, objectName, StringComparison.Ordinal))
+                    && string.Equals(p.itemBeingDragged.gameObject.name, objectName, StringComparison.Ordinal)
+                    && !Sync.SharedDrag.IsFollowingItem(p.itemBeingDragged))
                     return true;
 
                 if (p.touchingColliders != null)

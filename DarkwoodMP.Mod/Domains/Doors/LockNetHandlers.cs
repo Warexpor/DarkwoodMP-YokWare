@@ -52,10 +52,42 @@ namespace DWMPHorde.Networking
             ApplyConstructible(msg, queueIfMissing: true);
         }
 
+        /// <summary>
+        /// The site at the sender's position. Height is left out when nothing is there in 3D:
+        /// a broken item lies on its own layer (y about -50) and its whole twin on another.
+        /// </summary>
+        private static Constructible FindConstructible(Vector3 pos)
+        {
+            Constructible best = WorldQueryHelper.FindNearest<Constructible>(pos, ConstructibleMatchRadius);
+            if (best != null) return best;
+            float bestSq = ConstructibleMatchRadius * ConstructibleMatchRadius;
+            Constructible[] all = WorldQueryHelper.GetCachedSceneComponents<Constructible>();
+            for (int i = 0; i < all.Length; i++)
+            {
+                Constructible c = all[i];
+                if (c == null || !c.gameObject.scene.IsValid()) continue;
+                float dx = c.transform.position.x - pos.x;
+                float dz = c.transform.position.z - pos.z;
+                float dSq = dx * dx + dz * dz;
+                if (dSq >= bestSq) continue;
+                bestSq = dSq;
+                best = c;
+            }
+            return best;
+        }
+
         internal void ApplyConstructible(ConstructibleMessage msg, bool queueIfMissing)
         {
             Vector3 pos = new Vector3(msg.PosX, msg.PosY, msg.PosZ);
-            Constructible best = WorldQueryHelper.FindNearest<Constructible>(pos, ConstructibleMatchRadius);
+            Constructible best = FindConstructible(pos);
+            // Nothing at the sender's spot: a broken wardrobe the sender repaired lies where this
+            // machine's slide left it. Its save id finds it (the repair stayed queued forever).
+            if (best == null && msg.SaveId > 0)
+            {
+                best = WorldQueryHelper.FindFurnitureBySaveId<Constructible>(msg.SaveId, pos);
+                if (best != null)
+                    ModRuntime.LegacyInfo($"[ConstructibleSync] found {best.name} by save id {msg.SaveId} at {best.transform.position} (sender's spot {pos})");
+            }
             if (best == null)
             {
                 if (queueIfMissing)
@@ -86,6 +118,20 @@ namespace DWMPHorde.Networking
             // selectedIcon is null when the menu isn't open).
             int option = msg.OptionIndex >= 0 ? msg.OptionIndex : best.chosenOption;
             best.construct(false, option);
+            if (msg.HasPose)
+            {
+                // Stand it where the repairer's stands, turned the same way.
+                Vector3 to = new Vector3(msg.PoseX, msg.PoseY, msg.PoseZ);
+                Quaternion rot = Quaternion.Euler(msg.RotX, msg.RotY, msg.RotZ);
+                best.transform.SetPositionAndRotation(to, rot);
+                Rigidbody rb = best.GetComponent<Rigidbody>();
+                if (rb != null)
+                {
+                    rb.position = to;
+                    rb.rotation = rot;
+                }
+                WorldPhysicsSyncService.NoteRemoteRelocated(best.gameObject);
+            }
         }
 
         /// <summary>Host registry of constructed sites for late-join bulk.</summary>
@@ -166,7 +212,7 @@ namespace DWMPHorde.Networking
             {
                 var msg = _pendingConstructibles[i];
                 Vector3 pos = new Vector3(msg.PosX, msg.PosY, msg.PosZ);
-                Constructible best = WorldQueryHelper.FindNearest<Constructible>(pos, ConstructibleMatchRadius);
+                Constructible best = FindConstructible(pos);
                 if (best == null) continue;
                 _pendingConstructibles.RemoveAt(i);
                 ApplyConstructible(msg, queueIfMissing: false);

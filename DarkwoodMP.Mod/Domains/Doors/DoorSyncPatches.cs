@@ -434,7 +434,27 @@ namespace DWMPHorde.Sync
     [HarmonyPatch(typeof(Constructible), "construct", new[] { typeof(bool), typeof(int) })]
     public static class ConstructibleConstructPatch
     {
-        private static void Postfix(Constructible __instance, object[] __args)
+        /// <summary>Where the site stood before construct ran, and the broken item it repairs (if any).</summary>
+        internal struct Before
+        {
+            public Vector3 Pos;
+            public Item Repaired;
+        }
+
+        // construct() on a broken item calls Item.setNormalState, which lifts it from the
+        // broken layer (y about -50) back to its own: the position after is not where the
+        // others' still-broken copies are.
+        private static void Prefix(Constructible __instance, out Before __state)
+        {
+            __state = default;
+            if (__instance == null) return;
+            __state.Pos = __instance.transform.position;
+            Item item = __instance.GetComponent<Item>();
+            if (item != null && item.destroyed)
+                __state.Repaired = item;
+        }
+
+        private static void Postfix(Constructible __instance, object[] __args, Before __state)
         {
             int forceOption = (int)__args[1];
 
@@ -444,27 +464,50 @@ namespace DWMPHorde.Sync
             if (PersonalPrologue.IsOnProloguePad(__instance.transform))
                 return;
 
+            // A repaired item is one item, not a site: it can be pushed or broken again, so
+            // the host remembers the item itself for a joiner (BarricadeNetHandlers bulk).
+            bool repair = __state.Repaired != null;
+            if (repair)
+                ModRuntime.Network.BarricadeHandlers?.NoteItemRepaired(__state.Repaired);
+
+            // A repair applied from a joiner's item bulk is this machine catching up, not news.
+            if (LanNetworkManager.ProcessingBarricadeEvent)
+                return;
+
             if (LanNetworkManager.IsApplyingRemoteState)
             {
                 // Still record for host late-join bulk when applying remote construct.
-                RegisterConstructed(__instance, forceOption);
+                if (!repair)
+                    RegisterConstructed(__instance, forceOption);
                 return;
             }
 
-            Vector3 p = __instance.transform.position;
-            Vector3 key = WorldPos.Key(p);
+            Vector3 key = WorldPos.Key(__state.Pos);
 
             int option = forceOption >= 0 ? forceOption : __instance.chosenOption;
-            RegisterConstructed(key, option);
+            if (!repair)
+                RegisterConstructed(key, option);
 
-            ModRuntime.Network.SendConstructible(new ConstructibleMessage
+            var cmsg = new ConstructibleMessage
             {
                 PosX = key.x,
                 PosY = key.y,
                 PosZ = key.z,
                 UseIngredients = false,
-                OptionIndex = option
-            });
+                OptionIndex = option,
+                SaveId = Sync.WorldQueryHelper.FurnitureSaveId(__instance.gameObject)
+            };
+            // A repaired item stands up where this machine's wreck lay: the others' wrecks may lie
+            // elsewhere, so they put theirs here.
+            if (repair)
+            {
+                Vector3 p = __instance.transform.position;
+                Vector3 r = __instance.transform.eulerAngles;
+                cmsg.HasPose = true;
+                cmsg.PoseX = p.x; cmsg.PoseY = p.y; cmsg.PoseZ = p.z;
+                cmsg.RotX = r.x; cmsg.RotY = r.y; cmsg.RotZ = r.z;
+            }
+            ModRuntime.Network.SendConstructible(cmsg);
             ModRuntime.LegacyInfo($"[ConstructibleSync] sent construct at {key} option={option}");
         }
 

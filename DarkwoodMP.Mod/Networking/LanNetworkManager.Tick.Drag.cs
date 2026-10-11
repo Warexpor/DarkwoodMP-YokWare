@@ -50,7 +50,10 @@ namespace DWMPHorde.Networking
                 PlayerInteractHandlers.DragClaims.Remove(endedName);
 
             if (!string.IsNullOrEmpty(endedName))
+            {
                 PlayerInteractHandlers.DragEndedAt[endedName] = Time.unscaledTime;
+                PlayerInteractHandlers.DragEndedBy[endedName] = _localPlayerId;
+            }
 
             if (!IsConnected)
             {
@@ -95,6 +98,17 @@ namespace DWMPHorde.Networking
             }
         }
 
+        /// <summary>
+        /// Physics step: shared drag (the co-holder's force on the dragger's machine, the
+        /// co-holder's own body following it on its machine) and two-player pushes.
+        /// </summary>
+        private void FixedUpdate()
+        {
+            if (!IsConnected || !_session.Link.HandshakeComplete) return;
+            Sync.SharedDrag.FixedTick();
+            Sync.CoPush.FixedTick();
+        }
+
         private void LateUpdate()
         {
             if (!IsConnected || !_session.Link.HandshakeComplete) return;
@@ -107,6 +121,8 @@ namespace DWMPHorde.Networking
             Sync.WorldPhysicsSyncService.UpdateObjectInterpolation();
             // Both sides: other players' E-drags, posed after vanilla Update moved anything.
             RemoteDragTimeline.Tick();
+            // Both sides: the local player walking into a body another machine moves.
+            Sync.CoPush.TickSend(this);
             if (perf) ClientPerfProbe.MarkObjInterp();
 
             // Client only: interpolate remote entity positions for smooth movement

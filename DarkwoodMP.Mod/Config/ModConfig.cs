@@ -63,6 +63,8 @@ namespace DWMPHorde.Config
         /// <summary>Host: night monsters per hideout compared with vanilla (1..10).</summary>
         public static ModSetting<float> NightMonsterMultiplier { get; private set; }
         public static ModSetting<float> PeerMovementVolume { get; private set; }
+        /// <summary>Experimental: a second player can take hold of a body another player drags (<c>Sync.SharedDrag</c>).</summary>
+        public static ModSetting<bool> SharedDrag { get; private set; }
         /// <summary>
         /// On host crash/timeout, survivors elect lowest player id as new host (LAN + Steam).
         /// Requires PeerRoster gossip; keep true for dual-box / friends crash recovery.
@@ -226,6 +228,8 @@ namespace DWMPHorde.Config
                 "Host: how many night monsters come to each hideout compared with vanilla (1 = vanilla, up to 10). Raises how many of each kind may be out at once and how fast they come. Also in Host settings, mid-game too.");
             PeerMovementVolume = config.Bind("Gameplay", "PeerMovementVolume", 0.85f,
                 "Volume of other players' movement here (footsteps, clothes, dodge and landing steps), 0..1. Their other sounds (shots, hits, tools) stay at full volume.");
+            SharedDrag = config.Bind("Gameplay", "SharedDrag", true,
+                "Experimental: a second player can take hold of a body another player is dragging (E on it) and the two move it together: 1.5x a lone player's speed walking the same way, held still pulling apart. Both players need it on.");
             HostMigrationEnabled = config.Bind("Network", "HostMigrationEnabled", true,
                 "If true, host crash/timeout elects lowest remaining player id as new host (LAN n+). Peers reconnect to elected listen port.");
             VoiceEnabled = config.Bind("Voice", "VoiceEnabled", true,
@@ -241,10 +245,22 @@ namespace DWMPHorde.Config
             VoiceGain = config.Bind("Voice", "VoiceGain", 1.4f,
                 "Gain applied to received voice.");
             // Game units, like every other range here (a body is about 40 across).
-            VoiceFullVolumeDistance = config.Bind("Voice", "VoiceFullVolumeDistance", 150f,
+            VoiceFullVolumeDistance = config.Bind("Voice", "VoiceFullVolumeDistance", 300f,
                 "Distance (game units) within which a shout is at full volume (quieter speech a shorter way).");
-            VoiceMaxDistance = config.Bind("Voice", "VoiceMaxDistance", 650f,
-                "Distance (game units) a shout carries before it is silent (same as other peer sounds). Normal speech carries about three quarters of it, a whisper about a third, muffled through walls.");
+            VoiceMaxDistance = config.Bind("Voice", "VoiceMaxDistance", 1300f,
+                "Distance (game units) a shout carries before it is silent. Normal speech carries about three quarters of it, a whisper about a third, muffled through walls.");
+            // The voice range was doubled: a file still holding the old defaults takes the new
+            // ones, once (an exact 650 set by hand afterwards stays).
+            var voiceRangeDoubled = config.Bind("Voice", "VoiceRangeDoubled", false,
+                "Set by the mod once old voice range defaults (150 / 650) were moved to the doubled ones. Leave as is.");
+            if (!voiceRangeDoubled.Value)
+            {
+                if (VoiceFullVolumeDistance.Value == 150f)
+                    VoiceFullVolumeDistance.Value = 300f;
+                if (VoiceMaxDistance.Value == 650f)
+                    VoiceMaxDistance.Value = 1300f;
+                voiceRangeDoubled.Value = true;
+            }
             WalkieItemName = config.Bind("Voice", "WalkieItemName", "walkie_talkie",
                 "InvItem type for walkie radio (hold + VoiceRadioTalkKey to TX; switched on and charged, it receives anywhere it is carried).");
             VoiceRadioTalkKey = config.Bind("Voice", "VoiceRadioTalkKey", "Mouse1",

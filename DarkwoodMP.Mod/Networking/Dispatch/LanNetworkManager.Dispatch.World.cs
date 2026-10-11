@@ -50,6 +50,7 @@ namespace DWMPHorde.Networking
             On(NetMessageType.ChainState, ChainStateMessage.Deserialize, m => ChainHandlers.HandleChainState(m));
             On(NetMessageType.WorldBurnState, WorldBurnStateMessage.Deserialize, m => WorldBurnHandlers.HandleWorldBurnState(m));
             On(NetMessageType.ConstructibleConstruction, ConstructibleMessage.Deserialize, m => LockHandlers.HandleConstructible(m));
+            On(NetMessageType.ItemPose, ItemPoseMessage.Deserialize, m => Sync.WreckPoseSync.Handle(m));
             On(NetMessageType.InteractiveItemSwitch, InteractiveItemSwitchMessage.Deserialize, m => LockHandlers.HandleInteractiveItemSwitch(m));
             On(NetMessageType.PadlockUnlock, PadlockUnlockMessage.Deserialize, m => LockHandlers.HandlePadlockUnlock(m));
             On(NetMessageType.LockedUnlock, LockedUnlockMessage.Deserialize, m => LockHandlers.HandleLockedUnlock(m));

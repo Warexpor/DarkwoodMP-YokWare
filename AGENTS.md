@@ -98,7 +98,6 @@ PathB.Tests targets **net8.0** (matches available SDK 8.0.318).
 
 - After light/flare/torch work: check **both** host + client `LogOutput.log`.
 - Logging guide: `DarkwoodMP.Mod/docs/LOGGING.md`; config keys: `DarkwoodMP.Mod/docs/CONFIG.md`
-- Playtest checklist: `DarkwoodMP.Mod/docs/PLAYTEST.md`
 - No `Co-Authored-By: Claude` in commits (user preference).
 
 ## Full-game hunt

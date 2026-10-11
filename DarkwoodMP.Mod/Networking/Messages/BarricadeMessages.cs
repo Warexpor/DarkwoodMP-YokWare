@@ -25,6 +25,11 @@ namespace DWMPHorde.Networking
         public int DamageAmount;
         public bool HasAttackerPos;
         public float AttackerPosX, AttackerPosY, AttackerPosZ;
+        /// <summary>
+        /// Destructible items (IsWindow 2) only: the object's name. A hit can push furniture, so
+        /// the receiver's copy may not be at the sender's position yet.
+        /// </summary>
+        public string ItemName;
 
         public void Serialize(NetWriter w)
         {
@@ -37,6 +42,7 @@ namespace DWMPHorde.Networking
             w.Put(DamageAmount);
             w.Put(HasAttackerPos);
             w.Put(AttackerPosX); w.Put(AttackerPosY); w.Put(AttackerPosZ);
+            w.Put(ItemName ?? "");
         }
 
         public static BarricadeEventMessage Deserialize(NetReader r) => new BarricadeEventMessage
@@ -53,7 +59,8 @@ namespace DWMPHorde.Networking
             HasAttackerPos = r.GetBool(),
             AttackerPosX = r.GetFloat(),
             AttackerPosY = r.GetFloat(),
-            AttackerPosZ = r.GetFloat()
+            AttackerPosZ = r.GetFloat(),
+            ItemName = r.GetString()
         };
     }
 }

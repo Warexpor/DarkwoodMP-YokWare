@@ -24,6 +24,20 @@ namespace DWMPHorde.Sync
         }
 
         /// <summary>
+        /// Another machine put this body where it is now (a pose message, a repair): it is not
+        /// interpolated toward an older state, and the scan does not take the jump for a push of
+        /// this machine's own and send it back.
+        /// </summary>
+        public static void NoteRemoteRelocated(GameObject go)
+        {
+            if (go == null) return;
+            int id = go.GetInstanceID();
+            _s.ObjectInterp.Remove(id);
+            _s.LastPos[id] = go.transform.position;
+            _s.LastRot[id] = go.transform.rotation;
+        }
+
+        /// <summary>
         /// After remote E-drag ends (or local drag ends on host): drop client-push
         /// kinematic hold + interp by object name so the free body is draggable again.
         /// Without this, host kept isKinematic / claim side-effects and could not re-grab.

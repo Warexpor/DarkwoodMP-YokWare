@@ -26,6 +26,13 @@ namespace DWMPHorde.Networking
         public string[] Upgrades;
         /// <summary>Flashlight / toggle on.</summary>
         public bool ShouldBeActive;
+        /// <summary>
+        /// The container's vanilla save id (0: none). Both games loaded the same save, so a
+        /// container from it has the same id everywhere; the receiver finds it by that first. A
+        /// broken wardrobe slides on its own on each machine, and by position alone the host found
+        /// no container at the client's spot and refused every take from it.
+        /// </summary>
+        public int SaveId;
 
         public void Serialize(NetWriter w)
         {
@@ -40,6 +47,7 @@ namespace DWMPHorde.Networking
             w.Put(IsRecipe);
             DWMPHorde.Sync.InvItemUpgradeWire.Write(w, Upgrades);
             w.Put(ShouldBeActive);
+            w.Put(SaveId);
         }
 
         public static ContainerItemMessage Deserialize(NetReader r)
@@ -60,6 +68,7 @@ namespace DWMPHorde.Networking
             };
             msg.Upgrades = DWMPHorde.Sync.InvItemUpgradeWire.Read(r);
             msg.ShouldBeActive = r.GetBool();
+            msg.SaveId = r.GetInt();
             return msg;
         }
     }
@@ -68,14 +77,17 @@ namespace DWMPHorde.Networking
     {
         public float PosX, PosY, PosZ;
         public int TargetEntityHash;
+        /// <summary>The container's vanilla save id (0: none), as in <see cref="ContainerItemMessage.SaveId"/>.</summary>
+        public int SaveId;
 
-        public void Serialize(NetWriter w) { w.Put(PosX); w.Put(PosY); w.Put(PosZ); w.Put(TargetEntityHash); }
+        public void Serialize(NetWriter w) { w.Put(PosX); w.Put(PosY); w.Put(PosZ); w.Put(TargetEntityHash); w.Put(SaveId); }
         public static ContainerStateRequestMessage Deserialize(NetReader r) => new ContainerStateRequestMessage
         {
             PosX = r.GetFloat(),
             PosY = r.GetFloat(),
             PosZ = r.GetFloat(),
-            TargetEntityHash = r.GetInt()
+            TargetEntityHash = r.GetInt(),
+            SaveId = r.GetInt()
         };
     }
 
@@ -90,6 +102,11 @@ namespace DWMPHorde.Networking
     {
         public const byte ModeTakeRefund = 0;
         public const byte ModePlaceRefund = 1;
+        /// <summary>
+        /// Take refused because the host has no such container: the taker's copy holds the only
+        /// trace of the item, so it goes back into that container, not out of the game.
+        /// </summary>
+        public const byte ModeTakeReturn = 2;
 
         public float PosX, PosY, PosZ;
         public byte SlotIndex;
@@ -103,6 +120,8 @@ namespace DWMPHorde.Networking
         public string[] Upgrades;
         /// <summary>Place-refund shouldBeActive.</summary>
         public bool ShouldBeActive;
+        /// <summary>The container's vanilla save id (0: none), as in <see cref="ContainerItemMessage.SaveId"/>.</summary>
+        public int SaveId;
 
         public void Serialize(NetWriter w)
         {
@@ -115,6 +134,7 @@ namespace DWMPHorde.Networking
             w.Put(Ammo);
             DWMPHorde.Sync.InvItemUpgradeWire.Write(w, Upgrades);
             w.Put(ShouldBeActive);
+            w.Put(SaveId);
         }
 
         public static ContainerTakeDeniedMessage Deserialize(NetReader r)
@@ -133,6 +153,7 @@ namespace DWMPHorde.Networking
             };
             msg.Upgrades = DWMPHorde.Sync.InvItemUpgradeWire.Read(r);
             msg.ShouldBeActive = r.GetBool();
+            msg.SaveId = r.GetInt();
             return msg;
         }
     }
@@ -158,6 +179,8 @@ namespace DWMPHorde.Networking
         public int EntityHash;
         public int SlotCount;
         public SlotStateEntry[] Slots;
+        /// <summary>The container's vanilla save id (0: none), as in <see cref="ContainerItemMessage.SaveId"/>.</summary>
+        public int SaveId;
 
         public void Serialize(NetWriter w)
         {
@@ -178,6 +201,7 @@ namespace DWMPHorde.Networking
                 DWMPHorde.Sync.InvItemUpgradeWire.Write(w, i < Slots.Length ? Slots[i].Upgrades : null);
             for (int i = 0; i < SlotCount; i++)
                 w.Put(i < Slots.Length && Slots[i].ShouldBeActive);
+            w.Put(SaveId);
         }
 
         public static ContainerStateSyncMessage Deserialize(NetReader r)
@@ -210,6 +234,7 @@ namespace DWMPHorde.Networking
                 msg.Slots[i].Upgrades = DWMPHorde.Sync.InvItemUpgradeWire.Read(r);
             for (int i = 0; i < msg.SlotCount; i++)
                 msg.Slots[i].ShouldBeActive = r.GetBool();
+            msg.SaveId = r.GetInt();
             return msg;
         }
     }

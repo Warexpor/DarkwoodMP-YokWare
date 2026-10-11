@@ -95,7 +95,7 @@ namespace DWMPHorde.Networking
                     // A character this client never maps to the host's id (a story NPC standing at
                     // its own spot) is still found where it stands; a container is not one.
                     ContainerStateSyncMessage msg = entry.Value;
-                    Inventory at = WorldQueryHelper.FindInventoryByPos(new Vector3(msg.PosX, msg.PosY, msg.PosZ));
+                    Inventory at = WorldQueryHelper.FindInventory(new Vector3(msg.PosX, msg.PosY, msg.PosZ), msg.SaveId);
                     if (at != null && at.GetComponent<Character>() != null)
                     {
                         msg.EntityHash = 0;
@@ -247,7 +247,9 @@ namespace DWMPHorde.Networking
             if (inv == null && Player.Instance != null)
             {
                 Inventory opened = Player.Instance.openedItemInventory2 ?? Player.Instance.openedItemInventory;
-                if (opened != null)
+                if (opened != null && msg.SaveId > 0 && WorldQueryHelper.ContainerSaveId(opened) == msg.SaveId)
+                    inv = opened;
+                else if (opened != null)
                 {
                     float odx = opened.transform.position.x - pos.x;
                     float odz = opened.transform.position.z - pos.z;
@@ -257,7 +259,7 @@ namespace DWMPHorde.Networking
             }
             if (inv == null)
             {
-                inv = WorldQueryHelper.FindInventoryByPos(pos);
+                inv = WorldQueryHelper.FindInventory(pos, msg.SaveId);
                 if (inv == null)
                 {
                     ModRuntime.Log?.LogWarning($"[Container] HandleContainerStateSync: no inventory at ({msg.PosX:F1},{msg.PosY:F1},{msg.PosZ:F1}) hash={msg.EntityHash}");
@@ -275,7 +277,10 @@ namespace DWMPHorde.Networking
             // Check for pending local removes (dupe prevention): if the player
             // already took items from this container before the sync arrived,
             // don't re-add them.
-            string containerKey = $"{pos.x:F2}_{pos.y:F2}_{pos.z:F2}";
+            // Keyed by this game's own spot for it (where its takes were recorded): the host's
+            // spot for a slid wreck is not this one.
+            Vector3 localPos = inv.transform.position;
+            string containerKey = $"{localPos.x:F2}_{localPos.y:F2}_{localPos.z:F2}";
             _pendingContainerRemoves.TryGetValue(containerKey, out var pendingSlots);
 
             // Clear all slots on the client container

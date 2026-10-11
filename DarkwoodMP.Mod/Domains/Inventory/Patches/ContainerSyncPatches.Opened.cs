@@ -391,7 +391,8 @@ namespace DWMPHorde.Patches
                     Amount = 0,
                     Durability = 0,
                     Ammo = 0,
-                    IsPlayerPlaced = false
+                    IsPlayerPlaced = false,
+                    SaveId = Sync.WorldQueryHelper.ContainerSaveId(inv)
                 };
                 var netInst = ModRuntime.Network;
                 if (netInst != null)
@@ -414,7 +415,8 @@ namespace DWMPHorde.Patches
                     PosX = pos.x,
                     PosY = pos.y,
                     PosZ = pos.z,
-                    TargetEntityHash = entityHash
+                    TargetEntityHash = entityHash,
+                    SaveId = Sync.WorldQueryHelper.ContainerSaveId(inv)
                 };
                 var netInst = ModRuntime.Network;
                 if (netInst != null)

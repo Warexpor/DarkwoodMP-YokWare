@@ -408,7 +408,8 @@ namespace DWMPHorde.Networking
         internal void SendBulletImpact(BulletImpactMessage msg)
         {
             if (!_net.IsConnected) return;
-            if (LanNetworkManager.IsApplyingRemoteState) return;
+            // A player's own getHit blood for a hit that arrived over the network is still theirs to send.
+            if (LanNetworkManager.IsApplyingRemoteState && Patches.HitscanBloodPatch.OwnHitDepth == 0) return;
             _net.Broadcast(NetMessageType.BulletImpact, w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);
         }
 

@@ -18,7 +18,7 @@ namespace DWMPHorde.Players
             _targetRotationY = state.TorsoFacingY;
             _hasState = true;
 
-            if (!_freezePosition)
+            if (!_freezePosition && !_coHeld)
             {
                 _targetPosition = state.Position;
 
@@ -262,6 +262,10 @@ namespace DWMPHorde.Players
                 return;
 
             IgnorePushablesNearby();
+
+            // Shared drag: physics moves it (the hinge, the remote player's walk force).
+            if (_coHeld)
+                return;
 
             if (_isVaulting)
             {

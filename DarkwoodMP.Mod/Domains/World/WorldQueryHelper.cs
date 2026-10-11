@@ -184,6 +184,82 @@ namespace DWMPHorde.Sync
         }
 
         /// <summary>
+        /// How far a container found by its save id may be from the sender's spot. A broken
+        /// wardrobe slides about ten units on each machine its own way; an unrelated object that
+        /// got the same id after the save (each game counts its own new ids) is not this close.
+        /// </summary>
+        private const float SaveIdMatchRange = 40f;
+
+        /// <summary>
+        /// A container's vanilla save id (0: none). Both games load the same save, so a piece of
+        /// furniture from it carries the same id everywhere, wherever its body has slid to. Only
+        /// furniture: a dropped pickup, a bag or a body gets its id from whichever game saves it
+        /// first, and the same number can be another object on another machine.
+        /// </summary>
+        public static int ContainerSaveId(Inventory inv)
+            => inv != null && inv.invType == Inventory.InvType.itemInv ? FurnitureSaveId(inv.gameObject) : 0;
+
+        /// <summary>
+        /// A piece of furniture's vanilla save id (0: none, or not furniture): the same on every
+        /// machine that loaded the shared save. A dropped pickup, a bag or a body has none here.
+        /// </summary>
+        public static int FurnitureSaveId(GameObject go)
+        {
+            if (go == null)
+                return 0;
+            Item item = go.GetComponent<Item>();
+            if (item == null || item.isDroppedItem || go.GetComponent<Character>() != null)
+                return 0;
+            SaveableObject so = go.GetComponent<SaveableObject>();
+            if (so == null)
+                so = go.GetComponentInParent<SaveableObject>();
+            return so != null && so.assigned && !so.dontSave && so.uniqueId > 0 ? so.uniqueId : 0;
+        }
+
+        /// <summary>
+        /// This machine's copy of the furniture with save id <paramref name="saveId"/>, when it is
+        /// within <see cref="SaveIdMatchRange"/> of <paramref name="near"/>.
+        /// </summary>
+        public static T FindFurnitureBySaveId<T>(int saveId, Vector3 near) where T : Component
+        {
+            if (saveId <= 0)
+                return null;
+            SaveManager sm = Singleton<SaveManager>.Instance;
+            if (sm == null || sm.uniqueIdDict == null
+                || !sm.uniqueIdDict.TryGetValue(saveId, out Transform t) || t == null)
+                return null;
+            T c = t.GetComponent<T>() ?? t.GetComponentInChildren<T>();
+            if (c == null || FurnitureSaveId(c.gameObject) != saveId)
+                return null;
+            // Across the ground only: height is the draw layer here, and a broken copy lies 56
+            // below a standing one (one machine repaired it, the other not yet).
+            float dx = c.transform.position.x - near.x, dz = c.transform.position.z - near.z;
+            if (dx * dx + dz * dz > SaveIdMatchRange * SaveIdMatchRange)
+                return null;
+            return c;
+        }
+
+        /// <summary>The save id of the container at <paramref name="pos"/> (this game's own spot for it).</summary>
+        public static int ContainerSaveIdAt(Vector3 pos) => ContainerSaveId(FindInventoryByPos(pos));
+
+        /// <summary>
+        /// The container a message is about: at the sender's spot, else by its save id. Both
+        /// peers' copies of a broken wardrobe can lie where each one's slide left it, so the
+        /// sender's spot can be empty here.
+        /// </summary>
+        public static Inventory FindInventory(Vector3 pos, int saveId, float maxDist = 2.5f)
+        {
+            Inventory atPos = FindInventoryByPos(pos, maxDist);
+            if (atPos != null || saveId <= 0)
+                return atPos;
+            Inventory inv = FindFurnitureBySaveId<Inventory>(saveId, pos);
+            if (inv == null || ContainerSaveId(inv) != saveId)
+                return null;
+            ModRuntime.LegacyInfo($"[Container] found '{inv.name}' by save id {saveId} at {inv.transform.position} (sender's spot {pos})");
+            return inv;
+        }
+
+        /// <summary>
         /// Find an Inventory by position. OverlapSphere first and return immediately on hit
         /// — the old path always ran SceneScanCache&lt;Inventory&gt; (FindObjectsOfType ~45ms)
         /// even after overlap succeeded, hitching every container/corpse open.
@@ -468,6 +544,31 @@ namespace DWMPHorde.Sync
                     bestSq = dSq;
                     best = candidate;
                 }
+            }
+            return best;
+        }
+
+        /// <summary>
+        /// Nearest destructible item of this name within <paramref name="maxDist"/> (XZ), broken
+        /// ones included: a repeated event for an item already broken must land on that item,
+        /// not on a whole twin standing near it.
+        /// </summary>
+        public static Item FindDestructibleItemByName(string name, Vector3 pos, float maxDist)
+        {
+            if (string.IsNullOrEmpty(name)) return null;
+            Item best = null;
+            float bestSq = maxDist * maxDist;
+            Item[] all = GetCachedSceneComponents<Item>();
+            for (int i = 0; i < all.Length; i++)
+            {
+                Item candidate = all[i];
+                if (candidate == null || !candidate.destructible) continue;
+                float dx = candidate.transform.position.x - pos.x;
+                float dz = candidate.transform.position.z - pos.z;
+                float dSq = dx * dx + dz * dz;
+                if (dSq >= bestSq || candidate.name != name) continue;
+                bestSq = dSq;
+                best = candidate;
             }
             return best;
         }

@@ -78,8 +78,21 @@ namespace DWMPHorde.Networking
             _net = net ?? throw new System.ArgumentNullException(nameof(net));
         }
 
+        /// <summary>
+        /// Host: broken items a player repaired this session. A joiner's world is the last
+        /// save, where such an item may still be broken; the item bulk tells them it is whole.
+        /// </summary>
+        private readonly HashSet<Item> _repairedItems = new HashSet<Item>();
+
+        internal void NoteItemRepaired(Item item)
+        {
+            if (item != null && _net.Role == NetworkRole.Host)
+                _repairedItems.Add(item);
+        }
+
         internal void ClearPendingBarricades()
         {
+            _repairedItems.Clear();
             _pendingBarricadeEvents.Clear();
             BarricadeSyncHelpers.ClearRemovedBoards();
         }
@@ -117,7 +130,7 @@ namespace DWMPHorde.Networking
                     // Match door/window: queue until the pad/chunk wakes (fresh
                     // OutsideLocations.spawnLocation). HandleItemDamageEvent alone
                     // dropped Destroyed crates when the Item was not spawned yet.
-                    if (WorldQueryHelper.FindDestructibleItemXz(pos, ItemMatchRadius) == null)
+                    if (ResolveEventItem(pos, msg) == null)
                     {
                         if (queueIfMissing)
                             QueuePendingBarricade(msg);
@@ -404,7 +417,7 @@ namespace DWMPHorde.Networking
                     : msg.IsWindow == 1
                         ? WorldQueryHelper.FindWindowByPos(pos) != null
                         : msg.IsWindow == 2
-                            && WorldQueryHelper.FindDestructibleItemXz(pos, ItemMatchRadius) != null;
+                            && ResolveEventItem(pos, msg) != null;
                 if (!found) continue;
                 _pendingBarricadeEvents.RemoveAt(i);
                 ApplyBarricadeEvent(msg, queueIfMissing: false);

@@ -37,8 +37,11 @@ namespace DWMPHorde.Patches
             }
             if (thisBodyHeld || thisSpotHeld)
             {
+                // Shared drag: take hold of it with its dragger (one co-holder at most).
+                if (Sync.SharedDrag.TryBeginFollow(__instance, net, out string refusal))
+                    return true;
                 DWMPHorde.Patches.PersonalFlavorHud.BeginBypass();
-                try { Player.Instance?.displayMessage(Loc.T("This object is already being moved by another player")); }
+                try { Player.Instance?.displayMessage(Loc.T(refusal ?? "This object is already being moved by another player")); }
                 finally { DWMPHorde.Patches.PersonalFlavorHud.EndBypass(); }
                 return false;
             }
@@ -49,6 +52,23 @@ namespace DWMPHorde.Patches
             MovingObjectSoundService.StopImmediate(objName);
             return true;
         }
+
+        /// <summary>A shared-drag hold whose grab vanilla turned down (too far) is dropped.</summary>
+        private static void Postfix(Item __instance)
+        {
+            Sync.SharedDrag.OnStartDraggingDone(__instance);
+        }
+    }
+
+    /// <summary>
+    /// Shared drag: the co-holder's machine does not hinge the body to its player. The dragger's
+    /// machine runs the body and both players on it; here the body plays back and the player's
+    /// body follows the spot it holds there (<see cref="Sync.SharedDrag"/>).
+    /// </summary>
+    [HarmonyPatch(typeof(Item), "addDraggingHingeJoint")]
+    public static class SharedDragHingePatch
+    {
+        private static bool Prefix(Item __instance) => !Sync.SharedDrag.IsFollowingItem(__instance);
     }
 
     /// <summary>
@@ -63,6 +83,10 @@ namespace DWMPHorde.Patches
         private static void Postfix(Item __instance)
         {
             if (__instance == null) return;
+            // Vanilla refuses a release while the grab or let-go animation runs: still held.
+            if (__instance.beingDragged) return;
+            // The co-holder of a shared drag let go: the dragger keeps it, nothing to release.
+            if (Sync.SharedDrag.OnLocalStop(__instance)) return;
 
             string objName = __instance.gameObject.name;
             ItemMovingSoundHelper.ForceStop(__instance.gameObject);

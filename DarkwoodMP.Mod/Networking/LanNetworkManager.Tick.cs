@@ -273,8 +273,13 @@ namespace DWMPHorde.Networking
             // Dead local body (night OR day spectate): vanilla still plays get-up clips.
             // Force Death1 so peers never revive our proxy mid-spectate (day death used to
             // send Idle → premature proxy.alive and AI re-aggro on a corpse).
+            // The frame belongs to the clip really playing: a get-up clip's frames sent under the
+            // forced Death1 made watchers see the death clip run again during the respawn.
+            short currentFrame = PlayerAnimationSnapshot.ReadCurrentFrame(local);
             if (DeathStateTracker.LocalNightDeath || (local != null && !local.alive))
             {
+                if (!Players.SecondPlayerAnimController.IsDeathClip(torsoClip))
+                    currentFrame = -1;
                 torsoClip = "Death1";
                 legsClip = "Death1";
             }
@@ -296,7 +301,7 @@ namespace DWMPHorde.Networking
                 TorsoFacingY = PlayerAnimationSnapshot.ReadTorsoFacingY(local),
                 TorsoClip = torsoClip,
                 LegsClip = legsClip,
-                CurrentFrame = PlayerAnimationSnapshot.ReadCurrentFrame(local),
+                CurrentFrame = currentFrame,
                 InBearTrap = local.inBearTrap,
                 HasLightProtection = local.isInLight,
                 HasNightShadows = local.skills != null && local.skills.NightShadows,
@@ -400,8 +405,14 @@ namespace DWMPHorde.Networking
             if (_role == NetworkRole.Host)
                 PlayerPositionManager.ReportHostPosition(pos);
 
+            // Shared drag: the local player holds a body another player drags. That player's
+            // machine runs it; this one sends its walk input there instead of poses.
+            if (local.dragging && local.itemBeingDragged != null
+                && Sync.SharedDrag.TickFollowerSend(this, local))
+            {
+            }
             // Both sides: if dragging an object, sync its position at ~30 Hz
-            if (local.dragging && local.itemBeingDragged != null)
+            else if (local.dragging && local.itemBeingDragged != null)
             {
                 Item dragged = local.itemBeingDragged;
                 _lastDraggedItem = dragged;
@@ -456,6 +467,7 @@ namespace DWMPHorde.Networking
                     SendTime = RemoteDragTimeline.StampFor(dragged.GetComponent<Rigidbody>()),
                     HasPose = true
                 };
+                Sync.SharedDrag.FillLeaderFields(ref dragMsg, dragged);
                 // Quiet scrape stop must be reliable; unreliable quiet ticks can be lost
                 // observers kept the last NoteMoving loop until full release.
                 var dragDelivery = _dragScrapeActive

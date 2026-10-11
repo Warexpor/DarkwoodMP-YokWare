@@ -229,6 +229,9 @@ namespace DWMPHorde.Sync
                 try
                 {
                     __instance.deselectObject(force: true);
+                    // deselectObject leaves this set; an item breaking under the menu (a
+                    // destroyToAccessInventory wardrobe another player smashed) reselects it.
+                    __instance.currentlySelectedTransform = null;
                     __instance.onReleaseAim();
                 }
                 catch (System.Exception ex)
@@ -238,6 +241,20 @@ namespace DWMPHorde.Sync
             }
             return false;
         }
+    }
+
+    /// <summary>
+    /// Nothing gets picked behind the pause menu. Skipping the input step stopped the hover pick,
+    /// but other paths still select an object, some forced: an item breaking or switching off
+    /// while it is the cursor's object, a drag being finished, the controller-mode switch. Each
+    /// brought its action label back on top of the menu while the world ran on.
+    /// </summary>
+    [HarmonyPatch(typeof(Player), nameof(Player.selectObject))]
+    internal static class PauseMenuNoSelectPatch
+    {
+        private static bool Prefix(Player __instance, Transform selectedTransform)
+            => selectedTransform == null || __instance == null || __instance != Player.Instance
+                || !GameScreen.InPauseMenu || !PauseMenuSync.CoopInWorld();
     }
 
     /// <summary>The pause menu opening does not pause the game in co-op (<see cref="PauseMenuSync"/>).</summary>

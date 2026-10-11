@@ -356,13 +356,6 @@ namespace DWMPHorde.Sync
                     {
                         Pins.Add(incoming);
                         if (incoming.Id >= _nextId) _nextId = incoming.Id + 1;
-                        if (!IsLocalOwner(incoming))
-                        {
-                            string label = string.IsNullOrEmpty(incoming.Label) ? "" : " \"" + incoming.Label + "\"";
-                            Notify(Loc.Russian
-                                ? incoming.OwnerName + " ставит на карте метку: " + Loc.T(KindName(incoming.Kind)) + label + "."
-                                : incoming.OwnerName + " marked " + KindName(incoming.Kind) + label + " on the map.");
-                        }
                     }
                     else
                     {

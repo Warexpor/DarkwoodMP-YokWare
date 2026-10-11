@@ -472,7 +472,17 @@ namespace DWMPHorde.Networking
         /// <c>Sync.PlayerNames</c>. Protocol 48.
         /// </summary>
         PlayerName = 168,
+        /// <summary>
+        /// Either peer: where a broken destructible came to rest on the machine that broke it
+        /// (<c>Sync.WreckPoseSync</c>). Protocol 57.
+        /// </summary>
+        [Forwardable] ItemPose = 169,
+        /// <summary>
+        /// Either peer: shared drag (a second player holding a dragged body) and two-player
+        /// pushes (<c>Sync.SharedDrag</c>, <c>Sync.CoPush</c>). Protocol 58.
+        /// </summary>
+        [Forwardable] CoHold = 170,
         /// <summary>Highest used message type ID.</summary>
-        _Highest = 168
+        _Highest = 170
     }
 }

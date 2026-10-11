@@ -3,12 +3,18 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.228**. The current Horde wire protocol is **54**. Every install in a session
+**0.8.242**. The current Horde wire protocol is **58**. Every install in a session
 needs the same DLL; the protocol is checked on join.
 
 Protocol history (newest first):
 
-- **54**, 0.8.212 to 0.8.228: `VoiceData` (129) gains flag 2: a second codec block after the voice,
+- **58**, 0.8.241 to 0.8.242: `DragSync` gains the co-holder's id and where it stands; new `CoHold` (170).
+- **57**, 0.8.240: `ConstructibleConstruction` gains the save id and the repaired item's pose;
+  new `ItemPose` (169).
+- **56**, 0.8.239: `ContainerItem`, `ContainerStateRequest`, `ContainerStateSync` and
+  `ContainerTakeDenied` gain the furniture's save id; `ContainerTakeDenied` gains mode 2 (return).
+- **55**, 0.8.230 to 0.8.238: `BarricadeEvent` (destructible items) gains the item's name.
+- **54**, 0.8.212 to 0.8.229: `VoiceData` (129) gains flag 2: a second codec block after the voice,
   the sounds the talker's radio picked up.
 - **53**, 0.8.200 to 0.8.211: the world share package gains `savplc.dat` (container slots a player
   stored items in). No message layout changed; the bump keeps every player on a build
@@ -61,6 +67,369 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.242 — shared drag scrape; no journal popups for a joiner waking in the hideout
+
+- **A shared drag was silent for the co-holder.** The scrape of a dragged body comes from the
+  dragger's machine (its samples drive the moving-sound loop on everyone else), but the sound code
+  counted the co-holder as the local dragger (it drags that body too) and stopped every loop the
+  samples started; its own copy plays back kinematic, so the native scrape never sounds either.
+  The co-holder now counts as an observer for the scrape, and the touch its grab left (an ignored
+  contact sends no exit event) is cleared.
+- **A joiner got "received" popups for journal pages the shared journal already had.** As a
+  joiner walks into the hideout at the start of chapter 1, the host runs the hideout's wake-up
+  one-shot for it (recipes, the wooden chicken, journal entries act1_entry1/2/2a); the joiner
+  replays it a moment before the host's journal reaches it, so its addJournalItem step added
+  those pages with a popup each. Until the host's journal has arrived this session, a client adds
+  journal pages quietly: that step (`JoinJournalQuietPatch`) and live page messages alike. The
+  recipes and the wake-up message are unchanged.
+- **Two-player push came and went.** The pushing player's body touches the moving body on and off
+  (it moves away on a delay), and a push not refreshed within 0.25 s was dropped: it stopped and
+  started several times a second (and logged each time, under the item's display name). Held
+  0.4 s now, logged once per push.
+
+## 0.8.241 — two players push faster; shared drag (experimental)
+
+- **Two players pushing one thing moved it as fast as one.** Only one machine runs a pushed
+  body (the pusher's), and other players' stand-ins pass through pushable things there, so the
+  second pusher added nothing. Now a player walking into a body another machine runs sends its
+  walk force there (`CoHold` push, about 15 a second), and that machine adds it at the contact
+  point: two players pushing the same way move it at 1.5 times one player's speed; one pushing
+  while the other only touches it moves it at one player's speed; pushing off-centre turns it.
+  Works on a dragged body too (`Sync.CoPush`).
+- **Shared drag (experimental, config `SharedDrag`, on by default).** Pressing E on a body
+  another player drags no longer says "already being moved": the second player takes hold of it
+  too. The dragger's machine runs the body and both players on it: the co-holder's stand-in
+  becomes a real body with a player's mass and drag, hinged to the body the way vanilla hinges
+  the dragger, and pushed by the co-holder's walk input. On the co-holder's machine the body plays
+  back as any remote drag, and the co-holder's own body is moved to the spot the dragger's machine
+  has it at, on the same delay, so the two stay together; its walk force is not applied there.
+  Both walk forces share one scale: the same way 1.5 times a lone dragger's speed, opposite ways
+  still, one walking and one standing 0.75 times. Walls stop either player; pulling apart turns
+  the body. Push animations and legs are vanilla's on every screen. When the dragger lets go or
+  leaves, the co-holder drags on alone from the dragger's final pose; when the co-holder lets go,
+  the dragger carries on. Two holders at most ("Two players are already moving this"). The
+  co-holder's join is confirmed by the dragger's samples (given up after 2 s), its input going
+  silent for 3 s ends the hold. Files: `Sync.SharedDrag`, `PlayerMoveForcePatch` (the vanilla walk
+  force goes through one hook that records it and scales it), `RemotePlayerProxy.CoHeld`.
+- **A drag ended by another player blocked the next one for a second.** After a drag's STOP every
+  grab sample for that body name was dropped for a second as a late leftover, whoever sent it. Only
+  the player whose drag ended is ignored now (`DragEndedBy`).
+- **A refused let-go still told everyone the drag ended.** Vanilla ignores a release during the
+  grab or let-go animation, but the drag-end message went out anyway. It goes only when the body
+  was really let go.
+- **Tests and README caught up with 0.8.240**: the README's highest message id still read 168
+  and the message-id contract test did not list `ItemPose`; a config comment narrated a version.
+- **`docs/PLAYTEST.md` removed** (the manual checklist was not used); links to it are gone.
+- **Protocol 58** (`DragSync` gains the co-holder; new `CoHold`).
+
+## 0.8.240 — a broken wardrobe lies, turns and gets repaired the same for everyone
+
+- **A client's repair of a broken wardrobe did not reach the host.** The repair message
+  (`ConstructibleConstruction`) is keyed by position, and the wreck still lay about ten units apart
+  on the two machines: the host found nothing at the client's spot and queued the repair forever
+  ("queued (not loaded yet)"). The message now carries the furniture's save id, and the receiver
+  finds the wreck by it when the spot is empty. A repair also carries where the repaired item
+  stands and how it is turned, and the others stand theirs there.
+- **The wreck lay and turned differently on each machine.** The blow that breaks a wardrobe shoves
+  the wreck on the breaking machine only, and the free-body stream did not bring that slide over
+  (the 0.8.239 scan change was not enough: the logs still show 9.6 units between the copies). The
+  breaking machine now waits until its wreck is at rest (or 5 s) and sends that pose: new message
+  `ItemPose` (169, relayed by the host), found by save id, else by name near where it broke
+  (`Sync.WreckPoseSync`). The pose lands without being sent back as a push.
+- **Save-id matches measured height.** Height is the draw layer in this game: a standing copy
+  (y 6) and a broken one (y -50) of the same wardrobe counted as 57 units apart and the id match
+  was refused (the host's "Searched" missed the client's repaired wardrobe). The match is now across
+  the ground only.
+- **Protocol 57** (`ConstructibleConstruction` gains the save id and the repair pose; new `ItemPose`).
+
+## 0.8.239 — loot from a broken wardrobe; doors pushed by another player
+
+- **Items vanished when a client looted furniture the host had broken** (reported many times).
+  A broken destructible's body drops to the game's low2 draw layer (y -50, `Item.setDeathState`),
+  and the shotgun blast that broke it shoves the wreck after it broke. The host's physics scan was
+  a 40-unit sphere round each player at y 5, so it never reached y -50: the host's wreck slid about
+  ten units, the client's stayed where it broke, and every container message is keyed by position.
+  The host found no container at the client's spot, refused each take ("no inventory"), and the
+  client's refund took the item out of the bag after its own copy of the wardrobe had already
+  given it up: gone. Three fixes:
+  - The scan is a column from the player's layer down to y -50 (`WorldPhysicsSyncService.Snapshot`),
+    so a wreck's slide reaches everyone again.
+  - Container messages carry the furniture's vanilla save id (`ContainerItem`, `ContainerStateRequest`,
+    `ContainerStateSync`, `ContainerTakeDenied`; `WorldQueryHelper.FindInventory`). Both games
+    loaded the same save, so a wardrobe has the same id everywhere: when nothing is at the sender's
+    spot, the receiver finds it by id (within 40 units). Only furniture: dropped pickups, bags and
+    bodies get their ids from whichever game saves first, so theirs stay position-only.
+  - A take refused because the host has no such container now puts the item back into the
+    taker's own container (new deny mode `ModeTakeReturn`) instead of deleting it.
+- **A door shook when another player pushed it near the hinge.** Both games simulated the push:
+  the pusher's real body on its machine, its stand-in on the other, and each game sent its door's
+  swing (`DoorState`) to the other, so the door snapped between two angles and its creak restarted.
+  Near the hinge a door barely turns, so the stand-in dug in and was thrown back. Now a stand-in
+  stops colliding with a door on first touch (`ProxyDoorPassThrough`), and a swing that arrived
+  from another player is not sent back while it lasts (0.6 s after its last state).
+- **Protocol 56** (container messages gain the save id). Every install needs this DLL.
+
+## 0.8.238 — a joiner gets the hideout's starting recipes
+
+- A player who joined a new world as a fresh character had only the workbench's own recipes:
+  the five a new character learns on entering the hideout (bandages, alcohol bandages, the two
+  torches, lockpick: `GainRecipes_med_cottage_tree_01`) were missing from its crafting and
+  workbench lists. Two causes. The host was alone for a moment (the joiner reconnecting after the
+  world download), walked into that volume, and vanilla's `destroyOnFire` removed the event from
+  its world: keeping such per-player events alive only applied while someone was connected. And
+  the joiner woke inside the volume after the reconnect, so its own fire was blocked like any
+  client one-shot and waited for a host replay that could never come. A per-player event is now
+  kept whether or not anyone is connected (once fired it stays latched, as vanilla), and a lesson
+  that is only recipes plus its message or sound runs on the client's own copy when the client's
+  own body sets it off; the host's later replay for that player is skipped as already had. Files:
+  `PerPlayerTransportOneShots.cs` (`IsPersonalLesson`, the destroyOnFire keep),
+  `GameEventsFiredPatch.cs`.
+- Test on a new world: in a world saved after the host's copy was removed, the event may be gone
+  for everyone.
+- No protocol change.
+
+## 0.8.237 — "did you hear that?": random world noises heard by every player near
+
+- The game's random stingers (`RandomWorldSounds`: house_noises indoors, forest_noises outdoors,
+  the far musician and the big pig once a day) were each player's own. Vanilla rolls one every
+  50 to 150 s, 250 to 530 units from its one player, and plays it with no parent object, which
+  the sound forwarding skips on purpose; so one player heard a noise behind the house and the one
+  next to it heard nothing. The player whose game rolls one now sends it (`PlayerAudio`, a world
+  sound at that spot, relayed by the host to every client); a player in earshot (the stinger's
+  own 3D range, 1000) hears it from the same spot and counts it as its own roll: a once-a-day
+  stinger is used up for it too, and its own wait starts over, so players together get about
+  vanilla's pace instead of one stinger each. Files: `Audio/RandomWorldSoundShare.cs` (a patch on
+  the roll loop), `WorldFxNetHandlers.HandlePlayerAudio`. Night scenes and their sounds were
+  already shared (`ScenarioEventFired`); global ambient beds stay local.
+- No protocol change (an existing message carries it).
+
+## 0.8.236 — poltergeist furniture moves as one for everyone
+
+- The poltergeist night events (`CEvent_weird_moveMeWiggle_*_vortex`) shoved the hideout's
+  furniture on every machine at once, each its own way. Their vortex gives every nearby item a
+  push each half second (a random one in wiggle mode), and clients replay the night scene, so each
+  client pushed its own copies: it sent those moves as its own pushes, the host's copies followed,
+  and the two games fought over each piece (jitter, pieces snapping between spots). On clients a
+  scripted push (`MoveMe`, from the vortex or a GameEvents moveMe step) on a shared world item is
+  now dropped before it acts (`MoveMeClientPatch`); the host's copy of the scene moves the
+  furniture and every client follows that motion live through the physics sync, also in a
+  client's hideout far from the host (nodes near a player stay active on the host and its physics
+  scan covers every player). Particles and sounds still play on the client. A client's own
+  prologue pad keeps vanilla. `HOW_COOP_WORKS.md` notes the rule.
+- No protocol change.
+
+## 0.8.235 — no action labels through the pause menu
+
+- Action labels (examine, open, talk...) could still show through the pause menu while the world
+  ran on. 0.8.160 stopped the hover pick behind the menu, but other paths still selected an
+  object, some of them forced: the object you had under the cursor breaking (a wardrobe another
+  player smashed reselects itself through `currentlySelectedTransform`, which the menu left set),
+  switching off, a drag finishing, the controller-mode switch. `Player.selectObject` now picks
+  nothing while this player is in the co-op pause menu (`PauseMenuNoSelectPatch`), and the
+  menu clears `currentlySelectedTransform` when it lets go of the cursor object.
+- No protocol change.
+
+## 0.8.234 — voice carries twice as far; a broken wardrobe stays where it is for everyone; explosions muffled behind walls
+
+- Proximity voice faded out too close. The range is doubled, not the loudness: a shout now
+  carries 1300 game units (was 650) and stays at full volume out to 300 (was 150); normal speech
+  and whispers scale with it (about three quarters and a third). Same curve, stretched.
+- Config: `Voice.VoiceMaxDistance` default 1300, `Voice.VoiceFullVolumeDistance` default 300. An
+  existing file still holding the old defaults (650 / 150) is moved to the new ones once; the new
+  key `Voice.VoiceRangeDoubled` records that, so a value set by hand later stays. Custom values are
+  left alone. Files: `Config/ModConfig.cs`, `Audio/VoiceChatService.Speakers.cs`, `docs/CONFIG.md`.
+- How far creatures hear talking (`VoiceAlertsEnemies`) is unchanged. No protocol change.
+- A wardrobe the host shot apart could not be looted by a client: the client's take was
+  refused ("Already taken…"), the items vanished from its copy and stayed on the host's. The
+  shotgun blast that breaks a destructible keeps shoving it, and the wreck slides on a trigger
+  collider (vanilla `setDeathState`); the physics scan skipped every trigger collider, so the wreck
+  moved about 10 units on the host only and the client asked for a container where the host had
+  none. A broken destructible's body is now sent like any other pushed object, both ways
+  (`WorldPhysicsSyncService.Snapshot/SnapshotScan`).
+- A destructible broken on another machine kept its last hit's health (the health bar showed a
+  sliver on the wreck): vanilla takes the hit off before `die()` and `die()` leaves health alone.
+  The remote break now sets health to 0 first (`BarricadeNetHandlers.Bulk`).
+- Explosions (barrels, gas, mushrooms, bombs) sounded raw and dead centre, also behind walls,
+  for every player. Vanilla plays them at a point with no parent object, and the game only runs its
+  wall check (0.75 volume, 1500 Hz low pass) for a parented sound; the explosion audio object is
+  also centred out to about 690 units. Every explosion sound, local or from the host, now goes
+  through one path (`Audio/ExplosionSound.cs`, a transpiler on `Explodes.explode`): panned fully
+  3D, and muffled the game's way when a wall is between it and the listener. The game's own
+  distance falloff is kept. `PeerSpatialPlay` can set and undo that muffle on a pooled source.
+
+## 0.8.233 — the player who finds a location gets the notification
+
+Reported: the host explored and found new locations; the client got the journal
+notifications, the host got none (no popup, no sound).
+
+- A player's stand-in is a clone of the local player and kept the game's `WhereAmI`
+  component, which checks every 1.5 s where "the player" is. Run for a stand-in, the
+  other player walking into a place discovered it on the watching machine (popup, sound,
+  journal page, map piece) and the page was sent back. The player who really walked in
+  then found the location already in their journal, and vanilla `Location.discoverMe`
+  shows nothing for a known place. Which machine won was a race between two 1.5 s timers.
+- The same check also set, from the other player's position: the hideout flags
+  (`player_inFirstHideout` and the two others), the location music and the biome
+  message. Those now follow the local player only.
+- A stand-in's check now only finds the location it stands in (the mod reads it for
+  event-trigger requirements). Player corpses are clones too and are covered.
+- The watching players still get the journal page and the map piece, without a popup,
+  as the receive path always intended.
+
+Not in the last session's logs (nothing was discovered in it); this is from the code.
+
+Files: `Players/Patches/StandInWhereAmIPatch.cs`.
+
+Not played yet.
+
+## 0.8.232 — repaired furniture is repaired for everyone, steadier stand-up, blood at range
+
+From the 0.8.231 session logs.
+
+- **A broken wardrobe the host repaired stayed broken on the client** (`[ConstructibleSync]
+  queued (not loaded yet)`). Repairing lifts the item from the broken layer (y about -50)
+  back to its own (y about 6), and the message carried the position after the repair: 56
+  units above the client's still-broken copy, outside the 2-unit match. The position is
+  now taken before `construct` runs, and a site is also matched without height
+  (`ConstructibleConstructPatch`, `LockNetHandlers.FindConstructible`).
+- **A joiner now gets repairs made since the last save.** Their world is the last save,
+  where the item may still be broken. The host remembers the repaired items themselves
+  (not their positions) and the item bulk sends `Built` for each one still whole
+  (`BarricadeNetHandlers`). A repair is no longer recorded as a "constructed site", which
+  would have rebuilt the item for a later joiner after it was broken again.
+- **A feeding creature that a hit does not interrupt reacted differently to a client.**
+  Vanilla `reactToCharacter`: a `Player` attacker is always chased; any other attacker
+  goes through the cowardice roll. The mod's patch for stand-ins left feeding creatures
+  to vanilla, where a stand-in is no `Player`. This does NOT cover an ordinary shot:
+  `Character.getHit` runs `getInterrupted` (which ends the feeding) before
+  `reactToCharacter`, so a shot dog was already handled the same for host and client.
+  It covers creatures with `dontGetInterrupted`, hits that cannot interrupt, and a
+  feeding creature with cowardice "always" bumped by a client (it did nothing; bumped
+  by the host it attacks). The feeding case is now handled in the patch (food ignored
+  for 100 s as in vanilla, then the chase) (`HostRetaliateOnAttackerPatch`).
+  The audit (noise alerts, hits, touch, and the uses of "the player" in creature AI
+  that were opened) found the client's actions reaching the host's creatures the way
+  the host's do. That a pack reacts differently each time is the base game: a gunshot
+  makes dogs run (`afraidOfGunshots`), each on its own state.
+- **Audit of "the player" in creature code, completed.** Every `Player.Instance` use in
+  `Character` (58), `Sniffer`, `AIPath`, `Flier`, `CharBase`, `CharacterSounds`,
+  `AnimationTriggerListener`, `MeleeSensor` and `CharacterSpawner` was matched to a mod
+  patch or to a reason it needs none. One gap, fixed: a defensive creature (a dog) that
+  finishes waking up paths to `Player.Instance`; woken by a client it turned towards the
+  host. It now paths to the nearest player (`HostWakeUpFacesNearestPatch`).
+  Not gaps: `rotateTowardsPlayerWhenPlayingCustomAni` (set on no prefab or scene),
+  hunger damage (unused), the night trader kill and the health bar / kill credit (host
+  UI). One rule that is the mod's own, not vanilla's: the forest spirit leaves only when
+  every player is inside, so a chased client going indoors alone does not shake it.
+- **Stand-up on the other screens.** 0.8.231's logs showed the copy drifting both ways
+  (`copy at frame 24 moved to the player's 20`, then `20 → 25`) and being dropped
+  mid-clip by one packet without the clip. The copy no longer runs on its own clock:
+  it is kept paused and shows the frame its player is on with every packet, and it
+  takes 3 packets without the clip before the player counts as out of it.
+- **Blood from a hit further than 120 units from every player was not sent**
+  (`[BloodFX] SKIPPED forward`, 9 times while the host shot dogs from a distance). The
+  range is now the one creatures are shown at (1400).
+
+Seen in the logs, not changed:
+
+- The client had a bag (11 nails) at (11943, 202) that the host did not; the host
+  refused the loot (`H6 deny take ... no inventory`). Both loaded the same save. Origin
+  unknown.
+- The host looted a dog it killed far from the client; the client had no copy of that
+  dog loaded and logged `no inventory` for it.
+
+Files: `DoorSyncPatches.cs`, `LockNetHandlers.cs`, `BarricadeNetHandlers.cs`,
+`BarricadeNetHandlers.Bulk.cs`, `HostBodyRedirectPatches.cs`,
+`SecondPlayerAnimController.Apply.cs`, `BulletFXSyncPatch.cs`.
+
+Not played yet.
+
+## 0.8.231 — a joining or respawning player's stand-up runs in step on the other screens
+
+Still reported after 0.8.160, 0.8.20x and 0.8.222: the stand-up of a player who joins
+(or loads, or respawns) started late on the others' screens and was cut when that
+player, already up, walked off. The logs had no trace of it; this is from the code.
+
+- **The frame sync never worked.** The stand-in "started the clip at the sender's
+  frame" with tk2d's `SetFrame`. That call only swaps the sprite for one frame; the
+  clip time is untouched, so the clip always ran from its own start, late by as long
+  as the first packet was. The stand-in now follows the player's clip time: whenever
+  it is more than a frame off, its clip time is moved (`PlayFromFrame`), and it waits
+  on the first frames while the player is held there (`FollowGetUp`).
+- **The hold on the player's side was often not taken.** It was only taken when the
+  clip was on frame 0 or 1 the first time it was seen, but a load ends on a long
+  frame, which had already run the clip further. The clip is now put back on its
+  first frame and held (`LocalGetUpHold`).
+- A stand-in still in a stand-up its player has left runs out the last 3 frames;
+  more than that is dropped.
+- Logs now show it: `[GetUp] Sleep held for the others (was at frame N)`,
+  `[GetUp] stand-up runs after X s`, and on the watcher `[GetUp] ... copy at frame A
+  moved to the player's B`.
+
+Files: `SecondPlayerAnimController.Apply.cs`, `LocalGetUpHold.cs`.
+
+Not played yet.
+
+## 0.8.230 — furniture shot apart on one screen breaks on every screen (protocol 55)
+
+The host broke a wardrobe with two pistol shots; on the client it stayed standing at
+half health. The damage numbers were right (40 → 20 → 0 on both). The second event
+never applied.
+
+- A hit pushes furniture. The first shot moved the host's wardrobe 2.4 units; the
+  client's copy had one position update and was still short of it. The item of a
+  damage event was looked up by position only, within 2 units, so the "destroyed"
+  event found nothing, waited 30 seconds for the item to "load" and expired. Once
+  broken, the host's copy is no longer reported, so the client's never caught up.
+- The event now carries the item's name (`BarricadeEventMessage.ItemName`, live and
+  join bulk). When nothing of that name is at the sender's position, the nearest
+  destructible item of that name within 25 units is taken (the range pushed bodies
+  are already resolved by name), broken ones included, so a repeated event cannot
+  break a whole twin nearby.
+- An item that breaks away from the sender's position is put there first, so what it
+  drops lies in the same place for everyone.
+
+Files: `BarricadeMessages.cs`, `BarricadeSyncPatches.cs`, `BarricadeNetHandlers.cs`,
+`BarricadeNetHandlers.Bulk.cs`, `WorldQueryHelper.cs`.
+
+Not played yet.
+
+## 0.8.229 — a shot player's blood looks the same for everyone, the death clip plays once
+
+**Blood on a shot player.** Shooting another player left different blood for each
+player: the shooter saw one splat, the victim two, turned different ways.
+
+- The splat at the hit point was rolled twice, once for the shooter (±20°) and once
+  for the message (±40°). It is rolled once now, as in the base game, and the same
+  turn is sent. It also goes to every player, not only the first peer.
+- The victim's own `Player.getHit` splat (under the victim, the base game's second
+  splat for a shot) was meant to go to everyone since 0.8.176 but never left the
+  victim: `SendBulletImpact` refused it as "applying remote state". It is sent now
+  for melee, bullets and friendly fire, on a host victim too.
+- Projectile weapons: the mod spawned a second splat of its own on a hit player and
+  sent a separately rolled turn for hit creatures. It now sends the splat the base
+  game really spawned (`Bullet.onCollide`), read back from the FX pool.
+
+Files: `HitscanImpactSyncPatch.cs`, `BulletFXSyncPatch.cs`, `WorldSendNetHandlers.cs`.
+
+**Death clip.** The other players saw a dying player's death clip run again while
+that player respawned.
+
+- A dead player sends the `Death1` clip name on purpose, but sent the frame of the
+  clip really playing. During the respawn that is a stand-up clip, so watchers ran
+  the death clip through that clip's frames. No frame is sent under the forced name.
+- `PlayerDied` re-armed the clip that the player's state had already started, so it
+  could play a second time when it ended. One play per death now.
+- `Death1_Water` counts as a death clip (replay guard and the stand-in revive check).
+
+Files: `LanNetworkManager.Tick.cs`, `SecondPlayerAnimController.Apply.cs`,
+`PlayerStateNetHandlers.cs`.
+
+**Map pins.** The chat line "X marked ... on the map" for another player's new pin is
+removed (`MapPinBoard.cs`). The "pinged the map" line stays.
+
+Not played yet.
 
 ## 0.8.228 — a joining player gets window barricades in far locations
 

@@ -5,8 +5,8 @@ join it: the same forest, the same nights, the same story, played together.
 
 | | |
 |--|--|
-| Product | YokWare Branch **0.8.228** |
-| Wire | Horde protocol **54** |
+| Product | YokWare Branch **0.8.242** |
+| Wire | Horde protocol **58** |
 | Players | Up to 8 by default (`MaxPlayers`, host included) |
 | Transport | LAN (LiteNetLib) or Steam lobby (SteamNetworkingSockets) |
 | Loaders | BepInEx 5.x or MelonLoader 0.7.x |
@@ -281,7 +281,7 @@ mod.
 LAN and Steam carry the same messages. The host owns the world simulation and
 validates everything clients send; it relays a client's message to the other
 clients only after applying it, and drops message types only the host may send.
-The highest assigned message ID is 168 (`PlayerName`). Voice uses message 129.
+The highest assigned message ID is 170 (`CoHold`). Voice uses message 129.
 
 ---
 
@@ -292,7 +292,6 @@ The highest assigned message ID is 168 (`PlayerName`). Voice uses message 129.
 | [How co-op works](DarkwoodMP.Mod/docs/HOW_COOP_WORKS.md) | The design and rules of the co-op game |
 | [CONFIG.md](DarkwoodMP.Mod/docs/CONFIG.md) | Every setting and its default |
 | [LOGGING.md](DarkwoodMP.Mod/docs/LOGGING.md) | Log presets, what to send with a bug report |
-| [PLAYTEST.md](DarkwoodMP.Mod/docs/PLAYTEST.md) | Manual playtest checklist |
 | [ARCHITECTURE.md](DarkwoodMP.Mod/docs/ARCHITECTURE.md) | Code layout and the rules for a change |
 | [COOP_COVERAGE.md](DarkwoodMP.Mod/docs/COOP_COVERAGE.md) | Code and runtime coverage per area |
 | [CHANGELOG.md](CHANGELOG.md) | What changed in each release ([older entries](CHANGELOG-ARCHIVE.md)) |

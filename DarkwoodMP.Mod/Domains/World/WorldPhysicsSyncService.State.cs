@@ -74,6 +74,8 @@ namespace DWMPHorde.Sync
             /// <summary>The same pickups with their real spot and name, for a location's first visitor.</summary>
             public readonly List<KeyValuePair<Vector3, string>> ConsumedWorldPickupLog = new List<KeyValuePair<Vector3, string>>();
             public readonly Dictionary<Vector3, bool> LastDoorOpen = new Dictionary<Vector3, bool>();
+            /// <summary>Doors swung by another player's DoorState lately (key: this game's door key), until when.</summary>
+            public readonly Dictionary<Vector3, float> DoorRemoteDriveUntil = new Dictionary<Vector3, float>();
             public readonly Dictionary<Vector3, bool> LastTrapTriggered = new Dictionary<Vector3, bool>();
             public float FullResyncTimer;
             public float LastFullRbScanTime = -999f;

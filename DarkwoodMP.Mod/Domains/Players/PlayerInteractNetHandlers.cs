@@ -30,6 +30,13 @@ namespace DWMPHorde.Networking
         /// <summary>After reliable DragSync STOP, ignore late Unreliable IsDragging packets.</summary>
         internal readonly Dictionary<string, float> DragEndedAt =
             new Dictionary<string, float>(StringComparer.OrdinalIgnoreCase);
+        /// <summary>
+        /// Whose drag ended at <see cref="DragEndedAt"/>. Only that player's late grab packets are
+        /// stale: in a shared drag the co-holder drags on the moment the dragger lets go, and its
+        /// first second of samples was dropped as the old drag's leftovers.
+        /// </summary>
+        internal readonly Dictionary<string, int> DragEndedBy =
+            new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         /// <summary>Ignore stale IsDragging packets for this long after a stop.</summary>
         internal const float DragStopStaleGraceConst = 1.0f;
 
@@ -51,9 +58,11 @@ namespace DWMPHorde.Networking
         {
             // Release played-back copies while their remote-drag ids are still recorded.
             RemoteDragTimeline.Reset();
+            Sync.SharedDrag.Reset();
             DragClaims.Clear();
             LastDragSyncPos.Clear();
             DragEndedAt.Clear();
+            DragEndedBy.Clear();
             RemoteDragItemIds.Clear();
             RemoteDragItemNames.Clear();
             _spawnedDragProxyItems.Clear();
@@ -85,7 +94,8 @@ namespace DWMPHorde.Networking
             // left host blocked ("already being moved"). Drop stale grab packets.
             if (msg.IsDragging && !string.IsNullOrEmpty(msg.ObjectName)
                 && _net.PlayerInteractHandlers.DragEndedAt.TryGetValue(msg.ObjectName, out float endedAt)
-                && (Time.unscaledTime - endedAt) < LanNetworkManager.DragStopStaleGraceConst)
+                && (Time.unscaledTime - endedAt) < LanNetworkManager.DragStopStaleGraceConst
+                && (!DragEndedBy.TryGetValue(msg.ObjectName, out int endedBy) || endedBy == msg.ClaimedByPlayerId))
             {
                 if (ModRuntime.VerboseLogging)
                     ModRuntime.LegacyInfo($"[DragSync] ignore stale IsDragging for {msg.ObjectName} (stop {(Time.unscaledTime - endedAt).ToString("F2")}s ago)");
@@ -99,10 +109,36 @@ namespace DWMPHorde.Networking
                 _net.PlayerInteractHandlers.DragEndedAt.Remove(msg.ObjectName);
             }
 
+            // Shared drag: the local player holds this body with its dragger. The dragger's machine
+            // runs it (and this player's body with it); here it plays back like any remote drag.
+            bool coFollowing = Sync.SharedDrag.IsFollowing(msg.ObjectName, msg.ClaimedByPlayerId);
+            if (msg.IsDragging)
+                Sync.SharedDrag.NoteCoHolder(msg.ObjectName, msg.ClaimedByPlayerId, msg.CoHolderId);
+            if (coFollowing)
+            {
+                if (msg.IsDragging)
+                    Sync.SharedDrag.OnLeaderSample(msg);
+                else
+                {
+                    // The dragger let go (or left): the co-holder still has hold of it and drags on.
+                    // Its claim goes first, so ending the playback also frees the name.
+                    if (!string.IsNullOrEmpty(msg.ObjectName)
+                        && _net.PlayerInteractHandlers.DragClaims.TryGetValue(msg.ObjectName, out int oldClaim)
+                        && oldClaim == msg.ClaimedByPlayerId)
+                        _net.PlayerInteractHandlers.DragClaims.Remove(msg.ObjectName);
+                    Sync.SharedDrag.ClearCoHolder(msg.ObjectName, msg.ClaimedByPlayerId);
+                    Sync.SharedDrag.PromoteFollower(msg);
+                    DWMPHorde.Audio.ItemMovingSoundHelper.SoftStopNetwork(msg.ObjectName);
+                    _net.PlayerInteractHandlers.LastDragSyncPos.Remove(msg.ObjectName);
+                    Sync.WorldPhysicsSyncService.ReleaseClientPushHoldByName(msg.ObjectName);
+                    return;
+                }
+            }
+
             // Names repeat (every "chair" in a hideout): the same object only when the peer's
             // grab is where the local player's dragged body is, or two players dragging two
             // identical chairs force-stopped each other.
-            bool locallyDraggingThis = Player.Instance != null && Player.Instance.dragging &&
+            bool locallyDraggingThis = !coFollowing && Player.Instance != null && Player.Instance.dragging &&
                 Player.Instance.itemBeingDragged != null &&
                 string.Equals(Player.Instance.itemBeingDragged.gameObject.name, msg.ObjectName,
                     System.StringComparison.Ordinal)
@@ -127,6 +163,7 @@ namespace DWMPHorde.Networking
 
             if (!msg.IsDragging)
             {
+                Sync.SharedDrag.ClearCoHolder(msg.ObjectName, msg.ClaimedByPlayerId);
                 bool ownStop = msg.ClaimedByPlayerId == _net.LocalPlayerId
                     || locallyDraggingThis
                     || (_net.PlayerInteractHandlers.DragClaims.TryGetValue(msg.ObjectName ?? "", out int stopClaim)
@@ -172,6 +209,7 @@ namespace DWMPHorde.Networking
                 {
                     _net.PlayerInteractHandlers.DragClaims.Remove(msg.ObjectName);
                     _net.PlayerInteractHandlers.DragEndedAt[msg.ObjectName] = Time.unscaledTime;
+                    DragEndedBy[msg.ObjectName] = msg.ClaimedByPlayerId;
                 }
                 return;
             }
@@ -191,7 +229,8 @@ namespace DWMPHorde.Networking
                 _spawnedDragProxyItems.Add(item.GetInstanceID());
                 ModRuntime.LegacyInfo($"[DragSync] spawned {item.name} for remote drag");
             }
-            else if (item.beingDragged || (Player.Instance != null && Player.Instance.dragging && Player.Instance.itemBeingDragged == item))
+            else if (!coFollowing
+                && (item.beingDragged || (Player.Instance != null && Player.Instance.dragging && Player.Instance.itemBeingDragged == item)))
             {
                 // Skip remote drag-updates for an object the local player is also
                 // dragging. This prevents tug-of-war jitter between both sides.

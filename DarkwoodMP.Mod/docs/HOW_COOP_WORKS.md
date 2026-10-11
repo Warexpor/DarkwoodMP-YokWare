@@ -16,7 +16,6 @@ steps are in the [README](../../README.md). What changed and when is in the
 | [ARCHITECTURE.md](ARCHITECTURE.md) | Source layout, wire format, dispatch, patch and test rules (for contributors) |
 | [COOP_COVERAGE.md](COOP_COVERAGE.md) | Per-domain code and runtime coverage, decompile notes on parked mechanics |
 | [CONFIG.md](CONFIG.md) | Every config key and its default |
-| [PLAYTEST.md](PLAYTEST.md) | Manual playtest checklist |
 | [LOGGING.md](LOGGING.md) | Log presets and what to send for support |
 
 **Status note.** "Code covered" and "works" are not the same thing here. A rule in
@@ -214,7 +213,7 @@ glow in its owner's colour, the day it was placed and an optional label.
   controls at the bottom are in the hover-label font.
 - Middle click (or Shift + right click) pings a spot: it pulses on everyone's map
   for 25 seconds, and players with the map closed see "<name> pinged the map".
-- New pins and pings from others show as a `[Map]` line in the chat (not over the player).
+- A ping from another player shows as a `[Map]` line in the chat (not over the player). A new pin shows no chat line.
 - Only the world map of the current chapter has pins (not the prologue map).
   Clients ask the host, the host numbers each pin and tells everyone, so two pins
   on one spot are never mixed up. An owner is a hash of their install key: the
@@ -388,7 +387,19 @@ code, not yet playtested).
   furniture are one shared world. An oven goes out only when nobody calls it home.
 - **Whoever pushes or drags a thing moves it.** The pusher's own game moves it and
   everyone else sees the result. Other players' bodies pass through pushable things
-  on your screen, so nothing gets pushed twice.
+  on your screen, so nothing gets pushed twice. Furniture the night shoves around (the
+  poltergeist) is moved by the host's game only, and every player sees that one motion.
+- **Two players move a thing faster than one, not twice as fast.** A second player walking
+  into a thing someone else pushes sends that push to the pusher's game, which adds it: the
+  two move it at 1.5 times one player's speed. A second player can also take hold of a thing
+  someone drags (E on it, experimental, `SharedDrag`): the dragger's game runs the thing and
+  both players on it, the two walking the same way move it at 1.5 times a lone dragger's
+  speed, pulling apart holds it still, and when the dragger lets go the other drags on alone.
+  Two hold a thing at most.
+- **Odd noises are heard by everyone near.** The game's random stingers (a noise in the
+  house, something in the forest, the far musician, the big pig) are rolled by one player's
+  game and heard by every player in earshot, from the same spot. Players together get about
+  vanilla's pace of them, not one each.
 - **Night comes to every player, at vanilla's rate.** Each hideout a living player
   is home in gets the night's monsters at vanilla's pace and count, around a player
   there (times the host's night monster setting, see [section 18](#18-balancing-for-the-party)). Each living, unwarded player gets its own worm, as in vanilla; a player in a

@@ -31,9 +31,25 @@ namespace DWMPHorde.Patches
 
             // multipleFire can re-run (ambient loops); still prefer host for one-shots.
             if (ModRuntime.Network.Role == NetworkRole.Client && !__instance.multipleFire)
-                return false;
+                return IsOwnPersonalLesson(__instance);
 
             return true;
+        }
+
+        /// <summary>
+        /// Client: a lesson (recipes and its message) set off by this player's own body runs here.
+        /// It is this player's alone and touches nothing shared. Left to the host, it depended on
+        /// the host's copy: a joiner that woke inside the hideout's lesson volume after the
+        /// reconnect had its own fire blocked, the host's copy was gone or latched, and the joiner
+        /// never got the hideout's recipes. The host's replay for this player is then skipped
+        /// (PerPlayerTransportOneShots.LocalServed).
+        /// </summary>
+        private static bool IsOwnPersonalLesson(GameEvents ges)
+        {
+            if (GameEventPersonalActorPatch.SuppressPersonalForLocalPlayer)
+                return false;
+            int local = ModRuntime.Network.LocalPlayerId;
+            return GeFireActorContext.PeekOr(local) == local && PerPlayerTransportOneShots.IsPersonalLesson(ges);
         }
 
         /// <summary>

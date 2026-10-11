@@ -302,6 +302,13 @@ namespace DWMPHorde.Networking
         /// pose the drag ended on (absent when the host releases a disconnected dragger's claim).
         /// </summary>
         public bool HasPose;
+        /// <summary>
+        /// The second player holding the body with the dragger (shared drag, <c>SharedDrag</c>);
+        /// 0 for none. Protocol 58.
+        /// </summary>
+        public int CoHolderId;
+        /// <summary>Where the co-holder stands on the dragger's machine, which runs both bodies.</summary>
+        public float CoPosX, CoPosY, CoPosZ;
 
         public void Serialize(NetWriter w)
         {
@@ -314,6 +321,8 @@ namespace DWMPHorde.Networking
             w.Put(ScrapeActive);
             w.Put(SendTime);
             w.Put(HasPose);
+            w.Put(CoHolderId);
+            w.Put(CoPosX); w.Put(CoPosY); w.Put(CoPosZ);
         }
 
         public static DragSyncMessage Deserialize(NetReader r) => new DragSyncMessage
@@ -330,7 +339,68 @@ namespace DWMPHorde.Networking
             ClaimedByPlayerId = r.GetInt(),
             ScrapeActive = r.GetBool(),
             SendTime = r.GetFloat(),
-            HasPose = r.GetBool()
+            HasPose = r.GetBool(),
+            CoHolderId = r.GetInt(),
+            CoPosX = r.GetFloat(),
+            CoPosY = r.GetFloat(),
+            CoPosZ = r.GetFloat()
+        };
+    }
+
+    /// <summary>
+    /// Shared drag and two-player push (<c>SharedDrag</c>, <c>CoPush</c>). Protocol 58.
+    /// </summary>
+    public struct CoHoldMessage
+    {
+        /// <summary>Second player takes hold of a body another player drags (to the dragger).</summary>
+        public const byte ModeJoin = 0;
+        /// <summary>The co-holder's walk input, about 30 a second (to the dragger).</summary>
+        public const byte ModeInput = 1;
+        /// <summary>The co-holder let go (to the dragger).</summary>
+        public const byte ModeLeave = 2;
+        /// <summary>The dragger turned the hold down or ended it (to the co-holder).</summary>
+        public const byte ModeRefuse = 3;
+        /// <summary>A player walking into a body another machine moves (to whichever machine runs it).</summary>
+        public const byte ModePush = 4;
+
+        public byte Mode;
+        /// <summary>Who sent it (the host stamps it from the transport).</summary>
+        public int SenderId;
+        /// <summary>Who it is for: the dragger, or the co-holder for a refusal; 0 for a push.</summary>
+        public int TargetId;
+        public string ObjectName;
+        /// <summary>The body's position on the sender (which copy is meant).</summary>
+        public float PosX, PosY, PosZ;
+        /// <summary>Walk input: direction times the player's move speed (vanilla's force is this times 33000).</summary>
+        public float ForceX, ForceZ;
+        /// <summary>Join: where the co-holder stands, in the body's local space. Push: the contact point, likewise.</summary>
+        public float LocalX, LocalY, LocalZ;
+
+        public void Serialize(NetWriter w)
+        {
+            w.Put(Mode);
+            w.Put(SenderId);
+            w.Put(TargetId);
+            w.Put(ObjectName ?? "");
+            w.Put(PosX); w.Put(PosY); w.Put(PosZ);
+            w.Put(ForceX); w.Put(ForceZ);
+            w.Put(LocalX); w.Put(LocalY); w.Put(LocalZ);
+        }
+
+        public static CoHoldMessage Deserialize(NetReader r) => new CoHoldMessage
+        {
+            Mode = r.GetByte(),
+            SenderId = r.GetInt(),
+            TargetId = r.GetInt(),
+            ObjectName = r.GetString(),
+            PosX = r.GetFloat(),
+            PosY = r.GetFloat(),
+            PosZ = r.GetFloat(),
+            ForceX = r.GetFloat(),
+            ForceZ = r.GetFloat(),
+            LocalX = r.GetFloat(),
+            LocalY = r.GetFloat(),
+            LocalZ = r.GetFloat()
         };
     }
 
@@ -673,21 +743,80 @@ namespace DWMPHorde.Networking
         public float PosX, PosY, PosZ;
         public bool UseIngredients;
         public int OptionIndex;
+        /// <summary>
+        /// The site's vanilla save id when it is furniture (0: none). A broken wardrobe lies where
+        /// each machine's slide left it; the receiver finds it by id when the sender's spot is empty.
+        /// </summary>
+        public int SaveId;
+        /// <summary>A repaired item: where it stands and how it is turned on the sender after the repair.</summary>
+        public bool HasPose;
+        public float PoseX, PoseY, PoseZ;
+        public float RotX, RotY, RotZ;
 
         public void Serialize(NetWriter w)
         {
             w.Put(PosX); w.Put(PosY); w.Put(PosZ);
             w.Put(UseIngredients);
             w.Put(OptionIndex);
+            w.Put(SaveId);
+            w.Put(HasPose);
+            if (HasPose)
+            {
+                w.Put(PoseX); w.Put(PoseY); w.Put(PoseZ);
+                w.Put(RotX); w.Put(RotY); w.Put(RotZ);
+            }
         }
 
-        public static ConstructibleMessage Deserialize(NetReader r) => new ConstructibleMessage
+        public static ConstructibleMessage Deserialize(NetReader r)
         {
-            PosX = r.GetFloat(),
-            PosY = r.GetFloat(),
-            PosZ = r.GetFloat(),
-            UseIngredients = r.GetBool(),
-            OptionIndex = r.GetInt()
+            var msg = new ConstructibleMessage
+            {
+                PosX = r.GetFloat(),
+                PosY = r.GetFloat(),
+                PosZ = r.GetFloat(),
+                UseIngredients = r.GetBool(),
+                OptionIndex = r.GetInt(),
+                SaveId = r.GetInt(),
+                HasPose = r.GetBool()
+            };
+            if (msg.HasPose)
+            {
+                msg.PoseX = r.GetFloat(); msg.PoseY = r.GetFloat(); msg.PoseZ = r.GetFloat();
+                msg.RotX = r.GetFloat(); msg.RotY = r.GetFloat(); msg.RotZ = r.GetFloat();
+            }
+            return msg;
+        }
+    }
+
+    /// <summary>
+    /// Where a broken destructible came to rest on the machine that broke it (its wreck is pushed
+    /// by the blow that broke it, on that machine only). Found by save id, else by name near the
+    /// spot where it broke.
+    /// </summary>
+    public struct ItemPoseMessage
+    {
+        public int SaveId;
+        public string Name;
+        public float BreakX, BreakY, BreakZ;
+        public float PosX, PosY, PosZ;
+        public float RotX, RotY, RotZ;
+
+        public void Serialize(NetWriter w)
+        {
+            w.Put(SaveId);
+            w.Put(Name ?? "");
+            w.Put(BreakX); w.Put(BreakY); w.Put(BreakZ);
+            w.Put(PosX); w.Put(PosY); w.Put(PosZ);
+            w.Put(RotX); w.Put(RotY); w.Put(RotZ);
+        }
+
+        public static ItemPoseMessage Deserialize(NetReader r) => new ItemPoseMessage
+        {
+            SaveId = r.GetInt(),
+            Name = r.GetString(),
+            BreakX = r.GetFloat(), BreakY = r.GetFloat(), BreakZ = r.GetFloat(),
+            PosX = r.GetFloat(), PosY = r.GetFloat(), PosZ = r.GetFloat(),
+            RotX = r.GetFloat(), RotY = r.GetFloat(), RotZ = r.GetFloat()
         };
     }
 

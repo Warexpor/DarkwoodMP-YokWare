@@ -129,7 +129,7 @@ namespace DWMPHorde.Networking
             // bodies, bags) never finds: its story trigger was dropped with a warning.
             Inventory inv = msg.Action == ContainerAction.CloseContainer ? FindTraderShop(pos) : null;
             if (inv == null)
-                inv = WorldQueryHelper.FindInventoryByPos(pos);
+                inv = WorldQueryHelper.FindInventory(pos, msg.SaveId);
             if (inv == null)
             {
                 ModRuntime.Log?.LogWarning($"[Container] HandleContainerItem: no inventory at {pos} for {msg.Action} slot={msg.SlotIndex} type={msg.ItemType}");
@@ -139,7 +139,8 @@ namespace DWMPHorde.Networking
                     && (msg.Action == ContainerAction.TakeItem || msg.Action == ContainerAction.RemoveItem)
                     && _net.CurrentReceivePlayerId > 0)
                 {
-                    DenyContainerTake(_net.CurrentReceivePlayerId, msg, "no inventory");
+                    SendContainerDenied(_net.CurrentReceivePlayerId, msg, "no inventory",
+                        ContainerTakeDeniedMessage.ModeTakeReturn);
                 }
                 if (msg.Action == ContainerAction.CloseContainer && _net.Role == NetworkRole.Host)
                     _net.SuppressRelay();
@@ -203,7 +204,7 @@ namespace DWMPHorde.Networking
                         // DestroyEmptyItemInvAt only destroys Item.isDroppedItem, not wardrobes or chests.
                         if (inv.invType == Inventory.InvType.itemInv)
                         {
-                            try { Sync.WorldPhysicsSyncService.DestroyEmptyItemInvAt(pos); }
+                            try { Sync.WorldPhysicsSyncService.DestroyEmptyItemInvAt(inv.transform.position); }
                             catch (System.Exception ex)
                             {
                                 if (ModRuntime.VerboseLogging)
@@ -220,7 +221,7 @@ namespace DWMPHorde.Networking
                         // Already empty itemInv; still try to clear the ghost mesh.
                         if (inv.invType == Inventory.InvType.itemInv)
                         {
-                            try { Sync.WorldPhysicsSyncService.DestroyEmptyItemInvAt(pos); }
+                            try { Sync.WorldPhysicsSyncService.DestroyEmptyItemInvAt(inv.transform.position); }
                             catch { /* non-fatal */ }
                         }
                         if (_net.Role == NetworkRole.Host && inv.invType == Inventory.InvType.deathDrop)

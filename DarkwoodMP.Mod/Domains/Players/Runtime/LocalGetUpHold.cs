@@ -14,9 +14,9 @@ namespace DWMPHorde.Players
     /// <para>
     /// So the clip is held on its first frame, lying down, until a few position packets
     /// carrying it have gone out (and, for a joiner, until their character backup has put
-    /// them where they left), and runs from there: the watchers' stand-ins start it at
-    /// the same frame (<c>SecondPlayerAnimController.IsGetUpClip</c>) and both finish
-    /// together. With nobody to watch (no session, or a host alone) nothing is held; a
+    /// them where they left), and runs from there: the watchers' stand-ins wait on the
+    /// first frames with it and follow its clip time (<c>SecondPlayerAnimController.FollowGetUp</c>),
+    /// so both finish together. With nobody to watch (no session, or a host alone) nothing is held; a
     /// session that cannot send, or a placement that does not come, lets go after
     /// <see cref="MaxHoldSec"/>.
     /// </para>
@@ -53,11 +53,17 @@ namespace DWMPHorde.Players
             {
                 // Once for each stand-up, and only from its start.
                 _handled = true;
-                if (torso.CurrentFrame <= 1 && HasWatchers(net))
+                if (HasWatchers(net))
                 {
                     _holding = true;
                     _sent = 0;
                     _held = 0f;
+                    // This is the first frame the stand-up is seen, but a load ends on a long
+                    // frame, which had already run the clip several frames in: no hold was
+                    // taken then, and the others got the stand-up from wherever it was.
+                    ModLog.Event(LogCat.Session, "[GetUp] " + clip + " held for the others (was at frame " + torso.CurrentFrame + ")");
+                    if (torso.CurrentFrame > 0)
+                        torso.PlayFromFrame(torso.CurrentClip, 0);
                     torso.Pause();
                 }
                 return;
@@ -72,6 +78,8 @@ namespace DWMPHorde.Players
             {
                 if (_sent < PacketsBeforeRelease || !placed)
                     ModLog.Event(LogCat.Session, "[GetUp] stand-up let go after " + _held.ToString("0.0") + " s (sent " + _sent + ", placed " + placed + ")");
+                else
+                    ModLog.Event(LogCat.Session, "[GetUp] stand-up runs after " + _held.ToString("0.0") + " s (sent " + _sent + ")");
                 Release(torso);
                 return;
             }

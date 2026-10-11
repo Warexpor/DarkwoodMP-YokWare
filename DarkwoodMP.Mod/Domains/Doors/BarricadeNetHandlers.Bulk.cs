@@ -144,7 +144,8 @@ namespace DWMPHorde.Networking
                 if (PersonalPrologue.IsOnProloguePad(item.transform))
                     continue;
 
-                bool needSync = item.destroyed
+                bool repaired = !item.destroyed && _repairedItems.Contains(item);
+                bool needSync = repaired || item.destroyed
                     || (item.maxHealth > 0 && item.health < item.maxHealth);
                 if (!needSync)
                     continue;
@@ -159,11 +160,13 @@ namespace DWMPHorde.Networking
                 {
                     PosX = key.x, PosY = key.y, PosZ = key.z,
                     IsWindow = 2,
-                    Action = item.destroyed ? BarricadeAction.Destroyed : BarricadeAction.Damaged,
+                    Action = item.destroyed ? BarricadeAction.Destroyed
+                        : repaired ? BarricadeAction.Built : BarricadeAction.Damaged,
                     Health = item.destroyed ? 0 : item.health,
                     PlayerBarricade = false,
                     MainHealth = BarricadeEventMessage.NoMainHealth,
-                    DamageAmount = -1
+                    DamageAmount = -1,
+                    ItemName = item.name
                 };
                 _net.SendBulkOrAll(NetMessageType.BarricadeEvent, w => msg.Serialize(w), targetPlayerId);
                 sent++;
@@ -176,10 +179,28 @@ namespace DWMPHorde.Networking
             return itemSent;
         }
 
+        /// <summary>
+        /// The item a damage event is about. At the sender's position first (XZ: this copy's Y
+        /// often drifts after a body-push or layer offset). A hit also pushes furniture, and the
+        /// sender's copy stops being reported once it breaks, so this copy can be left short of
+        /// that position: then the nearest item of that name, within the range a pushed body's
+        /// states are resolved by name.
+        /// </summary>
+        internal static Item ResolveEventItem(Vector3 pos, BarricadeEventMessage msg)
+        {
+            Item item = WorldQueryHelper.FindDestructibleItemXz(pos, ItemMatchRadius);
+            if (item != null && (string.IsNullOrEmpty(msg.ItemName) || item.name == msg.ItemName))
+                return item;
+            if (string.IsNullOrEmpty(msg.ItemName))
+                return item;
+            Item named = WorldQueryHelper.FindDestructibleItemByName(
+                msg.ItemName, pos, Sync.WorldPhysicsSyncService.ResolvedNameMaxDist);
+            return named != null ? named : item;
+        }
+
         internal void HandleItemDamageEvent(Vector3 pos, BarricadeEventMessage msg)
         {
-            // Prefer XZ matching; client wardrobe Y often drifts after body-push or layer offset.
-            Item item = WorldQueryHelper.FindDestructibleItemXz(pos, ItemMatchRadius);
+            Item item = ResolveEventItem(pos, msg);
 
             if (item == null)
             {
@@ -195,12 +216,44 @@ namespace DWMPHorde.Networking
             bool playFx = msg.DamageAmount >= 0
                 && ClientWorldMeleeRedirectHelper.ShouldSuppressApplyFx(2, pos) == false;
 
-            if (msg.Action == BarricadeAction.Destroyed || (msg.Action == BarricadeAction.Damaged && msg.Health <= 0))
+            if (msg.Action == BarricadeAction.Built)
+            {
+                // Join bulk: the host's copy was repaired since the save this world came from.
+                if (item.destroyed)
+                {
+                    if (ModRuntime.VerboseLogging)
+                        ModRuntime.LegacyInfo($"[ItemDmgEvent] repairing {item.name}");
+                    Constructible site = item.GetComponent<Constructible>();
+                    if (site != null && site.options != null && site.options.Count > 0)
+                        site.construct(false, Mathf.Clamp(site.chosenOption, 0, site.options.Count - 1));
+                    if (item.destroyed)
+                        item.setNormalState();
+                }
+                if (msg.Health > 0)
+                    Traverse.Create(item).Field("health").SetValue(msg.Health);
+            }
+            else if (msg.Action == BarricadeAction.Destroyed || (msg.Action == BarricadeAction.Damaged && msg.Health <= 0))
             {
                 if (ModRuntime.VerboseLogging)
                     ModRuntime.LegacyInfo($"[ItemDmgEvent] destroying {item.name}");
                 if (!item.destroyed)
+                {
+                    // Break where the sender's copy broke, so what it leaves lies in the same place.
+                    Vector3 own = item.transform.position;
+                    float dx = own.x - pos.x, dz = own.z - pos.z;
+                    if (dx * dx + dz * dz > 0.01f)
+                    {
+                        Sync.WorldPhysicsSyncService.RemoveObjectFromInterpolation(item.gameObject);
+                        Vector3 at = new Vector3(pos.x, own.y, pos.z);
+                        item.transform.position = at;
+                        Rigidbody rb = item.GetComponent<Rigidbody>();
+                        if (rb != null) rb.position = at;
+                    }
+                    // Vanilla's getHit takes the last hit off before die(); die() itself leaves
+                    // health alone, so the wreck kept its last hit's health in the health bar.
+                    item.health = 0;
                     item.die();
+                }
             }
             else
             {

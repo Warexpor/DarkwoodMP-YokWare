@@ -58,7 +58,6 @@ public class ReleaseConsistencyTests
             new[] { "DarkwoodMP.Mod", "docs", "HOW_COOP_WORKS.md" },
             new[] { "DarkwoodMP.Mod", "docs", "CONFIG.md" },
             new[] { "DarkwoodMP.Mod", "docs", "COOP_COVERAGE.md" },
-            new[] { "DarkwoodMP.Mod", "docs", "PLAYTEST.md" },
         };
         foreach (string[] doc in docs)
             Assert.DoesNotContain(PluginInfo.Version, TestPaths.Read(doc));
