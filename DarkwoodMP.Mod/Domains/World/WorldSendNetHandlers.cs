@@ -277,10 +277,35 @@ namespace DWMPHorde.Networking
         {
             if (!_net.IsConnected) return;
             if (LanNetworkManager.IsApplyingRemoteState) return;
+            _lastLightSent = true;
+            _lastLightOn = msg.LightOn;
+            _lastLightFlash = msg.IsFlashlight;
+            _lastLightEmitter = msg.HasLightEmitter;
+            _lastLightItem = msg.HasItemLight;
+            _lastLightAmbient = msg.HasAmbientLight;
+            _lastLightType = msg.ItemType ?? "";
+            _lastLightRadius = msg.LightRadius;
             _net.Broadcast(NetMessageType.PlayerLightState, w => msg.Serialize(w), method);
         }
 
-        internal void SyncCurrentLightState()
+        // The local player's light as last put on the wire (any path).
+        private bool _lastLightSent;
+        private bool _lastLightOn, _lastLightFlash, _lastLightEmitter, _lastLightItem, _lastLightAmbient;
+        private string _lastLightType = "";
+        private float _lastLightRadius;
+
+        private bool SameAsLastLightSent(PlayerLightStateMessage msg)
+            => _lastLightSent
+               && _lastLightOn == msg.LightOn && _lastLightFlash == msg.IsFlashlight
+               && _lastLightEmitter == msg.HasLightEmitter && _lastLightItem == msg.HasItemLight
+               && _lastLightAmbient == msg.HasAmbientLight
+               && _lastLightType == (msg.ItemType ?? "")
+               && Mathf.Abs(_lastLightRadius - msg.LightRadius) < 0.5f;
+
+        /// <param name="onlyIfChanged">Vanilla's own light refresh (Player.modifyLightDot runs at
+        /// every hotbar and bag change): nothing is sent while the light is what the peers already
+        /// have. It went out reliable each time, twenty in a row while sorting a bag.</param>
+        internal void SyncCurrentLightState(bool onlyIfChanged = false)
         {
             Player local = Player.Instance;
             if (local == null) return;
@@ -323,6 +348,9 @@ namespace DWMPHorde.Networking
                     ModLog.Warn(LogCat.World, $"[Light] activeItems scan failed: {ex.Message}");
                 }
             }
+
+            if (onlyIfChanged && SameAsLastLightSent(msg))
+                return;
 
             ModLog.Event(LogCat.World,
                 $"[Light] TX SyncCurrent on={msg.LightOn} type={msg.ItemType ?? "-"} flash={msg.IsFlashlight} emit={msg.HasLightEmitter} ambient={msg.HasAmbientLight} r={msg.LightRadius:F0}");

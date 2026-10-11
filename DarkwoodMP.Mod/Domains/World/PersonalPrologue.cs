@@ -387,6 +387,10 @@ namespace DWMPHorde.Sync
             try
             {
                 string path = ClientStateBackup.GetLocalSelfBackupPath();
+                // The world went into another profile than the one this player's character of
+                // this campaign was saved under (a host who handed the world over and joins it
+                // back, a second copy of the same world): the character follows the campaign.
+                ClientStateBackup.AdoptSelfBackupFromOtherProfile(path, KnownSuffix);
                 snapshot = System.IO.File.Exists(path);
                 _prologueDone = System.IO.File.Exists(path + KnownSuffix);
             }

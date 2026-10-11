@@ -322,7 +322,7 @@ namespace DWMPHorde.Patches
             if (ModRuntime.VerboseLogging)
                 ModRuntime.LegacyInfo($"[Light] modifyLightDot: radius={_destRadius} → full SyncCurrentLightState");
 
-            ModRuntime.Network.SyncCurrentLightState();
+            ModRuntime.Network.SyncCurrentLightState(onlyIfChanged: true);
         }
     }
 }

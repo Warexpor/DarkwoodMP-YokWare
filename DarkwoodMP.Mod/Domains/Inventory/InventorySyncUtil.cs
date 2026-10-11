@@ -7,13 +7,15 @@ namespace DWMPHorde.Sync
         {
             if (inv == null || string.IsNullOrEmpty(itemType))
                 return;
-            InvItemClass item = inv.getItem(itemType);
-            int currentAmount = InvItemClass.isNull(item) ? 0 : item.amount;
-            if (currentAmount == desiredAmount) return;
-            if (currentAmount > 0)
-                item.removeAmount(currentAmount);
-            if (desiredAmount > 0)
-                inv.addItemType(itemType, desiredAmount);
+            // The whole stock, every stack of the type: getItem is the first stack only, and a
+            // station holding the type in several slots lost the others' count. The difference is
+            // applied the way vanilla consumes and adds (first stack first, addItemType stacking),
+            // so machines that started from the same layout end on the same one.
+            int diff = desiredAmount - inv.getItemAmount(itemType);
+            if (diff > 0)
+                inv.addItemType(itemType, diff);
+            else if (diff < 0)
+                inv.removeItemAmount(itemType, -diff);
         }
     }
 }

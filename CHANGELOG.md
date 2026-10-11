@@ -3,12 +3,12 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.255**. The current Horde wire protocol is **62**. Every install in a session
+**0.8.256**. The current Horde wire protocol is **62**. Every install in a session
 needs the same DLL; the protocol is checked on join.
 
 Protocol history (newest first):
 
-- **62**, 0.8.252 to 0.8.255: new `PeerNotice` (173).
+- **62**, 0.8.252 to 0.8.256: new `PeerNotice` (173).
 - **61**, 0.8.248 to 0.8.251: `VoiceData` (129) carries Opus; with flag 2 its data starts with the voice
   block's length (2 bytes).
 - **60**, 0.8.247: new `DreamLeft` (172).
@@ -72,6 +72,57 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.256 — host leaving to the menu hands the world over at once; saw with several log stacks; ex-host keeps its character
+
+From a long two-player Steam session (host log + the client's log). Built and deployed, not yet
+played. Protocol unchanged (62), but the saw counts differently now: every player needs this build.
+
+**Host pressed "exit to menu" with a client still in the world: the client's world went back to
+day 0.** The session stayed up with the host on the title screen. The title scene has its own
+`Controller` (day 0, 06:40) and the host sent that clock as the world's (`NightScenario.setMe` ran
+there, then the periodic sync): the client went from day 3 to day 0, took the host over a moment
+later when the host opened the MULTIPLAYER menu and disconnected, and saved day 0 into its copy.
+Two fixes:
+- `Core.returnToMainMenu` on a host with players in the world hands the host to one of them right
+  there, before the world unloads (`HostReturnToMenuPatch`; never to a player bound for the
+  credits). With nobody in the world the lobby stays up on the title as before.
+- The host sends no clock while it is out of a chapter (`SendTimeSyncTo` checks `HostInChapter`).
+
+The client copy that was saved at day 0 in that session is spoiled; the host's own profile (slot 3,
+day 3) is intact and is the one to continue from.
+
+**A host who handed the world over came back as a new character.** The host's character lives in
+the world save; the snapshot file a join restores from was only ever written by clients. The host
+now writes its own snapshot at every coordinated save (`SaveNetHandlers.TryFlushSaveSyncBroadcast`).
+And when the world lands in another profile slot than the one holding this player's character of
+that campaign, the join takes the character over from that slot
+(`ClientStateBackup.AdoptSelfBackupFromOtherProfile`, called from `PersonalPrologue.DecideFreshAtLoad`).
+
+**Saw: a client's conversions were refused and the stock drifted.** Logs stack to 2, so a loaded
+saw holds several stacks; the mod counted the first stack only. When a convert emptied it the count
+jumped to the next stack ("logs +1"): the host refused it ("stock moved the wrong way"), the planks
+the client saw were not the host's, takes were denied and refunded. Stock is the total of every
+stack now, and a difference is applied the way vanilla consumes and adds
+(`SawSyncHelpers.BuildMessage`, `InventorySyncUtil.SyncItemAmount`, `StationNetHandlers`).
+
+**Saw: an exception on the host at every log a client placed or took** ("[Container] story
+trigger:"). Vanilla `Saw.refresh` needs the convert button of the saw's open window; the host never
+opened it. Without the window only the fuel label is refreshed (`SawRefreshNoWindowPatch`).
+
+**Joining during the morning: no morning effect at the hideout**, and a warning a minute later
+("no GameEvents near ... efekt_konca_nocy"). The effect is a live spawn, not in the save; it is in
+the late-join state now (`SendMorningEffectTo`).
+
+**Less traffic.** A client picking up plain furniture to drag it no longer asks the host to "use"
+it (nothing to replay without event triggers; the host searched and warned "no activate target").
+Vanilla's light refresh (`Player.modifyLightDot`, at every bag and hotbar change) sends the
+player's light only when it changed; it went out reliable each time, twenty in a row.
+
+Seen in the logs and left as is: the desync check caught and repaired a generator's fuel on the
+client once (158 vs 187) and the night trader's stock once while both players traded with him.
+The promoted host refusing "Rebind to p1" for the returning ex-host is a correct refusal (it asks
+for the id it had as host).
 
 ## 0.8.255 — MelonLoader: multiplayer runs again (the runtime object was lost at the first scene)
 

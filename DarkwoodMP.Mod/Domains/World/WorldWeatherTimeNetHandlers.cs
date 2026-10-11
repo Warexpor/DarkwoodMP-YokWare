@@ -160,6 +160,11 @@ namespace DWMPHorde.Networking
         {
             if (_net.Role != NetworkRole.Host || !_net.IsConnected)
                 return;
+            // Out of the chapter (the title screen after "exit to menu", a load in progress) the
+            // Controller is the title scene's: its day 0, 06:40 clock is not the world's, and the
+            // peers still in the world took it for theirs and saved it.
+            if (!LanNetworkManager.HostInChapter())
+                return;
 
             var ctrl = Singleton<Controller>.Instance;
             var msg = new TimeSyncMessage

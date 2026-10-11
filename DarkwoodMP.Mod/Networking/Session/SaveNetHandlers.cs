@@ -124,6 +124,12 @@ namespace DWMPHorde.Networking
                 ApplySaveSyncLocalSave("host debounced client request");
             }
 
+            // The host's character lives in the world save, which a client taking the host over
+            // does not load it from: the snapshot is what brings it back when this player joins
+            // that world later as a client.
+            try { PersistClientBackupSnapshot(sendToHost: false); }
+            catch (Exception ex) { ModRuntime.Log?.LogWarning("[ClientBackup] host self snapshot: " + ex.Message); }
+
             ModRuntime.LegacyInfo("[SaveSync] host broadcast coordinated Save to peers");
             _net.SendToAll(NetMessageType.SaveSync, w => new SaveSyncMessage().Serialize(w),
                 LiteNetLib.DeliveryMethod.ReliableOrdered);

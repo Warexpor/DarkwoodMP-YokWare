@@ -162,8 +162,8 @@ namespace DWMPHorde.Networking
         public void SendPlayerLightState(PlayerLightStateMessage msg, DeliveryMethod method = DeliveryMethod.Unreliable) =>
             WorldSendHandlers.SendPlayerLightState(msg, method);
 
-        public void SyncCurrentLightState() =>
-            WorldSendHandlers.SyncCurrentLightState();
+        public void SyncCurrentLightState(bool onlyIfChanged = false) =>
+            WorldSendHandlers.SyncCurrentLightState(onlyIfChanged);
 
         public void SyncCurrentAnimLibrary() =>
             WorldSendHandlers.SyncCurrentAnimLibrary();

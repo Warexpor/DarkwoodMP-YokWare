@@ -351,6 +351,12 @@ Every survivor computes the same answer from the player roster the host shared
 while it was alive. A migration during a dream carries the dream over (done in
 code, not yet playtested).
 
+A host that leaves on purpose hands the world over the same way, without the wait:
+Disconnect in the multiplayer menu, or "exit to menu" while other players are in
+the world. The host's own character is kept as a snapshot at every save, so the
+same player joining that world later comes back as that character, in whichever
+profile slot the world lands.
+
 ---
 
 ## 5. Time, pause and the clock
