@@ -23,7 +23,7 @@ behaves), see [HOW_COOP_WORKS.md](HOW_COOP_WORKS.md).
 | `Domains/<Area>/` | Net handlers and sync services per gameplay area (Combat, Dialogue, Doors, Dream, Inventory, Map, Night, Players, World). |
 | `Domains/<Area>/Patches/` | Harmony patches for that area. |
 | `Core/` | Pure policy helpers (unit-tested), death state, guards, gameplay constants. |
-| `Audio/` | Peer and world sound routing, voice chat (`VoiceMic` capture, `VoiceCodec`, `VoiceChatService` proximity, walkie and radio), per-player voice volumes. |
+| `Audio/` | Peer and world sound routing, voice chat (`VoiceMic` capture, `VoiceCodec` over the Opus port in `ThirdParty/Concentus`, `VoiceChatService` proximity, walkie and radio), per-player voice volumes. |
 | `Items/` | Mod-added items (`WalkieItem`: the walkie template, icon and workbench recipe). |
 | `UI/` | Multiplayer screens (`MultiplayerScreens`), title and pause menu injection, chat HUD, nameplates, spectator mode. |
 | `UI/VanillaMenu/` | Menu screens cloned from the game's own menu pieces: `VmScreen`, `VmBuilder` (rows, sliders, key and text fields), `VmSettingsPage` (Apply, Revert to default, the apply-changes question). Shared with the manual-saves add-on. |

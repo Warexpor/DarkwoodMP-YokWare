@@ -1,141 +1,28 @@
 using System;
+using Concentus.Enums;
+using Concentus.Structs;
 
 namespace DWMPHorde.Audio
 {
     /// <summary>
-    /// The voice codec: 16 kHz mono, IMA ADPCM at 4 bits a sample (64 kbit/s). Every packet
-    /// starts from its own predictor and step, so a lost or late packet costs only its own 40 ms
-    /// and never the ones after it. No dependency, no native code: it runs the same on every
-    /// install, with or without Steam.
-    /// Packet: predictor (int16, little endian), step index (byte), then two samples a byte
-    /// (low nibble first).
+    /// The voice codec: 16 kHz mono Opus in 40 ms packets, through the managed Concentus port
+    /// compiled into the mod (ThirdParty/Concentus): no native code and no extra file, the same on
+    /// every install. A stream carries its state from packet to packet, so each talker has one
+    /// <see cref="VoiceEncoder"/> a stream and each listener one <see cref="VoiceDecoder"/> a
+    /// talker and stream. Every packet also carries a thin copy of the one before it, which the
+    /// decoder plays when that one was lost.
     /// </summary>
     internal static class VoiceCodec
     {
         public const int SampleRate = 16000;
         /// <summary>Samples in one packet (40 ms).</summary>
         public const int PacketSamples = 640;
-        public const int HeaderBytes = 3;
-
-        private static readonly int[] IndexTable = { -1, -1, -1, -1, 2, 4, 6, 8, -1, -1, -1, -1, 2, 4, 6, 8 };
-
-        private static readonly int[] StepTable =
-        {
-            7, 8, 9, 10, 11, 12, 13, 14, 16, 17, 19, 21, 23, 25, 28, 31, 34, 37, 41, 45, 50, 55, 60, 66,
-            73, 80, 88, 97, 107, 118, 130, 143, 157, 173, 190, 209, 230, 253, 279, 307, 337, 371, 408,
-            449, 494, 544, 598, 658, 724, 796, 876, 963, 1060, 1166, 1282, 1411, 1552, 1707, 1878, 2066,
-            2272, 2499, 2749, 3024, 3327, 3660, 4026, 4428, 4871, 5358, 5894, 6484, 7132, 7845, 8630,
-            9493, 10442, 11487, 12635, 13899, 15289, 16818, 18500, 20350, 22385, 24623, 27086, 29794,
-            32767
-        };
-
-        public static int EncodedSize(int samples) => HeaderBytes + (samples + 1) / 2;
-
-        /// <summary>Encode <paramref name="count"/> samples (-1..1) into <paramref name="dst"/>; returns the bytes written.</summary>
-        public static int Encode(float[] src, int count, byte[] dst) => Encode(src, count, dst, 0);
-
-        /// <summary>The same, written from <paramref name="at"/> in <paramref name="dst"/> (a second block after the first).</summary>
-        public static int Encode(float[] src, int count, byte[] dst, int at)
-        {
-            if (count <= 0)
-                return 0;
-            int predictor = ToPcm(src[0]);
-            int index = StartIndex(src, count, predictor);
-            dst[at] = (byte)(predictor & 0xFF);
-            dst[at + 1] = (byte)((predictor >> 8) & 0xFF);
-            dst[at + 2] = (byte)index;
-            int o = at + HeaderBytes;
-            for (int i = 0; i < count; i++)
-            {
-                int nibble = EncodeOne(ToPcm(src[i]), ref predictor, ref index);
-                if ((i & 1) == 0)
-                    dst[o] = (byte)nibble;
-                else
-                    dst[o++] |= (byte)(nibble << 4);
-            }
-            return HeaderBytes + (count + 1) / 2;
-        }
-
-        /// <summary>Decode a packet into <paramref name="dst"/> (-1..1); returns the samples written.</summary>
-        public static int Decode(byte[] src, int length, float[] dst) => Decode(src, 0, length, dst);
-
-        /// <summary>The same for a block of <paramref name="length"/> bytes that starts at <paramref name="at"/>.</summary>
-        public static int Decode(byte[] src, int at, int length, float[] dst)
-        {
-            if (src == null || length < HeaderBytes || at < 0 || at + length > src.Length)
-                return 0;
-            int predictor = (short)(src[at] | (src[at + 1] << 8));
-            int index = Math.Min(Math.Max((int)src[at + 2], 0), 88);
-            int samples = Math.Min((length - HeaderBytes) * 2, dst.Length);
-            for (int i = 0; i < samples; i++)
-            {
-                byte b = src[at + HeaderBytes + (i >> 1)];
-                int nibble = (i & 1) == 0 ? b & 0x0F : b >> 4;
-                DecodeOne(nibble, ref predictor, ref index);
-                dst[i] = predictor / 32768f;
-            }
-            return samples;
-        }
-
-        private static int ToPcm(float f)
-        {
-            int v = (int)(f * 32767f);
-            return v > 32767 ? 32767 : v < -32768 ? -32768 : v;
-        }
-
-        /// <summary>A step index that fits the packet's opening swing, so its first samples do not lag behind.</summary>
-        private static int StartIndex(float[] src, int count, int predictor)
-        {
-            int n = Math.Min(count, 8);
-            int swing = 0;
-            int prev = predictor;
-            for (int i = 1; i < n; i++)
-            {
-                int v = ToPcm(src[i]);
-                swing = Math.Max(swing, Math.Abs(v - prev));
-                prev = v;
-            }
-            int index = 0;
-            while (index < 88 && StepTable[index] < swing / 2)
-                index++;
-            return index;
-        }
-
-        private static int EncodeOne(int sample, ref int predictor, ref int index)
-        {
-            int step = StepTable[index];
-            int diff = sample - predictor;
-            int nibble = 0;
-            if (diff < 0)
-            {
-                nibble = 8;
-                diff = -diff;
-            }
-            int delta = step >> 3;
-            if (diff >= step) { nibble |= 4; diff -= step; delta += step; }
-            step >>= 1;
-            if (diff >= step) { nibble |= 2; diff -= step; delta += step; }
-            step >>= 1;
-            if (diff >= step) { nibble |= 1; delta += step; }
-            predictor += (nibble & 8) != 0 ? -delta : delta;
-            predictor = predictor > 32767 ? 32767 : predictor < -32768 ? -32768 : predictor;
-            index += IndexTable[nibble];
-            index = index < 0 ? 0 : index > 88 ? 88 : index;
-            return nibble;
-        }
-
-        private static void DecodeOne(int nibble, ref int predictor, ref int index)
-        {
-            int step = StepTable[index];
-            int delta = step >> 3;
-            if ((nibble & 4) != 0) delta += step;
-            if ((nibble & 2) != 0) delta += step >> 1;
-            if ((nibble & 1) != 0) delta += step >> 2;
-            predictor += (nibble & 8) != 0 ? -delta : delta;
-            predictor = predictor > 32767 ? 32767 : predictor < -32768 ? -32768 : predictor;
-            index += IndexTable[nibble];
-            index = index < 0 ? 0 : index > 88 ? 88 : index;
-        }
+        /// <summary>The most one encoded block takes; a usual one is a third of it.</summary>
+        public const int MaxBlockBytes = 480;
+        /// <summary>A talker's voice, in bits a second (it varies with what is said).</summary>
+        public const int VoiceBitrate = 32000;
+        /// <summary>The sounds a radio picks up around its talker (played through a radio's narrow band only).</summary>
+        public const int WorldBitrate = 24000;
 
         /// <summary>
         /// 0 for silence, about 0.15 for a whisper, 0.65 for normal speech, 1 for shouting: the RMS
@@ -156,6 +43,91 @@ namespace DWMPHorde.Audio
             for (int i = 0; i < count; i++)
                 sum += samples[i] * (double)samples[i];
             return 20f * (float)Math.Log10(Math.Sqrt(sum / count) + 1e-9);
+        }
+    }
+
+    /// <summary>One outgoing stream. Fed every packet that is sent, in the order sent.</summary>
+    internal sealed class VoiceEncoder
+    {
+        private readonly OpusEncoder _enc;
+        private readonly short[] _pcm = new short[VoiceCodec.PacketSamples];
+
+        /// <param name="speech">A voice (tuned for speech, carries a copy of the last packet); otherwise any sound.</param>
+        public VoiceEncoder(bool speech)
+        {
+            _enc = new OpusEncoder(VoiceCodec.SampleRate, 1,
+                speech ? OpusApplication.OPUS_APPLICATION_VOIP : OpusApplication.OPUS_APPLICATION_AUDIO);
+            _enc.Bitrate = speech ? VoiceCodec.VoiceBitrate : VoiceCodec.WorldBitrate;
+            _enc.UseVBR = true;
+            _enc.Complexity = 8;
+            _enc.UseDTX = false;
+            if (speech)
+            {
+                _enc.SignalType = OpusSignal.OPUS_SIGNAL_VOICE;
+                _enc.UseInbandFEC = true;
+                _enc.PacketLossPercent = 10;
+            }
+        }
+
+        /// <summary>
+        /// Encode one packet of samples (-1..1) into <paramref name="dst"/> from <paramref name="at"/>;
+        /// returns the bytes written. Fewer than a packet's samples are padded with silence.
+        /// </summary>
+        public int Encode(float[] src, int count, byte[] dst, int at)
+        {
+            int n = Math.Min(count, VoiceCodec.PacketSamples);
+            for (int i = 0; i < n; i++)
+            {
+                int v = (int)(src[i] * 32767f);
+                _pcm[i] = (short)(v > 32767 ? 32767 : v < -32768 ? -32768 : v);
+            }
+            for (int i = n; i < VoiceCodec.PacketSamples; i++)
+                _pcm[i] = 0;
+            int room = Math.Min(VoiceCodec.MaxBlockBytes, dst.Length - at);
+            return _enc.Encode(_pcm, 0, VoiceCodec.PacketSamples, dst, at, room);
+        }
+    }
+
+    /// <summary>One incoming stream of one talker.</summary>
+    internal sealed class VoiceDecoder
+    {
+        private readonly OpusDecoder _dec = new OpusDecoder(VoiceCodec.SampleRate, 1);
+        private readonly short[] _pcm = new short[VoiceCodec.PacketSamples];
+
+        /// <summary>Decode a block into <paramref name="dst"/> from <paramref name="dstAt"/> (-1..1); returns the samples written.</summary>
+        public int Decode(byte[] src, int at, int length, float[] dst, int dstAt)
+        {
+            if (src == null || length <= 0 || at < 0 || at + length > src.Length)
+                return 0;
+            return Out(_dec.Decode(src, at, length, _pcm, 0, VoiceCodec.PacketSamples, false), dst, dstAt);
+        }
+
+        /// <summary>
+        /// The packet lost just before this block, from the copy the block carries of it (the
+        /// decoder's own guess where the block has none). Called before <see cref="Decode"/> of the block.
+        /// </summary>
+        public int Recover(byte[] src, int at, int length, float[] dst, int dstAt)
+        {
+            if (src == null || length <= 0 || at < 0 || at + length > src.Length)
+                return 0;
+            return Out(_dec.Decode(src, at, length, _pcm, 0, VoiceCodec.PacketSamples, true), dst, dstAt);
+        }
+
+        /// <summary>A lost packet with nothing to rebuild it from: the voice carried on and faded.</summary>
+        public int Conceal(float[] dst, int dstAt)
+        {
+            return Out(_dec.Decode(null, 0, 0, _pcm, 0, VoiceCodec.PacketSamples, false), dst, dstAt);
+        }
+
+        /// <summary>Forget the stream so far (after a long break in it, or a block that would not decode).</summary>
+        public void Reset() => _dec.ResetState();
+
+        private int Out(int samples, float[] dst, int dstAt)
+        {
+            int n = Math.Min(Math.Min(samples, VoiceCodec.PacketSamples), dst.Length - dstAt);
+            for (int i = 0; i < n; i++)
+                dst[dstAt + i] = _pcm[i] / 32768f;
+            return n < 0 ? 0 : n;
         }
     }
 }

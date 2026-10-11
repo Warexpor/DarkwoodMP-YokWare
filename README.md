@@ -5,8 +5,8 @@ join it: the same forest, the same nights, the same story, played together.
 
 | | |
 |--|--|
-| Product | YokWare Branch **0.8.247** |
-| Wire | Horde protocol **60** |
+| Product | YokWare Branch **0.8.248** |
+| Wire | Horde protocol **61** |
 | Players | Up to 8 by default (`MaxPlayers`, host included) |
 | Transport | LAN (LiteNetLib) or Steam lobby (SteamNetworkingSockets) |
 | Loaders | BepInEx 5.x or MelonLoader 0.7.x |
@@ -308,7 +308,10 @@ recordings from Freesound, listed in
 suppression is RNNoise 0.2 by Jean-Marc Valin (Mozilla / Xiph.Org), ported to C#, with its
 trained weights, under its BSD licence: see
 [SOURCES.md](DarkwoodMP.Mod/Resources/RnNoise/SOURCES.md) and
-[COPYING.txt](DarkwoodMP.Mod/Resources/RnNoise/COPYING.txt). Darkwood is a game by Acid
+[COPYING.txt](DarkwoodMP.Mod/Resources/RnNoise/COPYING.txt). Voice is carried in Opus,
+through the managed port Concentus by Logan Stromberg, compiled into the mod under its BSD
+licence: see [SOURCES.md](DarkwoodMP.Mod/ThirdParty/Concentus/SOURCES.md) and
+[LICENSE.txt](DarkwoodMP.Mod/ThirdParty/Concentus/LICENSE.txt). Darkwood is a game by Acid
 Wizard Studio; this is an unofficial fan mod and needs a legal copy of the game.
 
 Licensed under GPLv3: see [LICENSE](LICENSE) and [COPYRIGHT](COPYRIGHT).

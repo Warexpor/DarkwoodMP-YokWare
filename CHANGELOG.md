@@ -3,11 +3,13 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.247**. The current Horde wire protocol is **60**. Every install in a session
+**0.8.248**. The current Horde wire protocol is **61**. Every install in a session
 needs the same DLL; the protocol is checked on join.
 
 Protocol history (newest first):
 
+- **61**, 0.8.248: `VoiceData` (129) carries Opus; with flag 2 its data starts with the voice
+  block's length (2 bytes).
 - **60**, 0.8.247: new `DreamLeft` (172).
 - **59**, 0.8.243 to 0.8.246: new `DoorSwing` (171); `BarricadeEvent` drops the attacker position.
 - **58**, 0.8.241 to 0.8.242: `DragSync` gains the co-holder's id and where it stands; new `CoHold` (170).
@@ -69,6 +71,42 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.248 — voice is carried in Opus
+
+Asked for after 0.8.246 found the codec to be what was left of the voice quality.
+
+- **What changed.** Voice (direct and radio) was sent as ADPCM at 4 bits a sample: 64 kbit/s
+  with a noise floor 20 to 25 dB under the voice, heard as grain on every word, and a lost
+  packet was a 40 ms hole. It is now Opus at 16 kHz mono, about 30 kbit/s (it varies with
+  what is said): half the data, and the coding noise is no longer heard as grain.
+- **Lost packets.** Every voice packet carries a thin copy of the one before it. When one
+  packet is lost, the next one brings it back (`VoiceDecoder.Recover`); up to two more before
+  that are filled in by the decoder's own guess, inside one stretch of talk only. After more
+  than three lost in a row the stream starts afresh. The 10 s `[Voice]` log line shows
+  `filled=` per talker.
+- **Streams.** Opus carries state from packet to packet, so each player has one encoder for
+  their voice and one for the sounds their radio picks up, and each listener one decoder per
+  talker and stream (`Speaker.VoiceDec` / `WorldDec`). The host still relays packets as they
+  are. Packets stay 40 ms. With the radio's second block the data now starts with the voice
+  block's length, since blocks are no longer a fixed size.
+- **Where the codec comes from.** Concentus, the managed C# port of Opus, compiled into the
+  mod from source (`DarkwoodMP.Mod/ThirdParty/Concentus`, see its `SOURCES.md`; BSD licence,
+  embedded in the DLL). Not shipped as `Concentus.dll`: the package's DLLs need
+  `System.Runtime` facades the game does not have. No new file to install; the mod DLL grows
+  by about 0.4 MB.
+- **Cost.** Encoding one packet takes about 1.2 ms on the main thread every 40 ms while
+  talking (1.6 ms with the radio's second block), decoding under 0.1 ms a packet; measured
+  in game on the native host and the Wine client (`enc=` in the `[Voice]` log line).
+- **Tested.** `VoiceCodecTests` (stream close to the input at under 40 kbit/s, a lost packet
+  back from the next, concealment, garbage and reset, non-speech sounds, short frame). In a
+  sandboxed host + client run: a tone sent each way, direct and keyed as a walkie with the
+  pickup block, decoded with no errors. Not heard by ear, and the fill-in was not exercised in
+  game (no loss on one machine).
+- Files: `Audio/VoiceCodec.cs`, `Audio/VoiceChatService.cs`, `Audio/VoiceChatService.Speakers.cs`,
+  `ThirdParty/Concentus/`, both project files.
+
+Protocol 61: every install needs this build.
 
 ## 0.8.247 — a player's own exit from a dream wakes that player alone (protocol 60)
 
@@ -151,8 +189,8 @@ for both players (0.8.245 confirmed).
 - **Voice codec: found, not changed.** What remains is the codec itself: ADPCM at 4 bits a
   sample has a noise floor about 20 to 25 dB under the voice, heard as grain on every word, and
   a lost packet is skipped with nothing filled in. Fixing that means another codec (Opus,
-  through the managed Concentus library): a new dependency and a protocol bump, so it waits for
-  a decision.
+  through the managed Concentus library): a new dependency and a protocol bump, so it waited for
+  a decision (done in 0.8.248).
 
 No message changed; protocol stays 59.
 

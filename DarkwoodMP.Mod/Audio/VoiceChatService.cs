@@ -82,6 +82,11 @@ namespace DWMPHorde.Audio
             public int Underruns;
             public bool HasSeq;
             public ushort LastSeq;
+            /// <summary>This talker's two streams: the voice, and what their radio picked up around them.</summary>
+            public VoiceDecoder VoiceDec;
+            public VoiceDecoder WorldDec;
+            /// <summary>Packets that never came, filled in from the next one or by the decoder.</summary>
+            public int Recovered;
             /// <summary>Loudness of the latest packet (0..1) and its envelope: quick to rise, slow to fall between words.</summary>
             public float Level;
             public float LevelEnv;
@@ -199,8 +204,17 @@ namespace DWMPHorde.Audio
         private static readonly Dictionary<int, Speaker> _speakers = new Dictionary<int, Speaker>();
         private static readonly List<int> _reap = new List<int>(); // process-scoped: scratch
         private static GameObject _root; // process-scoped: DontDestroyOnLoad speaker parent
-        private static readonly float[] _decodeBuf = new float[VoiceCodec.PacketSamples * 2]; // process-scoped: decode scratch
-        private static readonly byte[] _encodeBuf = new byte[VoiceCodec.EncodedSize(VoiceCodec.PacketSamples) * 2]; // process-scoped: encode scratch (voice block, then the picked-up sounds)
+        /// <summary>Lost packets in a row that are filled in; a longer break starts the stream afresh.</summary>
+        private const int MaxFilledPackets = 3;
+        /// <summary>A packet that follows the last one within this long is the same stretch of talk.</summary>
+        private const float SameTalkSec = 0.3f;
+        /// <summary>Bytes ahead of the voice block that give its length, when a second block follows it.</summary>
+        private const int WorldPrefixBytes = 2;
+        private static readonly float[] _decodeBuf = new float[VoiceCodec.PacketSamples * (MaxFilledPackets + 1)]; // process-scoped: decode scratch
+        private static readonly byte[] _encodeBuf = new byte[WorldPrefixBytes + VoiceCodec.MaxBlockBytes * 2]; // process-scoped: encode scratch (voice block, then the picked-up sounds)
+        private static VoiceEncoder _voiceEnc;
+        private static VoiceEncoder _worldEnc;
+        private static long _encodeTicks; // process-scoped: stats
         private static readonly float[] _worldTx = new float[VoiceCodec.PacketSamples]; // process-scoped: picked-up sounds of the frame being sent
         private static readonly float[] _worldRx = new float[VoiceCodec.PacketSamples]; // process-scoped: picked-up sounds of the packet being decoded
         private static readonly float[] _echoMix = new float[VoiceCodec.PacketSamples]; // process-scoped: scratch
@@ -240,6 +254,8 @@ namespace DWMPHorde.Audio
             _walkieTxWas = false;
             _transmitting = false;
             _preroll = null;
+            _voiceEnc = null;
+            _worldEnc = null;
             _radioHolder = 0;
             _radioHolderAt = 0f;
             WorldSoundPickup.Reset();
@@ -583,7 +599,7 @@ namespace DWMPHorde.Audio
             VoiceHearing.Heard(msg.PlayerId, msg.Level / 255f, (msg.Flags & VoiceDataMessage.FlagWalkie) != 0);
             if (ModConfig.VoiceEnabled == null || !ModConfig.VoiceEnabled.Value)
                 return;
-            if (msg.Data == null || msg.Data.Length <= VoiceCodec.HeaderBytes)
+            if (msg.Data == null || msg.Data.Length == 0)
                 return;
             Decode(msg);
         }
@@ -592,7 +608,20 @@ namespace DWMPHorde.Audio
         {
             try
             {
-                int len = VoiceCodec.Encode(frame, frame.Length, _encodeBuf);
+                // On the radio, a second block: what the radio picked up around this player.
+                bool world = _walkieTx && frame.Length == VoiceCodec.PacketSamples
+                    && WorldSoundPickup.Read(_worldTx, VoiceCodec.PacketSamples);
+                long t0 = System.Diagnostics.Stopwatch.GetTimestamp();
+                int at = world ? WorldPrefixBytes : 0;
+                int voiceLen = (_voiceEnc ?? (_voiceEnc = new VoiceEncoder(speech: true))).Encode(frame, frame.Length, _encodeBuf, at);
+                int len = at + voiceLen;
+                if (world)
+                {
+                    _encodeBuf[0] = (byte)(voiceLen & 0xFF);
+                    _encodeBuf[1] = (byte)(voiceLen >> 8);
+                    len += (_worldEnc ?? (_worldEnc = new VoiceEncoder(speech: false))).Encode(_worldTx, VoiceCodec.PacketSamples, _encodeBuf, len);
+                }
+                _encodeTicks += System.Diagnostics.Stopwatch.GetTimestamp() - t0;
                 // The level is the voice's alone: it says how far the voice carries and what creatures hear.
                 float level = VoiceCodec.LevelOf(frame, frame.Length);
                 int playerId = Math.Max(net.LocalPlayerId, 0);
@@ -603,14 +632,8 @@ namespace DWMPHorde.Audio
                     _walkieSendUntil = Time.unscaledTime + WalkieSendTailSec;
                 bool walkie = _walkieTx || Time.unscaledTime < _walkieSendUntil;
                 byte flags = (byte)(walkie ? VoiceDataMessage.FlagWalkie : 0);
-                // On the radio, a second block: what the radio picked up around this player.
-                bool world = _walkieTx && frame.Length == VoiceCodec.PacketSamples
-                    && WorldSoundPickup.Read(_worldTx, VoiceCodec.PacketSamples);
                 if (world)
-                {
-                    len += VoiceCodec.Encode(_worldTx, VoiceCodec.PacketSamples, _encodeBuf, len);
                     flags |= VoiceDataMessage.FlagWorld;
-                }
                 byte levelByte = (byte)Mathf.RoundToInt(level * 255f);
                 if (net.Role == NetworkRole.Host)
                     VoiceHearing.Heard(net.LocalPlayerId, level, walkie);
@@ -639,40 +662,77 @@ namespace DWMPHorde.Audio
 
         private static void Decode(VoiceDataMessage p)
         {
+            Speaker speaker = null;
             try
             {
-                Speaker speaker = EnsureSpeaker(p.PlayerId);
+                speaker = EnsureSpeaker(p.PlayerId);
                 // Unreliable packets can arrive late or twice: an older one would play out of order.
+                int lost = 0;
                 if (speaker.HasSeq)
                 {
                     short ahead = (short)(p.Seq - speaker.LastSeq);
                     if (ahead <= 0 && ahead > -1000)
                         return;
+                    // A count that jumped back is a talker who started over.
+                    lost = ahead > 0 ? ahead - 1 : int.MaxValue;
+                }
+
+                // Two blocks when the talker's radio sent what it picked up: the voice's length, the voice, the rest.
+                int voiceAt = 0;
+                int voiceBytes = p.Data.Length;
+                int worldBytes = 0;
+                if ((p.Flags & VoiceDataMessage.FlagWorld) != 0)
+                {
+                    if (p.Data.Length <= WorldPrefixBytes)
+                        return;
+                    voiceAt = WorldPrefixBytes;
+                    voiceBytes = p.Data[0] | (p.Data[1] << 8);
+                    worldBytes = p.Data.Length - voiceAt - voiceBytes;
+                    if (voiceBytes <= 0 || worldBytes <= 0)
+                        return;
                 }
                 speaker.HasSeq = true;
                 speaker.LastSeq = p.Seq;
 
-                // Two blocks when the talker's radio sent what it picked up: voice first, a full packet.
-                int voiceBytes = p.Data.Length;
-                int worldSamples = 0;
-                if ((p.Flags & VoiceDataMessage.FlagWorld) != 0)
+                VoiceDecoder dec = speaker.VoiceDec ?? (speaker.VoiceDec = new VoiceDecoder());
+                int samples = 0;
+                if (lost > MaxFilledPackets)
                 {
-                    voiceBytes = VoiceCodec.EncodedSize(VoiceCodec.PacketSamples);
-                    if (p.Data.Length <= voiceBytes + VoiceCodec.HeaderBytes)
-                        return;
-                    worldSamples = VoiceCodec.Decode(p.Data, voiceBytes, p.Data.Length - voiceBytes, _worldRx);
+                    dec.Reset();
+                    speaker.WorldDec?.Reset();
                 }
-                int samples = VoiceCodec.Decode(p.Data, 0, voiceBytes, _decodeBuf);
-                if (samples <= 0)
+                else if (lost > 0)
+                {
+                    // The packet just before this one comes back from the copy this one carries.
+                    // Any before that are the decoder's guess, and only inside one stretch of
+                    // talk: across a pause there was nothing said to carry on.
+                    if (Time.unscaledTime - speaker.LastData < SameTalkSec)
+                    {
+                        for (int i = 1; i < lost; i++)
+                            samples += dec.Conceal(_decodeBuf, samples);
+                    }
+                    samples += dec.Recover(p.Data, voiceAt, voiceBytes, _decodeBuf, samples);
+                    speaker.Recovered += lost;
+                }
+                int voiceStart = samples;
+                int voiceSamples = dec.Decode(p.Data, voiceAt, voiceBytes, _decodeBuf, samples);
+                if (voiceSamples <= 0)
                     return;
+                samples += voiceSamples;
+                int worldSamples = 0;
+                if (worldBytes > 0)
+                {
+                    VoiceDecoder wdec = speaker.WorldDec ?? (speaker.WorldDec = new VoiceDecoder());
+                    worldSamples = wdec.Decode(p.Data, voiceAt + voiceBytes, worldBytes, _worldRx, 0);
+                }
                 // Only a radio plays the second block: heard directly, the talker is a voice in
                 // a world the listener hears for themselves.
                 bool walkieNow = (p.Flags & VoiceDataMessage.FlagWalkie) != 0;
                 if (worldSamples > 0 && speaker.RadioMode && walkieNow)
                 {
-                    int n = Math.Min(samples, worldSamples);
+                    int n = Math.Min(voiceSamples, worldSamples);
                     for (int i = 0; i < n; i++)
-                        _decodeBuf[i] += _worldRx[i] * WorldRxGain;
+                        _decodeBuf[voiceStart + i] += _worldRx[i] * WorldRxGain;
                 }
 
                 if (walkieNow != speaker.WalkieActive)
@@ -706,6 +766,9 @@ namespace DWMPHorde.Audio
             }
             catch (Exception ex)
             {
+                // A block that would not decode leaves the stream's state unknown.
+                speaker?.VoiceDec?.Reset();
+                speaker?.WorldDec?.Reset();
                 if (NetLogThrottle.ShouldLog("voice-decode", 10f, out _))
                     ModLog.Warn(LogCat.Audio, "Voice decode: " + ex.Message);
             }

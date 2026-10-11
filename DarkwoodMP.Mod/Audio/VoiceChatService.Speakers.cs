@@ -133,12 +133,15 @@ namespace DWMPHorde.Audio
                 {
                     ModLog.Trace(LogCat.Audio, () =>
                     {
-                        string line = "[Voice] 10s tx=" + _txPackets + WorldSoundPickup.TakeStats();
+                        string line = "[Voice] 10s tx=" + _txPackets;
+                        if (_txPackets > 0)
+                            line += " enc=" + (_encodeTicks * 1000.0 / System.Diagnostics.Stopwatch.Frequency / _txPackets).ToString("0.00") + "ms";
+                        line += WorldSoundPickup.TakeStats();
                         foreach (Speaker s in _speakers.Values)
                         {
                             int buffered, under;
                             lock (s.Lock) { buffered = s.Buffered; under = s.Underruns; s.PacketsIn = 0; s.Underruns = 0; }
-                            line += " | p" + s.Id + " buf=" + buffered + " under=" + under
+                            line += " | p" + s.Id + " buf=" + buffered + " under=" + under + " filled=" + s.Recovered
                                 + " level=" + s.LevelEnv.ToString("0.00") + (s.RadioMode ? " radio" : "")
                                 + (s.OccludedNow ? " walled" : "");
                         }
@@ -146,6 +149,9 @@ namespace DWMPHorde.Audio
                     });
                 }
                 _txPackets = 0;
+                _encodeTicks = 0;
+                foreach (Speaker s in _speakers.Values)
+                    s.Recovered = 0;
             }
 
             if (_speakers.Count == 0)

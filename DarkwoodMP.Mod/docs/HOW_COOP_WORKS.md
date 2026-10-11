@@ -886,8 +886,9 @@ party events.
 - **Player names**: each player tells the host their name and the host hands every
   name out with the player roster. A name shows over a player only while you can
   see them (vanilla's enemy sight test), so it never reveals someone behind a wall.
-- **Voice chat** (any install, LAN or Steam; the game's own microphone input and the
-  mod's own codec, no Steam client needed). Mic, mic volume, voice volume and each
+- **Voice chat** (any install, LAN or Steam; the game's own microphone input, carried as
+  Opus by code inside the mod, no Steam client needed; a lost packet is filled in from the
+  next one). Mic, mic volume, voice volume and each
   player's volume are in Settings > Voice:
   - Proximity voice comes from where the talker stands (panned toward them) and
     carries as far as they spoke loud: a shout to 650 units, normal speech about three
