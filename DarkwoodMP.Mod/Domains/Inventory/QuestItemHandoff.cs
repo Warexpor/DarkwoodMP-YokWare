@@ -63,6 +63,8 @@ namespace DWMPHorde.Sync
 
         private static readonly List<KeyValuePair<string, int>> _toRemove = new List<KeyValuePair<string, int>>(); // reset-in: Reset
         private static bool _removeDone; // reset-in: Reset
+        /// <summary>Client: the removal is done but not yet in a stored character, so the host is not yet told.</summary>
+        private static bool _ackOwed; // reset-in: Reset
 
         public static void Reset()
         {
@@ -70,6 +72,7 @@ namespace DWMPHorde.Sync
             _nextTick = 0f;
             _toRemove.Clear();
             _removeDone = false;
+            _ackOwed = false;
         }
 
         /// <summary>A save was loaded: the records go back to what that save was written with.</summary>
@@ -447,9 +450,24 @@ namespace DWMPHorde.Sync
                 amounts[i] = _toRemove[i].Value;
                 ModRuntime.LegacyInfo($"[QuestHandoff] {_toRemove[i].Key} was picked up by another player while away; removed {n}");
             }
-            // Written to this player's saved character before the host forgets the records.
-            try { net.SendClientStateBackup(atWorldSave: false); }
-            catch { /* non-fatal: the host keeps the records and asks again next time */ }
+            // The host forgets its records only once this bag is in a stored character, and a
+            // character is stored at world saves only: until then it asks again at each join.
+            _ackOwed = true;
+        }
+
+        /// <summary>Client: the character was just stored at a world save; a removal done since the join is in it.</summary>
+        internal static void OnSaveTimeBackupSent(LanNetworkManager net)
+        {
+            if (!_ackOwed || !_removeDone || _toRemove.Count == 0 || net == null || net.Role != NetworkRole.Client)
+                return;
+            _ackOwed = false;
+            var types = new string[_toRemove.Count];
+            var amounts = new int[_toRemove.Count];
+            for (int i = 0; i < _toRemove.Count; i++)
+            {
+                types[i] = _toRemove[i].Key;
+                amounts[i] = _toRemove[i].Value;
+            }
             var ack = new QuestHandoffMessage { Types = types, Amounts = amounts };
             net.Send(NetMessageType.QuestHandoff, w => ack.Serialize(w), DeliveryMethod.ReliableOrdered);
         }

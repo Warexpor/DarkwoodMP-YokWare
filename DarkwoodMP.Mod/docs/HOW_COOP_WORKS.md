@@ -323,12 +323,12 @@ movie), unless the host sets `AllowJoinDuringDream`.
   location or dream. When the player returns, a drop that is still lying there is
   taken back, and a drop someone else picked up is removed from the returner's bag.
   Oxygen tanks and journal items are not dropped (everyone has them already).
-- A returning player gets their own character back as it was at the host's last world
-  save (position, bag, health, skills), not at the host's spawn: the world is loaded
-  from that save, so the character matches it. A snapshot taken between saves (on
-  leaving, or when only the client "saved") is held by the host in memory. A player
-  who rejoins while that world is still running comes back as they left; the host's
-  next world save stores those snapshots; a host that reloads its save drops them.
+- A player's character (position, bag, health, skills) is stored at real world saves
+  only (the "saving" indicator), never on leaving or between saves. A returning
+  player comes back as they were at the last world save they were in, not at the
+  host's spawn; one who was never in a save comes back as a fresh character. The
+  save a host makes when it quits to the menu counts: the clients are told to save
+  with it.
 - A player who stands up (after a load, a join, a respawn) stays lying until the others
   can see it: until a few of their position packets have gone out and, for a joiner,
   until they have been put where they left. The others then see the whole stand-up,

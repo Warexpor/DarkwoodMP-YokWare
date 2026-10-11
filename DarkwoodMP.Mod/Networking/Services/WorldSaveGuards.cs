@@ -77,10 +77,6 @@ namespace DWMPHorde.Networking
     {
         private void OnApplicationQuit()
         {
-            // A client closing the game: its character goes to the host while the player object
-            // still exists (by the time the session is stopped it is already destroyed).
-            if (ModRuntime.Network is LanNetworkManager net)
-                net.TrySnapshotClientBackupOnExit();
             WorldSaveGuards.NoteQuitting();
         }
     }

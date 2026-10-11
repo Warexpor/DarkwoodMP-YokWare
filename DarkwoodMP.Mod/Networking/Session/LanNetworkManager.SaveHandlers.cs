@@ -30,18 +30,9 @@ namespace DWMPHorde.Networking
         /// Sends the client's inventory/skills/state backup to the host, and mirrors it
         /// to local self so RESTORE SELF / rejoin fallback stay current.
         /// </summary>
-        public void SendClientStateBackup(bool atWorldSave)
+        public void SendClientStateBackup()
         {
-            SaveHandlers.SendClientStateBackup(atWorldSave);
-        }
-
-        /// <summary>
-        /// Client disconnect / quit while in-world: write local self (+ host if still linked)
-        /// so exit position is not only whatever the last Save captured.
-        /// </summary>
-        internal void TrySnapshotClientBackupOnExit()
-        {
-            SaveHandlers.TrySnapshotClientBackupOnExit();
+            SaveHandlers.SendClientStateBackup();
         }
 
         private void TryHostWorldSaveCheckpointOnExit()

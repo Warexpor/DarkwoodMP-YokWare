@@ -1,6 +1,5 @@
 using System;
 using System.Collections;
-using System.Collections.Generic;
 using DWMPHorde;
 using DWMPHorde.Logging;
 using UnityEngine;
@@ -30,29 +29,6 @@ namespace DWMPHorde.Networking
         /// </summary>
         internal bool ClientPlacementPending { get; private set; }
         private Coroutine _clientBackupRestoreCo;
-        /// <summary>Client: the host's run of the world, as its backup push named it (null until then).</summary>
-        private string _hostRunId;
-        /// <summary>Host: this run of the world, named to joiners so their leave-time file is used in this run only.</summary>
-        private string _ownRunId;
-        /// <summary>The local player object of the world load <see cref="_ownRunId"/> names.</summary>
-        private int _ownRunPlayerId;
-        /// <summary>Client: the backup chosen while the player was not in the world yet; the wait routine applies it.</summary>
-        private ClientStateBackupData _heldClientBackup;
-        /// <summary>
-        /// Host: each player's snapshot taken between world saves, by backup key. Handed to
-        /// that player if they rejoin while this world runs, written to disk at the next world
-        /// save, and dropped with the run: a reloaded save gets the save-time files.
-        /// </summary>
-        private readonly Dictionary<string, LiveClientBackup> _liveClientBackups =
-            new Dictionary<string, LiveClientBackup>();
-
-        private sealed class LiveClientBackup
-        {
-            internal ClientStateBackupData Data;
-            internal int PlayerId;
-            internal ulong SteamId;
-            internal string StableKey;
-        }
         /// <summary>Wait for host late-join backup before falling back to local self file.</summary>
         private const float ClientBackupHostWaitSec = 12f;
 
@@ -68,8 +44,6 @@ namespace DWMPHorde.Networking
             _hostHasNoClientBackup = false;
             ClientPlacementPending = false;
             _clientBackupRestoreCo = null;
-            _hostRunId = null;
-            _heldClientBackup = null;
             _saveSyncBroadcastPending = false;
             _saveSyncHostNeedsApply = false;
         }
@@ -156,18 +130,19 @@ namespace DWMPHorde.Networking
         }
 
         /// <summary>
-        /// Client: snapshot the character (position, bag, health, skills) and send it to the host.
-        /// At a world save it is the one a rejoin restores, and is mirrored to the local file
-        /// (RESTORE SELF, rejoin fallback). Between saves it is a live one
-        /// (<see cref="ClientStateBackupData.Live"/>).
+        /// Client, at a real world save only (the host's coordinated Save): the character
+        /// (position, bag, health, skills) as it is in that saved world goes to the host and to
+        /// this machine's own file. Nothing is written between saves, on leaving included: a
+        /// rejoin comes back to the last save, as the world does.
         /// </summary>
-        internal void SendClientStateBackup(bool atWorldSave)
+        internal void SendClientStateBackup()
         {
             if (!_net.IsConnected) return;
             if (_net.Role != NetworkRole.Client) return;
             try
             {
-                PersistClientBackupSnapshot(atWorldSave);
+                PersistClientBackupSnapshot(sendToHost: true);
+                Sync.QuestItemHandoff.OnSaveTimeBackupSent(_net);
             }
             catch (Exception ex)
             {
@@ -176,38 +151,13 @@ namespace DWMPHorde.Networking
         }
 
         /// <summary>
-        /// Client disconnect / quit while in-world: a live snapshot, to the host if still linked
-        /// and to this machine's leave-time file. The save-time snapshot is left as it is.
-        /// </summary>
-        internal void TrySnapshotClientBackupOnExit()
-        {
-            if (_net.Role != NetworkRole.Client)
-                return;
-            if (Player.Instance == null || GameScreen.AtTitle || Core.loadingGame)
-                return;
-            if (ClientStateBackup.ChapterReloadWipePending)
-            {
-                ClientStateBackup.ChapterReloadWipePending = false;
-                ModRuntime.LegacyInfo("[ClientBackup] exit snapshot skipped — chapter start-over");
-                return;
-            }
-            try
-            {
-                PersistClientBackupSnapshot(atWorldSave: false);
-                ModRuntime.LegacyInfo("[ClientBackup] exit snapshot (disconnect/quit)");
-            }
-            catch (Exception ex)
-            {
-                ModRuntime.Log?.LogWarning("[ClientBackup] exit snapshot failed: " + ex.Message);
-            }
-        }
-
-        /// <summary>
         /// Intentional host StopNetwork while in-world: flush sav.dat so the next session
         /// (same or new host) loads current world ownership. Never on a promoted host (survivor
         /// client world corrupts the slot), a chapter change (the new chapter save is already
         /// written), a dream, a held night death, or application quit (scene is being torn down).
-        /// Local Save only — no SaveSync fan-out (peers are tearing down).
+        /// The clients are told to save with it (SaveSync), so their characters are stored as
+        /// they are in this saved world: each writes its own file even if its copy for the
+        /// host no longer gets through, and a rejoin uses the newer of the two.
         /// </summary>
         internal void TryHostWorldSaveCheckpointOnExit()
         {
@@ -239,6 +189,12 @@ namespace DWMPHorde.Networking
                     showSavingIndicator: false);
                 CoopWorldCopyMeta.RefreshAfterLocalSave();
                 ModRuntime.LegacyInfo("[HostLeave] world save checkpoint written");
+                if (_net.IsConnected)
+                {
+                    _net.SendToAll(NetMessageType.SaveSync, w => new SaveSyncMessage().Serialize(w),
+                        LiteNetLib.DeliveryMethod.ReliableOrdered);
+                    ModRuntime.LegacyInfo("[HostLeave] clients told to save with it");
+                }
             }
             catch (Exception ex)
             {
@@ -250,15 +206,10 @@ namespace DWMPHorde.Networking
             }
         }
 
-        /// <summary>Collect, write this machine's file (save-time or leave-time), send to the host when linked.</summary>
-        private void PersistClientBackupSnapshot(bool atWorldSave)
+        /// <summary>Collect → local self file; optionally push to host.</summary>
+        private void PersistClientBackupSnapshot(bool sendToHost)
         {
             var data = ClientStateBackup.CollectBackupData();
-            if (data != null)
-            {
-                data.Live = !atWorldSave;
-                data.HostRunId = atWorldSave ? null : _hostRunId;
-            }
             // Mid-dream omission leaves 0,0,0; keep the prior exit pose from the existing self file.
             if (data != null && data.PosX == 0f && data.PosY == 0f && data.PosZ == 0f)
             {
@@ -282,20 +233,13 @@ namespace DWMPHorde.Networking
                 return;
             }
             string json = ClientStateBackup.SerializeToJson(data);
-            if (atWorldSave)
-            {
-                ClientStateBackup.SaveLocalSelfBackupFile(json);
-                // The save holds everything up to now: an older leave-time file has nothing to add.
-                ClientStateBackup.DeleteLocalLeaveBackupFile();
-            }
-            else
-                ClientStateBackup.SaveLocalLeaveBackupFile(json);
-            if (!_net.IsConnected)
+            ClientStateBackup.SaveLocalSelfBackupFile(json);
+            if (!sendToHost || !_net.IsConnected)
                 return;
             _net.Broadcast(NetMessageType.ClientStateBackup,
                 w => new ClientStateBackupMessage { JsonData = json }.Serialize(w),
                 LiteNetLib.DeliveryMethod.ReliableOrdered);
-            ModRuntime.LegacyInfo($"[ClientBackup] sent {(atWorldSave ? "save-time" : "live")} backup to host ({(data.InventoryItems?.Count ?? 0) + (data.HotbarItems?.Count ?? 0)} items, {(data.Skills?.Count ?? 0)} skills, pos=({data.PosX.ToString("F0")},{data.PosZ.ToString("F0")})");
+            ModRuntime.LegacyInfo($"[ClientBackup] sent backup to host ({(data.InventoryItems?.Count ?? 0) + (data.HotbarItems?.Count ?? 0)} items, {(data.Skills?.Count ?? 0)} skills, pos=({data.PosX.ToString("F0")},{data.PosZ.ToString("F0")})");
         }
     }
 }

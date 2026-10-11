@@ -30,20 +30,6 @@ namespace DWMPHorde.Networking
         /// </summary>
         public string ContentFingerprint;
         public string Timestamp;
-        /// <summary>
-        /// Taken between world saves (on leaving, or after a quest item hand-back), not at one.
-        /// It is the player's state in the world as it runs now, so it holds only while that
-        /// world goes on: the host keeps it in memory and writes it to disk at its next world
-        /// save. A host that reloads its save hands out the save-time snapshot instead.
-        /// </summary>
-        public bool Live;
-        /// <summary>
-        /// Host to client: the id of the host's run of the world (new at each hosting). Client's
-        /// own leave-time file: the run it was taken in; it is used only while that run goes on.
-        /// </summary>
-        public string HostRunId;
-        /// <summary>Host to client: nothing is stored for this player (only <see cref="HostRunId"/> is set).</summary>
-        public bool NoBackup;
         /// <summary>Chapter the snapshot was taken in (0 = older JSON). A pose from another chapter's map is not restored.</summary>
         public int Chapter;
         /// <summary>This player's home oven (vanilla Player.experienceMachine, also the respawn home).</summary>

@@ -3,12 +3,12 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.225**. The current Horde wire protocol is **54**. Every install in a session
+**0.8.226**. The current Horde wire protocol is **54**. Every install in a session
 needs the same DLL; the protocol is checked on join.
 
 Protocol history (newest first):
 
-- **54**, 0.8.212 to 0.8.225: `VoiceData` (129) gains flag 2: a second codec block after the voice,
+- **54**, 0.8.212 to 0.8.226: `VoiceData` (129) gains flag 2: a second codec block after the voice,
   the sounds the talker's radio picked up.
 - **53**, 0.8.200 to 0.8.211: the world share package gains `savplc.dat` (container slots a player
   stored items in). No message layout changed; the bump keeps every player on a build
@@ -61,6 +61,45 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.226 — a character is stored at real world saves only
+
+Correction asked for after 0.8.224: the rule is that a player's state is stored
+**only** when a real in-game save happens. 0.8.223 kept a leave-time state while the
+host's world ran on, and 0.8.224 added a snapshot when a client closed the game; both
+were against the rule and are **withdrawn**. Built, unit-tested and deployed; **not
+played yet**. No protocol change.
+
+- **Removed:** the snapshot on leaving (menu, disconnect, closing the game); the
+  snapshot when only the client "saved" (a client's own Save is blocked and is not a
+  world save) and at dream entry; the host's in-memory "live" snapshots, the run id in
+  the backup push, the `client_backup_leave_*` file and the patch that stored live
+  snapshots at the host's save (all from 0.8.223); the quit-time snapshot (0.8.224).
+  A leftover `client_backup_leave_*.json` is never read.
+- **What stores a character now:** the host's coordinated world save (SaveSync, the
+  "saving" indicator), nothing else. A rejoin restores that state, position included;
+  a client that was never in a save comes back as a fresh character.
+- **Known consequence, by the rule:** a client that leaves and rejoins while the host
+  keeps playing comes back as at the last save, while the world has moved on. An item
+  they put in a chest after that save is then in the chest and in their bag; one they
+  took out is in neither.
+- **The host's save on quitting to the menu** is a real world save but was silent: the
+  world was written and the clients' characters were not. The host now sends SaveSync
+  with it, and waits up to 250 ms for it to leave (`FlushReliableBeforeLeave`, now for
+  the host as well as the client). Each client saves, writes its own file and sends
+  its copy; if that copy no longer reaches the host, the rejoin uses the client's own,
+  newer file.
+- **Quest item hand-back.** A returning player whose story item was taken by someone
+  else has it removed from their bag, and used to store the character right then so
+  the host could forget its record. The record is now confirmed at the next world
+  save (`QuestItemHandoff.OnSaveTimeBackupSent`); until then the host asks again at
+  each join, so the item cannot come back with a restored bag.
+- **Kept from 0.8.223:** between the host's copy and the client's own, the newer one
+  wins (before, the client's own won whenever it had as much progress).
+- **Kept from 0.8.224:** the host's stand-up wait counts only peers that are in the
+  world, and long frames do not use up its time limit.
+- Old files: a client's own file written by 0.8.222 or earlier may still hold a
+  leave-time state until its next world save overwrites it.
 
 ## 0.8.225 — noise suppression strength slider, harder by default
 

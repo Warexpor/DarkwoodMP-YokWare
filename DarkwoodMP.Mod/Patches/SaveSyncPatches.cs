@@ -57,29 +57,6 @@ namespace DWMPHorde.Patches
     }
 
     /// <summary>
-    /// The host's world was written to disk: the clients' live snapshots (taken between saves,
-    /// held in memory) are their state in that saved world and are stored with it.
-    /// </summary>
-    [HarmonyPatch(typeof(SaveManager), "Save")]
-    public static class HostSaveStoresLiveClientBackupsPatch
-    {
-        private static void Prefix(SaveManager __instance, out System.DateTime __state)
-        {
-            __state = __instance.lastTimeSaved;
-        }
-
-        private static void Postfix(SaveManager __instance, System.DateTime __state, bool __runOriginal)
-        {
-            // Vanilla leaves Save early (dontSave, an unforced night Save, a load in progress)
-            // without touching lastTimeSaved; a co-op prefix may skip it altogether.
-            if (!__runOriginal || __instance == null || __instance.lastTimeSaved == __state)
-                return;
-            if (ModRuntime.Network is LanNetworkManager net && net.SaveHandlers != null)
-                net.SaveHandlers.StoreLiveClientBackupsAtWorldSave();
-        }
-    }
-
-    /// <summary>
     /// Co-op coordinated save: local <see cref="SaveManager.Save"/> notifies the host;
     /// host rate-limits then broadcasts SaveSync so clients run full Save with Saving UI.
     /// <see cref="LanNetworkManager.RemoteSaveInProgress"/> prevents rebroadcast loops.
@@ -112,23 +89,11 @@ namespace DWMPHorde.Patches
             {
                 ModLog.Event(LogCat.Save,
                     "SaveSync suppressed (dream entry window) — no peer fanout");
-                // No world save follows this one: the client's state goes to the host as a live
-                // snapshot, written to disk at the host's next world save.
-                if (ModRuntime.Network.Role == NetworkRole.Client)
-                {
-                    try { ModRuntime.Network.SendClientStateBackup(atWorldSave: false); }
-                    catch { /* non-fatal */ }
-                }
                 return;
             }
 
-            // The client's own Save was not a world save (the host's is, and its SaveSync brings
-            // the save-time snapshot): a live snapshot, in case the host does not save now.
-            if (ModRuntime.Network.Role == NetworkRole.Client)
-            {
-                try { ModRuntime.Network.SendClientStateBackup(atWorldSave: false); }
-                catch { /* non-fatal */ }
-            }
+            // A client's own Save was blocked: it is not a world save, so its character is not
+            // stored here. The host's SaveSync (asked for below) brings the real one.
 
             // Permanent local co-op copy: re-fingerprint sav files after every local Save.
             // Host-coordinated client SaveSync still writes; blocked client Saves skip this
