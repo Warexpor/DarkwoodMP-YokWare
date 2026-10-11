@@ -390,6 +390,10 @@ code, not yet playtested).
   everyone else sees the result. Other players' bodies pass through pushable things
   on your screen, so nothing gets pushed twice. Furniture the night shoves around (the
   poltergeist) is moved by the host's game only, and every player sees that one motion.
+- **Odd noises are heard by everyone near.** The game's random stingers (a noise in the
+  house, something in the forest, the far musician, the big pig) are rolled by one player's
+  game and heard by every player in earshot, from the same spot. Players together get about
+  vanilla's pace of them, not one each.
 - **Night comes to every player, at vanilla's rate.** Each hideout a living player
   is home in gets the night's monsters at vanilla's pace and count, around a player
   there (times the host's night monster setting, see [section 18](#18-balancing-for-the-party)). Each living, unwarded player gets its own worm, as in vanilla; a player in a

@@ -3,12 +3,12 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.236**. The current Horde wire protocol is **55**. Every install in a session
+**0.8.237**. The current Horde wire protocol is **55**. Every install in a session
 needs the same DLL; the protocol is checked on join.
 
 Protocol history (newest first):
 
-- **55**, 0.8.230 to 0.8.236: `BarricadeEvent` (destructible items) gains the item's name.
+- **55**, 0.8.230 to 0.8.237: `BarricadeEvent` (destructible items) gains the item's name.
 - **54**, 0.8.212 to 0.8.229: `VoiceData` (129) gains flag 2: a second codec block after the voice,
   the sounds the talker's radio picked up.
 - **53**, 0.8.200 to 0.8.211: the world share package gains `savplc.dat` (container slots a player
@@ -62,6 +62,21 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.237 — "did you hear that?": random world noises heard by every player near
+
+- The game's random stingers (`RandomWorldSounds`: house_noises indoors, forest_noises outdoors,
+  the far musician and the big pig once a day) were each player's own. Vanilla rolls one every
+  50 to 150 s, 250 to 530 units from its one player, and plays it with no parent object, which
+  the sound forwarding skips on purpose; so one player heard a noise behind the house and the one
+  next to it heard nothing. The player whose game rolls one now sends it (`PlayerAudio`, a world
+  sound at that spot, relayed by the host to every client); a player in earshot (the stinger's
+  own 3D range, 1000) hears it from the same spot and counts it as its own roll: a once-a-day
+  stinger is used up for it too, and its own wait starts over, so players together get about
+  vanilla's pace instead of one stinger each. Files: `Audio/RandomWorldSoundShare.cs` (a patch on
+  the roll loop), `WorldFxNetHandlers.HandlePlayerAudio`. Night scenes and their sounds were
+  already shared (`ScenarioEventFired`); global ambient beds stay local.
+- No protocol change (an existing message carries it).
 
 ## 0.8.236 — poltergeist furniture moves as one for everyone
 
