@@ -390,6 +390,13 @@ code, not yet playtested).
   everyone else sees the result. Other players' bodies pass through pushable things
   on your screen, so nothing gets pushed twice. Furniture the night shoves around (the
   poltergeist) is moved by the host's game only, and every player sees that one motion.
+- **Two players move a thing faster than one, not twice as fast.** A second player walking
+  into a thing someone else pushes sends that push to the pusher's game, which adds it: the
+  two move it at 1.5 times one player's speed. A second player can also take hold of a thing
+  someone drags (E on it, experimental, `SharedDrag`): the dragger's game runs the thing and
+  both players on it, the two walking the same way move it at 1.5 times a lone dragger's
+  speed, pulling apart holds it still, and when the dragger lets go the other drags on alone.
+  Two hold a thing at most.
 - **Odd noises are heard by everyone near.** The game's random stingers (a noise in the
   house, something in the forest, the far musician, the big pig) are rolled by one player's
   game and heard by every player in earshot, from the same spot. Players together get about

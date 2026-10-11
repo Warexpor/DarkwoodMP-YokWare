@@ -47,6 +47,10 @@ namespace DWMPHorde.Sync
             rb.isKinematic = true;
         }
 
+        /// <summary>True while <paramref name="rb"/> is held kinematic to follow another machine's pose.</summary>
+        internal static bool IsSyncLocked(Rigidbody rb)
+            => rb != null && rb.isKinematic && _s.SyncLockedBodies.Contains(rb.GetInstanceID());
+
         /// <summary>Let go of a body <see cref="LockKinematic"/> froze; a body kinematic by design stays so.</summary>
         internal static void ReleaseKinematic(Rigidbody rb)
         {

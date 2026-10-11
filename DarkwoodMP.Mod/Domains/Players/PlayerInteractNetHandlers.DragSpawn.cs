@@ -158,6 +158,9 @@ namespace DWMPHorde.Networking
         {
             if (playerId <= 0) return;
 
+            // A shared drag with the leaver: its partner drags on alone, or stops being held.
+            Sync.SharedDrag.OnPeerLeft(playerId);
+
             var toRemove = new List<string>();
             foreach (var kv in DragClaims)
             {
@@ -172,6 +175,7 @@ namespace DWMPHorde.Networking
                 DragClaims.Remove(key);
                 LastDragSyncPos.Remove(key);
                 DragEndedAt[key] = Time.unscaledTime;
+                DragEndedBy[key] = playerId;
                 // The dragger never sends its STOP: free the proxy copy spawned for its drag.
                 CleanupSpawnedDragProxy(key);
                 RemoteDragTimeline.DropByName(key);

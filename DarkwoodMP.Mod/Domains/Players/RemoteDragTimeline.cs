@@ -23,6 +23,9 @@ namespace DWMPHorde.Networking
             public float T;
             public Vector3 Pos;
             public Quaternion Rot;
+            /// <summary>Where the dragger's co-holder stands at this moment (shared drag), when <see cref="HasCo"/>.</summary>
+            public Vector3 Co;
+            public bool HasCo;
         }
 
         private sealed class Track
@@ -184,10 +187,31 @@ namespace DWMPHorde.Networking
             {
                 T = msg.SendTime,
                 Pos = new Vector3(msg.PosX, msg.PosY, msg.PosZ),
-                Rot = Quaternion.Euler(msg.RotX, msg.RotY, msg.RotZ)
+                Rot = Quaternion.Euler(msg.RotX, msg.RotY, msg.RotZ),
+                Co = new Vector3(msg.CoPosX, msg.CoPosY, msg.CoPosZ),
+                HasCo = msg.CoHolderId > 0 && ModRuntime.Network != null
+                    && msg.CoHolderId == ModRuntime.Network.LocalPlayerId
             });
             tr.Samples++;
             HoldKinematic(tr);
+        }
+
+        /// <summary>The player whose drag of <paramref name="item"/> plays back here (0: none).</summary>
+        internal static int SenderOf(Item item)
+        {
+            if (item == null)
+                return 0;
+            return _tracks.TryGetValue(item.GetInstanceID(), out Track tr) && tr.Item == item ? tr.Sender : 0;
+        }
+
+        /// <summary>
+        /// Hold <paramref name="item"/> kinematic again while its drag still plays back here (the
+        /// local co-holder let go, and vanilla's rigidbody preset set it free).
+        /// </summary>
+        internal static void Rehold(Item item)
+        {
+            if (item != null && _tracks.TryGetValue(item.GetInstanceID(), out Track tr) && tr.Item == item)
+                HoldKinematic(tr);
         }
 
         /// <summary>
@@ -284,7 +308,9 @@ namespace DWMPHorde.Networking
                     continue;
                 }
                 Player lp = Player.Instance;
-                if (tr.Item.beingDragged || (lp != null && lp.itemBeingDragged == tr.Item))
+                // The local co-holder of a shared drag holds it too, but the dragger runs it.
+                bool coHeldHere = Sync.SharedDrag.IsFollowingItem(tr.Item);
+                if (!coHeldHere && (tr.Item.beingDragged || (lp != null && lp.itemBeingDragged == tr.Item)))
                 {
                     // The local player took hold of it: its hinge drives the body now.
                     Finish(tr, localHold: true);
@@ -306,6 +332,8 @@ namespace DWMPHorde.Networking
                 float t = clock.Clock.ToHost(local) - tr.Delay;
                 bool pastNewest = SampleAt(tr, t, out Vector3 pos, out Quaternion rot);
                 Apply(tr, pos, rot);
+                if (coHeldHere && CoAt(tr, t, out Vector3 co))
+                    Sync.SharedDrag.SetFollowTarget(tr.Item, co);
 
                 if (stats)
                 {
@@ -334,6 +362,9 @@ namespace DWMPHorde.Networking
                     ModRuntime.LegacyInfo($"[DragTimeline] {tr.Name} p{tr.Sender} silent {SilentReleaseSec:F0}s — released");
                     Finish(tr, localHold: false);
                     _done.Add(key);
+                    // A co-holder here keeps the body: the dragger is gone, it drags on alone.
+                    if (coHeldHere)
+                        Sync.SharedDrag.OnLeaderLost(tr.Item, tr.Sender);
                 }
             }
             for (int i = 0; i < _done.Count; i++)
@@ -383,6 +414,54 @@ namespace DWMPHorde.Networking
             }
             pos = first.Pos;
             rot = first.Rot;
+            return false;
+        }
+
+        /// <summary>The co-holder's spot at sender time <paramref name="t"/>, from the samples that carry it.</summary>
+        private static bool CoAt(Track tr, float t, out Vector3 co)
+        {
+            co = default;
+            int newest = -1;
+            for (int i = tr.Count - 1; i >= 0; i--)
+            {
+                if (tr.S[i].HasCo)
+                {
+                    newest = i;
+                    break;
+                }
+            }
+            if (newest < 0)
+                return false;
+            if (t >= tr.S[newest].T)
+            {
+                co = tr.S[newest].Co;
+                return true;
+            }
+            for (int i = newest; i > 0; i--)
+            {
+                Sample a = tr.S[i - 1];
+                if (t < a.T)
+                    continue;
+                Sample b = tr.S[i];
+                if (!a.HasCo || !b.HasCo)
+                {
+                    co = b.HasCo ? b.Co : tr.S[newest].Co;
+                    return true;
+                }
+                float span = b.T - a.T;
+                float u = span > 0f ? (t - a.T) / span : 1f;
+                co = Vector3.Lerp(a.Co, b.Co, u);
+                return true;
+            }
+            // Before every sample that has it: hold the oldest spot known.
+            for (int i = 0; i <= newest; i++)
+            {
+                if (tr.S[i].HasCo)
+                {
+                    co = tr.S[i].Co;
+                    return true;
+                }
+            }
             return false;
         }
 

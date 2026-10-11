@@ -44,6 +44,31 @@ namespace DWMPHorde.Players
         /// <summary>The network PlayerId this proxy represents.</summary>
         public int PlayerId { get; set; } = -1;
 
+        private bool _coHeld;
+
+        /// <summary>
+        /// Shared drag on this machine: the remote player holds the body the local player drags,
+        /// so this machine runs the stand-in as a real body hinged to it (<c>Sync.SharedDrag</c>)
+        /// and its network position and facing are not applied meanwhile. Turning it off
+        /// resumes following from where the body is now.
+        /// </summary>
+        internal bool CoHeld
+        {
+            get => _coHeld;
+            set
+            {
+                if (_coHeld == value)
+                    return;
+                _coHeld = value;
+                if (!value && _rb != null)
+                {
+                    _targetPosition = _rb.position;
+                    _pushOffset = Vector3.zero;
+                    _blockedTime = 0f;
+                }
+            }
+        }
+
         /// <summary>Whether the remote player has the Shadow Ward skill active.</summary>
         public bool RemoteHasShadowWard { get; set; }
         /// <summary>Whether the remote player has the Forest Spirit Ward skill active.</summary>

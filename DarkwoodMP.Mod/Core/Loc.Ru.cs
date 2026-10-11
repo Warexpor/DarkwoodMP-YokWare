@@ -208,6 +208,8 @@ namespace DWMPHorde
             { "Already taken…", "Уже забрали…" },
             { "Could not place — returned to bag", "Не удалось положить — возвращено в сумку" },
             { "This object is already being moved by another player", "Этот предмет уже двигает другой игрок" },
+            { "Two players are already moving this", "Этот предмет уже двигают двое" },
+            { "Could not take hold of it", "Не удалось взяться за предмет" },
 
             // Manual saves add-on (YokWare.ManualSaves, built with the co-op mod's menus).
             { "Saves", "Сохранения" },

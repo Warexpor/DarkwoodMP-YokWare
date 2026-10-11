@@ -3,11 +3,12 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.240**. The current Horde wire protocol is **57**. Every install in a session
+**0.8.241**. The current Horde wire protocol is **58**. Every install in a session
 needs the same DLL; the protocol is checked on join.
 
 Protocol history (newest first):
 
+- **58**, 0.8.241: `DragSync` gains the co-holder's id and where it stands; new `CoHold` (170).
 - **57**, 0.8.240: `ConstructibleConstruction` gains the save id and the repaired item's pose;
   new `ItemPose` (169).
 - **56**, 0.8.239: `ContainerItem`, `ContainerStateRequest`, `ContainerStateSync` and
@@ -66,6 +67,40 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.241 — two players push faster; shared drag (experimental)
+
+- **Two players pushing one thing moved it as fast as one.** Only one machine runs a pushed
+  body (the pusher's), and other players' stand-ins pass through pushable things there, so the
+  second pusher added nothing. Now a player walking into a body another machine runs sends its
+  walk force there (`CoHold` push, about 15 a second), and that machine adds it at the contact
+  point: two players pushing the same way move it at 1.5 times one player's speed; one pushing
+  while the other only touches it moves it at one player's speed; pushing off-centre turns it.
+  Works on a dragged body too (`Sync.CoPush`).
+- **Shared drag (experimental, config `SharedDrag`, on by default).** Pressing E on a body
+  another player drags no longer says "already being moved": the second player takes hold of it
+  too. The dragger's machine runs the body and both players on it: the co-holder's stand-in
+  becomes a real body with a player's mass and drag, hinged to the body the way vanilla hinges
+  the dragger, and pushed by the co-holder's walk input. On the co-holder's machine the body plays
+  back as any remote drag, and the co-holder's own body is moved to the spot the dragger's machine
+  has it at, on the same delay, so the two stay together; its walk force is not applied there.
+  Both walk forces share one scale: the same way 1.5 times a lone dragger's speed, opposite ways
+  still, one walking and one standing 0.75 times. Walls stop either player; pulling apart turns
+  the body. Push animations and legs are vanilla's on every screen. When the dragger lets go or
+  leaves, the co-holder drags on alone from the dragger's final pose; when the co-holder lets go,
+  the dragger carries on. Two holders at most ("Two players are already moving this"). The
+  co-holder's join is confirmed by the dragger's samples (given up after 2 s), its input going
+  silent for 3 s ends the hold. Files: `Sync.SharedDrag`, `PlayerMoveForcePatch` (the vanilla walk
+  force goes through one hook that records it and scales it), `RemotePlayerProxy.CoHeld`.
+- **A drag ended by another player blocked the next one for a second.** After a drag's STOP every
+  grab sample for that body name was dropped for a second as a late leftover, whoever sent it. Only
+  the player whose drag ended is ignored now (`DragEndedBy`).
+- **A refused let-go still told everyone the drag ended.** Vanilla ignores a release during the
+  grab or let-go animation, but the drag-end message went out anyway. It goes only when the body
+  was really let go.
+- **Tests and README caught up with 0.8.240**: the README's highest message id still read 168
+  and the message-id contract test did not list `ItemPose`; a config comment narrated a version.
+- **Protocol 58** (`DragSync` gains the co-holder; new `CoHold`).
 
 ## 0.8.240 — a broken wardrobe lies, turns and gets repaired the same for everyone
 

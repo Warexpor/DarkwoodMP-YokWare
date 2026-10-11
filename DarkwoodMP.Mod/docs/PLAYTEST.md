@@ -383,6 +383,16 @@ Older, still open:
       player's lantern and flashlight look the same everywhere. A late joiner near lit
       lamps hears no burst of switch clicks.
 - [ ] Dragging a body or crate: smooth for everyone, and the scrape stops with it.
+- [ ] Two players body-push one heavy crate the same way: it moves about 1.5 times as
+      fast as with one, on both screens. One pushes, the other only touches it: normal
+      speed. Swap who started the push.
+- [ ] Shared drag: A drags a crate, B presses E on it: B plays the grab, then both hold
+      it. Same way: about 1.5 times faster; opposite ways: it stays put; one walks, the
+      other stands: about 0.75 times. Pulling to one side turns it. Walls stop either
+      player. Third screen: both players stay on the crate and play the push walk.
+- [ ] Shared drag endings: B lets go (A drags on), A lets go (B drags on from the same
+      spot, no jump), A quits the game mid-drag (B drags on), a third player presses E
+      ("Two players are already moving this"). Do each with host and client as A.
 - [ ] Traps placed by one player catch enemies for everyone; a sprung trap disappears
       for everyone.
 - [ ] Same look: stand host and client side by side in the open world, in a location

@@ -477,7 +477,12 @@ namespace DWMPHorde.Networking
         /// (<c>Sync.WreckPoseSync</c>). Protocol 57.
         /// </summary>
         [Forwardable] ItemPose = 169,
+        /// <summary>
+        /// Either peer: shared drag (a second player holding a dragged body) and two-player
+        /// pushes (<c>Sync.SharedDrag</c>, <c>Sync.CoPush</c>). Protocol 58.
+        /// </summary>
+        [Forwardable] CoHold = 170,
         /// <summary>Highest used message type ID.</summary>
-        _Highest = 169
+        _Highest = 170
     }
 }

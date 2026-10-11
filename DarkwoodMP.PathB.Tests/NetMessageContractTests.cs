@@ -70,7 +70,9 @@ public class NetMessageContractTests
         Assert.Equal(166, (byte)NetMessageType.MapPinRequest);
         Assert.Equal(167, (byte)NetMessageType.MapPinEvent);
         Assert.Equal(168, (byte)NetMessageType.PlayerName);
-        Assert.Equal(168, (byte)NetMessageType._Highest);
+        Assert.Equal(169, (byte)NetMessageType.ItemPose);
+        Assert.Equal(170, (byte)NetMessageType.CoHold);
+        Assert.Equal(170, (byte)NetMessageType._Highest);
         // 68 / 72 (MapMarker / MapMarkerRemove) and 165 (WorldClock) are retired.
         Assert.False(Enum.IsDefined(typeof(NetMessageType), (byte)68));
         Assert.False(Enum.IsDefined(typeof(NetMessageType), (byte)72));

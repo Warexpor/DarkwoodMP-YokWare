@@ -30,6 +30,17 @@ namespace DWMPHorde.Networking
                 if (hostStamps)
                     RelayStamped(w => drag.Serialize(w));
             });
+            OnRaw(NetMessageType.CoHold, payload =>
+            {
+                var co = CoHoldMessage.Deserialize(new NetReader(payload));
+                // Host: the transport peer is the sender; an embedded id could act for another player.
+                bool hostStamps = _role == NetworkRole.Host && _currentReceivePlayerId > 0;
+                if (hostStamps)
+                    co.SenderId = _currentReceivePlayerId;
+                Sync.SharedDrag.Handle(co);
+                if (hostStamps)
+                    RelayStamped(w => co.Serialize(w));
+            });
             On(NetMessageType.PlayerLightState, PlayerLightStateMessage.Deserialize, m => PlayerLightFxApplyHandlers.HandlePlayerLightState(m));
             On(NetMessageType.PlayerAudio, PlayerAudioMessage.Deserialize, m => WorldFxHandlers.HandlePlayerAudio(m));
             On(NetMessageType.PlayerAnimation, PlayerAnimationMessage.Deserialize, m => PlayerFXHandlers.HandlePlayerAnimation(m));

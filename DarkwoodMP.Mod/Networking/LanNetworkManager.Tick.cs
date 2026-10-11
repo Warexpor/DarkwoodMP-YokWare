@@ -405,8 +405,14 @@ namespace DWMPHorde.Networking
             if (_role == NetworkRole.Host)
                 PlayerPositionManager.ReportHostPosition(pos);
 
+            // Shared drag: the local player holds a body another player drags. That player's
+            // machine runs it; this one sends its walk input there instead of poses.
+            if (local.dragging && local.itemBeingDragged != null
+                && Sync.SharedDrag.TickFollowerSend(this, local))
+            {
+            }
             // Both sides: if dragging an object, sync its position at ~30 Hz
-            if (local.dragging && local.itemBeingDragged != null)
+            else if (local.dragging && local.itemBeingDragged != null)
             {
                 Item dragged = local.itemBeingDragged;
                 _lastDraggedItem = dragged;
@@ -461,6 +467,7 @@ namespace DWMPHorde.Networking
                     SendTime = RemoteDragTimeline.StampFor(dragged.GetComponent<Rigidbody>()),
                     HasPose = true
                 };
+                Sync.SharedDrag.FillLeaderFields(ref dragMsg, dragged);
                 // Quiet scrape stop must be reliable; unreliable quiet ticks can be lost
                 // observers kept the last NoteMoving loop until full release.
                 var dragDelivery = _dragScrapeActive
