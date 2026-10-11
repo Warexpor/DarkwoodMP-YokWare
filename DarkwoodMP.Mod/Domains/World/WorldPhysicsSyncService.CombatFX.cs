@@ -26,14 +26,12 @@ namespace DWMPHorde.Sync
             TraverseHack.SetExplicitFlag(true);
             try
             {
-                // Positional 3D play with no parent, matching vanilla explode().
-                // Fully 3D from its first moment (PeerSpatialPlay).
-                Action<AudioSource> spatial = src => src.spatialBlend = 1f;
-                AudioObject ao = PeerSpatialPlay.Play(() => AudioController.Play(id, pos, null, 1f), spatial);
+                // Played like every explosion here: fully 3D, muffled behind a wall (ExplosionSound).
+                AudioObject ao = ExplosionSound.Play(id, pos);
                 if (ao == null && id == "mushroom_explode_01")
                 {
                     // Alternate clip id seen in decompiled assets.
-                    ao = PeerSpatialPlay.Play(() => AudioController.Play("expObj_mushroom_01", pos, null, 1f), spatial);
+                    ao = ExplosionSound.Play("expObj_mushroom_01", pos);
                     if (ao != null) id = "expObj_mushroom_01";
                 }
 

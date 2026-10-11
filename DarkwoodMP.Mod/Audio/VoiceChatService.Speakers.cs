@@ -153,8 +153,8 @@ namespace DWMPHorde.Audio
 
             float dt = Time.unscaledDeltaTime;
             float vol = ModConfig.VoiceVolume?.Value ?? 1f;
-            float rangeFull = ModConfig.VoiceFullVolumeDistance?.Value ?? 150f;
-            float rangeMax = ModConfig.VoiceMaxDistance?.Value ?? LocalAudioService.DefaultMaxAudioDistance;
+            float rangeFull = ModConfig.VoiceFullVolumeDistance?.Value ?? 300f;
+            float rangeMax = ModConfig.VoiceMaxDistance?.Value ?? 1300f;
             // Heard from where this player listens (the followed player while spectating).
             Vector3 listen = LocalAudioService.GetListenPosition();
 

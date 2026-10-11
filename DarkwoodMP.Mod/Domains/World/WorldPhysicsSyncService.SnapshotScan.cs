@@ -234,6 +234,14 @@ namespace DWMPHorde.Sync
             }
         }
 
+        /// <summary>A destroyed destructible item's body (its collider turned trigger when it broke).</summary>
+        private static bool IsBrokenDestructible(Rigidbody rb)
+        {
+            if (rb == null) return false;
+            Item item = rb.GetComponent<Item>();
+            return item != null && item.destructible && item.destroyed;
+        }
+
         /// <summary>
         /// Examines a trigger collider to determine if it belongs to a trap
         /// and caches the result so the scan-loop can skip it on subsequent frames.

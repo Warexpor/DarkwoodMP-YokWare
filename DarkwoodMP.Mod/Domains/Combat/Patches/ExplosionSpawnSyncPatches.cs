@@ -102,7 +102,7 @@ namespace DWMPHorde.Patches
             if (net == null || net.Role != NetworkRole.Client || !net.IsConnected) return true;
             if (__instance == null || __instance.effect == null) return true; // vanilla: logs, returns
             if (!string.IsNullOrEmpty(__instance.explodeSound))
-                AudioController.Play(__instance.explodeSound, __instance.transform.position);
+                Audio.ExplosionSound.Play(__instance.explodeSound, __instance.transform.position);
             if (__instance.destroyOnExplode)
                 __instance.gameObject.DestroyMe();
             return false;

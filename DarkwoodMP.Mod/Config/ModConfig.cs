@@ -241,10 +241,22 @@ namespace DWMPHorde.Config
             VoiceGain = config.Bind("Voice", "VoiceGain", 1.4f,
                 "Gain applied to received voice.");
             // Game units, like every other range here (a body is about 40 across).
-            VoiceFullVolumeDistance = config.Bind("Voice", "VoiceFullVolumeDistance", 150f,
+            VoiceFullVolumeDistance = config.Bind("Voice", "VoiceFullVolumeDistance", 300f,
                 "Distance (game units) within which a shout is at full volume (quieter speech a shorter way).");
-            VoiceMaxDistance = config.Bind("Voice", "VoiceMaxDistance", 650f,
-                "Distance (game units) a shout carries before it is silent (same as other peer sounds). Normal speech carries about three quarters of it, a whisper about a third, muffled through walls.");
+            VoiceMaxDistance = config.Bind("Voice", "VoiceMaxDistance", 1300f,
+                "Distance (game units) a shout carries before it is silent. Normal speech carries about three quarters of it, a whisper about a third, muffled through walls.");
+            // 0.8.234 doubled the voice range: a file still holding the old defaults takes the new
+            // ones, once (an exact 650 set by hand afterwards stays).
+            var voiceRangeDoubled = config.Bind("Voice", "VoiceRangeDoubled", false,
+                "Set by the mod once old voice range defaults (150 / 650) were moved to the doubled ones. Leave as is.");
+            if (!voiceRangeDoubled.Value)
+            {
+                if (VoiceFullVolumeDistance.Value == 150f)
+                    VoiceFullVolumeDistance.Value = 300f;
+                if (VoiceMaxDistance.Value == 650f)
+                    VoiceMaxDistance.Value = 1300f;
+                voiceRangeDoubled.Value = true;
+            }
             WalkieItemName = config.Bind("Voice", "WalkieItemName", "walkie_talkie",
                 "InvItem type for walkie radio (hold + VoiceRadioTalkKey to TX; switched on and charged, it receives anywhere it is carried).");
             VoiceRadioTalkKey = config.Bind("Voice", "VoiceRadioTalkKey", "Mouse1",

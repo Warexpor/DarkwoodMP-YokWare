@@ -249,6 +249,9 @@ namespace DWMPHorde.Networking
                         Rigidbody rb = item.GetComponent<Rigidbody>();
                         if (rb != null) rb.position = at;
                     }
+                    // Vanilla's getHit takes the last hit off before die(); die() itself leaves
+                    // health alone, so the wreck kept its last hit's health in the health bar.
+                    item.health = 0;
                     item.die();
                 }
             }

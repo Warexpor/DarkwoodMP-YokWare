@@ -29,7 +29,11 @@ namespace DWMPHorde.Sync
                 Collider col = _overlap3D[i];
                 if (col == null) continue;
 
-                if (col.isTrigger)
+                // A broken destructible keeps moving on a trigger collider (setDeathState): the
+                // shotgun blast that breaks a wardrobe shoves the wreck after it broke. Skipped
+                // as a trigger, the wreck slid on the host only, and a client looting it asked
+                // for a container where the host had none.
+                if (col.isTrigger && !IsBrokenDestructible(col.attachedRigidbody))
                 {
                     DetectTrap(col);
                     continue;

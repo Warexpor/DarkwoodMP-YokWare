@@ -3,12 +3,12 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.233**. The current Horde wire protocol is **55**. Every install in a session
+**0.8.234**. The current Horde wire protocol is **55**. Every install in a session
 needs the same DLL; the protocol is checked on join.
 
 Protocol history (newest first):
 
-- **55**, 0.8.230 to 0.8.233: `BarricadeEvent` (destructible items) gains the item's name.
+- **55**, 0.8.230 to 0.8.234: `BarricadeEvent` (destructible items) gains the item's name.
 - **54**, 0.8.212 to 0.8.229: `VoiceData` (129) gains flag 2: a second codec block after the voice,
   the sounds the talker's radio picked up.
 - **53**, 0.8.200 to 0.8.211: the world share package gains `savplc.dat` (container slots a player
@@ -62,6 +62,34 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.234 — voice carries twice as far; a broken wardrobe stays where it is for everyone; explosions muffled behind walls
+
+- Proximity voice faded out too close. The range is doubled, not the loudness: a shout now
+  carries 1300 game units (was 650) and stays at full volume out to 300 (was 150); normal speech
+  and whispers scale with it (about three quarters and a third). Same curve, stretched.
+- Config: `Voice.VoiceMaxDistance` default 1300, `Voice.VoiceFullVolumeDistance` default 300. An
+  existing file still holding the old defaults (650 / 150) is moved to the new ones once; the new
+  key `Voice.VoiceRangeDoubled` records that, so a value set by hand later stays. Custom values are
+  left alone. Files: `Config/ModConfig.cs`, `Audio/VoiceChatService.Speakers.cs`, `docs/CONFIG.md`.
+- How far creatures hear talking (`VoiceAlertsEnemies`) is unchanged. No protocol change.
+- A wardrobe the host shot apart could not be looted by a client: the client's take was
+  refused ("Already taken…"), the items vanished from its copy and stayed on the host's. The
+  shotgun blast that breaks a destructible keeps shoving it, and the wreck slides on a trigger
+  collider (vanilla `setDeathState`); the physics scan skipped every trigger collider, so the wreck
+  moved about 10 units on the host only and the client asked for a container where the host had
+  none. A broken destructible's body is now sent like any other pushed object, both ways
+  (`WorldPhysicsSyncService.Snapshot/SnapshotScan`).
+- A destructible broken on another machine kept its last hit's health (the health bar showed a
+  sliver on the wreck): vanilla takes the hit off before `die()` and `die()` leaves health alone.
+  The remote break now sets health to 0 first (`BarricadeNetHandlers.Bulk`).
+- Explosions (barrels, gas, mushrooms, bombs) sounded raw and dead centre, also behind walls,
+  for every player. Vanilla plays them at a point with no parent object, and the game only runs its
+  wall check (0.75 volume, 1500 Hz low pass) for a parented sound; the explosion audio object is
+  also centred out to about 690 units. Every explosion sound, local or from the host, now goes
+  through one path (`Audio/ExplosionSound.cs`, a transpiler on `Explodes.explode`): panned fully
+  3D, and muffled the game's way when a wall is between it and the listener. The game's own
+  distance falloff is kept. `PeerSpatialPlay` can set and undo that muffle on a pooled source.
 
 ## 0.8.233 — the player who finds a location gets the notification
 

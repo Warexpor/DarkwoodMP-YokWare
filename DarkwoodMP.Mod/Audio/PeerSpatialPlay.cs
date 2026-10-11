@@ -29,6 +29,9 @@ namespace DWMPHorde.Audio
             public AnimationCurve RolloffCurve;
             public float Min;
             public float Max;
+            public AudioLowPassFilter AddedMuffle;
+            public AudioLowPassFilter DisabledMuffle;
+            public AudioLowPassFilter EnabledMuffle;
         }
 
         private static readonly Dictionary<AudioSource, Saved> _saved = new Dictionary<AudioSource, Saved>(); // process-scoped: pooled sources holding a peer falloff, until they return to the pool
@@ -64,6 +67,37 @@ namespace DWMPHorde.Audio
             _pending(src);
         }
 
+        /// <summary>
+        /// From inside a configure call: the game's own wall muffle (1500 Hz low pass) on or off
+        /// for this play. Undone when the source returns to the pool, like the falloff.
+        /// </summary>
+        internal static void SetMuffle(AudioSource src, bool on, float cutoff)
+        {
+            if (src == null || !_saved.TryGetValue(src, out Saved s))
+                return;
+            AudioLowPassFilter f = src.GetComponent<AudioLowPassFilter>();
+            if (on)
+            {
+                if (f == null)
+                {
+                    f = src.gameObject.AddComponent<AudioLowPassFilter>();
+                    s.AddedMuffle = f;
+                }
+                else if (!f.enabled)
+                {
+                    f.enabled = true;
+                    s.EnabledMuffle = f;
+                }
+                f.cutoffFrequency = cutoff;
+            }
+            else if (f != null && f.enabled)
+            {
+                f.enabled = false;
+                s.DisabledMuffle = f;
+            }
+            _saved[src] = s;
+        }
+
         /// <summary>Back to the game's settings, before the game restores its own item overrides.</summary>
         internal static void OnReturn(AudioObject ao)
         {
@@ -81,6 +115,12 @@ namespace DWMPHorde.Audio
             src.rolloffMode = s.Rolloff;
             src.minDistance = s.Min;
             src.maxDistance = s.Max;
+            if (s.AddedMuffle != null)
+                UnityEngine.Object.Destroy(s.AddedMuffle);
+            if (s.DisabledMuffle != null)
+                s.DisabledMuffle.enabled = true;
+            if (s.EnabledMuffle != null)
+                s.EnabledMuffle.enabled = false;
         }
 
     }
