@@ -195,22 +195,12 @@ namespace DWMPHorde.Sync
             Flags flags = Singleton<Flags>.Instance;
             if (flags == null || flags.npcStates == null)
                 return;
-            // Same rule as ReputationSyncUtil.IsPerPlayerReputationNpcName, from the registry (no scene scan).
-            var npcs = new List<NPC>(64);
-            DesyncRegistry<NPC>.Snapshot(npcs);
-            var nightTrader = new Dictionary<string, bool>(StringComparer.Ordinal);
-            foreach (NPC npc in npcs)
-            {
-                Character ch = npc.GetComponent<Character>();
-                if (ch != null && !nightTrader.ContainsKey(npc.name))
-                    nightTrader[npc.name] = ch.isNightTrader;
-            }
             foreach (Flags.NPCState n in flags.npcStates)
             {
                 if (n == null || string.IsNullOrEmpty(n.name))
                     continue;
-                // Traders keep a standing per player (ReputationSyncUtil); their death is shared.
-                bool own = (nightTrader.TryGetValue(n.name, out bool nt) && nt) || DialogApplyPolicy.IsPerPlayerReputationNpcName(n.name);
+                // The morning traders keep a standing per player (ReputationSyncUtil); their death is shared.
+                bool own = DialogApplyPolicy.IsPerPlayerReputationNpcName(n.name);
                 // A state is made when its NPC first loads on that machine; an untouched one (alive,
                 // no standing) reads the same as none, as with flags. Only the host had been to
                 // the village: "chickenLady: host=dead=0|rep=0 client=<none>".

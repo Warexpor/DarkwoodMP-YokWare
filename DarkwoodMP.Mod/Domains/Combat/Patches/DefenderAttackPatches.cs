@@ -436,7 +436,7 @@ namespace DWMPHorde.Patches
             sensor.gameObjectsToIgnore.Add(col.gameObject);
             if (attacker == col.transform || col.transform.IsChildOf(attacker)) return;
             if (!sensor.doesNotNeedLineOfSight && !Core.canSeeAttack(attacker, col.transform)) return;
-            if (!local.alive || DeathStateTracker.LocalNightDeath) return;
+            if (!local.alive || DeathStateTracker.LocalDown) return;
 
             if (sensor.onHit != null)
                 sensor.onHit();
@@ -506,7 +506,7 @@ namespace DWMPHorde.Patches
 
             Player local = Player.Instance;
             float y = __instance.transform.eulerAngles.y;
-            if (local != null && cb == local && !DeathStateTracker.LocalNightDeath)
+            if (local != null && cb == local && !DeathStateTracker.LocalDown)
             {
                 int dmg = (int)m.Damage;
                 local.getHit(dmg, __instance.objectThatSpawnedMe, CanCutInHalf: false, byPlayer: false, canInterrupt: true);
@@ -592,7 +592,7 @@ namespace DWMPHorde.Patches
             }
 
             Player local = Player.Instance;
-            if (hit != null && local != null && hit == local && local.alive && !DeathStateTracker.LocalNightDeath)
+            if (hit != null && local != null && hit == local && local.alive && !DeathStateTracker.LocalDown)
             {
                 local.getHit(dmg, ti.objectThatSpawnedMe, CanCutInHalf: false, byPlayer: false, canInterrupt: ti.canInterrupt);
                 EnemyAttackNetHandlers.SendHitConfirm(m.EntityId, m.Kind, dmg, pos);

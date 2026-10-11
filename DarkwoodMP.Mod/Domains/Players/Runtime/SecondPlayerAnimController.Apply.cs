@@ -255,6 +255,62 @@ namespace DWMPHorde.Players
             }
         }
 
+        /// <summary>
+        /// The peer's torso library changed (weapon, or a new look: the doctor dream's antagonist,
+        /// the epilogue clothes, naked). Vanilla <c>switchAniLibrary</c> picks the legs and the
+        /// bare-handed library from the same look, so they follow from the torso's name. The
+        /// running clips are replayed from the new library at the same frame: tk2d keeps playing
+        /// the old clip object, so a player standing still kept the old look until it moved.
+        /// </summary>
+        internal void ApplyTorsoLibrary(tk2dSpriteAnimation lib)
+        {
+            if (_torsoAnimator == null || lib == null)
+                return;
+            SkinLibraries(lib.name, out string noneName, out string legsName);
+            var none = Resources.Load(noneName, typeof(tk2dSpriteAnimation)) as tk2dSpriteAnimation;
+            if (none != null)
+                _noneAnimsLib = none;
+
+            if (_legsAnimator != null)
+            {
+                var legs = Resources.Load(legsName, typeof(tk2dSpriteAnimation)) as tk2dSpriteAnimation;
+                if (legs != null && _legsAnimator.Library != legs)
+                    SwapLibraryKeepClip(_legsAnimator, legs);
+            }
+            SwapLibraryKeepClip(_torsoAnimator, lib);
+            if (_legsAnimator != null)
+                ApplyLegsClipFps();
+        }
+
+        private static void SwapLibraryKeepClip(tk2dSpriteAnimator anim, tk2dSpriteAnimation lib)
+        {
+            string clip = anim.CurrentClip != null ? anim.CurrentClip.name : null;
+            int frame = anim.CurrentFrame;
+            bool playing = anim.Playing;
+            anim.Library = lib;
+            tk2dSpriteAnimationClip next = string.IsNullOrEmpty(clip) ? null : lib.GetClipByName(clip);
+            if (next == null || next.frames == null || next.frames.Length == 0)
+                return;
+            anim.PlayFromFrame(clip, Mathf.Clamp(frame, 0, next.frames.Length - 1));
+            if (!playing)
+                anim.Stop();
+        }
+
+        /// <summary>Vanilla switchAniLibrary's look families: bare-handed torso and legs per look.</summary>
+        internal static void SkinLibraries(string torsoLib, out string noneLib, out string legsLib)
+        {
+            noneLib = "PlayerNoneAnims";
+            legsLib = "PlayerNoneAnims";
+            if (string.IsNullOrEmpty(torsoLib))
+                return;
+            if (torsoLib.StartsWith("AntagonistAct1", System.StringComparison.Ordinal))
+                noneLib = legsLib = "AntagonistAct1NoneAnims";
+            else if (torsoLib.StartsWith("PlayerNaked", System.StringComparison.Ordinal))
+                noneLib = legsLib = "PlayerNakedNoneAnims";
+            else if (torsoLib.StartsWith("PlayerEpilogue", System.StringComparison.Ordinal))
+                noneLib = "PlayerEpilogueAnims";
+        }
+
         /// <returns>True when the clip was started now (not already playing).</returns>
         internal bool PlayTorso(string clipName)
         {

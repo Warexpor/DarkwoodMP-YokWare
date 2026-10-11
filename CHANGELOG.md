@@ -3,11 +3,14 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.258**. The current Horde wire protocol is **62**. Every install in a session
+**0.8.259**. The current Horde wire protocol is **63**. Every install in a session
 needs the same DLL; the protocol is checked on join.
 
 Protocol history (newest first):
 
+- **63**, 0.8.259: `TradeCommit` gains the trade's change to the trader's standing; a
+  `DialogMirror` element gains the language entry its text came from; `PlayerEffectSync` uses
+  a spare bit (`MovedHome`, Flags2 64).
 - **62**, 0.8.252 to 0.8.258: new `PeerNotice` (173). 0.8.257 uses a spare bit of the entity
   snapshot (`Flag2LeftRange`, 32); the layout is unchanged.
 - **61**, 0.8.248 to 0.8.251: `VoiceData` (129) carries Opus; with flag 2 its data starts with the voice
@@ -71,6 +74,213 @@ Protocol history (newest first):
 This file is a public ship log. Code-only status and runtime status are called
 out separately. A runtime item is not considered verified until it has been
 tested in the game.
+
+---
+
+## 0.8.259 — the host's game no longer stays frozen after a friend joins behind an open menu; no gap in the game's sound at a save; the Wolf's, Piotrek's and the other story traders' standing is shared; a talk listened in on reads in the listener's language; a dream's weapon for every dreamer; a player down for the night is silent and their body holds their whole kit; a player rejoining on a later night is no longer down; the party moves home together; a new world plays the bunker dream; a dream's look (the Doctor, the home dream's clothes) is seen by the others
+
+Deployed to the Steam, second and third installs (md5 29d2f049), not played. Protocol 63 (`TradeCommit` gains `RepDelta`, a `DialogMirror`
+element gains its language entry): every player needs this build.
+
+From the 11 October session logs (host Steam log, two client logs):
+
+**A player rejoining the next night started dead.** funtikFM left on day 6 and came back that
+night: the host put them straight into spectate ("Rejoin: p7 died this night before leaving").
+They had died the night before (day 5) and been released at dawn, but the host's list of
+"died this night, by Steam id" (kept so a quit-and-rejoin the same night stays down) was only
+cleared by the all-dead morning, not by the normal dawn release. The dawn release now clears it
+(`DeathStateTracker.ClearRemoteNightState`). This was the broken join of the second client.
+
+**After a night death a client woke in the first hideout.** Homes are each player's own oven.
+The host lit the second hideout's oven (moving home); a client who never talked to that oven
+kept the first hideout as home, and the dawn release sent them there while the others got up in
+the second. Now when a player moves home, every player who lived in the hideout it left moves
+with it (home and respawn point); a player living in another hideout keeps theirs. The old oven
+goes out once nobody lives there. Both ways: a client moving moves the host too. Only a move
+the player made counts (the effect sync's new `MovedHome` bit, set from vanilla
+`setExperienceMachine` away from a home it had): a home put back by a load, a join or a backup
+moves nobody. Log
+`[HideoutUpgrade] party moved home — following to …`. (`OvenHomes.FollowPeerMove`, called from
+`HandlePlayerEffectSync` when a peer's reported home changes.)
+
+**The bunker dream never ran.** The world was a new one started in save slot 3, which had held
+an older world. The slot's co-op sidecar kept the old world's played dreams, and a new world
+only got a new campaign id, so the bunker counted as played: the first level-2 dream rolled a
+random one (the grave meadow, "Level 2: the party played the bunker — a random dream instead").
+A newly generated world now starts with no played dreams (`MintNewCampaignId(newWorld: true)`,
+`DreamSession.ResetIncludingCompletions` at world gen), a client copy that receives another
+world drops the old list (`SetCampaignId`), and the old "host had its level-2 dream, so the
+bunker was played" guess applies only to worlds from before the list existed. This campaign's
+sidecar still lists the bunker; a new world plays it.
+
+**A dream's look was not seen by the others.** The home dream dresses the player
+(`special_changeClothes`), the Doctor dream plays you as the Doctor (`antagonistMode`). A client
+switches its look inside the host's dream start or a replayed dream event, and the library
+message was dropped there (the send was gated on `IsApplyingRemoteState`, which is always true
+while a host message is applied); the host log shows the host's own `PlayerEpilogueAnims` sent at
+the dream start and the clients' never. Also only the torso library travelled: the legs of the
+Doctor/naked looks stayed the normal ones, the bare-handed fallback swapped the proxy back to
+the normal sprite, and a player standing still kept the old look until they moved. Now:
+- the library always goes out (it is the local player's own look), and a dropped send is not
+  remembered as sent (`PlayerAnimLibraryPatch`, `WorldSendNetHandlers.SendPlayerAnimLibrary`);
+- the proxy takes the legs and bare-handed library of the same look and replays its running
+  clips from the new library at the same frame (`SecondPlayerAnimController.ApplyTorsoLibrary`).
+
+**A player woke from the home dream still in its clothes.** The clothes are a toggle (start
+event on, end event off). In the log a client's `PlayerEpilogueAnims` reached the host after the
+dream was over: a dream event replayed after that player had woken flipped them on again in the
+overworld. The toggle now does nothing outside a dream or the epilogue (`DreamClothesTogglePatch`,
+log `[Clothes] … outside a dream dropped`), and waking from a dream outside the epilogue gives
+the player their own clothes back (`DreamSyncManager.RestoreLookAfterDream`).
+
+**12 errors after the home dream (light path nodes).** Vanilla removes a dream's path graph when
+it ends and destroys the dream scene 4 s later; in between, its lights went through the
+overworld node lookup against the removed graph (`AstarPath.GetNodesAround`
+NullReferenceException with a stack trace, every light on every pass). A co-op host awake while
+the others dream keeps the scene longer. Lights of a dream scene the local player is not in are
+held out of the pass (`RemoteFlashlightNodesPatch`).
+
+**The grave dream's chompers kept biting a dreamer who was already dead.** The host log has p5
+"died in dream (1/2)" and then eight more chomper hits on p5; the client log has fifteen bites
+for 100 health. Everything that keeps creatures off a player who is down (targeting, sight,
+melee and explosion damage, the host's hit confirm, the client's own sensor hit, friendly fire)
+asked only "night-dead". It now asks "down": night-dead or dead in the running dream
+(`DeathStateTracker.IsRemoteDown` / `LocalDown`).
+
+**The host re-sent the dream's prop colliders at every story event.** 46 colliders went out at
+each of the home dream's GameEvents fires though none had changed. Only a change goes out now;
+the dream start still sends them all (`HostBroadcastDreamPropColliders`).
+
+**The host sent "trap triggered" for every sprung trap while loading.** Restoring the save's
+triggered traps went through the trap-triggered broadcast. A load is not a trap going off; peers
+load the same save and a joiner gets the trap bulk (`TrapSwitchPatch`, skipped while
+`Core.loadingGame`).
+
+Checked, not changed: the long frames in the host log are the world loads (3 to 4.6 s), the
+forced save at each late join (about 1.2 s, the sav/savs pair check), the morning saves (260 to
+310 ms, the collection fix above) and about 1 s frames while the host window was hidden
+(rendering held by the desktop, not the game). The voice underruns are one or two per 10 s per
+speaker, the ends of speech. `HandleContainerItem: no inventory` on a client is a corpse it
+never had loaded; it asks the host for the contents when it opens one.
+
+**One weapon for three chompers.** The grave meadow dream has three black chompers for three
+dreamers (one extra per extra player, as before) but only the one shovel vanilla leaves by the
+grave, and a pickup removed it for everyone. An item lying in a party dream's scene is now each
+dreamer's own: taking it removes it only from that dreamer's copy of the scene and nothing is
+sent. A player's own drop in a dream stays one shared item. The dream bag is thrown away on
+waking, so nothing is multiplied into the world. `DroppedItemSyncHelpers.IsDreamScenePickup`,
+`DroppedItemSyncPatches`.
+
+A scene prop built as a creature (that dream's corpse) was "woken" by the host on every entity
+tick while a player stood near; vanilla does nothing for such a dummy, so it is skipped now
+(`EntityStateBroadcastService`).
+
+Not found: the broken sound in that dream. The host log of that session records no sound fault;
+it shows the host dying to the chompers and watching the rest of the dream as a spectator.
+
+**A player who died at night could still talk.** Nothing tied voice chat to the night death:
+the spectating player's mic and radio went on sending, from the spot of whoever they watched.
+A player down until morning now sends no voice (push to talk, open mic and the radio), and
+the others drop a voice packet from a player they hold as night-dead (`VoiceChatService`).
+A dream death is unchanged.
+
+**A player who died at night often could not be looted.** The body is looted through the death
+bag hidden under it, and the bag was vanilla's day-death bag: dropped only when the backpack
+holds more than one item, with a random half of the backpack and nothing from the hotbar. A
+player carrying a handful of things, most of them on the hotbar, left a body with no bag (in
+the reported night the dead player's game sent none). A night body now always gets its bag
+and the bag holds the whole kit, backpack and hotbar; the player wakes in the morning with
+what the others handed back, or picks the rest up from the bag the body leaves. A day death
+is vanilla's bag as before. `NightBodyBagPatches` (after vanilla's `dropBody`, and at the next
+step of the death sequence when vanilla dropped nothing). The host logs whether a dying
+player reports a bag (`bag=` on the `[Death] Remote player died` line).
+
+The sound gap at a save is the `finishSaving` collection above, which this build no longer
+runs; the session it was heard in ran 0.8.258. `[SaveTiming]` now also says how many
+collections ran inside a save, so the next log shows whether any is left.
+
+**The host's game froze for good while the others could still join.** A host with nobody
+connected is in single player as far as pausing goes, so the pause menu the host invites from
+paused the game the vanilla way. In co-op the same menu pauses nothing and its close does not
+unpause (`PauseSuppression`). A friend connecting while the menu was open switched the rules
+between the two: the pause had been taken, the unpause on closing was blocked, and the game
+stayed at `timeScale` 0 with nothing left to lift it. The network still ran, so the others joined
+a stopped world. It showed in the 11 October logs: the world stopped from 22:08:34 until the host
+gave up and hosted again at 22:09:07 (no physics step in any `[Perf]` window, two players
+connected), and at 22:10:27 `[PauseMenu] ... world resumed` was logged over a world that stayed
+stopped. It only went right when the joining player happened to drop for its world load before
+the host closed the menu (19:34:28). The map, journal, a dialogue, a padlock, the skill menus,
+the level-up menu and an interactive item had the same fault.
+
+- The first player connecting lifts the pause of a menu the host opened alone; the co-op rule
+  decides from that tick (`PauseMenuSync.LiftSoloPause`, log `[PauseMenu] another player
+  connected: the pause of a menu opened alone is lifted`).
+- A menu that did take its own pause still unpauses on its close, whoever has connected since
+  (`PauseSuppression.UiPauseHeld`, set in the `Core.pause` prefix, read in the `Core.unpause`
+  prefix). This covers a join during a load and the level-up menu's delayed pause.
+- The other direction: when the last other player leaves (or the session ends) with the pause menu
+  open, the game pauses as in single player and the menu's close unpauses it
+  (`PauseMenuSync.PauseAlone`). Before, a pause everyone shared was dropped there and the world
+  ran on behind a lone player's menu. Stopping the host from the pause menu uses the same path and
+  keeps the menu music playing (`MultiplayerScreens.ConfirmDisconnect`).
+- The host's last "everyone is in the menu" verdict is forgotten when the first player connects or
+  the last one leaves; a stale one kept the world running with every player in the menu.
+
+Files: `Domains/Players/PauseMenuSync.cs`, `Patches/NoWorldPausePatch.cs`, `UI/MultiplayerScreens.cs`.
+
+**The sound hitched at daybreak.** Every morning runs a Save under the morning's sounds, and the
+frame it holds is in each log (`[SaveTiming] Save held the frame 260 ms` at 22:20:24, 286 ms at
+20:00:30, `co=262` in the `[PerfCliff]` line). Vanilla ends each Save with `GC.Collect()`
+(`SaveManager.finishSaving`): a full collection that stops every script thread until it is done.
+In single player the sound card's mixing thread is not one of them and the sound plays through
+the frozen frame. The mod's voice speakers and the radio's sound pickup taps (one on nearly every
+game sound, `VoiceRadioWorldSounds`) run script code on that thread, which makes it a script
+thread for the rest of the run, so the collection stopped the mixing too: a gap in the music and
+every sound at each save, on every player (each saves on the host's SaveSync). The save no longer
+forces the collection once the mod has code on the mixing thread; the runtime collects what the
+save allocated in its own slices (`gc-max-time-slice=3`). Without voice the vanilla call stays.
+(`SaveSyncPatches.SaveNoFullCollectPatch`, `VoiceChatService.MixerRunsScripts`)
+
+**Standing with the story traders is the party's.** The stock was shared, the standing spent on
+it was each player's own for the Wolf, Piotrek and the underground soldier. Now only the
+hideout's morning traders keep a standing per player (the Trader and the Three, `nightTrader` and
+`theThree`: it is earned by living through the night); every other NPC's is shared, as the
+Doctor's already was. The rule is by name (`DialogApplyPolicy.IsPerPlayerReputationNpcName`), no
+longer by `Character.isNightTrader`, which vanilla also sets on the underground soldier.
+
+- A client's trade no longer broadcasts its own number as the truth: two players trading in the
+  same moment each sent "what I had, plus mine" and the later one erased the other's (the
+  Doctor had this). The trade carries what it did to the standing, the host adds it to the
+  party's and sends the result to every player, the trading one included
+  (`TradeCommit.HostApply`, `TradeSyncAcceptPatch.Accepting`).
+- A trade that spends standing another player spent first is refused and undone like a purchase
+  the stock lacks (`DialogApplyPolicy.SharedStandingCovers`).
+- A refused trade gives the standing back with the goods. It did not: a refusal left the client
+  with its goods returned and the standing still changed (`TradeCommit.ClientUndo`).
+- A trade window open on the trader shows the new standing when another player's trade moves it
+  (`ReputationSyncUtil.RefreshOpenTrade`).
+- Join state, the dialogue state sent with a talk and quest rewards follow the same rule: the
+  Wolf's and Piotrek's standing comes from the host and a reward to it is given once, by the host.
+  A player's own backup no longer carries it.
+
+For a running campaign: the host's standing with the Wolf, Piotrek and the soldier becomes the
+party's; what the other players had with them is replaced by it when they join.
+
+**A talk another player listens in on read in the talking player's language.** The mirror sent
+the finished text of every line and button, so a listener with the game in another language got
+the talker's. The talking player's game now notes which language entry each text it shows came
+from (`Language.Get`, and what vanilla put into the entry: a location's direction through
+`Journal.convertToLocationText`, the day of a `currentDay` line; the row breaks of
+`WritingText.formattedText` are undone to find it), and each mirrored element carries that entry
+beside its text. The listener looks the entry up in its own language, breaks it into rows by its
+own rules and moves the lines below by what the line gained or lost in height. An entry the
+listener's language lacks, or a text whose entry is not known, shows as sent. Covers the board's
+lines and decisions, the options, the show-item list and the buttons. (`DialogTextKeys`,
+`DialogMirror.TryCapture` / `RenderPanel` / `RenderBoard`)
+
+Not measured yet: how much of the 260 ms was the collection. The next `[SaveTiming]` line is the
+save without it. Whatever is left still holds the game thread, and voice packets wait for it
+(received voice has 150 ms buffered, so a longer frame is still a short break in a voice).
 
 ---
 

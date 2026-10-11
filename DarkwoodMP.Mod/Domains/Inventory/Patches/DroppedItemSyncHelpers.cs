@@ -273,6 +273,25 @@ namespace DWMPHorde.Patches
                 ammo = inv.ammo;
         }
 
+        /// <summary>
+        /// An item lying in a party dream's scene (not a player's drop, which carries a GUID).
+        /// Vanilla places one for the one dreamer (the grave meadow's shovel against its chomper);
+        /// in a party dream each dreamer has it in their own copy of the scene and takes their own.
+        /// The dream bag is thrown away on waking, so nothing is multiplied into the world.
+        /// </summary>
+        internal static bool IsDreamScenePickup(Item worldItem)
+        {
+            if (worldItem == null || !DreamSyncManager.IsDreamActive || PersonalPrologue.LocalInPrologue)
+                return false;
+            if (!NetGuard.Connected(out _))
+                return false;
+            var ident = worldItem.GetComponent<DroppedItemIdentifier>();
+            if (ident != null && !string.IsNullOrEmpty(ident.Id))
+                return false;
+            return DreamSyncManager.IsOnDreamPad(worldItem.transform)
+                || DreamSyncManager.IsAtDreamPad(worldItem.transform.position);
+        }
+
         /// <summary>Pose + wire name for non-GUID world pickup claim / WorldObjectRemoved.</summary>
         internal static void ResolveWorldPickupClaim(Item worldItem, out Vector3 pos, out string sendName, out bool isTrap)
         {

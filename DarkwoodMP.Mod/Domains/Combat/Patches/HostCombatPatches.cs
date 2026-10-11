@@ -93,7 +93,7 @@ namespace DWMPHorde.Patches
             CharBase proxyCB = proxy.CachedCharBase;
             if (proxyCB == null || !proxyCB.alive)
                 return true;
-            if (DeathStateTracker.IsRemoteNightDead(proxy.PlayerId))
+            if (DeathStateTracker.IsRemoteDown(proxy.PlayerId))
                 return true;
 
             int pid = proxy.PlayerId;

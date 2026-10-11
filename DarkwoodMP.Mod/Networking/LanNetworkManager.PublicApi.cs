@@ -203,7 +203,7 @@ namespace DWMPHorde.Networking
         public void SendPlayerAnimation(PlayerAnimationMessage msg) =>
             WorldSendHandlers.SendPlayerAnimation(msg);
 
-        public void SendPlayerAnimLibrary(PlayerAnimLibraryMessage msg) =>
+        public bool SendPlayerAnimLibrary(PlayerAnimLibraryMessage msg) =>
             WorldSendHandlers.SendPlayerAnimLibrary(msg);
 
         public void SendBulletImpact(BulletImpactMessage msg) =>

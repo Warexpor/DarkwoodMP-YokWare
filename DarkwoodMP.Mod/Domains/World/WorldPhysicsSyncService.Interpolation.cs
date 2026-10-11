@@ -297,6 +297,8 @@ namespace DWMPHorde.Sync
         /// Host: snapshot Item collider isTrigger under the dream pad and fan-out so
         /// clients match walk-through lamps / solid bells after isColliderTrigger GEs.
         /// </summary>
+        private static int _lastDreamPropHash; // process-scoped: every dream start sends forced and replaces it
+
         public static void HostBroadcastDreamPropColliders(bool force = false)
         {
             if (!NetGuard.ConnectedHost(out var net))
@@ -346,6 +348,21 @@ namespace DWMPHorde.Sync
             }
 
             if (_dreamPropEntries.Count == 0) return;
+
+            // Every host GameEvents fire in a dream sent the whole list again (46 colliders at each
+            // of the home dream's dozens of events) though no collider had changed: only a change
+            // goes out, and a forced send (dream start) always.
+            int hash = 17;
+            for (int i = 0; i < _dreamPropEntries.Count; i++)
+            {
+                var e = _dreamPropEntries[i];
+                hash = hash * 31 + (e.Name != null ? e.Name.GetHashCode() : 0);
+                hash = hash * 31 + Mathf.RoundToInt(e.PosX) * 7 + Mathf.RoundToInt(e.PosZ);
+                hash = hash * 31 + (e.IsTrigger ? 1 : 0);
+            }
+            if (!force && hash == _lastDreamPropHash)
+                return;
+            _lastDreamPropHash = hash;
 
             int nEntries = _dreamPropEntries.Count;
             if (_dreamPropEntryBuf.Length != nEntries)

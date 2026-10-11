@@ -409,12 +409,17 @@ namespace DWMPHorde.Networking
             _net.Broadcast(NetMessageType.PlayerAnimation, w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);
         }
 
-        internal void SendPlayerAnimLibrary(PlayerAnimLibraryMessage msg)
+        /// <returns>True when it went out.</returns>
+        internal bool SendPlayerAnimLibrary(PlayerAnimLibraryMessage msg)
         {
-            if (!_net.IsConnected) return;
-            if (LanNetworkManager.IsApplyingRemoteState) return;
+            if (!_net.IsConnected) return false;
+            // No IsApplyingRemoteState gate: the library is always the local player's own look.
+            // A dream started by the host's message (the doctor dream's antagonist look) and a
+            // replayed clothes event switch it inside an apply scope, and that switch was dropped,
+            // so the others kept seeing the player's normal sprite.
             // Reliable: weapon sprite library must not drop (one-shot equip event)
             _net.Broadcast(NetMessageType.PlayerAnimLibrary, w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);
+            return true;
         }
 
         /// <summary>

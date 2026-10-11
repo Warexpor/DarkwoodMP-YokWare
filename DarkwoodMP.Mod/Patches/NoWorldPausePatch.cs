@@ -21,6 +21,17 @@ namespace DWMPHorde.Patches
         /// <summary>True while LevelingMenu.show holds one SuppressPause until hide releases it.</summary>
         internal static bool LevelingHold;
 
+        /// <summary>Depth of the menu opens running right now (the ones whose pause co-op suppresses).</summary>
+        internal static int UiOpenDepth; // process-scoped: call-scoped, unwound by the Finalizers
+
+        /// <summary>
+        /// The pause in effect is a menu's own vanilla pause: the menu was opened by a player who
+        /// was alone, so nothing suppressed it. Its close must still unpause after another player
+        /// has connected (<see cref="CoreUnpauseMultiplayerPatch"/>), and the world must not stay
+        /// stopped for a party (<see cref="PauseMenuSync"/> lifts it when the first one connects).
+        /// </summary>
+        internal static bool UiPauseHeld; // process-scoped: follows Core.Paused, which outlives a session
+
         /// <summary>True when co-op is live, not offline with a dormant network component.</summary>
         internal static bool MultiplayerActive =>
             ModRuntime.Network != null && ModRuntime.Network.IsConnected;
@@ -65,17 +76,27 @@ namespace DWMPHorde.Patches
         {
             if (PauseSuppression.MultiplayerActive && PauseSuppression.SuppressPause > 0)
                 return false;
+            // A pause that starts here is a menu's own when that menu's open is running (the
+            // leveling menu pauses from a coroutine half a second after its show).
+            if (!Core.Paused)
+                PauseSuppression.UiPauseHeld = PauseSuppression.UiOpenDepth > 0
+                    || (Player.Instance != null && Player.Instance.inLevelingMenu);
             return true;
         }
     }
 
-    /// <summary>Blocks Core.unpause during multiplayer UI.</summary>
+    /// <summary>
+    /// Blocks Core.unpause during multiplayer UI. A menu that did pause (opened alone, before
+    /// anyone connected) still unpauses on its close: with that unpause blocked as well, the
+    /// game stayed stopped for good once a player had joined behind the open menu.
+    /// </summary>
     [HarmonyPatch(typeof(Core), "unpause")]
     internal static class CoreUnpauseMultiplayerPatch
     {
         private static bool Prefix()
         {
-            if (PauseSuppression.MultiplayerActive && PauseSuppression.SuppressUnpause > 0)
+            if (PauseSuppression.MultiplayerActive && PauseSuppression.SuppressUnpause > 0
+                && !(Core.Paused && PauseSuppression.UiPauseHeld))
                 return false;
             return true;
         }
@@ -112,11 +133,21 @@ namespace DWMPHorde.Patches
                 PatchTargets.Find(typeof(InteractiveItem), "open", Type.EmptyTypes));
         }
 
-        private static void Prefix() => PauseSuppression.BeginNoPause();
+        private static void Prefix()
+        {
+            PauseSuppression.UiOpenDepth++;
+            PauseSuppression.BeginNoPause();
+        }
+
         // Finalizer (not Postfix): open/show can throw after Begin → stuck
         // SuppressPause blocks Core.pause forever. Finalizer-only End so we do not
         // double-decrement against LevelingMenu.show's cross-method hold.
-        private static void Finalizer() => PauseSuppression.EndNoPause();
+        private static void Finalizer()
+        {
+            PauseSuppression.EndNoPause();
+            if (PauseSuppression.UiOpenDepth > 0)
+                PauseSuppression.UiOpenDepth--;
+        }
     }
 
     // ---- UI close/hide paths: hold unpause suppression ----

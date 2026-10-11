@@ -204,6 +204,14 @@ namespace DWMPHorde.Audio
 
         private static int OutputRate = 48000; // process-scoped: AudioSettings.outputSampleRate, read on the main thread
 
+        /// <summary>
+        /// The mod has put code of its own on the sound card's mixing thread (a voice speaker, a
+        /// sound pickup tap). From its first call that thread belongs to the script runtime, and
+        /// every garbage collection stops it like any script thread: a long one is a gap in every
+        /// sound of the game. It stays so for the rest of the run.
+        /// </summary>
+        internal static volatile bool MixerRunsScripts; // process-scoped: the mixing thread never leaves the runtime
+
         /// <summary>Voice is carried at the codec's rate end to end.</summary>
         private static readonly uint _sampleRate = VoiceCodec.SampleRate;
 
@@ -338,8 +346,10 @@ namespace DWMPHorde.Audio
             }
 
             // Typing in chat or a menu text field must not key the mic.
-            bool ptt = (Input.GetKey(_pttKey) && !UiInputLock.IsHeld)
-                || (PadAction(PadVoiceAction(), down: false) && WalkieTxAllowed());
+            // Down until morning: a dead player watches the night and says nothing.
+            bool down = DeathStateTracker.LocalNightDeath;
+            bool ptt = !down && ((Input.GetKey(_pttKey) && !UiInputLock.IsHeld)
+                || (PadAction(PadVoiceAction(), down: false) && WalkieTxAllowed()));
             bool openMic = !string.Equals(ModConfig.VoiceMode?.Value ?? "ptt", "ptt",
                 StringComparison.OrdinalIgnoreCase);
             _walkieTx = false;
@@ -350,7 +360,7 @@ namespace DWMPHorde.Audio
                 {
                     InvItemClass cur = Player.Instance.currentItem;
                     if (!InvItemClass.isNull(cur) && cur.type == walkie)
-                        _walkieTx = RadioTalkHeld() && WalkieTxAllowed() && LocalRadioLive;
+                        _walkieTx = !down && RadioTalkHeld() && WalkieTxAllowed() && LocalRadioLive;
                 }
             }
             catch { /* ignore */ }
@@ -376,7 +386,8 @@ namespace DWMPHorde.Audio
             // The keyed radio hears the world around its holder too.
             WorldSoundPickup.SetActive(_walkieTx
                 && ModConfig.VoiceRadioWorldSounds != null && ModConfig.VoiceRadioWorldSounds.Value);
-            bool send = ptt || _walkieTx || Time.unscaledTime < _stopLinger || (openMic && VoiceMic.GateOpen);
+            bool send = !down
+                && (ptt || _walkieTx || Time.unscaledTime < _stopLinger || (openMic && VoiceMic.GateOpen));
             if (send && !_transmitting && _preroll != null)
                 SendFrame(net, _preroll);
             _transmitting = send;
@@ -608,6 +619,10 @@ namespace DWMPHorde.Audio
         {
             var net = ModRuntime.Network;
             if (net != null && msg.PlayerId == net.LocalPlayerId)
+                return;
+            // A player down until morning is not heard (their own game stops sending; this covers
+            // what was already on its way when they fell).
+            if (DeathStateTracker.IsRemoteNightDead(msg.PlayerId))
                 return;
             // The loudness travels with the packet: creatures hear it even where voice is off.
             VoiceHearing.Heard(msg.PlayerId, msg.Level / 255f, (msg.Flags & VoiceDataMessage.FlagWalkie) != 0);

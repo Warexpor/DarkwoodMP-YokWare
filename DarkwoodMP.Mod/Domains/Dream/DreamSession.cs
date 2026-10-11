@@ -165,7 +165,9 @@ namespace DWMPHorde.Sync
                         _completedPresets.Add(n);
                 }
             }
-            if (Dreams.Instance != null && Dreams.Instance.hadDreamAtLvl2)
+            // Only a world from before the list: a tracked world knows whether the bunker ran (its
+            // level-2 slot may have been a random dream).
+            if (meta?.CompletedDreams == null && Dreams.Instance != null && Dreams.Instance.hadDreamAtLvl2)
                 _completedPresets.Add(BunkerPreset);
             ModLog.Event(LogCat.Dream, "Seeded played dreams from the world: " + _completedPresets.Count);
         }

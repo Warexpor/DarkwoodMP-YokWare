@@ -88,6 +88,7 @@ namespace DWMPHorde.Audio
             s.Go.transform.SetParent(_root.transform, false);
             s.Src = s.Go.AddComponent<AudioSource>();
             s.Beh = s.Go.AddComponent<VoiceSpeakerBehaviour>();
+            MixerRunsScripts = true;
             s.Beh.S = s;
             s.Beh.SrcRate = (int)_sampleRate;
             s.Muffle = s.Go.AddComponent<AudioLowPassFilter>();

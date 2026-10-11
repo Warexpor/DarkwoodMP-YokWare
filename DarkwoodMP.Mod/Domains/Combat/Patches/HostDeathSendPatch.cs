@@ -76,7 +76,9 @@ namespace DWMPHorde.Patches
                     PosY = pos.y,
                     PosZ = pos.z,
                     IsNight = isNight,
-                    HasDropBag = __instance.Inventory != null && __instance.Inventory.getAllItems().Count > 1,
+                    HasDropBag = DeathStateTracker.IsNightDeathWindow()
+                        ? NightBodyBag.Carried(__instance) > 0
+                        : __instance.Inventory != null && __instance.Inventory.getAllItems().Count > 1,
                     PermadeathEligible = permadeathEligible
                 }.Serialize(w),
                 DeliveryMethod.ReliableOrdered);

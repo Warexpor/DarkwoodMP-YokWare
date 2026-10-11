@@ -126,7 +126,7 @@ namespace DWMPHorde.Patches
                 CharBase proxyCB = proxy.CachedCharBase;
                 if (proxyCB != null && !proxyCB.alive)
                     return;
-                if (DeathStateTracker.IsRemoteNightDead(proxy.PlayerId))
+                if (DeathStateTracker.IsRemoteDown(proxy.PlayerId))
                     return;
 
                 // Match vanilla spawnBullet → getHit(baseClass.damage) plus upgrade mods

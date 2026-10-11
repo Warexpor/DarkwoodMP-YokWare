@@ -113,7 +113,7 @@ namespace DWMPHorde.Patches
             if (cb == null || !cb.alive || cb.invisible || cb.ignoreMe)
                 return false;
             int id = _bodyIds[i];
-            return id < 0 ? !DeathStateTracker.LocalNightDeath : !DeathStateTracker.IsRemoteNightDead(id);
+            return id < 0 ? !DeathStateTracker.LocalDown : !DeathStateTracker.IsRemoteDown(id);
         }
 
         private static int IndexOf(Transform t)

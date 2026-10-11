@@ -151,6 +151,16 @@ namespace DWMPHorde.Patches
                         return false;
                     }
 
+                    // A party dream's own pickup (the grave meadow's shovel): every dreamer takes
+                    // theirs from their own copy of the scene, so nothing goes on the wire.
+                    if (!isTrap && DroppedItemSyncHelpers.IsDreamScenePickup(__instance))
+                    {
+                        ModRuntime.LegacyInfo($"[PickupPrefix] dream scene pickup {cName}: this dreamer's own");
+                        WorldPickupWireGuard.Begin();
+                        __state.BeganWireGuard = true;
+                        return true;
+                    }
+
                     if (!isTrap
                         && ModRuntime.Network != null && ModRuntime.Network.IsConnected)
                     {

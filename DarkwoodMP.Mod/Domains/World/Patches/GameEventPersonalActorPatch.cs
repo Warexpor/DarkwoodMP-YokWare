@@ -193,7 +193,7 @@ namespace DWMPHorde.Patches
                 case GameEvent.Type.returnToWorld:
                     return true;
                 case GameEvent.Type.modifyCharacter:
-                    // A trader's standing is each player's own: a step that changes it is a reward
+                    // A morning trader's standing is each player's own: a step that changes it is a reward
                     // for the player the event is about, not for everyone who sees it replayed.
                     return ge.characterModifyType == GameEvent.CharacterModify.player_tweenShadow
                         || TargetsPlayerBody(ge)

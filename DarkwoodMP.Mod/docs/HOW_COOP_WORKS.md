@@ -85,8 +85,8 @@ clients.
   what one player takes is gone for everyone. Story flags, NPC states, the journal,
   the workbench level and the clock are shared.
 - **Personal:** the player character. Each player has their own bag and hotbar,
-  health, skills, level, recipes, home oven and respawn point, and trader
-  standing. A player's progress is not overwritten by the host's.
+  health, skills, level, recipes, home oven and respawn point, and standing with
+  the morning traders. A player's progress is not overwritten by the host's.
 
 When a rule is unclear, the first question is: "is this a fact about the world, or a
 fact about one player?"
@@ -187,7 +187,8 @@ the rest of this document easier to read.
 - Health, darkness, status effects, burning.
 - Skills, level, level-up dream slots, recipes, craft-limit counters.
 - Home oven and respawn point.
-- Trader standing (night and morning traders, the Wolf, Piotrek; not the Doctor).
+- Standing with the hideout's morning traders (the Trader, the Three). Standing with
+  every other NPC is shared, the ones who trade included.
 - Per-player flags: anything named `player_in*`, `player_at*` or
   `player_entering*`, help popups, the first oven talk, "survived the night".
 - Hints, thought lines and one-shot "lessons" (recipes or journal pages taught by
@@ -230,6 +231,8 @@ on the host, so a returning player gets their own character back, not the host's
   ([section 18](#18-balancing-for-the-party)).
 - **Black chompers in dreams:** one extra per extra player
   ([section 18](#18-balancing-for-the-party)).
+- **Items lying in a dream's scene** (the grave meadow's shovel): each dreamer takes
+  their own ([section 13](#13-dreams)).
 - **Morning:** every hideout a living player greets the dawn in gets its own
   morning ([section 6](#6-night-morning-and-hideouts)).
 
@@ -388,6 +391,10 @@ profile slot the world lands.
   dialogue. When every player in the session has it open, the whole world pauses on
   every machine. The first player to close it resumes. A player still joining or
   loading keeps the world running.
+- **A player with nobody connected is in single player for pausing.** A host waiting
+  for the others gets the vanilla pause from every menu. When the first player
+  connects, a pause taken that way is lifted and the rules above apply. When the last
+  one leaves with the pause menu open, the game pauses again until the menu closes.
 - **There is no sleeping or time skip.** The game has no such mechanic (the code for
   it is dead), so there is nothing to vote on.
 
@@ -398,6 +405,9 @@ profile slot the world lands.
 - **Homes are personal, buildings are shared.** Each player has their own home oven
   and respawn point. The hideout's walls, doors, barricades, generator and
   furniture are one shared world. An oven goes out only when nobody calls it home.
+- **The party moves home together.** When a player lights a new hideout's oven, every
+  player who lived in the hideout it left moves with it (their home and respawn point
+  follow). A player who lives in another hideout keeps their own.
 - **Whoever pushes or drags a thing moves it.** The pusher's own game moves it and
   everyone else sees the result. Other players' bodies pass through pushable things
   on your screen, so nothing gets pushed twice. Furniture the night shoves around (the
@@ -464,14 +474,17 @@ night for players who are still alive, so in co-op:
 - The dead player becomes a spectator until morning: invulnerable, invisible,
   passing through walls, following a living player's camera and hearing what they
   hear. F4 cycles between living players. A dead player cannot release themselves
-  early.
+  early. They cannot talk either: no voice chat and no radio until the morning.
 - Enemies, worms and shadows ignore night-dead players, and attacks from a dead
   player are rejected.
 - The first death does not skip the day or save the game.
 - **The body stays where the player fell**, on every machine, lying dead, with no
-  collider (anyone walks over it). It is also the death bag: the bag drops on the
-  spot as by day, hidden under the body, and pointing at the body loots it. At the
-  morning release the body goes and whatever is left shows as a bag again. A
+  collider (anyone walks over it). It is also the death bag, and it holds everything
+  the player carried, backpack and hotbar (by day vanilla's bag takes a random half
+  of the backpack, and nothing when the backpack holds one item or none). The bag is
+  hidden under the body and pointing at the body loots it. The dead player wakes in
+  the morning with what the others gave back or left: at the morning release the body
+  goes and whatever is left shows as a bag again. A
   one-life death by day is held until morning too, but it drops a plain bag with no body.
 - **At dawn** every night-dead player is released and sent home. A death that
   arrives after the host's dawn counts as a day death.
@@ -481,7 +494,7 @@ night for players who are still alive, so in co-op:
 - **Leaving does not undo a night death.** A player who died, quit and joins again the
   same night is down again until morning (the host knows them by their Steam id or
   install key), spectating, seen dead by the others and counted for the all-dead
-  morning.
+  morning. The mark ends with that night: joining on a later night starts alive.
 
 ### Difficulty and permadeath
 
@@ -665,9 +678,12 @@ bought and what I sold"; if the host's stock no longer has the goods, the trade 
 refused and reversed on the client. A trader restocks only when nobody is trading
 with it. Several players can trade with the same trader at once, each from their own
 screen; goods sitting in one player's buy tray are held back from that player's view
-of the stock, and the first accepted trade wins. Standing with a trader is personal:
-the night and morning traders, the Wolf and Piotrek. The Doctor's standing is shared,
-because his chapter 2 story keeps its state in it.
+of the stock, and the first accepted trade wins. Standing is shared like the stock
+with the story traders (the Wolf, Piotrek, the Doctor, the underground soldier): what
+one player earns, any player can spend, and a trade that spends standing another
+player just spent is refused and undone. The exceptions are the hideout's morning
+traders, the Trader and the Three: each player has their own standing with them,
+earned by living through the night.
 
 ### Crafting, upgrades and the workbench
 
@@ -790,9 +806,16 @@ party events.
   level's dream to everyone present, and everyone who was in it has that level's
   dream done. A player who missed it (late, or dead) still gets an unplayed dream
   for that level later, or just levels up if none is left. A played dream is never
-  repeated for the party. The bunker dream (level 2) is played once per world.
+  repeated for the party. The bunker dream (level 2) is played once per world (a
+  new world started in a save slot does not inherit the old world's played dreams).
 - **Dying in a dream:** you spectate until it ends. When every dreamer is dead, the
   dream ends as a death outcome, also when the host is not one of the dreamers.
+- **Items in the scene:** an item the dream's scene has lying around (a weapon against
+  its creature) is there for each dreamer: taking it does not take it from the others.
+  What a player drops in a dream is one shared item. The dream bag is gone on waking.
+- **A dream's look is seen by all.** A dream that changes how a player looks (the
+  Doctor in his dream, the home dream's clothes) shows it to every other player, and
+  each player wakes in their own clothes.
 - **Rewards:** dream outcome items are given to each dreamer. The outcome's world
   events reach every player, including one who died in the dream. A failed or
   abandoned dream gives nothing and is not marked done.

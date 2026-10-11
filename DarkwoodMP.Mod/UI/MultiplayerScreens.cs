@@ -306,8 +306,8 @@ namespace DWMPHorde
                 MainMenuMultiplayerInject.Disconnect();
                 // Alone again in the pause menu: it pauses the game, as in single player. (A host
                 // handing over stays online until the hand-off is done and keeps the co-op rule.)
-                if (Role == NetworkRole.Offline && GameScreen.InPauseMenu)
-                    Core.pause(false, 0f);
+                if (Role == NetworkRole.Offline)
+                    Sync.PauseMenuSync.PauseAlone();
                 Vm.Current?.Rebuild();
             });
         }

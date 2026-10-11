@@ -1,4 +1,5 @@
 using DG.Tweening;
+using DWMPHorde.Logging;
 using DWMPHorde.Networking;
 using DWMPHorde.Players;
 using DWMPHorde.Spectator;
@@ -670,9 +671,29 @@ namespace DWMPHorde.Sync
                     proxy.FreezePosition = false;
             }
 
+            RestoreLookAfterDream(endedPreset);
             ModRuntime.LegacyInfo($"[DreamSync] Local dream ended: {endedPreset}, outcome={outcomeName}");
 
             _localDreamPreset = null;
+        }
+
+        /// <summary>
+        /// The home dream dresses the player with a toggle (<c>special_changeClothes</c> at its
+        /// start, again at its end). In a party dream the end event can reach a player twice or
+        /// not at all, and a player woke up in the dream's clothes, seen so by the others too.
+        /// Vanilla's net effect of a dream outside the epilogue is the player's own clothes: kept.
+        /// </summary>
+        private static void RestoreLookAfterDream(string preset)
+        {
+            Player p = Player.Instance;
+            if (p == null || p.inEpilogue || (!p.changedClothes && !p.naked))
+                return;
+            if (!string.IsNullOrEmpty(preset) && preset.StartsWith("epilog", System.StringComparison.OrdinalIgnoreCase))
+                return;
+            p.changedClothes = false;
+            p.naked = false;
+            p.switchAniLibrary("");
+            ModLog.Event(LogCat.Dream, "Woke in the dream's clothes (" + preset + ") — own clothes back");
         }
 
     }

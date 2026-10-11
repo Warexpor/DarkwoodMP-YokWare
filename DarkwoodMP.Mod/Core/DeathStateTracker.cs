@@ -293,6 +293,17 @@ namespace DWMPHorde
             ModLog.Event(LogCat.Death, $"Remote night death for player {playerId} (count={RemoteNightDeathCount}/{TotalRemoteCount})");
         }
 
+        /// <summary>
+        /// This remote is down: night-dead, or dead in the running dream (spectating until it
+        /// ends). Nothing may target, hit or see it. Only the night death was checked: a dream's
+        /// chompers kept biting a dead dreamer's stand-in, and the dead player's game took every bite.
+        /// </summary>
+        public static bool IsRemoteDown(int playerId)
+            => IsRemoteNightDead(playerId) || Sync.FinalDreamsceneManager.IsRemoteDeadInDream(playerId);
+
+        /// <summary>The local player is down (night death or dead in the dream).</summary>
+        public static bool LocalDown => LocalNightDeath || Sync.FinalDreamsceneManager.IsLocalDead;
+
         /// <summary>True while this remote is still night-dead (until morning Reset).</summary>
         public static bool IsRemoteNightDead(int playerId)
         {

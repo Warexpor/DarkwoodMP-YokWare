@@ -63,7 +63,10 @@ namespace DWMPHorde.Patches
 
             ModRuntime.LegacyInfo($"[Death] Client died at {pos}, isNight={isNight}");
 
-            bool hasItems = __instance.Inventory != null && __instance.Inventory.getAllItems().Count > 1;
+            // A night body's bag holds the whole kit and drops for a single item too (NightBodyBag).
+            bool hasItems = DeathStateTracker.IsNightDeathWindow()
+                ? NightBodyBag.Carried(__instance) > 0
+                : __instance.Inventory != null && __instance.Inventory.getAllItems().Count > 1;
             Location home = DeathStateTracker.HomeLocation(__instance);
             Vector3 homeSpawn = home != null ? home.playerSpawn.transform.position : Vector3.zero;
 

@@ -406,7 +406,9 @@ namespace DWMPHorde.Networking
             // GO is still tracked; otherwise the client gets empty clips and sliding sprites. Wake
             // presentation components so processAnims can own Walk/Idle again.
             float wakeSq = GameplayConstants.EntityActivationRange * GameplayConstants.EntityActivationRange;
-            if (c.alive
+            // A dummy (a scene prop built as a Character, the grave meadow's corpse) has nothing to
+            // wake: vanilla enableComponents returns at once for it, so it was "woken" every tick.
+            if (c.alive && !c.dummy
                 && PlayerPositionManager.IsAnyRemoteWithinSq(cPos, wakeSq)
                 && (!c.isActive || (c.animator != null && !c.animator.enabled)))
             {

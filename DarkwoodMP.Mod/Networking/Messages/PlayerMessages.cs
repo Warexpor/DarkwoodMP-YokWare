@@ -603,6 +603,16 @@ namespace DWMPHorde.Networking
             set => Flags2 = (byte)((Flags2 & ~32) | (value ? 32 : 0));
         }
 
+        /// <summary>
+        /// The home in this message is a move the player made (lit a new hideout's oven), not a
+        /// home put back by a load, a join or a backup. Those living where it left follow it.
+        /// </summary>
+        public bool MovedHome
+        {
+            get => (Flags2 & 64) != 0;
+            set => Flags2 = (byte)((Flags2 & ~64) | (value ? 64 : 0));
+        }
+
         /// <summary><see cref="HomeX"/>.. carry this player's home oven (vanilla Player.experienceMachine).</summary>
         public bool HasHome
         {

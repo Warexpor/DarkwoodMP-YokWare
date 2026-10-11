@@ -145,16 +145,19 @@ public class CoopPolicyTests
     [Fact]
     public void DialogPolicy_TraderReputation_IsPerPlayer()
     {
-        // NPC.name values from the vanilla data (every Character with isNightTrader: 1).
+        // The morning traders (NPC.name from the vanilla data): each player's own standing.
         Assert.True(DialogApplyPolicy.IsPerPlayerReputationNpcName("nightTrader"));
         Assert.True(DialogApplyPolicy.IsPerPlayerReputationNpcName("theThree"));
-        Assert.True(DialogApplyPolicy.IsPerPlayerReputationNpcName("soldier_underground"));
         Assert.True(DialogApplyPolicy.IsPerPlayerReputationNpcName("NightTrader"));
-        // Traders whose standing is only currency.
-        Assert.True(DialogApplyPolicy.IsPerPlayerReputationNpcName("wolfman"));
-        Assert.True(DialogApplyPolicy.IsPerPlayerReputationNpcName("piotrek"));
-        // The Doctor's chapter 2 story state lives in his reputation: shared.
+        // Every other trader shares stock and standing with the party.
+        Assert.False(DialogApplyPolicy.IsPerPlayerReputationNpcName("wolfman"));
+        Assert.False(DialogApplyPolicy.IsPerPlayerReputationNpcName("piotrek"));
+        Assert.False(DialogApplyPolicy.IsPerPlayerReputationNpcName("soldier_underground"));
         Assert.False(DialogApplyPolicy.IsPerPlayerReputationNpcName("doctor"));
+        // Two players spending the same standing: the second trade is not covered.
+        Assert.True(DialogApplyPolicy.SharedStandingCovers(standing: 100, delta: -100));
+        Assert.False(DialogApplyPolicy.SharedStandingCovers(standing: 0, delta: -100));
+        Assert.True(DialogApplyPolicy.SharedStandingCovers(standing: -50, delta: 30));
         Assert.False(DialogApplyPolicy.IsPerPlayerReputationNpcName("soldier"));
         Assert.False(DialogApplyPolicy.IsPerPlayerReputationNpcName(null));
         Assert.True(DialogApplyPolicy.ShouldDeferSharedReputation(isNightTrader: false));

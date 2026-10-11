@@ -33,7 +33,7 @@ namespace DWMPHorde.Patches
             if (owner == null)
                 return true;
             CharBase cb = owner.CachedCharBase;
-            return (cb != null && !cb.alive) || DeathStateTracker.IsRemoteNightDead(owner.PlayerId);
+            return (cb != null && !cb.alive) || DeathStateTracker.IsRemoteDown(owner.PlayerId);
         }
 
         private void Update()

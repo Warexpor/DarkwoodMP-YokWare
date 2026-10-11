@@ -227,7 +227,10 @@ namespace DWMPHorde.Networking
         }
 
         /// <summary>Force a new campaign id (brand-new world gen on this profile).</summary>
-        public static string MintNewCampaignId(int profileId)
+        /// <param name="newWorld">A freshly generated world: the slot's played dreams belonged to
+        /// the world before and are dropped. False for another copy of the same world (manual
+        /// slot load), whose dreams were played.</param>
+        public static string MintNewCampaignId(int profileId, bool newWorld = false)
         {
             if (profileId < 1 || profileId > 5) return null;
             try
@@ -244,6 +247,10 @@ namespace DWMPHorde.Networking
                 meta.OwnCampaign = true;
                 meta.HostProfileId = 0;
                 meta.Note = "New world — new campaign id.";
+                // The old world's played dreams stayed in the slot: a new world counted the bunker
+                // as played, and the first level-2 dream rolled a random one instead.
+                if (newWorld)
+                    meta.CompletedDreams = new System.Collections.Generic.List<string>();
                 Write(profileId, meta);
                 ModLog.Event(LogCat.Save,
                     "MintNewCampaignId prof" + profileId
@@ -279,6 +286,8 @@ namespace DWMPHorde.Networking
                         "CampaignId replace on prof" + profileId + ": "
                         + meta.CampaignId.Substring(0, Math.Min(8, meta.CampaignId.Length))
                         + " → " + campaignId.Substring(0, Math.Min(8, campaignId.Length)));
+                    // Another world landed in this slot: its played dreams are the host's, not the old world's.
+                    meta.CompletedDreams = null;
                 }
                 meta.CampaignId = campaignId;
                 meta.IsCoopCopy = true;

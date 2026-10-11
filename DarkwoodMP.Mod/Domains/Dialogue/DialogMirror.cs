@@ -348,6 +348,13 @@ namespace DWMPHorde.Sync
                 e.Text = tm.text ?? "";
                 c = tm.color;
             }
+            if (DialogTextKeys.TryFind(e.Text, out string key, out string sheet, out byte mode, out string arg))
+            {
+                e.LangKey = key;
+                e.LangSheet = sheet;
+                e.LangMode = mode;
+                e.LangArg = arg;
+            }
             if (sp != null)
             {
                 e.Sprite = sp.CurrentSprite != null ? sp.CurrentSprite.name : "";
@@ -1137,7 +1144,8 @@ namespace DWMPHorde.Sync
                     tk2dTextMesh tm = go.GetComponent<tk2dTextMesh>();
                     if (tm != null)
                     {
-                        tm.text = e.Text ?? "";
+                        // In this player's language, not the talking player's.
+                        tm.text = DialogTextKeys.Local(e.LangKey, e.LangSheet, e.LangMode, e.LangArg) ?? e.Text ?? "";
                         tm.color = color;
                     }
                     tk2dBaseSprite sp = go.GetComponent<tk2dBaseSprite>();
@@ -1188,6 +1196,9 @@ namespace DWMPHorde.Sync
 
             var buttons = new SortedDictionary<int, Button>();
             bool decisions = false;
+            // How much further down the lines below sit: a line in this player's language can
+            // take more rows, or fewer, than the talking player's did.
+            float lower = 0f;
             if (m.Elements != null)
             {
                 for (int i = 0; i < m.Elements.Length; i++)
@@ -1202,7 +1213,22 @@ namespace DWMPHorde.Sync
                     WritingText wt = go.GetComponent<WritingText>();
                     if (wt != null)
                     {
-                        wt.destWriteText = e.Text ?? "";
+                        string sent = e.Text ?? "";
+                        string own = DialogTextKeys.Local(e.LangKey, e.LangSheet, e.LangMode, e.LangArg);
+                        wt.destWriteText = own != null ? wt.formattedText(own) : sent;
+                        if (lower != 0f)
+                        {
+                            Vector3 p = go.transform.localPosition;
+                            p.z -= lower;
+                            go.transform.localPosition = p;
+                        }
+                        if (wt.destWriteText != sent && wt.textMesh != null && e.Kind != DialogMirrorElement.KindDecisionBtn)
+                        {
+                            wt.textMesh.Commit();
+                            wt.textMesh.ForceBuild();
+                            lower += (wt.textMesh.GetEstimatedMeshBoundsForString(wt.destWriteText).extents.y
+                                - wt.textMesh.GetEstimatedMeshBoundsForString(sent).extents.y) * 2f;
+                        }
                         if (e.WriteSpeed > 0f)
                             WriteSpeed(wt) = e.WriteSpeed;
                         wt.dialogueCallbackInterval = e.Interval;

@@ -119,6 +119,7 @@ namespace DWMPHorde.Audio
             if (_sources.Count != 1 || go.GetComponent<AudioListener>() != null)
                 return;
             go.AddComponent<Tap>();
+            VoiceChatService.MixerRunsScripts = true;
             _taps++;
         }
 

@@ -143,7 +143,7 @@ namespace DWMPHorde.Networking
         ContainerStateRequest = 75,
         /// <summary>Host->Client: full container inventory state snapshot.</summary>
         [HostOnly] ContainerStateSync = 76,
-        /// <summary>Shared NPC reputation (not isNightTrader). Forwardable for client→host→peers.</summary>
+        /// <summary>Shared NPC reputation (not the morning traders). Forwardable for client→host→peers.</summary>
         [Forwardable] ReputationSync = 77,
         /// <summary>Either peer: the local player entered an OutsideLocation (basement, bunker, etc.).</summary>
         [Forwardable] LocationEnter = 78,

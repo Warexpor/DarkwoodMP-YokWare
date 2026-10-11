@@ -10,10 +10,11 @@ namespace DWMPHorde.Patches
 {
     /// <summary>
     /// Reputation handling:
-    /// - Story / village NPCs: shared, live <see cref="ReputationSync"/> + join bulk.
-    /// - Traders whose standing is only currency (<see cref="Character.isNightTrader"/>, the Wolf,
-    ///   Piotrek): per-player; no live or bulk overwrite, and the host replaying a peer's
-    ///   dialogue does not move its own standing with that trader.
+    /// - Every NPC but the morning traders: shared, live <see cref="ReputationSync"/> + join bulk.
+    ///   That includes the ones who trade (the Wolf, Piotrek, the Doctor): a client's trade moves
+    ///   the standing through the host (<see cref="TradeCommit"/>), not by a broadcast from here.
+    /// - The morning traders (the Trader, the Three): per-player; no live or bulk overwrite, and
+    ///   the host replaying a peer's dialogue does not move its own standing with them.
     /// </summary>
     [HarmonyPatch(typeof(NPC), "set_reputation", new[] { typeof(int) })]
     public static class ReputationSyncPatch
@@ -25,8 +26,8 @@ namespace DWMPHorde.Patches
             if (__instance == null)
                 return true;
 
-            // Host replaying a peer's board (a quest reward from the Wolf): that standing is the
-            // speaker's, which its own board already changed. The host's stayed behind it.
+            // Host replaying a peer's board: a morning trader's standing is the speaker's, which
+            // its own board already changed. The host's stayed behind it.
             if (HostApplyGuard.Active && NetGuard.ConnectedHost(out _)
                 && ReputationSyncUtil.IsPerPlayerReputationNpc(__instance))
                 return false;
@@ -45,6 +46,12 @@ namespace DWMPHorde.Patches
                 return true;
 
             if (ReputationSyncUtil.IsPerPlayerReputationNpc(__instance))
+                return true;
+
+            // A client's own trade: the host adds the trade's change to the party's standing and
+            // tells everyone (TradeCommit). This client's number is only its guess until then,
+            // and sent as the truth it undid a trade another player made in the same moment.
+            if (TradeSyncAcceptPatch.Accepting && net.Role == NetworkRole.Client)
                 return true;
 
             string npcName = __instance.name;
@@ -157,31 +164,30 @@ namespace DWMPHorde.Patches
     internal static class ReputationSyncUtil
     {
         /// <summary>
-        /// True for traders whose standing stays per-player: <see cref="Character.isNightTrader"/>
-        /// or a trader of <see cref="DialogApplyPolicy.IsPerPlayerReputationNpcName"/>.
+        /// True for the morning traders, whose standing stays per-player
+        /// (<see cref="DialogApplyPolicy.IsPerPlayerReputationNpcName"/>). By name, not by
+        /// <see cref="Character.isNightTrader"/>: vanilla sets that on the underground soldier
+        /// too, a story trader the party shares.
         /// </summary>
         public static bool IsPerPlayerReputationNpc(NPC npc)
-        {
-            if (npc == null) return false;
-            Character ch = npc.GetComponent<Character>();
-            return (ch != null && ch.isNightTrader) || DialogApplyPolicy.IsPerPlayerReputationNpcName(npc.name);
-        }
+            => npc != null && DialogApplyPolicy.IsPerPlayerReputationNpcName(npc.name);
 
         public static bool IsPerPlayerReputationNpcName(string npcName)
+            => DialogApplyPolicy.IsPerPlayerReputationNpcName(npcName);
+
+        /// <summary>
+        /// A trader's standing changed from outside (another player's trade, a refused one): the
+        /// trade window open on that trader shows it and prices against it.
+        /// </summary>
+        internal static void RefreshOpenTrade(string npcName)
         {
-            if (string.IsNullOrEmpty(npcName)) return false;
-
-            // Prefer live Character flag when the NPC is in the scene.
-            NPC[] all = WorldQueryHelper.GetCachedSceneComponents<NPC>();
-            for (int i = 0; i < all.Length; i++)
-            {
-                if (all[i] == null || all[i].name != npcName) continue;
-                Character ch = all[i].GetComponent<Character>();
-                if (ch != null && ch.isNightTrader)
-                    return true;
-            }
-
-            return DialogApplyPolicy.IsPerPlayerReputationNpcName(npcName);
+            var ui = Singleton<UI>.Instance;
+            DialogueWindow dw = ui != null ? ui.dialogueWindow : null;
+            if (dw == null || !dw.opened || dw.npc == null || dw.npc.name != npcName
+                || dw.currentMenu != DialogueWindow.CurrentMenu.trade || dw.npc.inventory == null)
+                return;
+            try { dw.npc.inventory.refreshReputation(); }
+            catch { /* the window is closing */ }
         }
     }
 }

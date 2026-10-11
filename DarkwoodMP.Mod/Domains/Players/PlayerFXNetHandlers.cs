@@ -142,7 +142,11 @@ namespace DWMPHorde.Networking
             Sync.WorldPhysicsSyncService._suppressBroadcast = true;
             try
             {
-                HarmonyLib.Traverse.Create(anim).Property("Library").SetValue(lib);
+                var animComp = proxy.GetComponent<SecondPlayerAnimController>();
+                if (animComp != null)
+                    animComp.ApplyTorsoLibrary(lib);
+                else
+                    HarmonyLib.Traverse.Create(anim).Property("Library").SetValue(lib);
                 ModRuntime.Log?.LogDebug("[AnimLib] applied library: " + msg.LibraryName);
             }
             catch (System.Exception ex)

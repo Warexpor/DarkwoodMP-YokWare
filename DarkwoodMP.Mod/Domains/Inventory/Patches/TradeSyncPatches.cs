@@ -8,8 +8,10 @@ using UnityEngine;
 namespace DWMPHorde.Patches
 {
     /// <summary>
-    /// Shared trader assortment: shop stock is shared across peers.
-    /// Reputation stays per-player (2.6) — not touched here.
+    /// Shared trader assortment: shop stock is shared across peers, and so is the standing
+    /// spent on it (the morning traders' is each player's own, <see cref="ReputationSyncUtil"/>).
+    /// A client's trade tells the host what it did to the standing; the host adds that to the
+    /// party's and sends the result to everyone (<see cref="TradeCommit"/>).
     ///
     /// Live path: after a successful acceptTrade, broadcast absolute NPC inventory.
     /// Restock path: host-only randomizeTraderInv, then absolute push.
@@ -28,16 +30,28 @@ namespace DWMPHorde.Patches
         private static readonly Dictionary<string, int> _buyTraySnapshot = new Dictionary<string, int>();
         private static TradeEntry[] _bought = System.Array.Empty<TradeEntry>(); // reset-in: Reset
         private static TradeEntry[] _sold = System.Array.Empty<TradeEntry>();   // reset-in: Reset
+        private static int _repBefore; // reset-in: Reset
+
+        /// <summary>Vanilla <c>acceptTrade</c> is running here (it changes the trader's standing).</summary>
+        internal static bool Accepting; // reset-in: Reset
 
         public static void Reset()
         {
             _buyTraySnapshot.Clear();
             _bought = System.Array.Empty<TradeEntry>();
             _sold = System.Array.Empty<TradeEntry>();
+            _repBefore = 0;
+            Accepting = false;
         }
+
+        // Finalizer (not Postfix): a throw in acceptTrade would leave the flag set and the next
+        // dialogue's standing change would go unsent.
+        private static void Finalizer() => Accepting = false;
 
         private static void Prefix(DialogueWindow __instance)
         {
+            Accepting = true;
+            _repBefore = __instance != null && __instance.npc != null ? __instance.npc.reputation : 0;
             _buyTraySnapshot.Clear();
             _bought = TradeCommit.Capture(__instance != null ? __instance.exchangeTrader : null);
             _sold = TradeCommit.Capture(__instance != null ? __instance.exchangePlayer : null);
@@ -109,7 +123,7 @@ namespace DWMPHorde.Patches
             if (net.Role == NetworkRole.Host)
                 TradeInventorySync.BroadcastNpcInventory(__instance.npc);
             else if (net is LanNetworkManager lan)
-                TradeCommit.SendFromClient(lan, __instance.npc, _bought, _sold);
+                TradeCommit.SendFromClient(lan, __instance.npc, _bought, _sold, __instance.npc.reputation - _repBefore);
         }
     }
 
