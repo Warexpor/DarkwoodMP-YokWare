@@ -3,12 +3,12 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.224**. The current Horde wire protocol is **54**. Every install in a session
+**0.8.225**. The current Horde wire protocol is **54**. Every install in a session
 needs the same DLL; the protocol is checked on join.
 
 Protocol history (newest first):
 
-- **54**, 0.8.212 to 0.8.224: `VoiceData` (129) gains flag 2: a second codec block after the voice,
+- **54**, 0.8.212 to 0.8.225: `VoiceData` (129) gains flag 2: a second codec block after the voice,
   the sounds the talker's radio picked up.
 - **53**, 0.8.200 to 0.8.211: the world share package gains `savplc.dat` (container slots a player
   stored items in). No message layout changed; the bump keeps every player on a build
@@ -61,6 +61,26 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.225 — noise suppression strength slider, harder by default
+
+Asked for after a 0.8.224 session: the suppression works but should cut harder, with a
+setting for how hard. Built, unit-tested and deployed; **not played yet**.
+
+- **New setting** `VoiceNoiseSuppressionStrength` (Settings > Voice > "Suppression
+  strength", a slider from 0.25 to 3 in steps of 0.25; **1.5 by default**, so it is
+  harder than before without touching anything). It takes effect at once.
+- **What it does.** The model gives each of its 32 frequency bands a gain between 0
+  and 1 for every 10 ms. That gain is now raised to the power of the setting, so a
+  band's cut in dB is the setting times the model's: at 2, a key click the model took
+  down 15 dB goes down 30. 1 is the model as trained. The cost of going higher is
+  that the parts of speech the model is unsure of (quiet word endings, breathy
+  sounds) are turned down more too, so the voice gets thinner. The model's own
+  frame-to-frame smoothing still runs on its untouched gains (`RnNoise.Strength`,
+  `VoiceMicChain.Strength`).
+- The on/off toggle is unchanged. No protocol change: it is the sender's own setting.
+- Test: `RnNoiseTests.StrengthScalesTheCut` (0.5, 1 and 2 cut in that order, at least
+  3 dB apart).
 
 ## 0.8.224 — a client closing the game keeps its character, host stand-up no longer waits for a peer on the title
 

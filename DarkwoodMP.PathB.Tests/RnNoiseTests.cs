@@ -78,9 +78,9 @@ public class RnNoiseTests
         return x;
     }
 
-    private static List<float> RunChain(float[] x, int rate, bool suppress, float gain = 1f)
+    private static List<float> RunChain(float[] x, int rate, bool suppress, float gain = 1f, float strength = 1f)
     {
-        var chain = new VoiceMicChain(rate);
+        var chain = new VoiceMicChain(rate) { Strength = strength };
         var frames = new List<float[]>();
         var chunk = new float[rate / 60];
         for (int at = 0; at + chunk.Length <= x.Length; at += chunk.Length)
@@ -129,6 +129,22 @@ public class RnNoiseTests
         int a = VoiceCodec.SampleRate, b = VoiceCodec.SampleRate * 4 - 2000;
         double cut = Db(Rms(on, a, b) / Rms(off, a, b));
         Assert.True(cut < -25, "key clicks, after the first second: " + cut.ToString("F1") + " dB");
+    }
+
+    /// <summary>The strength setting scales the cut: gentler below 1, harder above, in order.</summary>
+    [Fact]
+    public void StrengthScalesTheCut()
+    {
+        const int rate = 48000;
+        float[] x = RoomNoise(rate * 3, rate, 0.02f, 7);
+        // The first second and a half: the model has not yet settled on "all noise", so its cut is partial.
+        int a = VoiceCodec.SampleRate / 4, b = VoiceCodec.SampleRate * 3 / 2;
+        List<float> off = RunChain(x, rate, false);
+        double gentle = Db(Rms(RunChain(x, rate, true, 1f, 0.5f), a, b) / Rms(off, a, b));
+        double trained = Db(Rms(RunChain(x, rate, true), a, b) / Rms(off, a, b));
+        double hard = Db(Rms(RunChain(x, rate, true, 1f, 2f), a, b) / Rms(off, a, b));
+        Assert.True(gentle > trained + 3 && trained > hard + 3,
+            "cut at 0.5 / 1 / 2: " + gentle.ToString("F1") + " / " + trained.ToString("F1") + " / " + hard.ToString("F1") + " dB");
     }
 
     [Theory]

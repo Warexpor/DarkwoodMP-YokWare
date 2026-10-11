@@ -47,6 +47,7 @@ namespace DWMPHorde
             yield return Setting(ModConfig.VoiceMicDevice);
             yield return Setting(ModConfig.VoiceMicVolume);
             yield return Setting(ModConfig.VoiceNoiseSuppression);
+            yield return Setting(ModConfig.VoiceNoiseSuppressionStrength);
             yield return Setting(ModConfig.VoiceRadioWorldSounds);
             yield return Setting(ModConfig.VoiceVolume);
         }
@@ -74,8 +75,8 @@ namespace DWMPHorde
 
         private static void BuildVoice(VmBuilder b)
         {
-            b.Header("Voice", 178f + 120f);
-            float z = 100f + 100f;
+            b.Header("Voice", 178f + 140f);
+            float z = 100f + 120f;
             const float step = Vm.RowStep;
 
             b.Choice("Voice chat", z, VoiceChoices, VoiceIndex, SetVoice);
@@ -111,6 +112,17 @@ namespace DWMPHorde
             b.Choice("Noise suppression", z, OffOn,
                 () => ModConfig.VoiceNoiseSuppression == null || ModConfig.VoiceNoiseSuppression.Value ? 1 : 0,
                 i => { if (ModConfig.VoiceNoiseSuppression != null) ModConfig.VoiceNoiseSuppression.Value = i == 1; });
+            z -= step;
+            // Left end 0.25, right end 3, in steps of 0.25.
+            b.Slider("Suppression strength", z,
+                () => ((ModConfig.VoiceNoiseSuppressionStrength?.Value ?? ModConfig.DefaultNoiseSuppressionStrength) - RnNoise.MinStrength)
+                    / (RnNoise.MaxStrength - RnNoise.MinStrength),
+                t =>
+                {
+                    if (ModConfig.VoiceNoiseSuppressionStrength != null)
+                        ModConfig.VoiceNoiseSuppressionStrength.Value = Mathf.Round(
+                            (RnNoise.MinStrength + t * (RnNoise.MaxStrength - RnNoise.MinStrength)) * 4f) / 4f;
+                });
             z -= step;
             b.Name("Microphone level", z);
             Button meter = b.Value("", z, null);

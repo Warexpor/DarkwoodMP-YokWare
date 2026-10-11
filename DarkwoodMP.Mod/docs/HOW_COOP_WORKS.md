@@ -909,7 +909,8 @@ party events.
   - The microphone is cleaned before it is sent (`VoiceNoiseSuppression`, on unless the
     player turns it off in Settings > Voice): a trained model (RNNoise) tells speech from
     noise, so fans, hum, hiss, keys and clicks go down and the voice stays. Another
-    voice in the room is speech to it and passes.
+    voice in the room is speech to it and passes. How hard it cuts is the player's
+    choice ("Suppression strength", `VoiceNoiseSuppressionStrength`, 1.5 by default).
   - Indoors a voice gets the same reverb vanilla puts on sounds made inside; walls muffle
     it as vanilla muffles any sound behind a wall.
   - Push-to-talk (`V`) or open mic.

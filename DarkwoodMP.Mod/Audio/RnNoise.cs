@@ -138,6 +138,14 @@ namespace DWMPHorde.Audio
         /// One frame of <see cref="FrameSize"/> samples in place, 16-bit scale. Returns how
         /// sure the model is that the frame holds speech (0..1).
         /// </summary>
+        /// <summary>
+        /// How hard the model's verdict is applied: the power each band's gain is raised to,
+        /// so a band's cut in dB is this many times the model's. 1 is the model as trained;
+        /// above it noise goes down further and the quiet edges of speech go with it.
+        /// </summary>
+        internal float Strength = 1f;
+        internal const float MinStrength = 0.25f, MaxStrength = 3f;
+
         internal float Process(float[] buf, int offset)
         {
             // High-pass: the mic's rumble and any offset.
@@ -163,6 +171,12 @@ namespace DWMPHorde.Audio
                     float g = Math.Max(_g[i], 0.6f * _lastG[i]);
                     _g[i] = g;
                     _lastG[i] = g;
+                }
+                if (Strength != 1f)
+                {
+                    // After the smoothing, whose memory stays the model's own gains.
+                    for (int i = 0; i < NbBands; i++)
+                        _g[i] = (float)Math.Pow(_g[i], Strength);
                 }
                 InterpBandGain(_gf, _g);
                 for (int i = 0; i < FreqSize; i++)

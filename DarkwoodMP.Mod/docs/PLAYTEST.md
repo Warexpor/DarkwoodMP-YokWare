@@ -488,6 +488,9 @@ Listen on the player who did not cause the sound.
       AudioSources" error in either log. B standing next to A hears A's
       voice only once, without the sounds doubled. Voice > "Radio picks up sounds" off
       on A: voice only.
+- [ ] Suppression strength: A types while talking. B hears the keys less with the
+      slider to the right, more to the left; at the far right A's voice is still
+      understood (thinner). The change is heard at once, with no rejoin.
 - [ ] Noise suppression: with a fan or hiss in A's room, B hears A's voice without it;
       Voice > "Noise suppression" off brings it back. The level meter is near empty
       while A is silent. It is clean from the first second after joining, not only after

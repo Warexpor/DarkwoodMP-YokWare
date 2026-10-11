@@ -33,6 +33,9 @@ namespace DWMPHorde.Audio
         private RnNoise _rn;
         private bool _rnBroken;
 
+        /// <summary>How hard the suppression cuts (<see cref="RnNoise.Strength"/>); 1 is the model as trained.</summary>
+        internal float Strength = 1f;
+
         /// <summary>Why the noise suppression could not start (null while it can).</summary>
         internal string SuppressionError { get; private set; }
 
@@ -106,6 +109,7 @@ namespace DWMPHorde.Audio
             }
             for (int i = 0; i < frame.Length; i++)
                 frame[i] *= ToModelScale;
+            _rn.Strength = Math.Min(Math.Max(Strength, RnNoise.MinStrength), RnNoise.MaxStrength);
             _rn.Process(frame, 0);
             for (int i = 0; i < frame.Length; i++)
                 frame[i] *= 1f / ToModelScale;

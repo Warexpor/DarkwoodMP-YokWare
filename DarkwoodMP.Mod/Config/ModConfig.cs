@@ -83,6 +83,8 @@ namespace DWMPHorde.Config
         public static ModSetting<string> VoiceRadioTalkKey { get; private set; }
         public static ModSetting<float> VoiceMicVolume { get; private set; }
         public static ModSetting<bool> VoiceNoiseSuppression { get; private set; }
+        public static ModSetting<float> VoiceNoiseSuppressionStrength { get; private set; }
+        public const float DefaultNoiseSuppressionStrength = 1.5f;
         public static ModSetting<bool> VoiceRadioWorldSounds { get; private set; }
         public static ModSetting<string> VoicePlayerVolumes { get; private set; }
 
@@ -255,6 +257,8 @@ namespace DWMPHorde.Config
                 "Microphone volume, 0..4 (1 as recorded). Also how loud you count for how far your voice carries.");
             VoiceNoiseSuppression = config.Bind("Voice", "VoiceNoiseSuppression", true,
                 "Take noise (fans, hiss, hum, the room, keys and clicks) out of your microphone before it is sent.");
+            VoiceNoiseSuppressionStrength = config.Bind("Voice", "VoiceNoiseSuppressionStrength", DefaultNoiseSuppressionStrength,
+                "How hard the noise suppression cuts, 0.25..3. 1 is the model as trained; higher takes out more noise (keys, clicks, what leaks through while you talk) and makes quiet speech thinner; lower is gentler.");
             VoiceRadioWorldSounds = config.Bind("Voice", "VoiceRadioWorldSounds", true,
                 "Your keyed walkie also sends the sounds around you, as loud as they reach you (not music or menu sounds). Off: your voice only.");
             VoicePlayerVolumes = config.Bind("Voice", "VoicePlayerVolumes", "",

@@ -171,7 +171,8 @@ namespace DWMPHorde.Audio
 
             float gain = Mathf.Clamp(ModConfig.VoiceMicVolume?.Value ?? 1f, 0f, 4f);
             bool suppress = ModConfig.VoiceNoiseSuppression == null || ModConfig.VoiceNoiseSuppression.Value;
-            _worker.Push(read, gain, suppress);
+            float strength = ModConfig.VoiceNoiseSuppressionStrength?.Value ?? ModConfig.DefaultNoiseSuppressionStrength;
+            _worker.Push(read, gain, suppress, strength);
 
             _done.Clear();
             _worker.Take(_done);
@@ -211,6 +212,7 @@ namespace DWMPHorde.Audio
                 internal float[] Data;
                 internal float Gain;
                 internal bool Suppress;
+                internal float Strength;
             }
 
             private readonly VoiceMicChain _chain;
@@ -230,10 +232,10 @@ namespace DWMPHorde.Audio
                 new Thread(Run) { IsBackground = true, Name = "YokWare voice mic" }.Start();
             }
 
-            internal void Push(float[] data, float gain, bool suppress)
+            internal void Push(float[] data, float gain, bool suppress, float strength)
             {
                 lock (_in)
-                    _in.Enqueue(new Chunk { Data = data, Gain = gain, Suppress = suppress });
+                    _in.Enqueue(new Chunk { Data = data, Gain = gain, Suppress = suppress, Strength = strength });
                 _wake.Set();
             }
 
@@ -269,6 +271,7 @@ namespace DWMPHorde.Audio
                                     break;
                                 chunk = _in.Dequeue();
                             }
+                            _chain.Strength = chunk.Strength;
                             _chain.Process(chunk.Data, chunk.Data.Length, chunk.Gain, chunk.Suppress, frames);
                             if (_chain.SuppressionError != null)
                                 _suppressionError = _chain.SuppressionError;

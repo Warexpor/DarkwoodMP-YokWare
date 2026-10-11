@@ -36,6 +36,7 @@ namespace DWMPHorde
             { "Microphone", "Микрофон" },
             { "Microphone volume", "Громкость микрофона" },
             { "Noise suppression", "Шумоподавление" },
+            { "Suppression strength", "Сила шумоподавления" },
             { "Radio picks up sounds", "Рация ловит звуки" },
             { "Controller talk button", "Кнопка голоса (геймпад)" },
             { "D-pad left", "Крестовина влево" },

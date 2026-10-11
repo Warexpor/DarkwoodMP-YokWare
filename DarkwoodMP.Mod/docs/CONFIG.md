@@ -22,7 +22,7 @@ In game:
   `PeerMovementVolume`.
 - **Settings > Voice** edits `VoiceEnabled` / `VoiceMode`, `VoicePttKey`, `VoicePadTalkButton`,
   `VoiceRadioTalkKey`, `VoiceRadioPowerKey`, `VoiceRadioWorldSounds`, `VoiceMicDevice`,
-  `VoiceMicVolume`, `VoiceNoiseSuppression` and `VoiceVolume`; **Voice > Players** edits `VoicePlayerVolumes`.
+  `VoiceMicVolume`, `VoiceNoiseSuppression`, `VoiceNoiseSuppressionStrength` and `VoiceVolume`; **Voice > Players** edits `VoicePlayerVolumes`.
 - **Multiplayer > Host settings** edits `FriendlyFireEnabled`, `LootShareMode` (with
   `DoubleItemsEnabled`), `NightMonsterMultiplier` and `VoiceAlertsEnemies`, and before
   hosting `MaxPlayers`, `SteamLobbyType`, `ConnectPort` and `HostPassword`.
@@ -92,6 +92,7 @@ set in Multiplayer > Settings > Voice.
 | `VoiceMicDevice` | empty | Microphone to talk into, by the name the game lists it under; empty for the system default. A device that is not plugged in falls back to the default. |
 | `VoiceMicVolume` | `1` | Microphone volume, 0 to 4 (1 as recorded; the Voice screen sets 0 to 2). It is also how loud you count for how far your voice carries. |
 | `VoiceNoiseSuppression` | `true` | Clean your microphone before it is sent, with RNNoise 0.2: a trained model that tells speech from noise, in managed code (no extra file, the same on every install). Fans, hum, hiss and the room's tone go down by 60 dB and more within the first second; keys, clicks and clatter in pauses nearly as far, and under speech they are cut between the voice's harmonics. It works on the mic at 48 kHz before the mic volume, on a thread of its own (about a tenth of one CPU core while the mic runs), and adds about 30 ms of delay. Limit: another person's voice or a television is speech to it and passes. Off: the mic as recorded. Settings > Voice > Noise suppression. |
+| `VoiceNoiseSuppressionStrength` | `1.5` | How hard the noise suppression cuts, 0.25 to 3 (Voice > "Suppression strength", in steps of 0.25). Each band's cut in dB is this many times what the model gives: 1 is the model as trained, higher takes out more (keys, clicks, noise that leaks through while you talk) and makes quiet speech thinner, lower is gentler. |
 | `VoiceRadioWorldSounds` | `true` | Your keyed walkie also sends the sounds around you, each as loud as it reaches you; music, menu sounds and voice chat are left out. Off: your voice only. What other players' radios send is always played. |
 | `VoicePlayerVolumes` | empty | How loud each other player is heard, by the name they go by: `name=volume` entries (0 muted to 2) separated by `|`. Set in Settings > Voice > Players. |
 | `VoiceFullVolumeDistance` | `150` | Distance (game units; a body is about 40 across) within which a shout is at full volume; quieter speech a shorter way. |
