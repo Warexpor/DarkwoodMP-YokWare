@@ -3,12 +3,12 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.222**. The current Horde wire protocol is **54**. Every install in a session
+**0.8.223**. The current Horde wire protocol is **54**. Every install in a session
 needs the same DLL; the protocol is checked on join.
 
 Protocol history (newest first):
 
-- **54**, 0.8.212 to 0.8.222: `VoiceData` (129) gains flag 2: a second codec block after the voice,
+- **54**, 0.8.212 to 0.8.223: `VoiceData` (129) gains flag 2: a second codec block after the voice,
   the sounds the talker's radio picked up.
 - **53**, 0.8.200 to 0.8.211: the world share package gains `savplc.dat` (container slots a player
   stored items in). No message layout changed; the bump keeps every player on a build
@@ -61,6 +61,43 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.223 — a rejoining client comes back as at the last world save
+
+Asked for after 0.8.222. Built, unit-tested and deployed to the three installs;
+**not played yet**. No protocol change (the new fields are in the backup's JSON), but
+every install needs this DLL.
+
+- **What it was.** A client's character snapshot (position, bag, health, skills) was
+  taken at every world save and again when the client left, and a rejoin used the
+  newest. After a host crash or a host reload the world was back at the last save
+  while the client came back as they left: an item put in a chest after the save was
+  in neither place, one taken out was in both.
+- **What it is now.** A rejoin restores the state of the host's last world save,
+  position included. A snapshot taken between saves is marked live
+  (`ClientStateBackupData.Live`): the one on leaving, the one after a quest item
+  hand-back, and the one from a Save only the client ran (a client's own Save is
+  blocked and is not a world save; before, it overwrote the save-time snapshot).
+  The host does not write a live snapshot to disk. It holds it in memory for the
+  current run of its world (from one load to the next), and:
+  - a player who rejoins while that world still runs gets it, so they come back as
+    they left (the world has their later changes in it; the save-time state would
+    duplicate or lose items);
+  - the host's next real world save writes it to that player's file (new patch on
+    `SaveManager.Save`, which checks that the save was really written), the leave
+    checkpoint of a host who quits to the menu included;
+  - a host that loads its save again drops it, and the save-time file stands.
+- **Link already down when leaving.** The client also keeps the leave-time snapshot
+  in its own file (`client_backup_leave_<campaign>.json`), tagged with the host's run
+  id, which the host now names in its backup push (also in the "nothing stored"
+  answer). It is used only on a rejoin into that same run, and is then sent to the
+  host so the next world save stores it. The client's `client_backup_self` file is
+  the save-time state only.
+- **Which copy wins.** Host copy against the client's own: the newer timestamp (both
+  were written by the same client, so one clock). Before, the client's own won
+  whenever it had as much progress, even if older.
+- Files: `SaveNetHandlers.cs`, `SaveNetHandlers.Apply.cs`, `SaveSyncPatches.cs`,
+  `ClientStateBackup.cs`, `ClientStateBackup.Paths.cs`, `QuestItemHandoff.cs`.
 
 ## 0.8.222 — RNNoise 0.2, softer radio sounds, steady static with no range cut-off, whole stand-up for watchers, rejoin where you left
 

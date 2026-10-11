@@ -30,9 +30,9 @@ namespace DWMPHorde.Networking
         /// Sends the client's inventory/skills/state backup to the host, and mirrors it
         /// to local self so RESTORE SELF / rejoin fallback stay current.
         /// </summary>
-        public void SendClientStateBackup()
+        public void SendClientStateBackup(bool atWorldSave)
         {
-            SaveHandlers.SendClientStateBackup();
+            SaveHandlers.SendClientStateBackup(atWorldSave);
         }
 
         /// <summary>

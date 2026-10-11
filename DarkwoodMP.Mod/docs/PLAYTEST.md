@@ -445,6 +445,13 @@ Listen on the player who did not cause the sound.
       voice from B's radio (quieter, from B's side, duller if B's is in a pocket), with
       the squelch tail on letting go. B switching their radio off or on in hand:
       A hears the knob from B. Indoors all of it has the room's reverb.
+- [ ] Rejoin state: B joins A, the world saves ("saving" shows), B then walks away and
+      moves an item into a chest, and leaves. (1) B rejoins while A keeps playing: B is
+      where they left, the item is in the chest only (host log `pushed live backup`).
+      (2) A quits to the menu (the leave checkpoint saves), hosts again, B joins: same.
+      (3) A's game is killed instead, A hosts again, B joins: B stands where the save
+      was taken with the item in the bag, and the chest is as at the save
+      (`pushed save-time backup`).
 - [ ] Stand-up: A hosts and is in the world, B joins. A sees B lying where B left the
       game last time (not at A's spawn, not popping there from it), then B stands up
       from the first frame and both finish together; B is on their feet on A's screen

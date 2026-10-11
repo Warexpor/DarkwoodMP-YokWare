@@ -95,7 +95,7 @@ namespace DWMPHorde.Networking
 
                 if (_net.Role == NetworkRole.Client)
                 {
-                    try { SendClientStateBackup(); }
+                    try { SendClientStateBackup(atWorldSave: true); }
                     catch { /* non-fatal */ }
                 }
 
@@ -135,8 +135,12 @@ namespace DWMPHorde.Networking
                     SendNoStoredClientBackup(playerId);
                     return;
                 }
-                var data = ClientStateBackup.LoadBackupFileForPlayer(
-                    playerId, steamId, stableKey, allowPlayerIdFallback: allowPlayerId);
+                // This world has run on since the player left: they come back as they left it.
+                ClientStateBackupData data = TryGetLiveClientBackup(playerId, steamId, stableKey, allowPlayerId);
+                bool live = data != null;
+                if (data == null)
+                    data = ClientStateBackup.LoadBackupFileForPlayer(
+                        playerId, steamId, stableKey, allowPlayerIdFallback: allowPlayerId);
                 if (data == null)
                 {
                     ModRuntime.LegacyInfo(
@@ -154,6 +158,8 @@ namespace DWMPHorde.Networking
                     SendNoStoredClientBackup(playerId);
                     return;
                 }
+                data.Live = live;
+                data.HostRunId = HostRunId();
                 string json = ClientStateBackup.SerializeToJson(data);
                 if (string.IsNullOrEmpty(json))
                 {
@@ -164,7 +170,7 @@ namespace DWMPHorde.Networking
                     w => new ClientStateBackupMessage { JsonData = json }.Serialize(w),
                     LiteNetLib.DeliveryMethod.ReliableOrdered);
                 ModRuntime.LegacyInfo(
-                    "[ClientBackup] pushed stored backup → p" + playerId
+                    "[ClientBackup] pushed " + (live ? "live" : "save-time") + " backup → p" + playerId
                     + (steamId != 0 ? " s" + steamId : "")
                     + (stableKey != null ? " k" + stableKey.Substring(0, System.Math.Min(8, stableKey.Length)) : "")
                     + " (inv=" + (data.InventoryItems?.Count ?? 0)
@@ -177,13 +183,131 @@ namespace DWMPHorde.Networking
         }
 
         /// <summary>
-        /// Host: nothing stored for this player. Said out loud (an empty backup) so the joiner
-        /// uses its own file at once instead of waiting out the push that will not come.
+        /// Host: nothing stored for this player. Said out loud (a backup that only names this
+        /// run of the world) so the joiner uses its own files at once instead of waiting out
+        /// the push that will not come.
         /// </summary>
         private void SendNoStoredClientBackup(int playerId)
         {
+            string json = ClientStateBackup.SerializeToJson(
+                new ClientStateBackupData { NoBackup = true, HostRunId = HostRunId() }) ?? "";
             _net.SendToPlayer(playerId, NetMessageType.ClientStateBackup,
-                w => new ClientStateBackupMessage { JsonData = "" }.Serialize(w),
+                w => new ClientStateBackupMessage { JsonData = json }.Serialize(w),
+                LiteNetLib.DeliveryMethod.ReliableOrdered);
+        }
+
+        /// <summary>
+        /// Host: the world in memory is one run, from its load to the next load (the player
+        /// object is made anew by every load). Live snapshots belong to the run they were taken in.
+        /// </summary>
+        private void EnsureHostRun()
+        {
+            Player p = Player.Instance;
+            int id = p != null ? p.GetInstanceID() : 0;
+            if (_ownRunId != null && id == _ownRunPlayerId)
+                return;
+            _ownRunPlayerId = id;
+            _ownRunId = Guid.NewGuid().ToString("N");
+            if (_liveClientBackups.Count > 0)
+            {
+                ModRuntime.LegacyInfo("[ClientBackup] world loaded anew: " + _liveClientBackups.Count
+                    + " live snapshot(s) dropped, save-time files stand");
+                _liveClientBackups.Clear();
+            }
+        }
+
+        private string HostRunId()
+        {
+            EnsureHostRun();
+            return _ownRunId;
+        }
+
+        private static string LiveBackupKey(int playerId, ulong steamId, string stableKey, bool allowPlayerId)
+        {
+            if (steamId != 0)
+                return "s" + steamId;
+            if (!string.IsNullOrEmpty(stableKey))
+                return "k" + stableKey;
+            return allowPlayerId && playerId > 0 ? "p" + playerId : null;
+        }
+
+        private ClientStateBackupData TryGetLiveClientBackup(int playerId, ulong steamId, string stableKey, bool allowPlayerId)
+        {
+            EnsureHostRun();
+            string key = LiveBackupKey(playerId, steamId, stableKey, allowPlayerId);
+            if (key == null || !_liveClientBackups.TryGetValue(key, out LiveClientBackup held))
+                return null;
+            if (!ClientStateBackup.MatchesCurrentCampaign(held.Data))
+                return null;
+            return held.Data;
+        }
+
+        /// <summary>
+        /// The host's world was just written to disk: the live snapshots are the players' state
+        /// in that saved world, so they become the stored ones.
+        /// </summary>
+        internal void StoreLiveClientBackupsAtWorldSave()
+        {
+            if (_net.Role == NetworkRole.Client)
+                return;
+            EnsureHostRun();
+            if (_liveClientBackups.Count == 0)
+                return;
+            foreach (LiveClientBackup held in _liveClientBackups.Values)
+            {
+                try
+                {
+                    held.Data.Live = false;
+                    held.Data.HostRunId = null;
+                    string json = ClientStateBackup.SerializeToJson(held.Data);
+                    if (!string.IsNullOrEmpty(json))
+                        ClientStateBackup.SaveBackupFile(json, held.PlayerId, held.SteamId, held.StableKey);
+                }
+                catch (Exception ex)
+                {
+                    ModRuntime.Log?.LogWarning("[ClientBackup] storing a live snapshot at the world save failed: " + ex.Message);
+                }
+            }
+            ModLog.Event(LogCat.Save, "[ClientBackup] world saved: " + _liveClientBackups.Count
+                + " live snapshot(s) stored");
+            _liveClientBackups.Clear();
+        }
+
+        /// <summary>The chapter is started over: nothing taken before it is handed back.</summary>
+        internal void DropLiveClientBackups()
+        {
+            _liveClientBackups.Clear();
+        }
+
+        /// <summary>
+        /// Client: the newer of this machine's save-time snapshot and, when this is still the
+        /// host run it was taken in, its leave-time one.
+        /// </summary>
+        private ClientStateBackupData LoadOwnClientBackup()
+        {
+            ClientStateBackupData self = ClientStateBackup.LoadLocalSelfBackupFile();
+            ClientStateBackupData left = ClientStateBackup.LoadLocalLeaveBackupFile(_hostRunId);
+            if (left == null)
+                return self;
+            if (self != null && ClientStateBackup.TryParseBackupTimestamp(self)
+                > ClientStateBackup.TryParseBackupTimestamp(left))
+                return self;
+            return left;
+        }
+
+        /// <summary>
+        /// Client: a leave-time snapshot the host does not hold (the link was already down when
+        /// it was taken) goes to the host now, so its next world save stores it.
+        /// </summary>
+        private void ShareRestoredLiveBackup(ClientStateBackupData data)
+        {
+            if (data == null || !data.Live || !_net.IsConnected)
+                return;
+            string json = ClientStateBackup.SerializeToJson(data);
+            if (string.IsNullOrEmpty(json))
+                return;
+            _net.Broadcast(NetMessageType.ClientStateBackup,
+                w => new ClientStateBackupMessage { JsonData = json }.Serialize(w),
                 LiteNetLib.DeliveryMethod.ReliableOrdered);
         }
 
@@ -196,6 +320,7 @@ namespace DWMPHorde.Networking
                 return;
             _receivedHostClientBackup = false;
             _hostHasNoClientBackup = false;
+            _heldClientBackup = null;
             ClientPlacementPending = true;
             if (_clientBackupRestoreCo != null)
             {
@@ -230,7 +355,8 @@ namespace DWMPHorde.Networking
                 if (_receivedHostClientBackup || _net.Role != NetworkRole.Client)
                     yield break;
 
-                var data = ClientStateBackup.LoadLocalSelfBackupFile();
+                var data = _heldClientBackup ?? LoadOwnClientBackup();
+                _heldClientBackup = null;
                 if (data == null)
                 {
                     ModRuntime.LegacyInfo(
@@ -240,9 +366,11 @@ namespace DWMPHorde.Networking
                 if (Player.Instance == null)
                     yield break;
 
-                ClientStateBackup.RestoreFromBackup(data);
+                if (ClientStateBackup.RestoreFromBackup(data))
+                    ShareRestoredLiveBackup(data);
                 ModRuntime.LegacyInfo(
-                    "[ClientBackup] restored local self fallback (no host backup for this player id)");
+                    "[ClientBackup] restored local " + (data.Live ? "leave-time" : "save-time")
+                    + " fallback (no host backup for this player id)");
             }
             finally
             {
@@ -279,26 +407,36 @@ namespace DWMPHorde.Networking
                         return;
                     }
 
+                    _hostRunId = data.HostRunId;
+                    if (data.NoBackup)
+                    {
+                        // The wait routine goes to this machine's own files now.
+                        ModRuntime.LegacyInfo("[ClientBackup] host has no stored backup for this player");
+                        return;
+                    }
+
                     // Do NOT set _receivedHostClientBackup yet — only after a successful
                     // apply. Rejected stale/mismatch pushes must leave local fallback free.
 
-                    // Local self is source of truth on this box. Host push only fills a gap.
+                    // Both copies were written by this client, so their timestamps are from one
+                    // clock: the newer one is the state to come back to. The host's is newer when
+                    // it holds a live snapshot; this machine's when the link was down as it was taken.
                     ClientStateBackupData hostData = data;
                     ClientStateBackupData local = null;
-                    try { local = ClientStateBackup.LoadLocalSelfBackupFile(); }
+                    try { local = LoadOwnClientBackup(); }
                     catch { local = null; }
 
                     if (local != null && ClientStateBackup.MatchesCurrentCampaign(local))
                     {
+                        DateTime localAt = ClientStateBackup.TryParseBackupTimestamp(local);
+                        DateTime hostAt = ClientStateBackup.TryParseBackupTimestamp(hostData);
                         int localScore = ClientStateBackup.ProgressScore(local);
                         int hostScore = ClientStateBackup.ProgressScore(hostData);
-                        bool localNewer = ClientStateBackup.TryParseBackupTimestamp(local)
-                            >= ClientStateBackup.TryParseBackupTimestamp(hostData);
-                        if (localScore >= hostScore || localNewer)
+                        if (localAt != hostAt ? localAt > hostAt : localScore >= hostScore)
                         {
                             data = local;
                             ModRuntime.LegacyInfo(
-                                $"[ClientBackup] prefer local self over host push (localScore={localScore} hostScore={hostScore})");
+                                $"[ClientBackup] prefer own {(local.Live ? "leave-time" : "save-time")} file over host push (own={local.Timestamp} host={hostData.Timestamp} localScore={localScore} hostScore={hostScore})");
                         }
                     }
 
@@ -321,12 +459,15 @@ namespace DWMPHorde.Networking
                         return;
                     }
 
-                    string chosenJson = ClientStateBackup.SerializeToJson(data);
-                    ClientStateBackup.SaveLocalSelfBackupFile(chosenJson);
+                    // The local self file stays the save-time state: a live snapshot is not written to it.
+                    if (!data.Live)
+                        ClientStateBackup.SaveLocalSelfBackupFile(ClientStateBackup.SerializeToJson(data));
                     if (Player.Instance != null)
                     {
                         if (ClientStateBackup.RestoreFromBackup(data))
                         {
+                            if (ReferenceEquals(data, local))
+                                ShareRestoredLiveBackup(data);
                             // Only after restore actually applied — refused stale/mismatch
                             // must leave local fallback free.
                             _receivedHostClientBackup = true;
@@ -339,9 +480,10 @@ namespace DWMPHorde.Networking
                     }
                     else
                     {
-                        // Saved to local self; allow wait routine / later apply path.
+                        // The wait routine applies it once the player is in the world.
+                        _heldClientBackup = data;
                         ModRuntime.Log?.LogWarning(
-                            "[ClientBackup] host push arrived before Player — kept as local self for fallback");
+                            "[ClientBackup] host push arrived before Player — held for the wait routine");
                     }
                 }
                 catch (Exception ex)
@@ -403,6 +545,22 @@ namespace DWMPHorde.Networking
             parsed.PlayerId = playerId;
             parsed.SteamId = steamId != 0 ? steamId.ToString() : null;
             parsed.StableClientKey = stableKey;
+            EnsureHostRun();
+            string liveKey = LiveBackupKey(playerId, steamId, stableKey, allowPlayerId: true);
+            if (parsed.Live)
+            {
+                // Not at a world save: held for this run, stored at the next world save.
+                if (liveKey != null)
+                    _liveClientBackups[liveKey] = new LiveClientBackup
+                    {
+                        Data = parsed, PlayerId = playerId, SteamId = steamId, StableKey = stableKey
+                    };
+                ModLog.Event(LogCat.Save, "[ClientBackup] holding live snapshot from p" + playerId
+                    + " until the next world save");
+                return;
+            }
+            if (liveKey != null)
+                _liveClientBackups.Remove(liveKey);
             string json = ClientStateBackup.SerializeToJson(parsed);
             if (string.IsNullOrEmpty(json))
                 return;

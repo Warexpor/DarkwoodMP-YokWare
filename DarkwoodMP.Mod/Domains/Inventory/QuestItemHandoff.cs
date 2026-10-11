@@ -448,7 +448,7 @@ namespace DWMPHorde.Sync
                 ModRuntime.LegacyInfo($"[QuestHandoff] {_toRemove[i].Key} was picked up by another player while away; removed {n}");
             }
             // Written to this player's saved character before the host forgets the records.
-            try { net.SendClientStateBackup(); }
+            try { net.SendClientStateBackup(atWorldSave: false); }
             catch { /* non-fatal: the host keeps the records and asks again next time */ }
             var ack = new QuestHandoffMessage { Types = types, Amounts = amounts };
             net.Send(NetMessageType.QuestHandoff, w => ack.Serialize(w), DeliveryMethod.ReliableOrdered);

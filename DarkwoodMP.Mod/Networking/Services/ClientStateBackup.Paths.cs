@@ -127,6 +127,7 @@ namespace DWMPHorde.Networking
                     try { File.Delete(f); }
                     catch (Exception ex) { ModRuntime.Log?.LogWarning("[ClientBackup] delete " + f + ": " + ex.Message); }
                 }
+                ModRuntime.Network?.SaveHandlers?.DropLiveClientBackups();
                 ModRuntime.LegacyInfo("[ClientBackup] chapter start-over — character snapshots discarded");
             }
             catch (Exception ex)
@@ -496,6 +497,69 @@ namespace DWMPHorde.Networking
             {
                 ModRuntime.Log?.LogError("[ClientBackup] failed to load local self: " + ex);
                 return null;
+            }
+        }
+
+        /// <summary>
+        /// This machine's leave-time snapshot (<see cref="ClientStateBackupData.Live"/>), kept
+        /// apart from the save-time one. Read back only on a rejoin into the same host run.
+        /// </summary>
+        public static string GetLocalLeaveBackupPath()
+        {
+            string campaign = SanitizeCampaignIdForPath(
+                CoopWorldCopyMeta.TryGetCampaignIdForCurrentProfile());
+            if (string.IsNullOrEmpty(campaign))
+                return null;
+            return GetProfileBackupDirectory() + "/client_backup_leave_" + campaign + ".json";
+        }
+
+        public static void SaveLocalLeaveBackupFile(string json)
+        {
+            try
+            {
+                string path = GetLocalLeaveBackupPath();
+                if (path == null || string.IsNullOrEmpty(json))
+                    return;
+                File.WriteAllText(path, json);
+            }
+            catch (Exception ex)
+            {
+                ModRuntime.Log?.LogWarning("[ClientBackup] failed to save leave-time snapshot: " + ex.Message);
+            }
+        }
+
+        /// <summary>The leave-time snapshot, when it was taken in the host run <paramref name="hostRunId"/> of this campaign.</summary>
+        public static ClientStateBackupData LoadLocalLeaveBackupFile(string hostRunId)
+        {
+            try
+            {
+                if (string.IsNullOrEmpty(hostRunId))
+                    return null;
+                ClientStateBackupData data = TryReadBackup(GetLocalLeaveBackupPath());
+                if (data == null || !string.Equals(data.HostRunId, hostRunId, StringComparison.Ordinal))
+                    return null;
+                if (!MatchesCurrentCampaign(data) || !HasMeaningfulProgress(data))
+                    return null;
+                return data;
+            }
+            catch (Exception ex)
+            {
+                ModRuntime.Log?.LogWarning("[ClientBackup] failed to load leave-time snapshot: " + ex.Message);
+                return null;
+            }
+        }
+
+        public static void DeleteLocalLeaveBackupFile()
+        {
+            try
+            {
+                string path = GetLocalLeaveBackupPath();
+                if (path != null && File.Exists(path))
+                    File.Delete(path);
+            }
+            catch (Exception ex)
+            {
+                ModRuntime.Log?.LogWarning("[ClientBackup] failed to delete leave-time snapshot: " + ex.Message);
             }
         }
 
