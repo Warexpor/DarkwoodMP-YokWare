@@ -37,6 +37,18 @@ namespace DWMPHorde.Patches
                 return false;
             }
 
+            // A repeating event turning a free body: the host's loop turns it, clients follow.
+            if (ScriptedSpin.IsSpinStep(__instance, thisGO))
+            {
+                if (IsConnectedClient())
+                {
+                    __result = HarmonyCoroutineUtil.Empty();
+                    return false;
+                }
+                if (ModRuntime.Network != null && ModRuntime.Network.IsConnected)
+                    ScriptedSpin.NoteHostStep(__instance);
+            }
+
             if (!ShouldSuppressPersonal()) return true;
             // A party dream's opening and endings: each dreamer is "the player" (PartyDreamScene).
             if (PartyDreamScene.Owns(thisGO))

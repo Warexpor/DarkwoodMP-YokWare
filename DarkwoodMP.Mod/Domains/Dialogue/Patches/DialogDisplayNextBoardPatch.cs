@@ -38,6 +38,8 @@ namespace DWMPHorde.Patches
         {
             /// <summary>0 = no drain scope, 1 = scope, 2 = scope + pushed GameEventsFired actor.</summary>
             public byte DrainScope;
+            /// <summary>This call is counted in <see cref="DialogMirror.BoardDepth"/>.</summary>
+            public bool Counted;
             public bool Deferred;
             public bool HaveBoard;
             public NpcRef Npc;
@@ -70,6 +72,8 @@ namespace DWMPHorde.Patches
                 DialogOutcomeIndexPatch.ResetCounter();
                 return true;
             }
+            __state.Counted = true;
+            DialogMirror.BoardDepth++;
 
             // A real host conversation is not part of the drain.
             if (DialogHostApplyGuard.DrainPending && !DialogHostApplyGuard.DialogueApplyActive
@@ -211,6 +215,8 @@ namespace DWMPHorde.Patches
         [HarmonyFinalizer]
         private static void Finalizer(DialogueWindow __instance, BoardState __state)
         {
+            if (__state.Counted && DialogMirror.BoardDepth > 0)
+                DialogMirror.BoardDepth--;
             if (__state.DrainScope != 0)
                 DialogHostApplyGuard.EndDrainScope(__state.DrainScope == 2);
 

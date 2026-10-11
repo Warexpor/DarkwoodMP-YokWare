@@ -733,9 +733,11 @@ The chapter transition is a world event that only the host runs. See
   the talk. While the speaker trades, each listener gets its own trading screen on
   the same trader (and can open it from Trade). The cooking menu after a talk and
   journal pages opened by a talk are not shown to listeners.
-- **Leaving a shared talk.** When the speaker leaves while others listen in, the
-  talk is handed to the next of them (its own options from there); the NPC's close
-  events wait until the last player in the talk leaves.
+- **Leaving a shared talk.** When the speaker leaves (Exit or Esc) while others
+  listen in, the talk is handed to the next of them (its own options from there); the
+  NPC's close events wait until the last player in the talk leaves. A talk that ends
+  itself (its last board closes it) is over for everyone in it: the listeners'
+  windows close with the speaker's.
 - **Who gets what.** Items a dialogue gives are personal to the speaker. Story
   flags, world events and NPC reputation the dialogue changes are world outcomes:
   the host replays the client's finished conversation in order and applies them

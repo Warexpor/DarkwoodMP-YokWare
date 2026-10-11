@@ -3,12 +3,12 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.245**. The current Horde wire protocol is **59**. Every install in a session
+**0.8.246**. The current Horde wire protocol is **59**. Every install in a session
 needs the same DLL; the protocol is checked on join.
 
 Protocol history (newest first):
 
-- **59**, 0.8.243 to 0.8.245: new `DoorSwing` (171); `BarricadeEvent` drops the attacker position.
+- **59**, 0.8.243 to 0.8.246: new `DoorSwing` (171); `BarricadeEvent` drops the attacker position.
 - **58**, 0.8.241 to 0.8.242: `DragSync` gains the co-holder's id and where it stands; new `CoHold` (170).
 - **57**, 0.8.240: `ConstructibleConstruction` gains the save id and the repaired item's pose;
   new `ItemPose` (169).
@@ -68,6 +68,46 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.246 — a finished talk closes for its listeners, the dream carousel is the host's, cleaner voice playback
+
+Playtest of 0.8.245 (host + one client, bunker dream). The dream door's talk was the dream one
+for both players (0.8.245 confirmed).
+
+- **A talk that ends itself ends for its listeners.** The client talked to the dream door, the
+  host listened in. When the client's last board closed the talk, the finished talk was handed
+  to the host, which got an Exit prompt, and the door opened only after the host closed it (the
+  client's outcomes wait while the host's window is in use). Now a close made by the talk itself
+  (an exit outcome, `DialogueWindow.close` inside `displayNextBoard`) closes every listener's
+  window and runs the NPC's close events at once. Leaving with Exit or Esc still hands the talk
+  to a listener. `DialogMirror.TalkEndedItself` / `OwnerClosed(ended)`, `KindClose.Flag`,
+  `NpcDialogueLockReleasePatch`, `DialogDisplayNextBoardPatch` (board depth).
+- **Dream carousel out of step between players.** Its spin is a repeating event: one degree,
+  then it fires itself again 0.07 s later. The wait ends on a frame, so the rate followed each
+  machine's frame rate (100 fps host, 60 fps client), every machine ran its own loop, and each
+  then sent the turning body to the other as a push of its own. Now the host's loop turns it; a
+  client leaves that step out and follows the host's poses, which the host sends while the loop
+  runs however far the players stand from it (`ScriptedSpin`, `GameEventPersonalActorPatch`,
+  extra scan centers in `WorldPhysicsSyncService.TryBuildWorldSnapshot`). Applies to any
+  repeating event that turns a free body.
+- **Voice playback (direct voice and radio), no change on the wire.** Two faults on the
+  listening side:
+  - The 16 kHz voice was brought to the sound card's rate with a straight line between
+    samples, which leaves copies of the voice above 8 kHz (about 25 dB down: a metallic edge on
+    "s" sounds) and dulls its top by 3 dB. It is now rebuilt through a low-pass
+    (`VoiceInterpolator`, 32-tap windowed sinc).
+  - Received voice is played 2.8 times louder than recorded, and the peaks of normal and loud
+    speech were bent back sample by sample (tanh), which buzzes on loud syllables. The level
+    is now read 4 ms ahead and turned down before the peak plays (`VoiceLimiter`); the soft
+    limit only catches what is left. Loud speech peaks about 1 dB lower than before.
+  - Tests: `VoicePlayoutTests`.
+- **Voice codec: found, not changed.** What remains is the codec itself: ADPCM at 4 bits a
+  sample has a noise floor about 20 to 25 dB under the voice, heard as grain on every word, and
+  a lost packet is skipped with nothing filled in. Fixing that means another codec (Opus,
+  through the managed Concentus library): a new dependency and a protocol bump, so it waits for
+  a decision.
+
+No message changed; protocol stays 59.
 
 ## 0.8.245 — the bunker dream's door talks as the dream door for every dreamer
 

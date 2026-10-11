@@ -72,6 +72,8 @@ namespace DWMPHorde.Audio
             public Biquad RadioHp;
             public Biquad RadioLp;
             public bool Priming = true;
+            /// <summary>Holds this talker's peaks under full scale (<see cref="VoiceLimiter"/>).</summary>
+            public readonly VoiceLimiter Limiter = new VoiceLimiter(VoiceCodec.SampleRate);
             /// <summary>Seconds of voice buffered before playback starts (the network's jitter; less for a local source).</summary>
             public float PrimeSec = VoiceChatService.PrimeSec;
             /// <summary>Set when a short spurt has ended below the prime level: play it out anyway.</summary>
@@ -103,8 +105,7 @@ namespace DWMPHorde.Audio
             public volatile float Volume;
             private double _step;
             private double _frac;
-            private float _prev;
-            private float _cur;
+            private readonly VoiceInterpolator _interp = new VoiceInterpolator();
             private float _vol;
             /// <summary>0..1 over the first samples after a start: a stream that begins at full level clicks.</summary>
             private float _rise;
@@ -155,8 +156,7 @@ namespace DWMPHorde.Audio
                                 if (_rise < 1f)
                                     _rise = Mathf.Min(1f, _rise + 1f / EdgeSamples);
                                 float edge = s.Buffered >= EdgeSamples ? _rise : _rise * s.Buffered / EdgeSamples;
-                                _prev = _cur;
-                                _cur = s.Ring[s.ReadPos] * edge;
+                                _interp.Push(s.Ring[s.ReadPos] * edge);
                                 s.ReadPos = (s.ReadPos + 1) % s.Ring.Length;
                                 s.Buffered--;
                             }
@@ -164,14 +164,14 @@ namespace DWMPHorde.Audio
                             {
                                 s.Priming = true;
                                 s.Underruns++;
-                                _prev = _cur = 0f;
+                                _interp.Clear();
                                 for (int j = i * channels; j < data.Length; j++)
                                     data[j] = 0f;
                                 return;
                             }
                         }
-                        // Linear between the two decoded samples around this output sample.
-                        float sample = (_prev + (_cur - _prev) * (float)_frac) * (from + (to - from) * i / frames);
+                        // The voice at this output sample, rebuilt from the decoded ones around it.
+                        float sample = _interp.At((float)_frac) * (from + (to - from) * i / frames);
                         // The carrier is a clip of ones: multiplying keeps whatever 3D pan the
                         // source put on it before this filter, and is the sample itself if after.
                         for (int c = 0; c < channels; c++)
@@ -737,6 +737,9 @@ namespace DWMPHorde.Audio
 
             lock (speaker.Lock)
             {
+                // Nothing buffered and not playing: a new stretch of talk.
+                if (speaker.Buffered == 0 && speaker.Priming)
+                    speaker.Limiter.Reset();
                 for (int i = 0; i < samples; i++)
                 {
                     if (speaker.Buffered >= speaker.Ring.Length)
@@ -744,7 +747,8 @@ namespace DWMPHorde.Audio
                     float sample = buf[i] * gain;
                     if (radioMode)
                         sample = RadioSample(speaker, sample);
-                    speaker.Ring[speaker.WritePos] = SoftLimit(sample);
+                    // Turned down ahead of a peak; the soft limit only catches what is left.
+                    speaker.Ring[speaker.WritePos] = SoftLimit(speaker.Limiter.Process(sample));
                     speaker.WritePos = (speaker.WritePos + 1) % speaker.Ring.Length;
                     speaker.Buffered++;
                 }

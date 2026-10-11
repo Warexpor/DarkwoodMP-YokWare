@@ -60,6 +60,7 @@ namespace DWMPHorde.Networking
             RemoteDragTimeline.Reset();
             Sync.SharedDrag.Reset();
             Sync.DoorSwing.Reset();
+            Sync.ScriptedSpin.Reset();
             DragClaims.Clear();
             LastDragSyncPos.Clear();
             DragEndedAt.Clear();

@@ -92,6 +92,7 @@ namespace DWMPHorde.Sync
             _openAsOwner = false;
             _autoTradeDone = false;
             HandingOver = false;
+            BoardDepth = 0;
         }
 
         private static string KindName(byte kind)
@@ -180,12 +181,22 @@ namespace DWMPHorde.Sync
             OwnerSend(m);
         }
 
-        internal static void OwnerClosed()
+        /// <summary>
+        /// Boards being displayed right now (displayNextBoard on the stack). A close inside one is
+        /// the talk ending itself (an exit outcome), not the player leaving it.
+        /// </summary>
+        internal static int BoardDepth; // process-scoped: call-scoped, unwound by DialogDisplayNextBoardPatch's Finalizer
+
+        /// <summary>The talk closing now ended itself: it is over for its listeners too.</summary>
+        internal static bool TalkEndedItself => BoardDepth > 0;
+
+        /// <param name="ended">The talk ended itself (no hand-over to a listener).</param>
+        internal static void OwnerClosed(bool ended = false)
         {
             if (!_ownerOpen)
                 return;
             _ownerOpen = false;
-            OwnerSend(new DialogMirrorMessage { Kind = DialogMirrorMessage.KindClose });
+            OwnerSend(new DialogMirrorMessage { Kind = DialogMirrorMessage.KindClose, Flag = ended });
         }
 
         internal static void OwnerSimple(DialogueWindow dw, byte kind, int index = 0, bool flag = false)
@@ -479,8 +490,9 @@ namespace DWMPHorde.Sync
                     s.Portrait = m.Index;
                     break;
                 case DialogMirrorMessage.KindClose:
-                    // Someone still listens in: the talk goes on with them.
-                    if (HandOver(net, ownerId, s))
+                    // Someone still listens in: the talk goes on with them, unless it ended itself
+                    // (the speaker's last board closed it): then it is over for everyone in it.
+                    if (!m.Flag && HandOver(net, ownerId, s))
                         return;
                     CloseListeners(net, ownerId, s);
                     _sessions.Remove(ownerId);
