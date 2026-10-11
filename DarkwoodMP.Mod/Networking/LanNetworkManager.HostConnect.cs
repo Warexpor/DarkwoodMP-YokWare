@@ -129,11 +129,8 @@ namespace DWMPHorde.Networking
             // This is an intentional teardown, not a host-crash migration.
             _suppressHostMigration = true;
 
-            // Before tearing the wire: host flushes sav.dat (next session ownership) and tells
-            // the clients to save with it. A leaving client writes nothing: its character is
-            // stored at world saves only. Skip title/offline-load tear.
-            // Migration promote still does NOT auto-Save (survivor slot corruption).
-            TryHostWorldSaveCheckpointOnExit();
+            // Leaving saves nothing, for the host or a client, as in the base game: the world
+            // and every character are what the last in-game save wrote.
             FlushReliableBeforeLeave();
 
             // Snapshot for public session-stop line before we wipe peers/ids

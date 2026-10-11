@@ -326,9 +326,8 @@ movie), unless the host sets `AllowJoinDuringDream`.
 - A player's character (position, bag, health, skills) is stored at real world saves
   only (the "saving" indicator), never on leaving or between saves. A returning
   player comes back as they were at the last world save they were in, not at the
-  host's spawn; one who was never in a save comes back as a fresh character. The
-  save a host makes when it quits to the menu counts: the clients are told to save
-  with it.
+  host's spawn; one who was never in a save comes back as a fresh character.
+  Leaving saves nothing, for the host or a client, as in the base game.
 - A player who stands up (after a load, a join, a respawn) stays lying until the others
   can see it: until a few of their position packets have gone out and, for a joiner,
   until they have been put where they left. The others then see the whole stand-up,

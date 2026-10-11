@@ -150,62 +150,6 @@ namespace DWMPHorde.Networking
             }
         }
 
-        /// <summary>
-        /// Intentional host StopNetwork while in-world: flush sav.dat so the next session
-        /// (same or new host) loads current world ownership. Never on a promoted host (survivor
-        /// client world corrupts the slot), a chapter change (the new chapter save is already
-        /// written), a dream, a held night death, or application quit (scene is being torn down).
-        /// The clients are told to save with it (SaveSync), so their characters are stored as
-        /// they are in this saved world: each writes its own file even if its copy for the
-        /// host no longer gets through, and a rejoin uses the newer of the two.
-        /// </summary>
-        internal void TryHostWorldSaveCheckpointOnExit()
-        {
-            if (_net.Role != NetworkRole.Host)
-                return;
-            if (Player.Instance == null || GameScreen.AtTitle || Core.loadingGame)
-                return;
-            if (LanNetworkManager.RemoteSaveInProgress)
-                return;
-            string blocked = WorldSaveGuards.GetAutomaticHostSaveBlockReason(_net);
-            if (blocked != null)
-            {
-                ModLog.Event(LogCat.Save, "Host leave checkpoint skipped — " + blocked);
-                return;
-            }
-            SaveManager sm = Singleton<SaveManager>.Instance;
-            if (sm == null)
-                return;
-            try
-            {
-                ModLog.Event(LogCat.Save,
-                    "Host leave checkpoint → local Save (intentional StopNetwork)");
-                LanNetworkManager.RemoteSaveInProgress = true;
-                sm.Save(
-                    doJson: true,
-                    doSaveProfile: true,
-                    force: true,
-                    forceSaveStatic: false,
-                    showSavingIndicator: false);
-                CoopWorldCopyMeta.RefreshAfterLocalSave();
-                ModRuntime.LegacyInfo("[HostLeave] world save checkpoint written");
-                if (_net.IsConnected)
-                {
-                    _net.SendToAll(NetMessageType.SaveSync, w => new SaveSyncMessage().Serialize(w),
-                        LiteNetLib.DeliveryMethod.ReliableOrdered);
-                    ModRuntime.LegacyInfo("[HostLeave] clients told to save with it");
-                }
-            }
-            catch (Exception ex)
-            {
-                ModRuntime.Log?.LogWarning("[HostLeave] world save checkpoint failed: " + ex.Message);
-            }
-            finally
-            {
-                LanNetworkManager.RemoteSaveInProgress = false;
-            }
-        }
-
         /// <summary>Collect → local self file; optionally push to host.</summary>
         private void PersistClientBackupSnapshot(bool sendToHost)
         {

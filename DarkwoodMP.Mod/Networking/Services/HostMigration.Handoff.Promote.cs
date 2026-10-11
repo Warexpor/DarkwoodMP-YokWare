@@ -82,8 +82,7 @@ namespace DWMPHorde.Networking
                 {
                     ModLog.Error(LogCat.Network, "Host migration promote failed to bind port " + port);
                     _migrationInProgress = false;
-                    // Full teardown (reset registry, share service, unstarted socket, proxies). The
-                    // promoted flag keeps StopNetwork from writing a leave checkpoint.
+                    // Full teardown (reset registry, share service, unstarted socket, proxies).
                     StopNetwork();
                     StatusText = "Host grant failed (port busy)";
                     return;
@@ -101,8 +100,7 @@ namespace DWMPHorde.Networking
 
             // Do NOT auto-Save here. Promote used to checkpoint after host leave, but the
             // survivor was a co-op client with a partially synced world; writing sav.dat corrupted
-            // their slot. Old host already flushed via graceful-leave checkpoint; survivor
-            // persists at the game's own next save.
+            // their slot. The survivor persists at the game's own next save.
             // TryHostMigrationSaveCheckpoint(); // disabled; corrupts survivor sav
             NotifyPromotedHostSaveReminder();
 

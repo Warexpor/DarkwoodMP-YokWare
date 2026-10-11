@@ -102,16 +102,6 @@ namespace DWMPHorde.Networking
                 yield return null;
             }
 
-            // Flush sav.dat while Role is still Host and the sim is live. StopNetwork
-            // below used to set Offline first, so TryHostWorldSaveCheckpointOnExit no-op'd
-            // and the next cold start of this slot missed mid-session ownership.
-            // Does NOT run on promote (survivor Save still corrupts) — old host only.
-            try { TryHostWorldSaveCheckpointOnExit(); }
-            catch (Exception ex)
-            {
-                ModLog.Warn(LogCat.Save, "Graceful leave host checkpoint: " + ex.Message);
-            }
-
             // Port free for elect promote; local still in-world until StopNetwork.
             StopTransportOnly("graceful handoff port release");
             _role = NetworkRole.Offline;
@@ -124,7 +114,6 @@ namespace DWMPHorde.Networking
             }
             _handoffInProgress = false;
             // Suppression is already set; StopNetwork will not re-enter migration.
-            // Role is already Offline → TryHostWorldSaveCheckpointOnExit no-ops (intentional).
             StopNetwork();
         }
 

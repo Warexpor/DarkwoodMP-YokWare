@@ -57,7 +57,7 @@ namespace DWMPHorde.Networking
         }
 
         /// <summary>
-        /// Why an automatic host save (leave checkpoint, SaveSync apply) must not run, or null.
+        /// Why an automatic host save (SaveSync apply) must not run, or null.
         /// Adds the cases where only the user, never the mod, may decide to write the slot.
         /// </summary>
         internal static string GetAutomaticHostSaveBlockReason(LanNetworkManager net)

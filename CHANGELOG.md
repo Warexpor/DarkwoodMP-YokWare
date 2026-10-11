@@ -3,12 +3,12 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.226**. The current Horde wire protocol is **54**. Every install in a session
+**0.8.227**. The current Horde wire protocol is **54**. Every install in a session
 needs the same DLL; the protocol is checked on join.
 
 Protocol history (newest first):
 
-- **54**, 0.8.212 to 0.8.226: `VoiceData` (129) gains flag 2: a second codec block after the voice,
+- **54**, 0.8.212 to 0.8.227: `VoiceData` (129) gains flag 2: a second codec block after the voice,
   the sounds the talker's radio picked up.
 - **53**, 0.8.200 to 0.8.211: the world share package gains `savplc.dat` (container slots a player
   stored items in). No message layout changed; the bump keeps every player on a build
@@ -61,6 +61,24 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.227 — leaving saves nothing, as in the base game
+
+Decided after 0.8.226. Built, unit-tested and deployed; **not played yet**.
+
+- **Removed: the host's silent world save on quitting to the menu** (the "host leave
+  checkpoint", in the mod since 0.8.71 or earlier, also run before a graceful hand-over
+  to another host), and with it the SaveSync that 0.8.226 sent to the clients at that
+  moment. The base game never saves on leaving (`Core.restartGame` reloads the scene,
+  `Core.quitGame` closes the game), and a save there stored the world without the
+  characters of clients who had left before the host.
+- **The rule, whole:** the world and every player's character are what the last
+  in-game save wrote. Leaving, disconnecting or closing the game stores nothing for
+  anyone. The next session starts from that save for all.
+- A host that hands the session to another player and leaves no longer writes its
+  slot on the way out; its next cold start loads its last in-game save.
+- Files: `SaveNetHandlers.cs`, `LanNetworkManager.HostConnect.cs`,
+  `HostMigration.Handoff.cs`.
 
 ## 0.8.226 — a character is stored at real world saves only
 

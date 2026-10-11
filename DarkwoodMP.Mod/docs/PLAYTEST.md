@@ -449,8 +449,8 @@ Listen on the player who did not cause the sound.
       away, picks something up and leaves (menu or closing the game). B rejoins: B
       stands where the save was taken, with the bag as at the save, whether or not A
       kept playing. B leaving before any save comes back as a fresh character.
-      A quitting to the menu with B in the world: B shows "saving" once, and on the
-      next session B is where they stood when A quit.
+      A quitting to the menu saves nothing: the next session starts from the last
+      in-game save for the world and for everyone in it.
 - [ ] Stand-up: A hosts and is in the world, B joins. A sees B lying where B left the
       game last time (not at A's spawn, not popping there from it), then B stands up
       from the first frame and both finish together; B is on their feet on A's screen

@@ -203,7 +203,7 @@ namespace DWMPHorde.Networking
         /// <summary>
         /// LAN, just before the connections are closed: LiteNetLib sends from its own thread
         /// and closing drops whatever is still queued, so a reliable message written in the same
-        /// call (the leaving host's SaveSync) never left. Wake the thread and wait until the
+        /// call never left. Wake the thread and wait until the
         /// queues are empty. Steam closes with linger and sends its queue itself.
         /// </summary>
         private void FlushReliableBeforeLeave()
