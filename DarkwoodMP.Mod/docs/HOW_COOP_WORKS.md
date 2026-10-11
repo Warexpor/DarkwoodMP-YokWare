@@ -388,7 +388,8 @@ code, not yet playtested).
   furniture are one shared world. An oven goes out only when nobody calls it home.
 - **Whoever pushes or drags a thing moves it.** The pusher's own game moves it and
   everyone else sees the result. Other players' bodies pass through pushable things
-  on your screen, so nothing gets pushed twice.
+  on your screen, so nothing gets pushed twice. Furniture the night shoves around (the
+  poltergeist) is moved by the host's game only, and every player sees that one motion.
 - **Night comes to every player, at vanilla's rate.** Each hideout a living player
   is home in gets the night's monsters at vanilla's pace and count, around a player
   there (times the host's night monster setting, see [section 18](#18-balancing-for-the-party)). Each living, unwarded player gets its own worm, as in vanilla; a player in a

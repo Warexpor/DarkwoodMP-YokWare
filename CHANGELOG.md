@@ -3,12 +3,12 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.235**. The current Horde wire protocol is **55**. Every install in a session
+**0.8.236**. The current Horde wire protocol is **55**. Every install in a session
 needs the same DLL; the protocol is checked on join.
 
 Protocol history (newest first):
 
-- **55**, 0.8.230 to 0.8.235: `BarricadeEvent` (destructible items) gains the item's name.
+- **55**, 0.8.230 to 0.8.236: `BarricadeEvent` (destructible items) gains the item's name.
 - **54**, 0.8.212 to 0.8.229: `VoiceData` (129) gains flag 2: a second codec block after the voice,
   the sounds the talker's radio picked up.
 - **53**, 0.8.200 to 0.8.211: the world share package gains `savplc.dat` (container slots a player
@@ -62,6 +62,21 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.236 — poltergeist furniture moves as one for everyone
+
+- The poltergeist night events (`CEvent_weird_moveMeWiggle_*_vortex`) shoved the hideout's
+  furniture on every machine at once, each its own way. Their vortex gives every nearby item a
+  push each half second (a random one in wiggle mode), and clients replay the night scene, so each
+  client pushed its own copies: it sent those moves as its own pushes, the host's copies followed,
+  and the two games fought over each piece (jitter, pieces snapping between spots). On clients a
+  scripted push (`MoveMe`, from the vortex or a GameEvents moveMe step) on a shared world item is
+  now dropped before it acts (`MoveMeClientPatch`); the host's copy of the scene moves the
+  furniture and every client follows that motion live through the physics sync, also in a
+  client's hideout far from the host (nodes near a player stay active on the host and its physics
+  scan covers every player). Particles and sounds still play on the client. A client's own
+  prologue pad keeps vanilla. `HOW_COOP_WORKS.md` notes the rule.
+- No protocol change.
 
 ## 0.8.235 — no action labels through the pause menu
 
