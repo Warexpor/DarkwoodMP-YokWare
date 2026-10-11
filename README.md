@@ -5,7 +5,7 @@ join it: the same forest, the same nights, the same story, played together.
 
 | | |
 |--|--|
-| Product | YokWare Branch **0.8.254** |
+| Product | YokWare Branch **0.8.255** |
 | Wire | Horde protocol **62** |
 | Players | Up to 8 by default (`MaxPlayers`, host included) |
 | Transport | LAN (LiteNetLib) or Steam lobby (SteamNetworkingSockets) |
@@ -78,7 +78,8 @@ yourself (see [Building from source](#building-from-source)).
 1. Install MelonLoader 0.7.x for Darkwood. BepInEx is not needed.
 2. Copy `DarkwoodMP.Mod.dll` into `Darkwood/Mods/` and `LiteNetLib.dll` into
    `Darkwood/UserLibs/`.
-3. Launch Darkwood.
+3. Launch Darkwood. Under Wine or Proton, set `WINEDLLOVERRIDES="version=n,b"` (Steam
+   launch options: `WINEDLLOVERRIDES="version=n,b" %command%`) or the loader is skipped.
 
 To check the install, open **MULTIPLAYER** on the title screen: the bottom of the
 screen shows `YokWare Branch <version>`, as in the table above.

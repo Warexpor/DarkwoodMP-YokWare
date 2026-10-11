@@ -341,8 +341,12 @@ namespace DWMPHorde
         /// </summary>
         public static void EnsureRunning()
         {
-            if (_running)
+            // Unity null: MelonLoader starts the mod before the first scene, and that load destroys
+            // a root made this early, DontDestroyOnLoad or not. Build it again on the next call.
+            if (_running && _runtimeRoot != null)
                 return;
+            if (_running)
+                ModLog.Event(LogCat.Core, "Runtime root was destroyed by a scene load; creating it again");
 
             _running = true;
 

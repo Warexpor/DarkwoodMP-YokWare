@@ -3,12 +3,12 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.254**. The current Horde wire protocol is **62**. Every install in a session
+**0.8.255**. The current Horde wire protocol is **62**. Every install in a session
 needs the same DLL; the protocol is checked on join.
 
 Protocol history (newest first):
 
-- **62**, 0.8.252 to 0.8.254: new `PeerNotice` (173).
+- **62**, 0.8.252 to 0.8.255: new `PeerNotice` (173).
 - **61**, 0.8.248 to 0.8.251: `VoiceData` (129) carries Opus; with flag 2 its data starts with the voice
   block's length (2 bytes).
 - **60**, 0.8.247: new `DreamLeft` (172).
@@ -72,6 +72,24 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.255 — MelonLoader: multiplayer runs again (the runtime object was lost at the first scene)
+
+Deployed to two MelonLoader 0.7.3 GOG copies and smoke-tested there (LAN host + join, both in the
+world, a host-spawned creature seen and killed by the client on both sides). Protocol unchanged (62).
+
+**Under MelonLoader nothing networked ever ticked.** The title screen and the MULTIPLAYER button
+came up, but hosting or joining did nothing per frame. MelonLoader starts the mod
+(`OnInitializeMelon`) before the game's first scene, and that first scene load destroyed the
+runtime GameObject (`LanNetworkManager`, chat, nameplates, spectator) even though it was marked
+`DontDestroyOnLoad`. `ModRuntime.EnsureRunning` only checked a "started" flag, so the later calls
+from `InputScript` never built it again. It now checks the object itself and rebuilds it when a
+scene load took it (logged once: "Runtime root was destroyed by a scene load"). BepInEx starts the
+mod after that scene and was not affected. (`ModRuntime.EnsureRunning`)
+
+Test copies on this machine: `MelonDarkwoodA` / `MelonDarkwoodB` under `~/Work/MyProjects`
+(GOG build, MelonLoader 0.7.3, Proton prefixes `compatdata/melondarkwooda|b`). Under Wine/Proton
+MelonLoader needs `WINEDLLOVERRIDES=version=n,b`; README now says so.
 
 ## 0.8.254 — a switched-off generator goes quiet; the desync check no longer spikes a frame; saves hash off the main thread
 
