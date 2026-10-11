@@ -74,7 +74,7 @@ namespace DWMPHorde.Networking
                     // Revive only after real respawn. Night-dead peers still send PlayerState
                     // (get-up clips while spectating) which previously re-alive'd the proxy →
                     // dogs re-aggro'd a "zombie" corpse and damage felt completely broken.
-                    if (state.TorsoClip != "Death1" && state.TorsoClip != "Death2"
+                    if (!Players.SecondPlayerAnimController.IsDeathClip(state.TorsoClip)
                         && !DeathStateTracker.IsRemoteNightDead(playerId))
                     {
                         CharBase reviveCB = proxy.CachedCharBase;
@@ -183,7 +183,7 @@ namespace DWMPHorde.Networking
                 // Mirror host: do not revive while peer is still night-dead.
                 CharBase reviveCB = proxy.CachedCharBase;
                 if (reviveCB != null && !reviveCB.alive
-                    && state.TorsoClip != "Death1" && state.TorsoClip != "Death2"
+                    && !Players.SecondPlayerAnimController.IsDeathClip(state.TorsoClip)
                     && !DeathStateTracker.IsRemoteNightDead(remotePlayerId))
                 {
                     reviveCB.alive = true;

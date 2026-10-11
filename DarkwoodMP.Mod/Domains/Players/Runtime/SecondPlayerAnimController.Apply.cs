@@ -128,6 +128,10 @@ namespace DWMPHorde.Players
             _deathClipPlayed = false;
         }
 
+        /// <summary>Vanilla Player death clips (Death1_Water when dying in water).</summary>
+        internal static bool IsDeathClip(string clipName)
+            => clipName == "Death1" || clipName == "Death2" || clipName == "Death1_Water";
+
         /// <summary>
         /// Immediate death pose on PlayerDied (before next PlayerState tick).
         /// </summary>
@@ -135,9 +139,10 @@ namespace DWMPHorde.Players
         {
             if (string.IsNullOrEmpty(clipName))
                 clipName = "Death1";
-            // Allow one play even if a prior death clip finished this session.
-            if (clipName == "Death1" || clipName == "Death2")
-                _deathClipPlayed = false;
+            // The player's own state usually brings the death clip first (it travels faster than
+            // PlayerDied): that play is this death's one play. Re-arming here played it twice.
+            if (_deathClipPlayed)
+                return;
             PlayTorso(clipName);
         }
 
@@ -234,14 +239,15 @@ namespace DWMPHorde.Players
             // Prevent replay of death clips once played to completion;
             // the host sends "Death1"/"Death2" every 30ms in PlayerStateMessage,
             // but the non-looping clip finishes and restarts endlessly.
-            if ((clipName == "Death1" || clipName == "Death2") && _deathClipPlayed)
+            bool death = IsDeathClip(clipName);
+            if (death && _deathClipPlayed)
                 return;
 
             _torsoAnimator.Play(clipName);
             UpdateLegVisibility(clipName);
 
-            if (clipName == "Death1" || clipName == "Death2")
-                _deathClipPlayed = true;
+            // One play per death: any other clip (the respawn stand-up) ends that death.
+            _deathClipPlayed = death;
         }
 
         /// <summary>

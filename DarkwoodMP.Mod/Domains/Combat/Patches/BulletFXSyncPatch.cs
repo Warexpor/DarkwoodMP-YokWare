@@ -175,8 +175,10 @@ namespace DWMPHorde.Patches
     [HarmonyPatch(typeof(Bullet), "onCollide", typeof(Collider), typeof(Vector3))]
     public static class BulletFXSyncPatch
     {
-        private static void Prefix(Bullet __instance, Collider collider, Vector3 hitPoint)
+        // __state: a player's bullet met a character (enemy or a player's stand-in).
+        private static void Prefix(Bullet __instance, Collider collider, Vector3 hitPoint, out bool __state)
         {
+            __state = false;
             var net = ModRuntime.Network;
             if (net == null || net.Role == NetworkRole.Offline) return;
 
@@ -184,44 +186,18 @@ namespace DWMPHorde.Patches
             if (collider == null) return;
 
             int layer = collider.gameObject.layer;
-
-            RemotePlayerProxy proxy = collider.GetComponentInParent<RemotePlayerProxy>();
-            if (proxy != null)
+            if (layer == 11 || layer == 21)
             {
-                float y = __instance.transform.eulerAngles.y;
-                Quaternion rot = Quaternion.Euler(90f, y + Random.Range(-40f, 40f), 0f);
-                Core.AddPooledPrefab("FX", "Shotsplat1", hitPoint, rot);
+                __state = true;
                 return;
             }
+            if (layer != 0 && layer != 15) return;
 
-            string prefabName = "";
-            string poolName = "";
-            Quaternion fxRot = Quaternion.identity;
-
-            bool isWall = layer == 0 || layer == 15;
-            bool isChar = layer == 11 || layer == 21;
-
-            if (isWall)
-            {
-                prefabName = "bullet_hit_1";
-                poolName = "FX";
-                fxRot = Quaternion.Euler(90f, __instance.transform.eulerAngles.y, 0f);
-            }
-            else if (isChar)
-            {
-                prefabName = "Shotsplat1";
-                poolName = "FX";
-                fxRot = Quaternion.Euler(90f, __instance.transform.eulerAngles.y + Random.Range(-40f, 40f), 0f);
-            }
-            else
-            {
-                return;
-            }
-
+            Quaternion fxRot = Quaternion.Euler(90f, __instance.transform.eulerAngles.y, 0f);
             net.SendBulletImpact(new BulletImpactMessage
             {
-                PrefabName = prefabName,
-                PoolName = poolName,
+                PrefabName = "bullet_hit_1",
+                PoolName = "FX",
                 PosX = hitPoint.x,
                 PosY = hitPoint.y,
                 PosZ = hitPoint.z,
@@ -229,6 +205,40 @@ namespace DWMPHorde.Patches
                 RotY = fxRot.eulerAngles.y,
                 RotZ = fxRot.eulerAngles.z
             });
+        }
+
+        /// <summary>
+        /// Vanilla rolls the splat's turn inside onCollide: send the splat it really spawned, so
+        /// every player sees it turned the same way (and none when vanilla spawned none).
+        /// </summary>
+        private static void Postfix(Vector3 hitPoint, bool __state)
+        {
+            if (!__state) return;
+            var net = ModRuntime.Network;
+            if (net == null || net.Role == NetworkRole.Offline) return;
+
+            var pool = PathologicalGames.PoolManager.Pools["FX"];
+            if (pool == null) return;
+            // The splat is the newest spawn; the bullet itself was despawned after it.
+            for (int i = pool.Count - 1, seen = 0; i >= 0 && seen < 4; i--, seen++)
+            {
+                Transform t = pool[i];
+                if (t == null || !t.name.StartsWith("Shotsplat1", System.StringComparison.Ordinal)) continue;
+                if ((t.position - hitPoint).sqrMagnitude > 1f) continue;
+                Vector3 e = t.rotation.eulerAngles;
+                net.SendBulletImpact(new BulletImpactMessage
+                {
+                    PrefabName = "Shotsplat1",
+                    PoolName = "FX",
+                    PosX = hitPoint.x,
+                    PosY = hitPoint.y,
+                    PosZ = hitPoint.z,
+                    RotX = e.x,
+                    RotY = e.y,
+                    RotZ = e.z
+                });
+                return;
+            }
         }
     }
 }

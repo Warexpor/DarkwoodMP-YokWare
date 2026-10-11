@@ -168,14 +168,16 @@ namespace DWMPHorde.Patches
                     ModRuntime.LegacyInfo($"[HitscanFF] client hit proxy {proxy.PlayerId} dmg={dmg}");
                 }
 
-                float yRot = player.transform.eulerAngles.y;
+                // Vanilla spawnBullet: one roll for the splat at the hit point. The same turn
+                // goes to every other player; the victim's own getHit splat comes from them.
+                Quaternion bloodRot = Quaternion.Euler(
+                    90f, player.transform.eulerAngles.y + Random.Range(-20f, 20f), 0f);
                 string bloodPrefab = inWater ? "FX/Bloodsplats/Shotsplat" : "FX/Bloodsplats/Shotsplat_stay";
                 bool prevNet = TraverseHack.GetExplicitFlag();
                 TraverseHack.SetExplicitFlag(true);
                 try
                 {
-                    Core.AddPrefab(bloodPrefab, hitPoint,
-                        Quaternion.Euler(90f, yRot + Random.Range(-20f, 20f), 0f), null);
+                    Core.AddPrefab(bloodPrefab, hitPoint, bloodRot, null);
                 }
                 finally { TraverseHack.SetExplicitFlag(prevNet); }
 
@@ -183,18 +185,18 @@ namespace DWMPHorde.Patches
                 // shooter hears the direction the proxy was hit from.
                 AudioController.Play("bullet_hit_1", hitPoint);
 
-                // Send BulletImpact so the other peer sees the same blood
-                net.Send(NetMessageType.BulletImpact, w => new BulletImpactMessage
+                Vector3 bloodEuler = bloodRot.eulerAngles;
+                net.SendBulletImpact(new BulletImpactMessage
                 {
                     PrefabName = bloodPrefab,
                     PoolName = "",
                     PosX = hitPoint.x,
                     PosY = hitPoint.y,
                     PosZ = hitPoint.z,
-                    RotX = 90f,
-                    RotY = yRot + Random.Range(-40f, 40f),
-                    RotZ = 0f
-                }.Serialize(w), DeliveryMethod.ReliableOrdered);
+                    RotX = bloodEuler.x,
+                    RotY = bloodEuler.y,
+                    RotZ = bloodEuler.z
+                });
 
                 return;
             }

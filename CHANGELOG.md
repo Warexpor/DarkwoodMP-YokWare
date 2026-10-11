@@ -3,12 +3,12 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.228**. The current Horde wire protocol is **54**. Every install in a session
+**0.8.229**. The current Horde wire protocol is **54**. Every install in a session
 needs the same DLL; the protocol is checked on join.
 
 Protocol history (newest first):
 
-- **54**, 0.8.212 to 0.8.228: `VoiceData` (129) gains flag 2: a second codec block after the voice,
+- **54**, 0.8.212 to 0.8.229: `VoiceData` (129) gains flag 2: a second codec block after the voice,
   the sounds the talker's radio picked up.
 - **53**, 0.8.200 to 0.8.211: the world share package gains `savplc.dat` (container slots a player
   stored items in). No message layout changed; the bump keeps every player on a build
@@ -61,6 +61,39 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.229 — a shot player's blood looks the same for everyone, the death clip plays once
+
+**Blood on a shot player.** Shooting another player left different blood for each
+player: the shooter saw one splat, the victim two, turned different ways.
+
+- The splat at the hit point was rolled twice, once for the shooter (±20°) and once
+  for the message (±40°). It is rolled once now, as in the base game, and the same
+  turn is sent. It also goes to every player, not only the first peer.
+- The victim's own `Player.getHit` splat (under the victim, the base game's second
+  splat for a shot) was meant to go to everyone since 0.8.176 but never left the
+  victim: `SendBulletImpact` refused it as "applying remote state". It is sent now
+  for melee, bullets and friendly fire, on a host victim too.
+- Projectile weapons: the mod spawned a second splat of its own on a hit player and
+  sent a separately rolled turn for hit creatures. It now sends the splat the base
+  game really spawned (`Bullet.onCollide`), read back from the FX pool.
+
+Files: `HitscanImpactSyncPatch.cs`, `BulletFXSyncPatch.cs`, `WorldSendNetHandlers.cs`.
+
+**Death clip.** The other players saw a dying player's death clip run again while
+that player respawned.
+
+- A dead player sends the `Death1` clip name on purpose, but sent the frame of the
+  clip really playing. During the respawn that is a stand-up clip, so watchers ran
+  the death clip through that clip's frames. No frame is sent under the forced name.
+- `PlayerDied` re-armed the clip that the player's state had already started, so it
+  could play a second time when it ended. One play per death now.
+- `Death1_Water` counts as a death clip (replay guard and the stand-in revive check).
+
+Files: `LanNetworkManager.Tick.cs`, `SecondPlayerAnimController.Apply.cs`,
+`PlayerStateNetHandlers.cs`.
+
+Not played yet.
 
 ## 0.8.228 — a joining player gets window barricades in far locations
 
