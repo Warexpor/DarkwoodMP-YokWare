@@ -215,29 +215,43 @@ namespace DWMPHorde.Sync
             if (gen.isOn != isOn)
             {
                 Item item = gen.GetComponent<Item>();
+                ItemSounds snd = item != null ? item.GetComponent<ItemSounds>() : null;
+                // Item.turnOn / turnOff play the start + loop / stop sounds themselves when they
+                // go through. Playing them again here started a second loop: ItemSounds keeps
+                // only the newest, so turnOff stopped that one and the first ran on with the
+                // generator off. Sounds are played here only where the item path did not.
+                bool itemPlayedSounds = false;
                 if (isOn)
                 {
                     if (item != null)
+                    {
                         DialogHostApplyGuard.RunHostWorldFanout(() => item.turnOn());
+                        // Its only early out (no fuel) returns before isOn and the sounds.
+                        itemPlayedSounds = item.isOn;
+                    }
                     else
                         DialogHostApplyGuard.RunHostWorldFanout(() => gen.turnOn());
                 }
                 else
                 {
-                    if (item != null)
+                    // Item.turnOff does nothing (and leaves the generator running) when the item
+                    // already reads off.
+                    if (item != null && item.isOn)
+                    {
                         DialogHostApplyGuard.RunHostWorldFanout(() => item.turnOff());
+                        itemPlayedSounds = true;
+                    }
                     else
                         DialogHostApplyGuard.RunHostWorldFanout(() => gen.turnOff());
                 }
 
                 // Belt: if item.turnOn early-out (fuel/disabled) left isOn wrong, force gen + SFX.
-                ItemSounds snd = item != null ? item.GetComponent<ItemSounds>() : null;
                 if (isOn && !gen.isOn && fuel > 0f)
                 {
                     gen.turnOn();
                     if (item != null) item.isOn = true;
                 }
-                if (wasOn != gen.isOn && snd != null)
+                if (wasOn != gen.isOn && snd != null && !itemPlayedSounds)
                 {
                     if (gen.isOn)
                         snd.playStart();

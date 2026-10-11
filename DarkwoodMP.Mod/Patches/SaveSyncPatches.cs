@@ -35,6 +35,27 @@ namespace DWMPHorde.Patches
     }
 
     /// <summary>
+    /// How long a Save holds the frame (vanilla's write plus every co-op step around it). Saves
+    /// were the regular ~320 ms hitch in playtests; this tells the next log what is left of it.
+    /// </summary>
+    [HarmonyPatch(typeof(SaveManager), "Save")]
+    public static class SaveDurationPatch
+    {
+        private static readonly System.Diagnostics.Stopwatch _sw = new System.Diagnostics.Stopwatch(); // process-scoped: timer
+
+        [HarmonyPriority(Priority.First + 1)]
+        private static void Prefix() => _sw.Restart();
+
+        [HarmonyPriority(Priority.Last - 1)]
+        private static void Postfix(bool __runOriginal)
+        {
+            _sw.Stop();
+            if (__runOriginal && _sw.ElapsedMilliseconds >= 50 && ModRuntime.Network != null && ModRuntime.Network.IsConnected)
+                ModLog.Event(LogCat.Save, "[SaveTiming] Save held the frame " + _sw.ElapsedMilliseconds + " ms");
+        }
+    }
+
+    /// <summary>
     /// A Save a co-op prefix skipped (connected client, night-dead peer) still answers
     /// <c>onSaved</c>, as vanilla's own <c>dontSave</c> skip does. Its one listener is the walk
     /// out of a pad by day (<c>OutsideLocations.returningOnSaved</c>): unanswered, its

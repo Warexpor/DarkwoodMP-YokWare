@@ -42,6 +42,10 @@ namespace DWMPHorde.Logging
         private static double _worstNetMs;
         private static int _worstLogLines;
         private static int _worstGc;
+        /// <summary>The longest frame split (<see cref="PerfFramePhases"/>): scripts + render CPU, present wait, physics steps.</summary>
+        private static double _worstWorkMs;
+        private static double _worstWaitMs;
+        private static int _worstFixed;
 
         private static double _pollMs;
         private static double _updateRestMs;
@@ -118,6 +122,7 @@ namespace DWMPHorde.Logging
             ResetAccumulators();
             if (active)
             {
+                PerfFramePhases.Ensure();
                 _reportAt = Time.unscaledTime + ReportInterval;
                 ModLog.Event(LogCat.Core,
                     "[Perf] probe ON role=" + _roleTag
@@ -142,6 +147,8 @@ namespace DWMPHorde.Logging
             _frameNetMs = _worstNetMs = 0;
             _frameLogLines = _worstLogLines = 0;
             _worstGc = 0;
+            _worstWorkMs = _worstWaitMs = 0;
+            _worstFixed = 0;
             _pollMs = _updateRestMs = _physBuildMs = 0;
             _lateMs = _objInterpMs = _entityTickMs = 0;
             _entityApplyMs = _physApplyMs = 0;
@@ -218,6 +225,9 @@ namespace DWMPHorde.Logging
                 _worstNetMs = _frameNetMs;
                 _worstLogLines = _frameLogLines;
                 _worstGc = gcNow - _gcAtFrameStart;
+                _worstWorkMs = PerfFramePhases.LastWorkMs;
+                _worstWaitMs = PerfFramePhases.LastWaitMs;
+                _worstFixed = PerfFramePhases.LastFixedSteps;
             }
             _frameNetMs = 0;
             _frameLogLines = 0;
@@ -461,7 +471,10 @@ namespace DWMPHorde.Logging
             sb.Append(" gc=").Append(GC.CollectionCount(0) - _gcAtWindowStart);
             sb.Append(" worst[net=").Append(_worstNetMs.ToString("F1"));
             sb.Append(" log=").Append(_worstLogLines);
-            sb.Append(" gc=").Append(_worstGc).Append(']');
+            sb.Append(" gc=").Append(_worstGc);
+            sb.Append(" work=").Append(_worstWorkMs.ToString("F1"));
+            sb.Append(" wait=").Append(_worstWaitMs.ToString("F1"));
+            sb.Append(" fixed=").Append(_worstFixed).Append(']');
             sb.Append(" | poll=").Append(_pollMs.ToString("F1"));
             sb.Append(" upd=").Append(_updateRestMs.ToString("F1"));
             sb.Append(" physBuild=").Append(_physBuildMs.ToString("F1"));

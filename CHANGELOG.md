@@ -3,12 +3,12 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.253**. The current Horde wire protocol is **62**. Every install in a session
+**0.8.254**. The current Horde wire protocol is **62**. Every install in a session
 needs the same DLL; the protocol is checked on join.
 
 Protocol history (newest first):
 
-- **62**, 0.8.252 to 0.8.253: new `PeerNotice` (173).
+- **62**, 0.8.252 to 0.8.254: new `PeerNotice` (173).
 - **61**, 0.8.248 to 0.8.251: `VoiceData` (129) carries Opus; with flag 2 its data starts with the voice
   block's length (2 bytes).
 - **60**, 0.8.247: new `DreamLeft` (172).
@@ -72,6 +72,35 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.254 — a switched-off generator goes quiet; saves hash off the main thread; slow frames split into work and wait
+
+Deployed; not playtested yet. Protocol unchanged (62).
+
+**A generator kept humming after it was turned off.** When another player switched a generator
+(a client using it, or the host's switch reaching a client), the receiving peer applied it with
+`Item.turnOn`, which already plays the start sound and the running loop, and then played the
+start sound and loop a second time. `ItemSounds` keeps only the newest loop, so turning off
+stopped that one and the first loop played on with the generator off. Each sound now plays once:
+the item path's own, or the apply's only where the item path did not run (no `Item`, or its
+no-fuel early out). Turning off also no longer depends on the item reading "on": `Item.turnOff`
+returns at once when it does not, and the generator stayed running.
+(`WorldPhysicsSyncService.ApplyGeneratorState`)
+
+**Every save hashed ~12 MB on the main thread.** After each Save (and every peer saves on every
+SaveSync) the permanent co-op copy re-fingerprinted `sav.dat` + `savs.dat` with SHA-1 in the
+frame, part of the ~320 ms save hitch on every peer. The hash now runs on a worker and is
+written when it lands (dropped if a newer save or a file change overtook it). The previous
+fingerprint stays until then, since a client state backup without one is refused. At quit it
+still hashes in place. New `[SaveTiming]` Event line when a Save holds the frame 50 ms or more.
+(`CoopWorldCopyMeta.RefreshAfterLocalSave`, `SaveSyncPatches.SaveDurationPatch`)
+
+**The small fps dips (100 → 97-99) are not the mod's tick.** In the host log about one 2 s window
+in four had one to seven frames of 17-45 ms; in each, the mod's network and sync tick held the
+frame about 0.1 ms, with no collection or log burst. The perf probe's `worst[...]` now also
+splits the longest frame into `work` (first physics step or Update to the end of rendering on
+the CPU), `wait` (present, vsync, GPU, compositor until the next frame) and `fixed` (physics
+steps it ran), so the next log shows where those frames go. (`PerfFramePhases`, `CoopPerfProbe`)
 
 ## 0.8.253 — another player's legs keep their own heading as in vanilla; their body turns on every frame
 

@@ -48,7 +48,7 @@ for maximum dual-box capture.
 
 5. Look for `[Perf] role=Host|Client` every ~2s while hosting (peers or none) or connected as a client.
    `over=N/B ms` counts frames over 1.5 times the frame budget `B`, `gc=N` the garbage collections,
-   `worst[net= log= gc=]` what the longest frame held (network tick ms, log lines written, collections).
+   `worst[net= log= gc= work= wait= fixed=]` what the longest frame held (network tick ms, log lines written, collections) and how it split: `work` from its first physics step or Update to the end of rendering on the CPU, `wait` from there to the next frame (present, vsync, GPU, compositor), `fixed` the physics steps it ran.
    Immediate single-frame hitches also emit `[PerfCliff]` (rate-limited ~0.5s).
    Hot Update segments emit `[PerfSeg]` when ≥25ms.
 
