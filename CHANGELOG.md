@@ -101,6 +101,15 @@ that dawn and the wedding (where it lit), only the torch being moved out of the 
 day 3, so the failed draw itself is not in it. A light drawn without its flame now logs why
 (`[Light] <item> drawn without a flame: durability=.. shadowsFlag=.. shadowsLeft=.. day=..`).
 
+### Host launch script (no DLL change)
+
+- **Steam kept showing Darkwood as running after the game was quit**, until "Stop" was pressed.
+  The log console that `run_bepinex.sh` opens on a Steam launch ran `tail -F`, which never
+  ends, and Steam waits for every process the launch started. The tail now follows the game
+  process (`tail --pid`) and closes with it; if no game appears within two minutes it gives
+  up. The local `scripts/install-host-console-wrap.sh` writes the new form and upgrades an older wrap.
+  The mod itself was not involved: the game log ends with a normal shutdown.
+
 ## 0.8.257 — a door that locks behind the party waits for the whole party; voice room effect quieter and faded; no ghost creature left behind
 
 From the same session's feedback. Built and deployed, not yet played. Protocol unchanged (62);
