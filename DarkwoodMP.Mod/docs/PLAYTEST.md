@@ -548,6 +548,60 @@ Listen on the player who did not cause the sound.
   something only the host may send: a bug). `(no handshake yet)` and
   `(refused peer)` are expected only around a join or a kick.
 
+## 21. Every item and interaction
+
+A sweep through every usable item in the game (from the `inventoryitems` prefabs),
+each run both ways. Light items at night first: most sync bugs show there.
+
+**Light: carried**
+- [ ] Torch: lit, carried, swung, dropped.
+- [ ] Lantern: needs gasoline; lit, carried, running out.
+- [ ] Flashlight, flashlight 02, rechargeable flashlight: 9V battery, on/off,
+      battery dying.
+- [ ] Flare: thrown, burning on the ground.
+- [ ] Matchstick: thrown.
+
+**Light: in the world**
+- [ ] Generator and the hideout lamps it powers: fuel it, lamps on/off, running out.
+- [ ] Wall lamps (`Lamp_wall_01/02`, bunker lamps): flicker and power-down.
+- [ ] Workbench lamp.
+
+**Guns** (each: aim, shot, muzzle flash, sound, reload, empty clip, hit on enemies
+and furniture, kill)
+- [ ] Pellet pistol, semi-auto pistol, one-shot pistol.
+- [ ] Pellet rifle, bolt-action rifle.
+- [ ] Double-barrel, pump, single-shot, full-auto and one-shot shotgun.
+- [ ] Burst assault rifle, full-auto SMG.
+- [ ] Homemade flamethrower (gasoline), military flamethrower.
+
+**Melee** (normal and special attack, durability breaking)
+- [ ] Axe, knife (also thrown), pitchfork, plank with nails, shovel, sickle, stick,
+      table leg (all three), torch.
+- [ ] Upgrades: double-edge axe, double-edge shovel, sharper, hardened, more nails,
+      better materials, lighter.
+
+**Explosive and fire**
+- [ ] Molotov, gas bomb, gas bottle trap.
+- [ ] Exploding barrel: placed, shot, set off by fire.
+- [ ] Fire spreading and burning things.
+
+**Thrown lures**
+- [ ] Stone, bottle, meat, soporific meat, noise lure.
+
+**Traps (placed)**
+- [ ] Bear trap, chain trap, broken glass, fart pillow, exploding barrel, gas bottle.
+
+**Other interactions**
+- [ ] Doors and windows: open, close, barricade, break boards, repair.
+- [ ] Containers and wardrobes: loot, put in, take out, break the furniture.
+- [ ] Furniture: push, break, break then loot.
+- [ ] Workbench: crafting, upgrade levels.
+- [ ] Placing items: wheels, chemical bottle, gasmask.
+- [ ] Consumables used in front of the other player: bandages, pills, life potion,
+      antidote, food.
+- [ ] Armor (light armor, sweater): taking a hit while wearing it.
+- [ ] Ammo pickup and split, repair kit.
+
 ## Automated runs (local tooling)
 
 The maintainers' machine has an unattended test pilot (the `TestPilot` commands in
