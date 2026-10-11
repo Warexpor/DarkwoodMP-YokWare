@@ -16,6 +16,7 @@ namespace DWMPHorde.Logging
         public static void MarkObjInterp() => CoopPerfProbe.MarkObjInterp();
         public static void MarkEntityTick() => CoopPerfProbe.MarkEntityTick();
         public static void LateEnd() => CoopPerfProbe.LateEnd();
+        public static void ReportIfDue() => CoopPerfProbe.ReportIfDue();
         public static void NoteEntityApply(int a, int s, double ms) => CoopPerfProbe.NoteEntityApply(a, s, ms);
         public static void NotePhysApply(int o, double ms) => CoopPerfProbe.NotePhysApply(o, ms);
         public static void NotePacketRx() => CoopPerfProbe.NotePacketRx();

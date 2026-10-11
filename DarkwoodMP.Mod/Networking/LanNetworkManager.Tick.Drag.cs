@@ -112,7 +112,12 @@ namespace DWMPHorde.Networking
 
         private void LateUpdate()
         {
-            if (!IsConnected || !_session.Link.HandshakeComplete) return;
+            if (!IsConnected || !_session.Link.HandshakeComplete)
+            {
+                // A host with no peers is probed too (Update arms it); its report is due here.
+                ClientPerfProbe.ReportIfDue();
+                return;
+            }
 
             bool perf = IsConnected && _session.Link.HandshakeComplete
                 && (_role == NetworkRole.Client || _role == NetworkRole.Host);

@@ -73,7 +73,7 @@ tested in the game.
 
 ---
 
-## 0.8.254 — a switched-off generator goes quiet; saves hash off the main thread; slow frames split into work and wait
+## 0.8.254 — a switched-off generator goes quiet; saves hash off the main thread; slow frames split by phase
 
 Deployed; not playtested yet. Protocol unchanged (62).
 
@@ -100,7 +100,19 @@ in four had one to seven frames of 17-45 ms; in each, the mod's network and sync
 frame about 0.1 ms, with no collection or log burst. The perf probe's `worst[...]` now also
 splits the longest frame into `work` (first physics step or Update to the end of rendering on
 the CPU), `wait` (present, vsync, GPU, compositor until the next frame) and `fixed` (physics
-steps it ran), so the next log shows where those frames go. (`PerfFramePhases`, `CoopPerfProbe`)
+steps it ran), split further into `phys`, `upd`, `co` (coroutines), `late` and `rend`, and each
+report adds the window's per-frame averages of the same split, `avg[... workOver=N]` (frames whose
+work alone ran over the budget). (`PerfFramePhases`, `CoopPerfProbe`)
+
+A box run at 100 Hz with vsync (host + one client idle at home, 3 to 4.5 min) shows the same dips:
+6 to 37 of 90-131 windows at 96-99 fps. Average frame work was 4.6 ms; the slow frames ran
+16-23 ms (one 44 ms) of CPU work, mostly rendering (6-12 ms against an average 1.9) and Update
+(3-10 ms against 0.9), once a 38 ms coroutine; the mod's network tick held them 0.1-6 ms. The mod's
+own tick costs about 0.2 ms a frame on average. No single mod path explains them yet.
+
+**The perf probe went quiet when the host's last peer left.** 0.8.252 arms it for a host with no
+peers, but its 2 s report ran only at the end of the network LateUpdate, which returns early
+with nobody connected. It reports from there too now. (`LanNetworkManager.LateUpdate`)
 
 ## 0.8.253 — another player's legs keep their own heading as in vanilla; their body turns on every frame
 

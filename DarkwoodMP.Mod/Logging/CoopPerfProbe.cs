@@ -46,6 +46,10 @@ namespace DWMPHorde.Logging
         private static double _worstWorkMs;
         private static double _worstWaitMs;
         private static int _worstFixed;
+        /// <summary>Per-frame averages of the same split over the window (how close frames run to the budget).</summary>
+        private static double _sumWorkMs, _sumPhysMs, _sumUpdMs, _sumCoMs, _sumLateMs, _sumRendMs;
+        private static int _overWorkFrames;
+        private static double _worstPhysMs, _worstUpdMs, _worstCoMs, _worstLateMs, _worstRendMs;
 
         private static double _pollMs;
         private static double _updateRestMs;
@@ -149,6 +153,9 @@ namespace DWMPHorde.Logging
             _worstGc = 0;
             _worstWorkMs = _worstWaitMs = 0;
             _worstFixed = 0;
+            _sumWorkMs = _sumPhysMs = _sumUpdMs = _sumCoMs = _sumLateMs = _sumRendMs = 0;
+            _overWorkFrames = 0;
+            _worstPhysMs = _worstUpdMs = _worstCoMs = _worstLateMs = _worstRendMs = 0;
             _pollMs = _updateRestMs = _physBuildMs = 0;
             _lateMs = _objInterpMs = _entityTickMs = 0;
             _entityApplyMs = _physApplyMs = 0;
@@ -228,7 +235,20 @@ namespace DWMPHorde.Logging
                 _worstWorkMs = PerfFramePhases.LastWorkMs;
                 _worstWaitMs = PerfFramePhases.LastWaitMs;
                 _worstFixed = PerfFramePhases.LastFixedSteps;
+                _worstPhysMs = PerfFramePhases.LastPhysMs;
+                _worstUpdMs = PerfFramePhases.LastUpdMs;
+                _worstCoMs = PerfFramePhases.LastCoMs;
+                _worstLateMs = PerfFramePhases.LastLateMs;
+                _worstRendMs = PerfFramePhases.LastRendMs;
             }
+            _sumWorkMs += PerfFramePhases.LastWorkMs;
+            _sumPhysMs += PerfFramePhases.LastPhysMs;
+            _sumUpdMs += PerfFramePhases.LastUpdMs;
+            _sumCoMs += PerfFramePhases.LastCoMs;
+            _sumLateMs += PerfFramePhases.LastLateMs;
+            _sumRendMs += PerfFramePhases.LastRendMs;
+            if (_budgetMs > 0f && PerfFramePhases.LastWorkMs > _budgetMs)
+                _overWorkFrames++;
             _frameNetMs = 0;
             _frameLogLines = 0;
             _gcAtFrameStart = gcNow;
@@ -340,6 +360,12 @@ namespace DWMPHorde.Logging
             _lateMs += Lap();
             Sw.Restart();
             MaybeReport();
+        }
+
+        /// <summary>The 2 s report on a frame with no network tick (a host with no peers).</summary>
+        public static void ReportIfDue()
+        {
+            if (_active) MaybeReport();
         }
 
         public static void NoteEntityApply(int applied, int skipped, double ms)
@@ -474,7 +500,19 @@ namespace DWMPHorde.Logging
             sb.Append(" gc=").Append(_worstGc);
             sb.Append(" work=").Append(_worstWorkMs.ToString("F1"));
             sb.Append(" wait=").Append(_worstWaitMs.ToString("F1"));
-            sb.Append(" fixed=").Append(_worstFixed).Append(']');
+            sb.Append(" fixed=").Append(_worstFixed);
+            sb.Append(" (phys=").Append(_worstPhysMs.ToString("F1"));
+            sb.Append(" upd=").Append(_worstUpdMs.ToString("F1"));
+            sb.Append(" co=").Append(_worstCoMs.ToString("F1"));
+            sb.Append(" late=").Append(_worstLateMs.ToString("F1"));
+            sb.Append(" rend=").Append(_worstRendMs.ToString("F1")).Append(")]");
+            sb.Append(" avg[work=").Append((_sumWorkMs / _frames).ToString("F2"));
+            sb.Append(" phys=").Append((_sumPhysMs / _frames).ToString("F2"));
+            sb.Append(" upd=").Append((_sumUpdMs / _frames).ToString("F2"));
+            sb.Append(" co=").Append((_sumCoMs / _frames).ToString("F2"));
+            sb.Append(" late=").Append((_sumLateMs / _frames).ToString("F2"));
+            sb.Append(" rend=").Append((_sumRendMs / _frames).ToString("F2"));
+            sb.Append(" workOver=").Append(_overWorkFrames).Append(']');
             sb.Append(" | poll=").Append(_pollMs.ToString("F1"));
             sb.Append(" upd=").Append(_updateRestMs.ToString("F1"));
             sb.Append(" physBuild=").Append(_physBuildMs.ToString("F1"));
