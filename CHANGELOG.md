@@ -3,12 +3,12 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.241**. The current Horde wire protocol is **58**. Every install in a session
+**0.8.242**. The current Horde wire protocol is **58**. Every install in a session
 needs the same DLL; the protocol is checked on join.
 
 Protocol history (newest first):
 
-- **58**, 0.8.241: `DragSync` gains the co-holder's id and where it stands; new `CoHold` (170).
+- **58**, 0.8.241 to 0.8.242: `DragSync` gains the co-holder's id and where it stands; new `CoHold` (170).
 - **57**, 0.8.240: `ConstructibleConstruction` gains the save id and the repaired item's pose;
   new `ItemPose` (169).
 - **56**, 0.8.239: `ContainerItem`, `ContainerStateRequest`, `ContainerStateSync` and
@@ -67,6 +67,26 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.242 — shared drag scrape; no journal popups for a joiner waking in the hideout
+
+- **A shared drag was silent for the co-holder.** The scrape of a dragged body comes from the
+  dragger's machine (its samples drive the moving-sound loop on everyone else), but the sound code
+  counted the co-holder as the local dragger (it drags that body too) and stopped every loop the
+  samples started; its own copy plays back kinematic, so the native scrape never sounds either.
+  The co-holder now counts as an observer for the scrape, and the touch its grab left (an ignored
+  contact sends no exit event) is cleared.
+- **A joiner got "received" popups for journal pages the shared journal already had.** As a
+  joiner walks into the hideout at the start of chapter 1, the host runs the hideout's wake-up
+  one-shot for it (recipes, the wooden chicken, journal entries act1_entry1/2/2a); the joiner
+  replays it a moment before the host's journal reaches it, so its addJournalItem step added
+  those pages with a popup each. Until the host's journal has arrived this session, a client adds
+  journal pages quietly: that step (`JoinJournalQuietPatch`) and live page messages alike. The
+  recipes and the wake-up message are unchanged.
+- **Two-player push came and went.** The pushing player's body touches the moving body on and off
+  (it moves away on a delay), and a push not refreshed within 0.25 s was dropped: it stopped and
+  started several times a second (and logged each time, under the item's display name). Held
+  0.4 s now, logged once per push.
 
 ## 0.8.241 — two players push faster; shared drag (experimental)
 

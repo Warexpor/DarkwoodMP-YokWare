@@ -126,6 +126,7 @@ namespace DWMPHorde.Networking
                 }
             }
 
+            ClientJournalSynced = true;
             // Late join: remove world pickups already claimed by the host journal.
             _needsJournalWorldCleanup = true;
             TryJournalWorldCleanup();

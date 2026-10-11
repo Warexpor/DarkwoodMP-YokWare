@@ -21,8 +21,14 @@ namespace DWMPHorde.Sync
     internal static class CoPush
     {
         private const float SendInterval = 1f / 15f;
-        /// <summary>A push not refreshed within this has stopped.</summary>
-        private const float AssistHold = 0.25f;
+        /// <summary>
+        /// A push not refreshed within this has stopped. The pusher's body touches the body it
+        /// pushes on and off as that body moves away on a delay; a shorter hold dropped the push
+        /// between touches (it came and went several times a second).
+        /// </summary>
+        private const float AssistHold = 0.4f;
+        /// <summary>A push that resumes within this of its end is the same push (one log line).</summary>
+        private const float SamePushGap = 2f;
         /// <summary>Walking into it: input this close to the direction of the body's centre (cosine).</summary>
         private const float IntoBodyCos = 0.3f;
         private const float SameBodyRange = 60f;
@@ -39,6 +45,7 @@ namespace DWMPHorde.Sync
 
         private static float _nextSendAt;
         private static readonly Dictionary<int, Assist> _assists = new Dictionary<int, Assist>(4);
+        private static readonly Dictionary<int, float> _endedAt = new Dictionary<int, float>(4);
         private static readonly List<int> _done = new List<int>(4); // process-scoped: scratch buffer, cleared before each use
         private static readonly HashSet<int> _sentThisTick = new HashSet<int>(); // process-scoped: scratch buffer, cleared before each use
         private static readonly Collider[] _near = new Collider[64];
@@ -119,7 +126,8 @@ namespace DWMPHorde.Sync
             {
                 a = new Assist { Item = item, Rb = rb };
                 _assists[m.SenderId] = a;
-                ModLog.Event(LogCat.Physics, $"[CoPush] p{m.SenderId} pushing {m.ObjectName} with us");
+                if (!_endedAt.TryGetValue(m.SenderId, out float ended) || Time.unscaledTime - ended > SamePushGap)
+                    ModLog.Event(LogCat.Physics, $"[CoPush] p{m.SenderId} pushing {m.ObjectName} with us");
             }
             a.Force = new Vector3(m.ForceX, 0f, m.ForceZ);
             a.Local = new Vector3(m.LocalX, m.LocalY, m.LocalZ);
@@ -192,8 +200,7 @@ namespace DWMPHorde.Sync
             }
             for (int i = 0; i < _done.Count; i++)
             {
-                if (_assists.TryGetValue(_done[i], out Assist gone))
-                    ModLog.Event(LogCat.Physics, $"[CoPush] p{_done[i]} stopped pushing {(gone.Item != null ? gone.Item.name : "(gone)")}");
+                _endedAt[_done[i]] = now;
                 _assists.Remove(_done[i]);
             }
             _done.Clear();
@@ -249,6 +256,7 @@ namespace DWMPHorde.Sync
         internal static void Reset()
         {
             _assists.Clear();
+            _endedAt.Clear();
             _done.Clear();
             _nextSendAt = 0f;
         }

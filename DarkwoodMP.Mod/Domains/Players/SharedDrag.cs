@@ -399,7 +399,13 @@ namespace DWMPHorde.Sync
             if (p == null || f.Item == null)
                 return;
             Collider[] mine = p.GetComponentsInChildren<Collider>();
-            Ignore(f.Ignored, mine, f.Item.GetComponentsInChildren<Collider>());
+            Collider[] body = f.Item.GetComponentsInChildren<Collider>();
+            Ignore(f.Ignored, mine, body);
+            // No contact event follows an ignore: drop the touch the grab left, or it would count
+            // as the local player pushing the body (no scrape from the dragger's machine).
+            if (p.touchingColliders != null)
+                for (int i = 0; i < body.Length; i++)
+                    p.touchingColliders.Remove(body[i]);
             RemotePlayerProxy leader = net.GetProxy(f.LeaderId);
             if (leader != null)
                 Ignore(f.Ignored, mine, leader.CachedColliders);

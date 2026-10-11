@@ -22,8 +22,21 @@ namespace DWMPHorde.Networking
             _net = net ?? throw new System.ArgumentNullException(nameof(net));
         }
 
+        /// <summary>
+        /// Client: the host's journal arrived this session (journal bulk applied). Until then the
+        /// shared journal's pages are not here yet, and anything adding one (a host one-shot
+        /// replayed for this player as it walks into the hideout, a live page message) adds a page
+        /// the shared journal already has: no popup for it, the bulk brings it quietly anyway.
+        /// </summary>
+        internal static bool ClientJournalSynced; // reset-in: ClearPendingJournal
+
+        /// <summary>Client still catching up on the shared journal: page adds are quiet.</summary>
+        internal static bool QuietJoinCatchUp
+            => !ClientJournalSynced && NetGuard.Connected(out LanNetworkManager net) && net.Role == NetworkRole.Client;
+
         internal void ClearPendingJournal()
         {
+            ClientJournalSynced = false;
             _hasPendingJournalBulk = false;
             _pendingJournalBulk = default;
             _needsJournalWorldCleanup = false;
@@ -109,6 +122,7 @@ namespace DWMPHorde.Networking
             // A page of a dream this player is not in (the sender's own): not this journal's.
             if (msg.InDream && !DreamSyncManager.IsDreamActive)
                 return;
+            bool quiet = QuietJoinCatchUp;
 
             switch (msg.Kind)
             {
@@ -121,7 +135,8 @@ namespace DWMPHorde.Networking
                         note.timePickedUp = Singleton<Controller>.Instance != null
                             ? Singleton<Controller>.Instance.CurrentTime : 0;
                         journal.notesDict.Add(msg.Type, note);
-                        journal.showJournalInfoPopup("Note", msg.Type);
+                        if (!quiet)
+                            journal.showJournalInfoPopup("Note", msg.Type);
                     }
                     break;
                 case JournalItemKind.Key:
@@ -131,7 +146,8 @@ namespace DWMPHorde.Networking
                         key.type = msg.Type;
                         key.inDream = PickedInDream(msg);
                         journal.keysDict.Add(msg.Type, key);
-                        journal.showJournalInfoPopup("Key", msg.Type);
+                        if (!quiet)
+                            journal.showJournalInfoPopup("Key", msg.Type);
                     }
                     break;
                 case JournalItemKind.QuestItem:
@@ -141,13 +157,14 @@ namespace DWMPHorde.Networking
                         item.type = msg.Type;
                         item.inDream = PickedInDream(msg);
                         journal.itemsDict.Add(msg.Type, item);
-                        journal.showJournalInfoPopup("InvItem", msg.Type);
+                        if (!quiet)
+                            journal.showJournalInfoPopup("InvItem", msg.Type);
                     }
                     break;
                 case JournalItemKind.JournalEntry:
                 {
                     bool added = journal.journalEntriesDict != null && !journal.journalEntriesDict.ContainsKey(msg.Type);
-                    journal.addJournalEntry(msg.Type, noPopup: false);
+                    journal.addJournalEntry(msg.Type, noPopup: quiet);
                     if (added && journal.journalEntriesDict.TryGetValue(msg.Type, out Journal.JournalEntry entry))
                         entry.inDream = msg.InDream;
                     break;
