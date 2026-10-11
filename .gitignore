@@ -45,6 +45,7 @@ reference/
 .tmp-*
 **/.tmp-*/
 .impeccable/
+/preview/
 
 # Menu button WIP backups (ship idle/hover + refs only)
 DarkwoodMP.Mod/Resources/MenuButtons/*_prev.png
