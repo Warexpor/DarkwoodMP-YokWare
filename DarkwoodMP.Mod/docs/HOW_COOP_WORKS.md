@@ -214,7 +214,7 @@ glow in its owner's colour, the day it was placed and an optional label.
   controls at the bottom are in the hover-label font.
 - Middle click (or Shift + right click) pings a spot: it pulses on everyone's map
   for 25 seconds, and players with the map closed see "<name> pinged the map".
-- New pins and pings from others show as a `[Map]` line in the chat (not over the player).
+- A ping from another player shows as a `[Map]` line in the chat (not over the player). A new pin shows no chat line.
 - Only the world map of the current chapter has pins (not the prologue map).
   Clients ask the host, the host numbers each pin and tells everyone, so two pins
   on one spot are never mixed up. An owner is a hash of their install key: the

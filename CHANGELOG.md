@@ -93,6 +93,9 @@ that player respawned.
 Files: `LanNetworkManager.Tick.cs`, `SecondPlayerAnimController.Apply.cs`,
 `PlayerStateNetHandlers.cs`.
 
+**Map pins.** The chat line "X marked ... on the map" for another player's new pin is
+removed (`MapPinBoard.cs`). The "pinged the map" line stays.
+
 Not played yet.
 
 ## 0.8.228 — a joining player gets window barricades in far locations
