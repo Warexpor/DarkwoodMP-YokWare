@@ -10,6 +10,13 @@ to 320 to 380 Hz) and raised-cosine fades at both ends. The knob takes had almos
 of their energy in a thump under 120 Hz; with it gone they are the click itself, and
 the recording's room noise between the knob's sounds is pulled down.
 
+The one-shot sounds (beep, squelch tail, knob takes, both rates) end in a short
+decaying tail, about 0.3 s, made from the recording itself through a noise-shaped
+decay kept to the radio's band (300 Hz to 3.4 kHz): the originals stopped within
+10 ms, which sounded cut off. `static_far.wav` had its crackle levelled (its loudness
+over 12 ms windows made even) so it is a steady hiss; its spectrum and average level
+are unchanged and it still loops.
+
 | File | Used for | Source | Author | Licence |
 |------|----------|--------|--------|---------|
 | `key.wav`, `key16.wav` | Talk key pressed; the caller's beep on the receiving radio | [Walkie Talkie famous beep](https://freesound.org/people/SEF7/sounds/701326/) | SEF7 | CC0 1.0 |

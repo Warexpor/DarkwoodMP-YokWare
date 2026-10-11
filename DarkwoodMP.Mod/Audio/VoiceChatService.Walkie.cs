@@ -20,7 +20,7 @@ namespace DWMPHorde.Audio
         /// <summary>Talking drains this much faster on top.</summary>
         private const float BatteryTalkSec = 1200f;
 
-        /// <summary>Clear signal up to here (world units, the map is about 25000 across), gone at <see cref="RadioMaxRange"/>.</summary>
+        /// <summary>Clear signal up to here (world units, the map is about 25000 across), static alone from <see cref="RadioMaxRange"/> on.</summary>
         private const float RadioClearRange = 6000f;
         private const float RadioMaxRange = 18000f;
         /// <summary>Each end inside a building counts as this much farther.</summary>
@@ -160,8 +160,9 @@ namespace DWMPHorde.Audio
         }
 
         /// <summary>
-        /// How well a signal gets from a talker's radio to a receiving one, 1 clear .. 0 none: by
-        /// the distance between them, longer through buildings, barely at all underground.
+        /// How well a signal gets from a talker's radio to a receiving one, 1 clear .. 0 static
+        /// only: by the distance between them, longer through buildings, barely at all
+        /// underground. Whether it gets there at all is <see cref="RadioLinked"/>.
         /// </summary>
         internal static float RadioQuality(Vector3 talker, Vector3 receiver, bool talkerInside, bool receiverInside,
             bool talkerUnderground, bool receiverUnderground)
@@ -173,6 +174,21 @@ namespace DWMPHorde.Audio
             if (talkerUnderground) q *= RadioUndergroundShare;
             if (receiverUnderground) q *= RadioUndergroundShare;
             return q;
+        }
+
+        /// <summary>
+        /// Whether a radio signal passes between two players at all. Distance never stops it
+        /// (far apart it is static); a dream does: nothing goes between a player in a dream
+        /// and one who is not, either way.
+        /// </summary>
+        internal static bool RadioLinked(int a, int b) => InDream(a) == InDream(b);
+
+        private static bool InDream(int id)
+        {
+            var net = ModRuntime.Network;
+            return net != null && id == net.LocalPlayerId
+                ? Sync.DreamSyncManager.IsLocalDreamActive
+                : Sync.DreamSyncManager.IsRemoteInDream(id);
         }
 
         /// <summary>The radio's power key as set (for the item's description).</summary>

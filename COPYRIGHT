@@ -14,10 +14,11 @@ Third-party code and data in the mod's DLL
 
 RNNoise (the microphone's noise suppression: DarkwoodMP.Mod/Audio/RnNoise.cs, a C# port
 of its code, and DarkwoodMP.Mod/Resources/RnNoise/rnnoise_weights.bin, its trained
-weights), from https://github.com/xiph/rnnoise v0.1.1:
+weights), from https://github.com/xiph/rnnoise v0.2 and its model rnnoise_data-0b50c45:
 
+Copyright (c) 2007-2017, 2024 Jean-Marc Valin
+Copyright (c) 2023 Amazon
 Copyright (c) 2017, Mozilla
-Copyright (c) 2007-2017, Jean-Marc Valin
 Copyright (c) 2005-2017, Xiph.Org Foundation
 Copyright (c) 2003-2004, Mark Borgerding
 

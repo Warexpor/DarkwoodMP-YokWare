@@ -20,10 +20,10 @@ namespace DWMPHorde.Audio
 
         /// <summary>
         /// The longest the chain holds a sound back before it is in a packet's queue: the
-        /// suppression's 10 ms frame and its 10 ms look-ahead, and the low-passes of the
-        /// rate changes.
+        /// suppression's 10 ms frame and its 20 ms of overlap and look-ahead
+        /// (<see cref="RnNoise.DelaySamples"/>), and the low-passes of the rate changes.
         /// </summary>
-        internal const float MaxDelaySec = 0.03f;
+        internal const float MaxDelaySec = 0.04f;
 
         private readonly VoiceResampler _toModel;
         private readonly VoiceResampler _toVoice = new VoiceResampler(ModelRate, VoiceCodec.SampleRate);

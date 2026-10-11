@@ -5,7 +5,7 @@ join it: the same forest, the same nights, the same story, played together.
 
 | | |
 |--|--|
-| Product | YokWare Branch **0.8.221** |
+| Product | YokWare Branch **0.8.222** |
 | Wire | Horde protocol **54** |
 | Players | Up to 8 by default (`MaxPlayers`, host included) |
 | Transport | LAN (LiteNetLib) or Steam lobby (SteamNetworkingSockets) |
@@ -306,7 +306,7 @@ Warexpor and Yokyy co-author YokWare Branch; see [CONTRIBUTORS.md](CONTRIBUTORS.
 Built on BepInEx, MelonLoader, Harmony and LiteNetLib. Recorded radio sounds are CC0
 recordings from Freesound, listed in
 [SOURCES.md](DarkwoodMP.Mod/Resources/Radio/SOURCES.md). The microphone's noise
-suppression is RNNoise by Jean-Marc Valin (Mozilla / Xiph.Org), ported to C#, with its
+suppression is RNNoise 0.2 by Jean-Marc Valin (Mozilla / Xiph.Org), ported to C#, with its
 trained weights, under its BSD licence: see
 [SOURCES.md](DarkwoodMP.Mod/Resources/RnNoise/SOURCES.md) and
 [COPYING.txt](DarkwoodMP.Mod/Resources/RnNoise/COPYING.txt). Darkwood is a game by Acid

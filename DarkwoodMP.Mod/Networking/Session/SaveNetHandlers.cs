@@ -20,6 +20,14 @@ namespace DWMPHorde.Networking
         private const float DeathSaveSyncSuppressSec = 6f;
 
         private bool _receivedHostClientBackup;
+        /// <summary>The host answered that it holds no usable backup for this player: the local file is used at once.</summary>
+        private bool _hostHasNoClientBackup;
+        /// <summary>
+        /// Client, from the join's handshake until its character backup (position included) is
+        /// applied or found missing: the player is not yet where they will stand
+        /// (<see cref="Players.LocalGetUpHold"/> keeps them lying until then).
+        /// </summary>
+        internal bool ClientPlacementPending { get; private set; }
         private Coroutine _clientBackupRestoreCo;
         /// <summary>Wait for host late-join backup before falling back to local self file.</summary>
         private const float ClientBackupHostWaitSec = 12f;
@@ -33,6 +41,8 @@ namespace DWMPHorde.Networking
         internal void Reset()
         {
             _receivedHostClientBackup = false;
+            _hostHasNoClientBackup = false;
+            ClientPlacementPending = false;
             _clientBackupRestoreCo = null;
             _saveSyncBroadcastPending = false;
             _saveSyncHostNeedsApply = false;

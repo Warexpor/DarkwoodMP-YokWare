@@ -18,6 +18,7 @@ namespace DWMPHorde.Networking
     {
         private void Update()
         {
+            Players.LocalGetUpHold.Tick(this);
             bool perf = IsConnected && _session.Link.HandshakeComplete
                 && (_role == NetworkRole.Client || _role == NetworkRole.Host);
             ClientPerfProbe.SetActive(perf, _role);
@@ -315,6 +316,7 @@ namespace DWMPHorde.Networking
             // while host muted PlayerState under skipLoadingPeers during world share / phase-3 mute.
             BroadcastHot(NetMessageType.PlayerState, w => msg.Serialize(w),
                 skipLoadingPeers: false);
+            Players.LocalGetUpHold.NoteStateSent(torsoClip);
 
             // Detect OutsideLocation (basement/bunker) transitions
             if (Singleton<OutsideLocations>.Instance != null)

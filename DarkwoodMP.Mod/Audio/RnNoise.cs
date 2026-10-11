@@ -1,7 +1,8 @@
-// RNNoise, ported to C# from the reference C code (https://github.com/xiph/rnnoise, v0.1.1).
+// RNNoise, ported to C# from the reference C code (https://github.com/xiph/rnnoise, v0.2).
 //
+// Copyright (c) 2007-2017, 2024 Jean-Marc Valin
+// Copyright (c) 2023 Amazon
 // Copyright (c) 2017, Mozilla
-// Copyright (c) 2007-2017, Jean-Marc Valin
 // Copyright (c) 2005-2017, Xiph.Org Foundation
 // Copyright (c) 2003-2004, Mark Borgerding
 //
@@ -38,24 +39,29 @@ using System.IO;
 namespace DWMPHorde.Audio
 {
     /// <summary>
-    /// Noise suppression for the microphone by a trained model: RNNoise (Jean-Marc Valin,
+    /// Noise suppression for the microphone by a trained model: RNNoise 0.2 (Jean-Marc Valin,
     /// Mozilla / Xiph.Org), its reference C code and its trained weights brought to managed
     /// code, so there is no native library to ship and it is the same on every install.
     /// <para>
-    /// It works on 48 kHz sound in 10 ms frames. Each frame is described by 42 numbers (the
-    /// loudness of 22 bands on the ear's scale, how they changed, how strongly the frame
-    /// repeats at the voice's pitch) and a small recurrent network, trained on hours of
-    /// speech mixed with recorded noise, answers how much of each band is speech. Unlike a
-    /// noise-floor tracker it knows what speech sounds like, so it also turns down noise
-    /// that is not steady: keys, clicks, a fan changing speed, a room's clatter.
+    /// It works on 48 kHz sound in 10 ms frames. Each frame is described by 65 numbers (the
+    /// loudness of 32 bands on the ear's scale, how strongly each repeats at the voice's
+    /// pitch, and the pitch) and a recurrent network (two convolutions over the last frames,
+    /// three layers of 384 units), trained on hours of speech mixed with recorded noise,
+    /// answers how much of each band is speech. Unlike a noise-floor tracker it knows what
+    /// speech sounds like, so it also takes out noise that is not steady: keys, clicks, a
+    /// fan changing speed, a room's clatter. The answer for a frame is made with the next
+    /// frame already seen.
     /// </para>
     /// Samples are in 16-bit scale (-32768..32767), as the model was trained. The output is
-    /// the input <see cref="FrameSize"/> samples later.
+    /// the input <see cref="DelaySamples"/> samples later. About a million multiply-adds a
+    /// frame: it belongs on a thread of its own (<see cref="VoiceMicChain"/> runs there).
     /// </summary>
     internal sealed class RnNoise
     {
         internal const int SampleRate = 48000;
         internal const int FrameSize = 480;
+        /// <summary>The overlap of the windows, and the frame the network looks ahead.</summary>
+        internal const int DelaySamples = 2 * FrameSize;
         private const int WindowSize = 2 * FrameSize;
         private const int FreqSize = FrameSize + 1;
 
@@ -64,26 +70,22 @@ namespace DWMPHorde.Audio
         private const int PitchFrameSize = 960;
         private const int PitchBufSize = PitchMaxPeriod + PitchFrameSize;
 
-        private const int NbBands = 22;
-        private const int CepsMem = 8;
-        private const int NbDeltaCeps = 6;
-        private const int NbFeatures = NbBands + 3 * NbDeltaCeps + 2;
+        private const int NbBands = 32;
+        private const int NbFeatures = 2 * NbBands + 1;
 
-        private const int DenseSize = 24, VadSize = 24, NoiseSize = 48, DenoiseSize = 96;
-        private const float WeightsScale = 1f / 256f;
+        private const int Conv1Out = 128, Conv2Out = 384, GruSize = 384;
         internal const string WeightsResource = "DWMPHorde.Resources.rnnoise_weights.bin";
-        private const int WeightsLength = 87503;
 
-        /// <summary>Band edges in units of 200 Hz (4 bins): 0 .. 20 kHz, close to the Bark scale.</summary>
+        /// <summary>Band edges in bins of 50 Hz: 0 .. 20 kHz in steps of the ear's own resolution (ERB).</summary>
         private static readonly int[] EBand =
         {
-            0, 1, 2, 3, 4, 5, 6, 7, 8, 10, 12, 14, 16, 20, 24, 28, 34, 40, 48, 60, 78, 100
+            0, 2, 4, 6, 8, 10, 12, 15, 18, 21, 24, 28, 32, 36, 41, 47, 53, 60, 68, 77, 87, 98, 110, 124, 140, 157, 176, 198, 223,
+            251, 282, 317, 356, 400
         };
         private static readonly int[] SecondCheck = { 0, 0, 3, 2, 3, 2, 5, 2, 3, 2, 3, 2, 5, 2, 3, 2 };
 
         private static readonly float[] HalfWindow = BuildHalfWindow();
         private static readonly float[] DctTable = BuildDctTable();
-        private static readonly float[] TansigTable = BuildTansigTable();
         private static readonly float[] TwRe = BuildTwiddles(false);
         private static readonly float[] TwIm = BuildTwiddles(true);
         /// <summary>960 = 2^6 * 3 * 5, biggest stage first.</summary>
@@ -92,16 +94,18 @@ namespace DWMPHorde.Audio
 
         private readonly float[] _analysisMem = new float[FrameSize];
         private readonly float[] _synthesisMem = new float[FrameSize];
-        private readonly float[][] _cepstralMem = new float[CepsMem][];
-        private int _memId;
         private readonly float[] _pitchBuf = new float[PitchBufSize];
         private float _lastGain;
         private int _lastPeriod;
         private float _hp0, _hp1;
         private readonly float[] _lastG = new float[NbBands];
-        private readonly float[] _vadState = new float[VadSize];
-        private readonly float[] _noiseState = new float[NoiseSize];
-        private readonly float[] _denoiseState = new float[DenoiseSize];
+        // The frame before this one, waiting for the gains the network gives it now.
+        private readonly float[] _dxRe = new float[FreqSize], _dxIm = new float[FreqSize];
+        private readonly float[] _dpRe = new float[FreqSize], _dpIm = new float[FreqSize];
+        private readonly float[] _dEx = new float[NbBands], _dEp = new float[NbBands], _dExp = new float[NbBands];
+        private readonly float[] _conv1In = new float[3 * NbFeatures];
+        private readonly float[] _conv2In = new float[3 * Conv1Out];
+        private readonly float[] _gru1 = new float[GruSize], _gru2 = new float[GruSize], _gru3 = new float[GruSize];
 
         // Scratch, one instance runs on one thread.
         private readonly float[] _x = new float[FrameSize];
@@ -116,24 +120,19 @@ namespace DWMPHorde.Audio
         private readonly float[] _g = new float[NbBands];
         private readonly float[] _gf = new float[FreqSize];
         private readonly float[] _bandTmp = new float[NbBands], _bandTmp2 = new float[NbBands];
+        private readonly float[] _bandSum = new float[NbBands + 2];
         private readonly float[] _pitchLp = new float[PitchBufSize >> 1];
         private readonly float[] _xLp4 = new float[PitchFrameSize >> 2];
         private readonly float[] _yLp4 = new float[(PitchFrameSize + PitchMaxPeriod) >> 2];
         private readonly float[] _xcorr = new float[PitchMaxPeriod >> 1];
         private readonly float[] _yyLookup = new float[(PitchMaxPeriod >> 1) + 1];
-        private readonly float[] _denseOut = new float[DenseSize];
-        private readonly float[] _noiseIn = new float[DenseSize + VadSize + NbFeatures];
-        private readonly float[] _denoiseIn = new float[VadSize + NoiseSize + NbFeatures];
-        private readonly float[] _gruZ = new float[DenoiseSize], _gruR = new float[DenoiseSize], _gruH = new float[DenoiseSize];
-        private readonly float[] _vadOut = new float[1];
         private readonly float[] _ac = new float[5], _lpc = new float[4];
         private readonly int[] _best = new int[2];
-
-        internal RnNoise()
-        {
-            for (int i = 0; i < CepsMem; i++)
-                _cepstralMem[i] = new float[NbBands];
-        }
+        private readonly float[] _conv1Out = new float[Conv1Out], _conv2Out = new float[Conv2Out];
+        private readonly float[] _zrh = new float[3 * GruSize], _recur = new float[3 * GruSize];
+        private readonly int[] _quant = new int[3 * Conv1Out];
+        private readonly int[] _gather = new int[GruSize];
+        private readonly float[] _vadOut = new float[1];
 
         /// <summary>
         /// One frame of <see cref="FrameSize"/> samples in place, 16-bit scale. Returns how
@@ -155,6 +154,7 @@ namespace DWMPHorde.Audio
             bool silence = ComputeFrameFeatures(_x);
             if (!silence)
             {
+                // The gains are for the frame before: the network has now seen what follows it.
                 vad = ComputeRnn();
                 PitchFilter();
                 for (int i = 0; i < NbBands; i++)
@@ -167,11 +167,23 @@ namespace DWMPHorde.Audio
                 InterpBandGain(_gf, _g);
                 for (int i = 0; i < FreqSize; i++)
                 {
-                    _xRe[i] *= _gf[i];
-                    _xIm[i] *= _gf[i];
+                    _dxRe[i] *= _gf[i];
+                    _dxIm[i] *= _gf[i];
                 }
             }
-            FrameSynthesis(buf, offset);
+            InverseTransform(_win, _dxRe, _dxIm);
+            ApplyWindow(_win);
+            for (int i = 0; i < FrameSize; i++)
+                buf[offset + i] = _win[i] + _synthesisMem[i];
+            Array.Copy(_win, FrameSize, _synthesisMem, 0, FrameSize);
+
+            Array.Copy(_xRe, _dxRe, FreqSize);
+            Array.Copy(_xIm, _dxIm, FreqSize);
+            Array.Copy(_pRe, _dpRe, FreqSize);
+            Array.Copy(_pIm, _dpIm, FreqSize);
+            Array.Copy(_ex, _dEx, NbBands);
+            Array.Copy(_ep, _dEp, NbBands);
+            Array.Copy(_exp, _dExp, NbBands);
             return vad;
         }
 
@@ -204,11 +216,8 @@ namespace DWMPHorde.Audio
                 _exp[i] = _exp[i] / (float)Math.Sqrt(0.001 + _ex[i] * _ep[i]);
             float[] f = _features;
             Dct(_bandTmp, _exp);
-            for (int i = 0; i < NbDeltaCeps; i++)
-                f[NbBands + 2 * NbDeltaCeps + i] = _bandTmp[i];
-            f[NbBands + 2 * NbDeltaCeps] -= 1.3f;
-            f[NbBands + 2 * NbDeltaCeps + 1] -= 0.9f;
-            f[NbBands + 3 * NbDeltaCeps] = 0.01f * (pitchIndex - 300);
+            Array.Copy(_bandTmp, 0, f, NbBands, NbBands);
+            f[2 * NbBands] = 0.01f * (pitchIndex - 300);
 
             float logMax = -2f, follow = -2f, energy = 0f;
             for (int i = 0; i < NbBands; i++)
@@ -230,100 +239,74 @@ namespace DWMPHorde.Audio
             Array.Copy(_bandTmp, 0, f, 0, NbBands);
             f[0] -= 12f;
             f[1] -= 4f;
-            float[] ceps0 = _cepstralMem[_memId];
-            float[] ceps1 = _memId < 1 ? _cepstralMem[CepsMem + _memId - 1] : _cepstralMem[_memId - 1];
-            float[] ceps2 = _memId < 2 ? _cepstralMem[CepsMem + _memId - 2] : _cepstralMem[_memId - 2];
-            for (int i = 0; i < NbBands; i++)
-                ceps0[i] = f[i];
-            _memId++;
-            for (int i = 0; i < NbDeltaCeps; i++)
-            {
-                f[i] = ceps0[i] + ceps1[i] + ceps2[i];
-                f[NbBands + i] = ceps0[i] - ceps2[i];
-                f[NbBands + NbDeltaCeps + i] = ceps0[i] - 2f * ceps1[i] + ceps2[i];
-            }
-            if (_memId == CepsMem)
-                _memId = 0;
-            // How much the spectrum has been changing over the last frames.
-            float specVariability = 0f;
-            for (int i = 0; i < CepsMem; i++)
-            {
-                float minDist = 1e15f;
-                for (int j = 0; j < CepsMem; j++)
-                {
-                    if (j == i)
-                        continue;
-                    float dist = 0f;
-                    float[] a = _cepstralMem[i], b = _cepstralMem[j];
-                    for (int k = 0; k < NbBands; k++)
-                    {
-                        float t = a[k] - b[k];
-                        dist += t * t;
-                    }
-                    minDist = Math.Min(minDist, dist);
-                }
-                specVariability += minDist;
-            }
-            f[NbBands + 3 * NbDeltaCeps + 1] = specVariability / CepsMem - 2.1f;
             return false;
         }
 
-        private static void BandEnergy(float[] bandE, float[] re, float[] im)
+        private void BandEnergy(float[] bandE, float[] re, float[] im)
         {
-            Array.Clear(bandE, 0, NbBands);
-            for (int i = 0; i < NbBands - 1; i++)
+            float[] sum = _bandSum;
+            Array.Clear(sum, 0, NbBands + 2);
+            for (int i = 0; i < NbBands + 1; i++)
             {
-                int start = EBand[i] << 2;
-                int size = (EBand[i + 1] - EBand[i]) << 2;
+                int start = EBand[i];
+                int size = EBand[i + 1] - start;
                 for (int j = 0; j < size; j++)
                 {
                     float frac = (float)j / size;
                     float t = re[start + j] * re[start + j] + im[start + j] * im[start + j];
-                    bandE[i] += (1f - frac) * t;
-                    bandE[i + 1] += frac * t;
+                    sum[i] += (1f - frac) * t;
+                    sum[i + 1] += frac * t;
                 }
             }
-            bandE[0] *= 2f;
-            bandE[NbBands - 1] *= 2f;
+            sum[1] = (sum[0] + sum[1]) * 2f / 3f;
+            sum[NbBands] = (sum[NbBands] + sum[NbBands + 1]) * 2f / 3f;
+            Array.Copy(sum, 1, bandE, 0, NbBands);
         }
 
-        private static void BandCorr(float[] bandE, float[] xRe, float[] xIm, float[] pRe, float[] pIm)
+        private void BandCorr(float[] bandE, float[] xRe, float[] xIm, float[] pRe, float[] pIm)
         {
-            Array.Clear(bandE, 0, NbBands);
-            for (int i = 0; i < NbBands - 1; i++)
+            float[] sum = _bandSum;
+            Array.Clear(sum, 0, NbBands + 2);
+            for (int i = 0; i < NbBands + 1; i++)
             {
-                int start = EBand[i] << 2;
-                int size = (EBand[i + 1] - EBand[i]) << 2;
+                int start = EBand[i];
+                int size = EBand[i + 1] - start;
                 for (int j = 0; j < size; j++)
                 {
                     float frac = (float)j / size;
                     float t = xRe[start + j] * pRe[start + j] + xIm[start + j] * pIm[start + j];
-                    bandE[i] += (1f - frac) * t;
-                    bandE[i + 1] += frac * t;
+                    sum[i] += (1f - frac) * t;
+                    sum[i + 1] += frac * t;
                 }
             }
-            bandE[0] *= 2f;
-            bandE[NbBands - 1] *= 2f;
+            sum[1] = (sum[0] + sum[1]) * 2f / 3f;
+            sum[NbBands] = (sum[NbBands] + sum[NbBands + 1]) * 2f / 3f;
+            Array.Copy(sum, 1, bandE, 0, NbBands);
         }
 
-        /// <summary>Band values spread back over the bins; nothing above the last band's centre (20 kHz).</summary>
+        /// <summary>Band values spread back over the bins; nothing above 20 kHz.</summary>
         private static void InterpBandGain(float[] g, float[] bandE)
         {
             Array.Clear(g, 0, FreqSize);
-            for (int i = 0; i < NbBands - 1; i++)
+            for (int i = 1; i < NbBands; i++)
             {
-                int start = EBand[i] << 2;
-                int size = (EBand[i + 1] - EBand[i]) << 2;
+                int start = EBand[i];
+                int size = EBand[i + 1] - start;
                 for (int j = 0; j < size; j++)
                 {
                     float frac = (float)j / size;
-                    g[start + j] = (1f - frac) * bandE[i] + frac * bandE[i + 1];
+                    g[start + j] = (1f - frac) * bandE[i - 1] + frac * bandE[i];
                 }
             }
+            for (int j = 0; j < EBand[1]; j++)
+                g[j] = bandE[0];
+            for (int j = EBand[NbBands]; j < EBand[NbBands + 1]; j++)
+                g[j] = bandE[NbBands - 1];
         }
 
         private static void Dct(float[] output, float[] input)
         {
+            // The reference keeps this factor from its 22-band days; the model was trained with it.
             float scale = (float)Math.Sqrt(2.0 / 22);
             for (int i = 0; i < NbBands; i++)
             {
@@ -344,9 +327,9 @@ namespace DWMPHorde.Audio
         }
 
         /// <summary>
-        /// Comb at the voice's pitch: in bands where the model wants more cut than the frame
-        /// is periodic, the period-old copy is mixed in, which lowers the noise between the
-        /// voice's harmonics (the 22 bands alone are too coarse for that).
+        /// Comb at the voice's pitch, on the waiting frame: in bands where the model wants more
+        /// cut than the frame is periodic, the period-old copy is mixed in, which lowers the
+        /// noise between the voice's harmonics (the bands alone are too coarse for that).
         /// </summary>
         private void PitchFilter()
         {
@@ -354,41 +337,32 @@ namespace DWMPHorde.Audio
             for (int i = 0; i < NbBands; i++)
             {
                 float v;
-                if (_exp[i] > _g[i])
+                if (_dExp[i] > _g[i])
                     v = 1f;
                 else
                 {
-                    float e2 = _exp[i] * _exp[i], g2 = _g[i] * _g[i];
+                    float e2 = _dExp[i] * _dExp[i], g2 = _g[i] * _g[i];
                     v = e2 * (1f - g2) / (0.001f + g2 * (1f - e2));
                 }
                 v = (float)Math.Sqrt(Math.Min(1f, Math.Max(0f, v)));
-                r[i] = v * (float)Math.Sqrt(_ex[i] / (1e-8 + _ep[i]));
+                r[i] = v * (float)Math.Sqrt(_dEx[i] / (1e-8 + _dEp[i]));
             }
             InterpBandGain(_gf, r);
             for (int i = 0; i < FreqSize; i++)
             {
-                _xRe[i] += _gf[i] * _pRe[i];
-                _xIm[i] += _gf[i] * _pIm[i];
+                _dxRe[i] += _gf[i] * _dpRe[i];
+                _dxIm[i] += _gf[i] * _dpIm[i];
             }
             float[] newE = _bandTmp2;
-            BandEnergy(newE, _xRe, _xIm);
+            BandEnergy(newE, _dxRe, _dxIm);
             for (int i = 0; i < NbBands; i++)
-                r[i] = (float)Math.Sqrt(_ex[i] / (1e-8 + newE[i]));
+                r[i] = (float)Math.Sqrt(_dEx[i] / (1e-8 + newE[i]));
             InterpBandGain(_gf, r);
             for (int i = 0; i < FreqSize; i++)
             {
-                _xRe[i] *= _gf[i];
-                _xIm[i] *= _gf[i];
+                _dxRe[i] *= _gf[i];
+                _dxIm[i] *= _gf[i];
             }
-        }
-
-        private void FrameSynthesis(float[] output, int offset)
-        {
-            InverseTransform(_win, _xRe, _xIm);
-            ApplyWindow(_win);
-            for (int i = 0; i < FrameSize; i++)
-                output[offset + i] = _win[i] + _synthesisMem[i];
-            Array.Copy(_win, FrameSize, _synthesisMem, 0, FrameSize);
         }
 
         // ---- Transform (960 points, forward scaled by 1/960 as the reference's) ----
@@ -734,156 +708,274 @@ namespace DWMPHorde.Audio
         private float ComputeRnn()
         {
             Model m = Net;
-            Dense(m.InputDense, _denseOut, _features);
-            Gru(m.VadGru, _vadState, _denseOut);
-            Dense(m.VadOutput, _vadOut, _vadState);
-            Array.Copy(_denseOut, 0, _noiseIn, 0, DenseSize);
-            Array.Copy(_vadState, 0, _noiseIn, DenseSize, VadSize);
-            Array.Copy(_features, 0, _noiseIn, DenseSize + VadSize, NbFeatures);
-            Gru(m.NoiseGru, _noiseState, _noiseIn);
-            Array.Copy(_vadState, 0, _denoiseIn, 0, VadSize);
-            Array.Copy(_noiseState, 0, _denoiseIn, VadSize, NoiseSize);
-            Array.Copy(_features, 0, _denoiseIn, VadSize + NoiseSize, NbFeatures);
-            Gru(m.DenoiseGru, _denoiseState, _denoiseIn);
-            Dense(m.DenoiseOutput, _g, _denoiseState);
-            return _vadOut[0];
+            // Each convolution sees its last three inputs.
+            Array.Copy(_conv1In, NbFeatures, _conv1In, 0, 2 * NbFeatures);
+            Array.Copy(_features, 0, _conv1In, 2 * NbFeatures, NbFeatures);
+            for (int i = 0, o = 0; i < Conv1Out; i++, o += 3 * NbFeatures)
+                _conv1Out[i] = Tanh(Dot(m.Conv1, o, _conv1In, 0, 3 * NbFeatures) + m.Conv1Bias[i]);
+
+            Array.Copy(_conv2In, Conv1Out, _conv2In, 0, 2 * Conv1Out);
+            Array.Copy(_conv1Out, 0, _conv2In, 2 * Conv1Out, Conv1Out);
+            Linear(m.Conv2, _conv2Out, _conv2In);
+            for (int i = 0; i < Conv2Out; i++)
+                _conv2Out[i] = Tanh(_conv2Out[i]);
+
+            Gru(m.Gru1In, m.Gru1Rec, _gru1, _conv2Out);
+            Gru(m.Gru2In, m.Gru2Rec, _gru2, _gru1);
+            Gru(m.Gru3In, m.Gru3Rec, _gru3, _gru2);
+
+            for (int i = 0, o = 0; i < NbBands; i++, o += GruSize)
+                _g[i] = Sigmoid(Dot(m.DenseOut, o, _gru3, 0, GruSize) + m.DenseOutBias[i]);
+            return Sigmoid(Dot(m.VadDense, 0, _gru3, 0, GruSize) + m.VadDenseBias[0]);
         }
 
-        private static float Tansig(float x)
+        private void Gru(Quantized input, Quantized recurrent, float[] state, float[] x)
         {
-            if (!(x < 8f))
-                return 1f;
-            if (!(x > -8f))
-                return -1f;
-            float sign = 1f;
-            if (x < 0f)
-            {
-                x = -x;
-                sign = -1f;
-            }
-            int i = (int)Math.Floor(0.5f + 25f * x);
-            x -= 0.04f * i;
-            float y = TansigTable[i];
-            float dy = 1f - y * y;
-            y = y + x * dy * (1f - y * x);
-            return sign * y;
-        }
-
-        private static float Sigmoid(float x) => 0.5f + 0.5f * Tansig(0.5f * x);
-
-        private static void Dense(Layer layer, float[] output, float[] input)
-        {
-            int n = layer.Neurons, m = layer.Inputs;
-            float[] w = layer.Input;
-            for (int i = 0, o = 0; i < n; i++, o += m)
-            {
-                float sum = (layer.Bias[i] + Dot(w, o, input, 0, m)) * WeightsScale;
-                output[i] = layer.Sigmoid ? Sigmoid(sum) : Tansig(sum);
-            }
-        }
-
-        private void Gru(Layer gru, float[] state, float[] input)
-        {
-            int n = gru.Neurons, m = gru.Inputs;
-            float[] w = gru.Input, rw = gru.Recurrent, bias = gru.Bias;
-            float[] z = _gruZ, r = _gruR, h = _gruH;
-            // Update gate, then reset gate.
-            for (int i = 0; i < 2 * n; i++)
-            {
-                float sum = bias[i] + Dot(w, i * m, input, 0, m) + Dot(rw, i * n, state, 0, n);
-                float v = Sigmoid(WeightsScale * sum);
-                if (i < n)
-                    z[i] = v;
-                else
-                    r[i - n] = v;
-            }
-            for (int j = 0; j < n; j++)
-                r[j] *= state[j];
+            const int n = GruSize;
+            float[] zrh = _zrh, recur = _recur;
+            Linear(input, zrh, x);
+            Linear(recurrent, recur, state);
+            // The recurrent matrix's own diagonal is kept apart, unquantized.
+            float[] diag = recurrent.Diag;
             for (int i = 0; i < n; i++)
             {
-                float sum = (bias[2 * n + i] + Dot(w, (2 * n + i) * m, input, 0, m) + Dot(rw, (2 * n + i) * n, r, 0, n)) * WeightsScale;
-                if (sum < 0f)
-                    sum = 0f;
-                h[i] = z[i] * state[i] + (1f - z[i]) * sum;
+                float s = state[i];
+                recur[i] += diag[i] * s;
+                recur[i + n] += diag[i + n] * s;
+                recur[i + 2 * n] += diag[i + 2 * n] * s;
             }
-            Array.Copy(h, 0, state, 0, n);
+            for (int i = 0; i < n; i++)
+            {
+                float z = Sigmoid(zrh[i] + recur[i]);
+                float r = Sigmoid(zrh[i + n] + recur[i + n]);
+                float h = Tanh(zrh[i + 2 * n] + recur[i + 2 * n] * r);
+                state[i] = z * state[i] + (1f - z) * h;
+            }
         }
 
-        private sealed class Layer
+        /// <summary>
+        /// A layer with 8-bit weights: its input rounded to 127 steps, whole-number sums (exact,
+        /// they stay far under what a float holds exactly), then each output's scale and bias.
+        /// </summary>
+        private void Linear(Quantized layer, float[] output, float[] x)
         {
-            internal float[] Bias, Input, Recurrent;
-            internal int Inputs, Neurons;
-            internal bool Sigmoid;
+            int[] q = _quant;
+            int cols = layer.Inputs;
+            for (int i = 0; i < cols; i++)
+                q[i] = (sbyte)(int)Math.Floor(0.5 + 127.0 * x[i]);
+            sbyte[] w = layer.Weights;
+            float[] scale = layer.Scale, bias = layer.Bias;
+            int rows = layer.Outputs;
+            if (layer.BlockStart == null)
+            {
+                for (int i = 0, o = 0; i < rows; i++, o += cols)
+                    output[i] = IntDot(w, o, q, cols) * scale[i] + bias[i];
+                return;
+            }
+            // Sparse: each group of 8 outputs reads the same few runs of 4 inputs.
+            int[] gather = _gather;
+            ushort[] pos = layer.Positions;
+            int[] blockStart = layer.BlockStart;
+            int wo = 0;
+            for (int b = 0; b < rows / 8; b++)
+            {
+                int from = blockStart[b], to = blockStart[b + 1];
+                int n = 0;
+                for (int k = from; k < to; k++)
+                {
+                    int p = pos[k];
+                    gather[n] = q[p];
+                    gather[n + 1] = q[p + 1];
+                    gather[n + 2] = q[p + 2];
+                    gather[n + 3] = q[p + 3];
+                    n += 4;
+                }
+                for (int r = 0; r < 8; r++, wo += n)
+                {
+                    int i = b * 8 + r;
+                    output[i] = IntDot(w, wo, gather, n) * scale[i] + bias[i];
+                }
+            }
         }
 
-        /// <summary>The trained weights (8-bit, 1/256 steps), in the order the reference lists them.</summary>
+        private static int IntDot(sbyte[] w, int wo, int[] x, int n)
+        {
+            int s0 = 0, s1 = 0;
+            int i = 0;
+            for (; i + 3 < n; i += 4)
+            {
+                s0 += w[wo + i] * x[i] + w[wo + i + 1] * x[i + 1];
+                s1 += w[wo + i + 2] * x[i + 2] + w[wo + i + 3] * x[i + 3];
+            }
+            for (; i < n; i++)
+                s0 += w[wo + i] * x[i];
+            return s0 + s1;
+        }
+
+        /// <summary>The reference's own tanh (a ratio of two short polynomials); the model was tuned with it.</summary>
+        private static float Tanh(float x)
+        {
+            const float n0 = 952.52801514f, n1 = 96.39235687f, n2 = 0.60863042f;
+            const float d0 = 952.72399902f, d1 = 413.36801147f, d2 = 11.88600922f;
+            float x2 = x * x;
+            float num = (n2 * x2 + n1) * x2 + n0;
+            float den = (d2 * x2 + d1) * x2 + d0;
+            num = num * x / den;
+            return num < -1f ? -1f : num > 1f ? 1f : num;
+        }
+
+        private static float Sigmoid(float x) => 0.5f + 0.5f * Tanh(0.5f * x);
+
+        /// <summary>An 8-bit layer, its weights laid out an output to a row (sparse: only the inputs that output's group reads).</summary>
+        private sealed class Quantized
+        {
+            internal int Inputs, Outputs;
+            internal sbyte[] Weights;
+            internal float[] Scale, Bias, Diag;
+            /// <summary>Sparse only: where each group of 8 outputs' input runs begin in <see cref="Positions"/>.</summary>
+            internal int[] BlockStart;
+            internal ushort[] Positions;
+        }
+
+        /// <summary>The trained weights, in the order <c>Resources/RnNoise/SOURCES.md</c> lists them.</summary>
         private sealed class Model
         {
-            internal Layer InputDense, VadGru, NoiseGru, DenoiseGru, DenoiseOutput, VadOutput;
+            internal float[] Conv1, Conv1Bias, DenseOut, DenseOutBias, VadDense, VadDenseBias;
+            internal Quantized Conv2, Gru1In, Gru1Rec, Gru2In, Gru2Rec, Gru3In, Gru3Rec;
 
             internal static Model Load()
             {
-                byte[] data;
                 using (Stream stream = typeof(RnNoise).Assembly.GetManifestResourceStream(WeightsResource))
                 {
                     if (stream == null)
                         throw new InvalidOperationException("RNNoise weights missing: " + WeightsResource);
-                    data = new byte[WeightsLength];
-                    int got = 0;
-                    while (got < data.Length)
+                    using (var r = new BinaryReader(stream))
                     {
-                        int n = stream.Read(data, got, data.Length - got);
-                        if (n <= 0)
-                            break;
-                        got += n;
+                        var m = new Model();
+                        m.Conv1 = Rows(Floats(r, 3 * NbFeatures * Conv1Out), 3 * NbFeatures, Conv1Out);
+                        m.Conv1Bias = Floats(r, Conv1Out);
+                        m.Conv2 = new Quantized { Inputs = 3 * Conv1Out, Outputs = Conv2Out };
+                        m.Conv2.Weights = DenseRows(Bytes(r, 3 * Conv1Out * Conv2Out), 3 * Conv1Out, Conv2Out);
+                        m.Conv2.Scale = Floats(r, Conv2Out);
+                        m.Conv2.Bias = Floats(r, Conv2Out);
+                        m.Gru1In = Sparse(r, false);
+                        m.Gru1Rec = Sparse(r, true);
+                        m.Gru2In = Sparse(r, false);
+                        m.Gru2Rec = Sparse(r, true);
+                        m.Gru3In = Sparse(r, false);
+                        m.Gru3Rec = Sparse(r, true);
+                        m.DenseOut = Rows(Floats(r, GruSize * NbBands), GruSize, NbBands);
+                        m.DenseOutBias = Floats(r, NbBands);
+                        m.VadDense = Floats(r, GruSize);
+                        m.VadDenseBias = Floats(r, 1);
+                        if (stream.Position != stream.Length)
+                            throw new InvalidOperationException("RNNoise weights have the wrong size");
+                        return m;
                     }
-                    if (got != WeightsLength || stream.ReadByte() >= 0)
-                        throw new InvalidOperationException("RNNoise weights have the wrong size");
                 }
-                int pos = 0;
-                var m = new Model();
-                m.InputDense = new Layer { Inputs = NbFeatures, Neurons = DenseSize };
-                m.InputDense.Input = Take(data, ref pos, NbFeatures, DenseSize);
-                m.InputDense.Bias = Take(data, ref pos, DenseSize);
-                m.VadGru = TakeGru(data, ref pos, DenseSize, VadSize);
-                m.NoiseGru = TakeGru(data, ref pos, DenseSize + VadSize + NbFeatures, NoiseSize);
-                m.DenoiseGru = TakeGru(data, ref pos, VadSize + NoiseSize + NbFeatures, DenoiseSize);
-                m.DenoiseOutput = new Layer { Inputs = DenoiseSize, Neurons = NbBands, Sigmoid = true };
-                m.DenoiseOutput.Input = Take(data, ref pos, DenoiseSize, NbBands);
-                m.DenoiseOutput.Bias = Take(data, ref pos, NbBands);
-                m.VadOutput = new Layer { Inputs = VadSize, Neurons = 1, Sigmoid = true };
-                m.VadOutput.Input = Take(data, ref pos, VadSize, 1);
-                m.VadOutput.Bias = Take(data, ref pos, 1);
-                return m;
             }
 
-            private static Layer TakeGru(byte[] data, ref int pos, int inputs, int neurons)
+            private static int Count(BinaryReader r, int expected)
             {
-                var layer = new Layer { Inputs = inputs, Neurons = neurons };
-                layer.Input = Take(data, ref pos, inputs, neurons * 3);
-                layer.Recurrent = Take(data, ref pos, neurons, neurons * 3);
-                layer.Bias = Take(data, ref pos, neurons * 3);
-                return layer;
+                int n = r.ReadInt32();
+                if (expected >= 0 && n != expected)
+                    throw new InvalidOperationException("RNNoise weights: " + n + " values where " + expected + " belong");
+                return n;
             }
 
-            private static float[] Take(byte[] data, ref int pos, int count)
+            private static float[] Floats(BinaryReader r, int expected)
             {
-                var a = new float[count];
-                for (int i = 0; i < count; i++)
-                    a[i] = (sbyte)data[pos + i];
-                pos += count;
+                int n = Count(r, expected);
+                byte[] raw = r.ReadBytes(n * 4);
+                if (raw.Length != n * 4)
+                    throw new InvalidOperationException("RNNoise weights cut short");
+                var a = new float[n];
+                Buffer.BlockCopy(raw, 0, a, 0, raw.Length);
                 return a;
             }
 
-            /// <summary>A weight matrix, stored input by input, turned so each output's weights lie in a row.</summary>
-            private static float[] Take(byte[] data, ref int pos, int inputs, int outputs)
+            private static sbyte[] Bytes(BinaryReader r, int expected)
             {
-                var a = new float[inputs * outputs];
+                int n = Count(r, expected);
+                byte[] raw = r.ReadBytes(n);
+                if (raw.Length != n)
+                    throw new InvalidOperationException("RNNoise weights cut short");
+                var a = new sbyte[n];
+                Buffer.BlockCopy(raw, 0, a, 0, n);
+                return a;
+            }
+
+            /// <summary>A float matrix stored input by input, turned so each output's weights lie in a row.</summary>
+            private static float[] Rows(float[] w, int inputs, int outputs)
+            {
+                var a = new float[w.Length];
                 for (int j = 0; j < inputs; j++)
                     for (int i = 0; i < outputs; i++)
-                        a[i * inputs + j] = (sbyte)data[pos + j * outputs + i];
-                pos += inputs * outputs;
+                        a[i * inputs + j] = w[j * outputs + i];
                 return a;
+            }
+
+            /// <summary>An 8-bit matrix stored in blocks of 8 outputs by 4 inputs, turned so each output's weights lie in a row.</summary>
+            private static sbyte[] DenseRows(sbyte[] w, int inputs, int outputs)
+            {
+                var a = new sbyte[w.Length];
+                int at = 0;
+                for (int i = 0; i < outputs; i += 8)
+                    for (int j = 0; j < inputs; j += 4)
+                        for (int r = 0; r < 8; r++)
+                            for (int c = 0; c < 4; c++)
+                                a[(i + r) * inputs + j + c] = w[at++];
+                return a;
+            }
+
+            private static Quantized Sparse(BinaryReader r, bool recurrent)
+            {
+                const int outputs = 3 * GruSize;
+                var q = new Quantized { Inputs = GruSize, Outputs = outputs };
+                // For each group of 8 outputs: how many runs of 4 inputs it reads, then where each begins.
+                int idxCount = Count(r, -1);
+                var idx = new ushort[idxCount];
+                for (int i = 0; i < idxCount; i++)
+                    idx[i] = r.ReadUInt16();
+                q.BlockStart = new int[outputs / 8 + 1];
+                var positions = new System.Collections.Generic.List<ushort>(idxCount);
+                int at = 0;
+                for (int b = 0; b < outputs / 8; b++)
+                {
+                    if (at >= idxCount)
+                        throw new InvalidOperationException("RNNoise weights: sparse index cut short");
+                    int n = idx[at++];
+                    q.BlockStart[b] = positions.Count;
+                    for (int k = 0; k < n; k++)
+                    {
+                        if (at >= idxCount || idx[at] + 4 > GruSize)
+                            throw new InvalidOperationException("RNNoise weights: bad sparse index");
+                        positions.Add(idx[at++]);
+                    }
+                }
+                q.BlockStart[outputs / 8] = positions.Count;
+                if (at != idxCount)
+                    throw new InvalidOperationException("RNNoise weights: sparse index has " + idxCount + " entries, " + at + " used");
+                q.Positions = positions.ToArray();
+                sbyte[] w = Bytes(r, positions.Count * 32);
+                // Stored run by run (8 outputs by 4 inputs); laid out output by output over the group's runs.
+                var rows = new sbyte[w.Length];
+                int src = 0, dst = 0;
+                for (int b = 0; b < outputs / 8; b++)
+                {
+                    int n = q.BlockStart[b + 1] - q.BlockStart[b];
+                    for (int k = 0; k < n; k++)
+                        for (int row = 0; row < 8; row++)
+                            for (int c = 0; c < 4; c++)
+                                rows[dst + row * n * 4 + k * 4 + c] = w[src++];
+                    dst += 8 * n * 4;
+                }
+                q.Weights = rows;
+                q.Scale = Floats(r, outputs);
+                q.Bias = Floats(r, outputs);
+                if (recurrent)
+                    q.Diag = Floats(r, outputs);
+                return q;
             }
         }
 
@@ -913,14 +1005,6 @@ namespace DWMPHorde.Audio
                     t[i * NbBands + j] = (float)v;
                 }
             }
-            return t;
-        }
-
-        private static float[] BuildTansigTable()
-        {
-            var t = new float[201];
-            for (int i = 0; i < t.Length; i++)
-                t[i] = (float)Math.Tanh(0.04 * i);
             return t;
         }
 

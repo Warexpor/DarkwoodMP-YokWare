@@ -51,8 +51,8 @@ public class RnNoiseTests
 
         float[] expected =
         {
-            417.53f, 1409.79f, 187.08f, 1403.57f, 178.49f, 1395.44f,
-            181.64f, 1392.25f, 190.64f, 1395.30f, 189.62f, 1391.72f
+            10.29f, 1330.07f, 245.54f, 1347.47f, 233.07f, 1350.52f,
+            239.12f, 1348.12f, 243.42f, 1350.24f, 240.31f, 1344.71f
         };
         for (int k = 0; k < expected.Length; k++)
         {
@@ -109,7 +109,26 @@ public class RnNoiseTests
         List<float> off = RunChain(x, rate, false);
         int a = VoiceCodec.SampleRate * 2, b = VoiceCodec.SampleRate * 4 - 2000;
         double cut = Db(Rms(on, a, b) / Rms(off, a, b));
-        Assert.True(cut < -20, "noise only, after two seconds: " + cut.ToString("F1") + " dB");
+        Assert.True(cut < -35, "noise only, after two seconds: " + cut.ToString("F1") + " dB");
+    }
+
+    /// <summary>Keys: sharp bursts of a few milliseconds, a few a second, over a quiet room.</summary>
+    [Fact]
+    public void KeyClicksGoDown()
+    {
+        const int rate = 48000;
+        var r = new Random(11);
+        var x = new float[rate * 4];
+        for (int i = 0; i < x.Length; i++)
+            x[i] = 0.001f * (float)(r.NextDouble() * 2 - 1);
+        for (int at = rate / 5; at + 600 < x.Length; at += rate / 4 + r.Next(rate / 10))
+            for (int i = 0; i < 600; i++)
+                x[at + i] += 0.15f * (float)(r.NextDouble() * 2 - 1) * (float)Math.Exp(-i / 150.0);
+        List<float> on = RunChain(x, rate, true);
+        List<float> off = RunChain(x, rate, false);
+        int a = VoiceCodec.SampleRate, b = VoiceCodec.SampleRate * 4 - 2000;
+        double cut = Db(Rms(on, a, b) / Rms(off, a, b));
+        Assert.True(cut < -25, "key clicks, after the first second: " + cut.ToString("F1") + " dB");
     }
 
     [Theory]

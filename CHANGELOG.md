@@ -3,12 +3,12 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.221**. The current Horde wire protocol is **54**. Every install in a session
+**0.8.222**. The current Horde wire protocol is **54**. Every install in a session
 needs the same DLL; the protocol is checked on join.
 
 Protocol history (newest first):
 
-- **54**, 0.8.212 to 0.8.221: `VoiceData` (129) gains flag 2: a second codec block after the voice,
+- **54**, 0.8.212 to 0.8.222: `VoiceData` (129) gains flag 2: a second codec block after the voice,
   the sounds the talker's radio picked up.
 - **53**, 0.8.200 to 0.8.211: the world share package gains `savplc.dat` (container slots a player
   stored items in). No message layout changed; the bump keeps every player on a build
@@ -61,6 +61,82 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.222 — RNNoise 0.2, softer radio sounds, steady static with no range cut-off, whole stand-up for watchers, rejoin where you left
+
+From a 0.8.221 session (host and one client; logs had no errors or exceptions).
+Built, unit-tested (478 pass) and deployed to the three installs; **not played yet**.
+**Protocol 54 (unchanged)**,
+but every install needs this DLL (the host now answers a joiner that it holds no backup).
+
+- **Keys were still heard through the noise suppression: RNNoise 0.2 replaces 0.1.1.**
+  The 0.2 network is far larger (two convolutions and three layers of 384 units
+  against 24/48/96 units, 32 bands against 22, one frame of look-ahead) and trained on
+  more data. Its C code and the full model (`rnnoise_data-0b50c45`, from
+  `media.xiph.org`, the 8-bit weights) are ported to C# (`Audio/RnNoise.cs`, 1.3 MB of
+  weights in the DLL, which grows from 2.6 to 4.1 MB). The original, built with
+  its plain-C path, and the port give the same output on the same input (difference
+  about 69 dB below the signal). Measured on the original: noise alone (white, pink,
+  hum) down about 30 dB in the first half second and 60 to 70 dB after (0.1.1: 20 to
+  40, and it left a bright hiss alone); key-like bursts in pauses down 48 to 73 dB
+  (0.1.1: 8 to 21). Speech could only be checked on a synthetic voice. Cost: about
+  0.8 ms per 10 ms of sound under .NET 8 on this machine, on the mic's own thread; not
+  measured under the game's Mono, expect roughly a tenth to a fifth of one core while
+  the mic runs. Delay about 30 ms (was 20). A smaller "little" model ships with 0.2
+  and was not used.
+- **Radio sounds ended too abruptly.** The beep, the squelch tail and the knob takes
+  stopped within 10 ms (the squelch tail fell 30 dB in one step). Each now ends in a
+  short decaying tail (about 0.3 s, made from the recording, kept to the radio's band),
+  and on the listener's radio the static no longer stops dead when the talker lets go:
+  it fades out under the squelch tail over a quarter second
+  (`VoiceChatService.Radio.cs` `WriteSquelchTail`, `StaticFadeSec`).
+- **The out-of-range static crackled.** The recording's loudness jumped by several dB
+  from one 5 ms to the next (2.8 dB spread; plain noise in that band has 1.2). Its level
+  is now evened out over 12 ms windows: a steady hiss, same spectrum, same average
+  level, still a loop (`Resources/Radio/static_far.wav`, see its `SOURCES.md`).
+- **The radio went silent past a distance.** 0.8.218 made the static fade to nothing over
+  the last stretch of the range, and a signal of zero quality was not played at all.
+  Wrong reading of the request. Now distance never silences a radio: from 18000 units
+  on a keyed radio is static alone, anywhere on the map (`FarStaticGain`, and the
+  `quality > 0` tests are gone). What stops a signal is a dream: nothing passes between
+  a player in a dream and one who is not, either way (`RadioLinked`, used for the
+  listener's own radio, a nearby player's radio, the talker's echo from a nearby radio
+  and for creatures hearing a radio on the host). Before, the dream was only "far away".
+- **A joiner's stand-up started late and cut off on the others' screens.** Vanilla
+  starts the get-up clip (`Sleep`, 44 frames at 15 a second: 2.9 s) the moment the load
+  ends. The joiner's position and clip only reach the host after its reconnect and
+  handshake, and the host makes the stand-in when the first packet lands, so the
+  stand-in appeared part-way through the clip, or after it. Earlier fixes worked on the
+  watcher's side, which cannot show what it was never sent. Now the player who stands
+  up waits: the clip is held on its first frame until a few position packets carrying
+  it have gone out and, for a joiner, until their character backup has placed them;
+  then it runs, and the watchers start it at the same frame. Nothing is held with
+  nobody to watch (no session, a host alone); a wait that cannot end lets go after 6 s
+  and logs `[GetUp] stand-up let go`. Covers load, join and respawn, host or client
+  (`Players/Runtime/LocalGetUpHold.cs`, `LanNetworkManager.Tick.cs`).
+- **A rejoining client stood at the host's spawn, not where they left.** Each client's
+  position is already stored with their character backup (at every world save and when
+  they leave, on the host and on their own PC), but it was thrown away when it was more
+  than 5000 units from where the load had put them: this session's log has
+  `skip position restore — backup far from loaded pose ... xz=8447`. That check was for
+  old backups that named no campaign and could belong to another world. A backup of
+  this campaign is a place in this world, so it is now used however far it is
+  (`ClientStateBackup.Restore.cs`, `.Campaign.cs`). Note: the position is the newest
+  of "last world save" and "when the client left".
+- **Found on the way:** after restoring its own position a client moved every other
+  player's stand-in to that position until their next packet (one frame of everyone
+  standing on the joiner, and location triggers could see them there). Removed.
+- **Found on the way:** when the host had no backup for a joiner it said nothing, and
+  the joiner waited 12 s before using its own file, so it was moved 12 s after joining.
+  The host now answers "none" (an empty backup message) and the joiner uses its own
+  file at once (`SaveNetHandlers.Apply.cs`).
+- **Files:** `Audio/RnNoise.cs`, `Audio/VoiceMicChain.cs`, `Audio/VoiceChatService.Radio.cs`,
+  `.Speakers.cs`, `.NearRadios.cs`, `.Walkie.cs`, `Audio/VoiceHearing.cs`,
+  `Resources/Radio/*.wav`, `Resources/RnNoise/*`, `Players/Runtime/LocalGetUpHold.cs`,
+  `Networking/LanNetworkManager.Tick.cs`, `Networking/Session/SaveNetHandlers*.cs`,
+  `Networking/Services/ClientStateBackup.Restore.cs`, `.Campaign.cs`, tests
+  (`RnNoiseTests.cs`, one new), docs, `COPYRIGHT`.
+- **Not verified in game:** all of the above.
 
 ## 0.8.221 — Mic noise suppression by a trained model (RNNoise)
 

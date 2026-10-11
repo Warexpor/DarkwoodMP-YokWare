@@ -324,7 +324,13 @@ movie), unless the host sets `AllowJoinDuringDream`.
   taken back, and a drop someone else picked up is removed from the returner's bag.
   Oxygen tanks and journal items are not dropped (everyone has them already).
 - A returning player gets their own character back from the snapshot the host
-  stored (or their local copy, if that one is newer).
+  stored (or their local copy, if that one is newer), and stands where that snapshot
+  was taken (at each world save, and again when they left), not at the host's spawn.
+- A player who stands up (after a load, a join, a respawn) stays lying until the others
+  can see it: until a few of their position packets have gone out and, for a joiner,
+  until they have been put where they left. The others then see the whole stand-up,
+  in step. With nobody to watch nothing waits; a wait that cannot end lets go after
+  6 seconds.
 
 ### Chapter change
 
@@ -862,10 +868,10 @@ party events.
   - Walkie-talkie: hold a `walkie_talkie` and hold the radio talk key (right mouse by default, rebindable in Settings > Voice) to transmit. Carrying one
     lets you hear the radio from anywhere: a narrow, slightly distorted band, the caller's
     beep at the start and a squelch tail at the end (played by the listener's radio the
-    moment the talker lets go). The signal has no cut-off distance: past the clear range
-    static rises under the voice and the voice sinks into it, until only static is left,
-    and at the very end of the range the static fades out too. Every sound a radio makes
-    is a recording; none is generated.
+    moment the talker lets go, with the static fading out under it). The signal has no
+    cut-off distance: past the clear range static rises under the voice and the voice
+    sinks into it, until only static is left, and from there on it stays static however
+    far apart the two are. Every sound a radio makes is a recording; none is generated.
     A keyed radio also sends the sounds around its holder (steps, doors, creatures, the
     weather), each as loud and as dull as it reaches the holder and well under the voice;
     not music, menu sounds or voice chat itself (nor the game's long ambience loops, which
@@ -893,9 +899,10 @@ party events.
     flashlight), quieter and duller in a pocket than in hand. Off or flat, it neither
     receives, transmits nor makes a sound for creatures: switching it off is how you
     sneak with one.
-  - The signal fades with distance (clear to 6000 units, breaking up past that, gone at
-    18000), carries less out of buildings and barely in or out of underground places, and
-    nothing reaches another world (a dream).
+  - The signal fades with distance (clear to 6000 units, more and more static past that,
+    static alone from 18000 on), carries less out of buildings and barely in or out of
+    underground places. Distance never silences it. A dream does: nothing passes between
+    a player in a dream and one who is not, either way.
   - The microphone is cleaned before it is sent (`VoiceNoiseSuppression`, on unless the
     player turns it off in Settings > Voice): a trained model (RNNoise) tells speech from
     noise, so fans, hum, hiss, keys and clicks go down and the voice stays. Another

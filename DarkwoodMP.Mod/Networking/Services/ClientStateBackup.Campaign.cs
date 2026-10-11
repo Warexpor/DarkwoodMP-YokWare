@@ -31,16 +31,10 @@ namespace DWMPHorde.Networking
             if (string.IsNullOrEmpty(data.CampaignId))
                 return LooksLikeLegacyPoisonSnapshot(data);
 
-            // Campaign-scoped and matching: trust CampaignId. Optional belt — missing
-            // fingerprint plus absurd pose vs already-loaded live body (client/offline
-            // apply only; BackupPoseAbsurdVsLive no-ops on host).
+            // Campaign-scoped and matching: trust CampaignId. A player far from where the
+            // load put the body is not a sign of a stale file: they rejoin where they were.
             if (MatchesCurrentCampaign(data))
-            {
-                if (string.IsNullOrEmpty(data.ContentFingerprint)
-                    && BackupPoseAbsurdVsLive(data))
-                    return true;
                 return false;
-            }
 
             // Non-empty but wrong campaign — callers usually refuse via MatchesCurrentCampaign;
             // still treat poison-shaped snapshots as stale if they reach here.

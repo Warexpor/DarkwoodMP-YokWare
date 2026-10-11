@@ -237,12 +237,12 @@ namespace DWMPHorde.Audio
                 byte local = LocalWalkieState;
                 float ownRadioVol = 0f;
                 float ownQuality = 0f;
-                if (onAir && WalkieStates.Live(local) && !_walkieTx && talkerHere)
+                int localId = net != null ? net.LocalPlayerId : 0;
+                if (onAir && WalkieStates.Live(local) && !_walkieTx && talkerHere && RadioLinked(s.Id, localId))
                 {
                     ownQuality = RadioQuality(talkerPos, listen, talkerInside, Player.Instance != null && Player.Instance.isInside,
                         talkerUnder, LocalUnderground);
-                    if (ownQuality > 0f)
-                        ownRadioVol = vol * 0.9f * airShare * (WalkieStates.InHand(local) ? 1f : PocketVolume);
+                    ownRadioVol = vol * 0.9f * airShare * (WalkieStates.InHand(local) ? 1f : PocketVolume);
                 }
                 float nearRadioVol = 0f;
                 float nearQuality = 0f;
@@ -254,7 +254,7 @@ namespace DWMPHorde.Audio
                     byte carrier = net.RemotePlayers.TryGetValue(nearRadioId, out RemotePlayerState cst) && cst != null ? cst.WalkieState : (byte)0;
                     nearQuality = RadioQuality(talkerPos, nearRadioPos, talkerInside, IsInside(net, nearRadioId),
                         talkerUnder, WalkieStates.IsUnderground(carrier));
-                    if (nearQuality > 0f)
+                    if (RadioLinked(s.Id, nearRadioId))
                     {
                         bool hand = WalkieStates.InHand(carrier);
                         float d = DistXz(listen, nearRadioPos);

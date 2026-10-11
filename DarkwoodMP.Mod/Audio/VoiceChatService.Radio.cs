@@ -70,8 +70,6 @@ namespace DWMPHorde.Audio
 
         private const float VoiceGoneQuality = 0.15f;
         private const float VoiceClearQuality = 0.9f;
-        /// <summary>Over the very end of the range the static itself fades to nothing: no distance at which sound is cut off.</summary>
-        private const float StaticEdgeQuality = 0.05f;
 
         /// <summary>
         /// One packet of voice as the radio gets it (decode side, before the radio's band and
@@ -118,6 +116,8 @@ namespace DWMPHorde.Audio
         /// <summary>Past the tail's own length: the audio thread reads in blocks and may start late.</summary>
         private const float TailHoldSlackSec = 0.2f;
         private const float TailGain = 0.6f;
+        /// <summary>The radio's static goes on under the squelch tail for this long, fading out: a carrier does not stop dead.</summary>
+        private const float StaticFadeSec = 0.25f;
         /// <summary>The steady static under a clear transmission, at this level (the recording is at RMS 0.055, all of it in the radio's band).</summary>
         private const float StaticNearGain = 0.1f;
         /// <summary>
@@ -158,9 +158,9 @@ namespace DWMPHorde.Audio
         private static float FarStaticGain(float quality)
         {
             // Rising all the way from the edge of the clear range to where the voice is gone,
-            // then holding, then out over the last sliver of the range.
+            // and holding from there on: however far apart, a keyed radio is heard as static.
             float weak = Mathf.InverseLerp(1f, VoiceGoneQuality, quality);
-            return weak * weak * StaticFarGain * Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0f, StaticEdgeQuality, quality));
+            return weak * weak * StaticFarGain;
         }
 
         /// <summary>
@@ -201,13 +201,18 @@ namespace DWMPHorde.Audio
             lock (speaker.Lock)
             {
                 // The listener's radio keeps playing until the tail is out (Speaker.RadioHoldUntil).
-                int toPlay = speaker.Buffered + (tail != null ? tail.Length : 0);
+                int tailLen = tail != null ? tail.Length : 0;
+                int fadeLen = (int)(StaticFadeSec * VoiceCodec.SampleRate);
+                int total = Math.Max(tailLen, fadeLen);
+                int toPlay = speaker.Buffered + total;
                 speaker.RadioHoldUntil = Time.unscaledTime + toPlay / (float)VoiceCodec.SampleRate + TailHoldSlackSec;
-                for (int i = 0; tail != null && i < tail.Length; i++)
+                for (int i = 0; i < total; i++)
                 {
                     if (speaker.Buffered >= speaker.Ring.Length)
                         break;
-                    speaker.Ring[speaker.WritePos] = Mathf.Clamp(tail[i] * gain, -1f, 1f);
+                    float fade = i < fadeLen ? 0.5f + 0.5f * Mathf.Cos(Mathf.PI * i / fadeLen) : 0f;
+                    float v = (i < tailLen ? tail[i] * gain : 0f) + (fade > 0f ? StaticSample(speaker) * fade : 0f);
+                    speaker.Ring[speaker.WritePos] = SoftLimit(v);
                     speaker.WritePos = (speaker.WritePos + 1) % speaker.Ring.Length;
                     speaker.Buffered++;
                 }

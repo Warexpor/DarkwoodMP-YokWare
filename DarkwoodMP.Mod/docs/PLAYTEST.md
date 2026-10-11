@@ -445,14 +445,24 @@ Listen on the player who did not cause the sound.
       voice from B's radio (quieter, from B's side, duller if B's is in a pocket), with
       the squelch tail on letting go. B switching their radio off or on in hand:
       A hears the knob from B. Indoors all of it has the room's reverb.
+- [ ] Stand-up: A hosts and is in the world, B joins. A sees B lying where B left the
+      game last time (not at A's spawn, not popping there from it), then B stands up
+      from the first frame and both finish together; B is on their feet on A's screen
+      when B starts to walk. B lies no more than a moment longer than in single
+      player. Same watched from B when A reloads, and for a respawn after a death.
+      No "[GetUp] stand-up let go" line in the log (it means the wait timed out). No
+      other player flashes at B's position for a frame when B is placed.
 - [ ] Signal: walking apart past the clear range, static comes in under the voice as one
-      steady sound and grows while the voice sinks into it, until only static is left;
-      at the very end of the range the static fades out. At no distance does the sound
-      cut off or drop out in pieces. From a cellar or the bunker underground it is
+      steady sound (a hiss, not a crackle) and grows while the voice sinks into it, until
+      only static is left; from there on, across the whole map, a keyed radio is static.
+      At no distance does the sound cut off or drop out in pieces. One player in a
+      dream, the other not: nothing is heard either way, and creatures near the
+      listener's radio do not react. From a cellar or the bunker underground it is
       mostly static. Each transmission opens with the caller's beep; when the talker
       lets go, the listener's radio plays the squelch tail at once, at the radio's
       volume, far from the talker too. Neither a voice nor static starts or stops with
-      a click.
+      a click: the beep, the tail and the knob ring out for a moment instead of ending
+      dead, and the static fades out under the tail.
 - [ ] The radio's description (hover it in the inventory) is its manual: the talk and
       knob keys as set in Settings > Voice, Reload for the battery; with a controller in
       use it says Aim and Attack. Also in Russian.
