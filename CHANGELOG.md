@@ -3,12 +3,12 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.257**. The current Horde wire protocol is **62**. Every install in a session
+**0.8.258**. The current Horde wire protocol is **62**. Every install in a session
 needs the same DLL; the protocol is checked on join.
 
 Protocol history (newest first):
 
-- **62**, 0.8.252 to 0.8.257: new `PeerNotice` (173). 0.8.257 uses a spare bit of the entity
+- **62**, 0.8.252 to 0.8.258: new `PeerNotice` (173). 0.8.257 uses a spare bit of the entity
   snapshot (`Flag2LeftRange`, 32); the layout is unchanged.
 - **61**, 0.8.248 to 0.8.251: `VoiceData` (129) carries Opus; with flag 2 its data starts with the voice
   block's length (2 bytes).
@@ -73,6 +73,32 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.258 — the talker's own game no longer drops frames while talking (voice encoded off the game thread)
+
+Built and deployed, not yet played. Protocol unchanged (62).
+
+**Host frame rate felt unsteady the whole session.** The 2 s averages hid it: 100 fps in 91% of
+the windows, but 332 of 1575 windows had a frame of 18 ms or longer (a dropped frame about every
+10 s) and 1008 frames ran over 15 ms. In the long frames that were the mod's, the voice step was
+the slowest part of the network update more often than anything else (3 to 8 ms in 137 windows,
+8 to 37 ms in 20). They line up with the host talking: the managed Opus encoder takes 1.1 to
+2.4 ms per 40 ms packet (`[Voice] 10s tx=.. enc=..`), and it ran in the game's Update, twice or
+more in one frame at the first word (the kept packet from before the key, then the new ones) and
+twice per packet on a keyed radio (voice, then the picked-up sounds). Encoding now runs on its own
+thread; the game thread queues the samples and sends the finished bytes on its next frame, one
+frame (10 ms) later than before (`VoiceChatService.Encode.cs`).
+
+Not touched, and still in those numbers: about half of the long frames are in rendering/present
+(172 of the 332 windows), which the mod does not time any finer, and the Steam packet poll was the
+slowest step in 9 windows (up to 39 ms in one frame).
+
+**Torch without a flame: looks like vanilla.** The log has it: the torch went out at night with the
+game's own `removeItemEmitters`, was then drawn three more times that night with no emitter, and
+the next torches picked up lit normally. That is what vanilla does with a torch burnt down to zero
+(`InvItemClass.drainDurability`: it stays in the bag, used up). No shadows night was running, and
+the day start cleared the shadows flag as it should. The log does not carry durability, so this is
+the likely cause, not a proven one.
 
 ## 0.8.257 — a door that locks behind the party waits for the whole party; voice room effect quieter and faded; no ghost creature left behind
 

@@ -222,9 +222,6 @@ namespace DWMPHorde.Audio
         /// <summary>Bytes ahead of the voice block that give its length, when a second block follows it.</summary>
         private const int WorldPrefixBytes = 2;
         private static readonly float[] _decodeBuf = new float[VoiceCodec.PacketSamples * (MaxFilledPackets + 1)]; // process-scoped: decode scratch
-        private static readonly byte[] _encodeBuf = new byte[WorldPrefixBytes + VoiceCodec.MaxBlockBytes * 2]; // process-scoped: encode scratch (voice block, then the picked-up sounds)
-        private static VoiceEncoder _voiceEnc;
-        private static VoiceEncoder _worldEnc;
         private static long _encodeTicks; // process-scoped: stats
         private static readonly float[] _worldTx = new float[VoiceCodec.PacketSamples]; // process-scoped: picked-up sounds of the frame being sent
         private static readonly float[] _worldRx = new float[VoiceCodec.PacketSamples]; // process-scoped: picked-up sounds of the packet being decoded
@@ -262,8 +259,7 @@ namespace DWMPHorde.Audio
             _walkieTxWas = false;
             _transmitting = false;
             _preroll = null;
-            _voiceEnc = null;
-            _worldEnc = null;
+            ResetEncoder();
             _radioHolder = 0;
             _radioHolderAt = 0f;
             WorldSoundPickup.Reset();
@@ -295,6 +291,7 @@ namespace DWMPHorde.Audio
             bool inGame = net != null && net.IsConnected && Player.Instance != null && !Core.loadingGame;
             bool meter = Time.unscaledTime < MeterWantedUntil;
 
+            SendEncoded(net);
             _frames.Clear();
             VoiceMic.Tick(enabled && (inGame || meter), _frames);
 
@@ -628,17 +625,6 @@ namespace DWMPHorde.Audio
                 // On the radio, a second block: what the radio picked up around this player.
                 bool world = _walkieTx && frame.Length == VoiceCodec.PacketSamples
                     && WorldSoundPickup.Read(_worldTx, VoiceCodec.PacketSamples);
-                long t0 = System.Diagnostics.Stopwatch.GetTimestamp();
-                int at = world ? WorldPrefixBytes : 0;
-                int voiceLen = (_voiceEnc ?? (_voiceEnc = new VoiceEncoder(speech: true))).Encode(frame, frame.Length, _encodeBuf, at);
-                int len = at + voiceLen;
-                if (world)
-                {
-                    _encodeBuf[0] = (byte)(voiceLen & 0xFF);
-                    _encodeBuf[1] = (byte)(voiceLen >> 8);
-                    len += (_worldEnc ?? (_worldEnc = new VoiceEncoder(speech: false))).Encode(_worldTx, VoiceCodec.PacketSamples, _encodeBuf, len);
-                }
-                _encodeTicks += System.Diagnostics.Stopwatch.GetTimestamp() - t0;
                 // The level is the voice's alone: it says how far the voice carries and what creatures hear.
                 float level = VoiceCodec.LevelOf(frame, frame.Length);
                 int playerId = Math.Max(net.LocalPlayerId, 0);
@@ -654,10 +640,17 @@ namespace DWMPHorde.Audio
                 byte levelByte = (byte)Mathf.RoundToInt(level * 255f);
                 if (net.Role == NetworkRole.Host)
                     VoiceHearing.Heard(net.LocalPlayerId, level, walkie);
-                net.Broadcast(NetMessageType.VoiceData,
-                    w => VoiceDataMessage.WriteSlice(w, playerId, seq, flags, levelByte, _encodeBuf, len),
-                    DeliveryMethod.Unreliable);
-                _txPackets++;
+                // Encoded off this thread; the bytes go out on the next frame (SendEncoded).
+                float[] worldCopy = null;
+                if (world)
+                {
+                    worldCopy = new float[VoiceCodec.PacketSamples];
+                    Array.Copy(_worldTx, worldCopy, VoiceCodec.PacketSamples);
+                }
+                QueueEncode(new TxJob
+                {
+                    Voice = frame, World = worldCopy, PlayerId = playerId, Seq = seq, Flags = flags, Level = levelByte
+                });
                 if (walkie)
                 {
                     float[] heard = frame;
