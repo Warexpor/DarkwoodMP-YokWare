@@ -175,6 +175,7 @@ namespace DWMPHorde.Sync
             ClearPeerDeadInDreamFlags();
             DWMPHorde.Patches.DialogueDoorAftermath.Reset();
             DreamForestSpiritAggro.Reset();
+            DreamLootParty.Reset();
             if (!_isActive) return;
             _isActive = false;
             _localDeadInDream = false;
@@ -503,17 +504,25 @@ namespace DWMPHorde.Sync
                 AllowDeathEndPass = true;
                 ModRuntime.LegacyInfo(
                     "[FinalDreamscene] All-dead — initiateEndDreaming(playerDeath)");
+                // The others play their death transition alongside the host's.
+                if (net != null && net.IsConnected && net.Role == NetworkRole.Host)
+                    DreamSyncManager.NotifyPeersDeathEndBeginning(dreams.preset != null ? dreams.preset.name : null);
                 try
                 {
                     dreams.initiateEndDreaming();
                 }
                 catch (System.Exception ex)
                 {
-                    AllowDeathEndPass = false;
                     ModRuntime.Log?.LogWarning(
                         "[FinalDreamscene] initiateEndDreaming failed, falling back to endDreaming: "
                         + ex.Message);
                     dreams.endDreaming();
+                }
+                finally
+                {
+                    // Run inside a peer's death message the authority patch stands down under the
+                    // apply guard and never took the pass: it must not let a later death through.
+                    AllowDeathEndPass = false;
                 }
             }
             else

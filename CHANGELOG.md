@@ -3,12 +3,12 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.272**. The current Horde wire protocol is **65**. Every install in a session
+**0.8.273**. The current Horde wire protocol is **65**. Every install in a session
 needs the same DLL; the protocol is checked on join.
 
 Protocol history (newest first):
 
-- **65**, 0.8.272: `DreamEnded` gains `WorldOutcome` (the outcome whose world events the dream's end runs).
+- **65**, 0.8.272 to 0.8.273: `DreamEnded` gains `WorldOutcome` (the outcome whose world events the dream's end runs).
 - **64**, 0.8.265 to 0.8.271: `SessionSettings` gains the host's `SoloHomeDream`.
 - **63**, 0.8.259 to 0.8.264: `TradeCommit` gains the trade's change to the trader's standing; a
   `DialogMirror` element gains the language entry its text came from; `PlayerEffectSync` uses
@@ -78,6 +78,37 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.273 — every dreamer gets the dream's container weapon; everyone wakes through the death transition when all die
+
+From a two-player run of the church ruins dream.
+
+- **Only one player got the church ruins dream's axe.** The axe lies in the wardrobe, and the
+  client took it; the wardrobe is a shared container, so the host found it empty and had nothing
+  to fight the chompers with. Vanilla lays it out for the one dreamer. Items lying on a dream's
+  ground were already each dreamer's own (the grave meadow's shovel); a dream's containers now
+  follow the same rule. The host keeps one copy in the slot for each living dreamer who has not
+  taken theirs: after a take it puts the stack back, and the normal container sync shows it to
+  everyone. A client taking from the same slot again is refused and refunded. Journal items
+  (the box in the same wardrobe), stacks a player put in, and what bodies carry stay single.
+  The dream bag is thrown away on waking, so nothing is multiplied into the world. This covers
+  the other dreams' container loot too (the bunker dream's backpack, the lockpicks in the church
+  ruins, the camp fire meat in the Doctor's dreams). (`DreamLootParty`,
+  `ContainerLootNetHandlers.HandleContainerItem`, `ContainerSyncHelpers.SendContainerAction`)
+- **A client that died first woke from the dream with a hard cut.** When the last dreamer died,
+  the host played the dream's death transition, and only at its end sent the dream's end to the
+  others; the dead client then woke with the hard cleanup used for a dream that cannot play its
+  own end. The host now sends the end when its death transition starts, and a client that died
+  in the dream plays the same death transition (vanilla `initiateEndDreaming` with
+  `playerDeath`) alongside, whichever of them died last. An all-dead end decided from outside
+  the dream (the host already left) does the same. (`DreamSyncManager.NotifyPeersDeathEndBeginning`
+  / `TryBeginHostOrderedStoryEnd`, `FinalDreamsceneManager.EndDreamForBoth`,
+  `InitiateEndDreaming` authority patch)
+- **A death end run inside a peer's death message left a pass open.** The all-dead end sets a
+  one-time pass for its own `initiateEndDreaming`; run while handling the last peer's death
+  message, the authority patch stood down under the apply guard and never used it, so a later
+  death in another dream would have ended that dream for the dying player alone. The pass is
+  now cleared once the call returns. (`FinalDreamsceneManager.EndDreamForBoth`)
 
 ## 0.8.272 — the furthest ending a dreamer reached is what the dream changes in the world; no lock-out in the apartment dream
 

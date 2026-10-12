@@ -231,8 +231,8 @@ on the host, so a returning player gets their own character back, not the host's
   ([section 18](#18-balancing-for-the-party)).
 - **Black chompers in dreams:** one extra per extra player
   ([section 18](#18-balancing-for-the-party)).
-- **Items lying in a dream's scene** (the grave meadow's shovel): each dreamer takes
-  their own ([section 13](#13-dreams)).
+- **Items in a dream's scene and its containers** (the grave meadow's shovel, the
+  church ruins wardrobe's axe): each dreamer takes their own ([section 13](#13-dreams)).
 - **Morning:** every hideout a living player greets the dawn in gets its own
   morning ([section 6](#6-night-morning-and-hideouts)).
 
@@ -823,10 +823,14 @@ party events.
   new world started in a save slot does not inherit the old world's played dreams);
   in chapter 1 a world that has not played it gets it with its next level-up dream.
 - **Dying in a dream:** you spectate until it ends. When every dreamer is dead, the
-  dream ends as a death outcome, also when the host is not one of the dreamers.
-- **Items in the scene:** an item the dream's scene has lying around (a weapon against
-  its creature) is there for each dreamer: taking it does not take it from the others.
-  What a player drops in a dream is one shared item. The dream bag is gone on waking.
+  dream ends as a death outcome, also when the host is not one of the dreamers, and
+  every dreamer wakes through the dream's death transition at the same time.
+- **Items in the scene:** an item the dream's scene has lying around or in its
+  containers (a weapon against its creature, the church ruins wardrobe's axe) is there
+  for each dreamer: taking it does not take it from the others. A container keeps one
+  copy for each living dreamer who has not taken theirs; a player gets one copy from a
+  slot. Journal items, what a player put in, and what bodies carry stay single. What a
+  player drops in a dream is one shared item. The dream bag is gone on waking.
 - **A dream's look is seen by all.** A dream that changes how a player looks (the
   Doctor in his dream, the home dream's clothes) shows it to every other player, and
   each player wakes in their own clothes.

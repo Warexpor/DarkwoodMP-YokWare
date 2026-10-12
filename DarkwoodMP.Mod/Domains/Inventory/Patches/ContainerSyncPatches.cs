@@ -234,6 +234,8 @@ namespace DWMPHorde.Patches
                 Inventory taken = WorldQueryHelper.FindInventoryByPos(pos);
                 if (taken != null && taken.invType == Inventory.InvType.deathDrop)
                     net.CombatDeathBagHandlers?.TryHostFanDeathBagEmptied(taken);
+                DreamLootParty.HostAfterTake(taken, slotIdx, itemType, amount, durability, ammo, isRecipe,
+                    upgrades, shouldBeActive, net.LocalPlayerId);
             }
 
             // Track the pre-take player inventory count for a precise denial refund.

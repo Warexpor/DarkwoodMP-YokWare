@@ -200,6 +200,7 @@ namespace DWMPHorde
             NetworkResetRegistry.Register(FlagSyncIntPatch.Reset);
             NetworkResetRegistry.Register(DeathStateTracker.ResetSession);
             NetworkResetRegistry.Register(SharedPermadeathDeath.Reset);
+            NetworkResetRegistry.Register(DreamLootParty.Reset);
             SharedPermadeathDeath.Install();
             NetworkResetRegistry.Register(ClientEntityInterpolationService.Reset);
             NetworkResetRegistry.Register(EnemyAttackNetHandlers.Reset);

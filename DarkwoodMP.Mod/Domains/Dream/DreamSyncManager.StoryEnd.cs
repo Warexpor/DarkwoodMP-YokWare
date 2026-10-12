@@ -92,6 +92,28 @@ namespace DWMPHorde.Sync
         private static bool IsStoryOutcome(string outcomeName)
             => !string.IsNullOrEmpty(outcomeName) && outcomeName != "playerDeath";
 
+        /// <summary>The party died in the dream (the host's all-dead end, or allDead from outside).</summary>
+        private static bool IsDeathEnd(string outcomeName)
+            => outcomeName == "playerDeath" || outcomeName == "allDead";
+
+        /// <summary>
+        /// Host, all dead: its own death transition is starting (vanilla initiateEndDreaming). The
+        /// others get DreamEnded now and play theirs alongside; sent at endDreaming, it reached a
+        /// client after the host's transition and woke it with a hard cut.
+        /// </summary>
+        public static void NotifyPeersDeathEndBeginning(string presetName)
+        {
+            if (!NetGuard.ConnectedHost(out var net) || _dreamEndBroadcastSent)
+                return;
+            _dreamEndBroadcastSent = true;
+            if (DreamSession.IsActive)
+                DreamSession.End("playerDeath");
+            string resolved = !string.IsNullOrEmpty(presetName) ? presetName : ResolveActivePresetName();
+            var ended = DreamEndedMessage.Build(resolved ?? "", "playerDeath");
+            net.Broadcast(NetMessageType.DreamEnded, w => ended.Serialize(w), LiteNetLib.DeliveryMethod.ReliableOrdered);
+            ModRuntime.LegacyInfo("[DreamSync] Host broadcast DreamEnded at its all-dead transition");
+        }
+
         public static void NotifyPeersStoryEndBeginning(string presetName, string outcomeName)
         {
             if (!NetGuard.ConnectedHost(out var net))
@@ -129,7 +151,15 @@ namespace DWMPHorde.Sync
         /// </summary>
         public static bool TryBeginHostOrderedStoryEnd(string outcomeName)
         {
-            if (!IsStoryOutcome(outcomeName))
+            // Everyone died: a player that died in the dream wakes the way a death wakes, through
+            // the outcome's death transition, not the hard cut of a cleanup.
+            if (IsDeathEnd(outcomeName))
+            {
+                if (!FinalDreamsceneManager.WasLocalDeadThisDream)
+                    return false;
+                outcomeName = "playerDeath";
+            }
+            else if (!IsStoryOutcome(outcomeName))
                 return false;
             if (DreamSession.IsRejectedOutcome(outcomeName))
                 return false;

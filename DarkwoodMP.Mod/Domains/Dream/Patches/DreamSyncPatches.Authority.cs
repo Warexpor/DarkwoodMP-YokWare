@@ -97,6 +97,12 @@ namespace DWMPHorde.Patches
             // Death: never end the shared session alone; spectate until all are dead or the story ends.
             if (outcome == "playerDeath")
             {
+                // Everyone died and the host ordered the death transition here too.
+                if (ModRuntime.Network.Role == NetworkRole.Client && DreamSyncManager.IsHostOrderedDreamEnd)
+                {
+                    ModRuntime.LegacyInfo("[DreamDeath] Client host-ordered death transition");
+                    return true;
+                }
                 if (Player.Instance != null && Player.Instance.inEpilogue)
                 {
                     ModRuntime.LegacyInfo("[DreamDeath] Epilogue playerDeath — allowing vanilla end path");
