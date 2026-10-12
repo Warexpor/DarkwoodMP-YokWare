@@ -3,12 +3,12 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.267**. The current Horde wire protocol is **64**. Every install in a session
+**0.8.268**. The current Horde wire protocol is **64**. Every install in a session
 needs the same DLL; the protocol is checked on join.
 
 Protocol history (newest first):
 
-- **64**, 0.8.265 to 0.8.267: `SessionSettings` gains the host's `SoloHomeDream`.
+- **64**, 0.8.265 to 0.8.268: `SessionSettings` gains the host's `SoloHomeDream`.
 - **63**, 0.8.259 to 0.8.264: `TradeCommit` gains the trade's change to the trader's standing; a
   `DialogMirror` element gains the language entry its text came from; `PlayerEffectSync` uses
   a spare bit (`MovedHome`, Flags2 64).
@@ -77,6 +77,35 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.268 — the other player's entry movie shows; dream containers filled on a client that loads late
+
+From the logs of a two-player run (two level-up dreams started by the client: the home dream,
+then the church ruins).
+
+- **Another player's entry movie was black.** When a peer starts a dream, everyone else plays
+  its entry movie too. The overlay was switched on only after the video was asked to prepare,
+  and Unity refuses that on a disabled player ("Cannot Prepare a disabled VideoPlayer"), so the
+  host saw ten seconds of black with only the stinger. The overlay is switched on first, as
+  vanilla `DreamTransition.transition` does. That copy also muted the movie's own sound track (the
+  stinger plays instead) on the game's one video player and never unmuted it, so this player's
+  own next entry movie would have played silent; the track is unmuted when the movie ends.
+  (`DreamSyncManager.Transition`, `DreamSyncManager.RemoteEntry`)
+- **Dream containers came up empty on a client.** The host sends the dream's container contents
+  as soon as its own pad has settled, which is before a client's copy of the pad has finished
+  spawning. The client found no container there, dropped the contents ("no inventory at ..."),
+  and kept the empty containers its skipped roll left, until a player opened one and asked the
+  host again. Contents for a pad slot that arrive while this client is still bringing a dream pad
+  in are now held and applied once the pad has loaded; anything left after 30 s is dropped.
+  (`ContainerPendingNetHandlers`, `DreamSyncManager.SceneLoad`)
+- **Checked, no change.** The client's "NO FLAG OF NAME dream_home_flashlight" is vanilla: the
+  home dream's wardrobe sets a flag that is not in the game's flag list. The DOTween safe-mode
+  count at quit, the BoxCollider negative-scale warnings and the early "Dropping PlayerAudio
+  (no handshake yet)" are vanilla or harmless join-order noise.
+- **The client's sound in the church ruins dream (reported, not yet found).** The logs show
+  nothing out of order on that entry. It ran the same path as the home dream before it, which
+  sounded fine. That dream has its own vanilla reverb zone (custom room, 8.4 s decay, 5000 radius).
+  Waiting on a description of what the sound did.
 
 ## 0.8.267 — the bunker dream's forest spirit leaves a warded client alone; woken players are out of the dream
 

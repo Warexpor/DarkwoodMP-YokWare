@@ -60,6 +60,56 @@ namespace DWMPHorde.Networking
             _pendingContainerRemoves.Clear();
             _pendingTakePreCounts.Clear();
             _pendingEntityStates.Clear();
+            _pendingPadStates.Clear();
+        }
+
+        /// <summary>
+        /// A dream pad's container contents sent while this client's copy of the pad was still
+        /// spawning (the host fans them out as its own pad settles, which beats a peer's load).
+        /// They were dropped ("no inventory"), and the client kept the empty containers its own
+        /// skipped roll left until the player opened one. Applied once the pad has loaded.
+        /// </summary>
+        private readonly List<KeyValuePair<float, ContainerStateSyncMessage>> _pendingPadStates =
+            new List<KeyValuePair<float, ContainerStateSyncMessage>>();
+
+        private void QueuePadState(ContainerStateSyncMessage msg)
+        {
+            for (int i = _pendingPadStates.Count - 1; i >= 0; i--)
+            {
+                ContainerStateSyncMessage p = _pendingPadStates[i].Value;
+                if (Mathf.Abs(p.PosX - msg.PosX) < 0.2f && Mathf.Abs(p.PosY - msg.PosY) < 0.2f
+                    && Mathf.Abs(p.PosZ - msg.PosZ) < 0.2f && p.SaveId == msg.SaveId)
+                    _pendingPadStates.RemoveAt(i);
+            }
+            _pendingPadStates.Add(new KeyValuePair<float, ContainerStateSyncMessage>(Time.unscaledTime, msg));
+            ModRuntime.LegacyInfo($"[Container] state for ({msg.PosX:F1},{msg.PosZ:F1}) held until the dream pad has loaded");
+        }
+
+        /// <summary>The dream pad finished loading here: fill the containers whose state came early.</summary>
+        internal void FlushPendingPadStates()
+        {
+            if (_pendingPadStates.Count == 0 || _net.Role != NetworkRole.Client)
+                return;
+            var batch = new List<KeyValuePair<float, ContainerStateSyncMessage>>(_pendingPadStates);
+            _pendingPadStates.Clear();
+            for (int i = 0; i < batch.Count; i++)
+            {
+                ContainerStateSyncMessage msg = batch[i].Value;
+                if (WorldQueryHelper.FindInventory(new Vector3(msg.PosX, msg.PosY, msg.PosZ), msg.SaveId) != null)
+                    HandleContainerStateSync(msg);
+                else
+                    ModRuntime.LegacyInfo($"[Container] held pad state at ({msg.PosX:F1},{msg.PosZ:F1}): no container after the load; dropped");
+            }
+        }
+
+        /// <summary>A pad that never finished loading (a cancelled entry) leaves nothing to fill.</summary>
+        private void ExpirePendingPadStates(float now)
+        {
+            for (int i = _pendingPadStates.Count - 1; i >= 0; i--)
+            {
+                if (now - _pendingPadStates[i].Key > PendingEntityStateMaxAge)
+                    _pendingPadStates.RemoveAt(i);
+            }
         }
 
         private const float PendingEntityStateMaxAge = 30f;
@@ -76,9 +126,13 @@ namespace DWMPHorde.Networking
         /// <summary>Client tick: fill a waiting creature's inventory once the creature is here.</summary>
         internal void TryFlushPendingEntityStates()
         {
-            if (_pendingEntityStates.Count == 0 || _net.Role != NetworkRole.Client)
+            if (_net.Role != NetworkRole.Client)
                 return;
             float now = Time.unscaledTime;
+            if (_pendingPadStates.Count > 0)
+                ExpirePendingPadStates(now);
+            if (_pendingEntityStates.Count == 0)
+                return;
             _entityStateScratch.Clear();
             _entityStateScratch.AddRange(_pendingEntityStates.Keys);
             foreach (int hash in _entityStateScratch)
@@ -260,6 +314,11 @@ namespace DWMPHorde.Networking
             if (inv == null)
             {
                 inv = WorldQueryHelper.FindInventory(pos, msg.SaveId);
+                if (inv == null && DreamSyncManager.IsDreamPadLoadingFor(pos))
+                {
+                    QueuePadState(msg);
+                    return;
+                }
                 if (inv == null)
                 {
                     ModRuntime.Log?.LogWarning($"[Container] HandleContainerStateSync: no inventory at ({msg.PosX:F1},{msg.PosY:F1},{msg.PosZ:F1}) hash={msg.EntityHash}");

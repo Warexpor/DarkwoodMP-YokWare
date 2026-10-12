@@ -135,6 +135,7 @@ namespace DWMPHorde.Sync
 
         private static IEnumerator ProcessRemoteDreamCoroutine(int playerId, Vector3 locationPosition)
         {
+            NotePadLoadBegins();
             int gen = _entryGeneration;
             int sid = DreamSession.SessionId;
             string presetName = _currentDreamPreset.TryGetValue(playerId, out var p) ? p : null;
@@ -576,6 +577,14 @@ namespace DWMPHorde.Sync
                         VideoPlayer vp = renderer.GetComponent<VideoPlayer>();
                         if (vp != null && vp.isPlaying)
                             vp.Stop();
+                        // The observer's copy muted the movie's own track (the stinger plays
+                        // instead). The player is the game's one video overlay: left muted, this
+                        // player's own next entry movie played without its sound.
+                        if (vp != null)
+                        {
+                            try { vp.SetDirectAudioMute(0, false); }
+                            catch { /* no audio track */ }
+                        }
                         // Snap off. DOFade(0.5s) exposed overworld when black was not yet solid.
                         if (renderer.material != null)
                             renderer.material.color = new Color(1f, 1f, 1f, 0f);

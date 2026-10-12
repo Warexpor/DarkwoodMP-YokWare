@@ -153,6 +153,7 @@ namespace DWMPHorde.Sync
         private static void OnDisconnectedCleanup()
         {
             CancelPendingEntries();
+            _padLoadSince = -1f;
             _hostEntryFreeze = false;
             FinalDreamsceneManager.OnDisconnected();
 

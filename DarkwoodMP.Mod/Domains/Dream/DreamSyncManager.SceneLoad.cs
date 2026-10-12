@@ -98,8 +98,30 @@ namespace DWMPHorde.Sync
             return presetGO != null ? presetGO.GetComponent<DreamPreset>() : null;
         }
 
+        /// <summary>
+        /// When this peer began bringing a dream pad in (DreamStarted or a chain), until the pad has
+        /// loaded. The host's pad settles first and sends its containers' contents meanwhile.
+        /// </summary>
+        private static float _padLoadSince = -1f; // reset-in: OnDisconnectedCleanup
+
+        private const float PadLoadMaxSeconds = 60f;
+
+        internal static void NotePadLoadBegins() => _padLoadSince = Time.realtimeSinceStartup;
+
+        /// <summary>
+        /// A dream pad is on its way in here and <paramref name="pos"/> is in a pad slot: something
+        /// of that pad the host sent may not exist yet.
+        /// </summary>
+        internal static bool IsDreamPadLoadingFor(Vector3 pos)
+        {
+            if (_padLoadSince < 0f || Time.realtimeSinceStartup - _padLoadSince > PadLoadMaxSeconds)
+                return false;
+            return ClientStateBackup.IsDreamPadCoordinate(pos);
+        }
+
         private static IEnumerator LoadDreamSceneCoroutine(string locationName, Vector3 position, bool _, int playerId = 0)
         {
+            NotePadLoadBegins();
             int gen = _entryGeneration;
             int sid = DreamSession.SessionId;
             // Vanilla prepareDream sets Dreams.preset for every dream; a peer that loads the pad
@@ -276,6 +298,8 @@ namespace DWMPHorde.Sync
             {
                 var netFlush = ModRuntime.Network;
                 netFlush?.GameEventHandlers?.TryFlushPendingGameEventsAfterDreamLoad();
+                _padLoadSince = -1f;
+                netFlush?.ContainerPendingHandlers?.FlushPendingPadStates();
             }
             catch { /* non-fatal */ }
 
