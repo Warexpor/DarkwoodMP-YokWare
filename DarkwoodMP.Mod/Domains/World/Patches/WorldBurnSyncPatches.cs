@@ -125,8 +125,8 @@ namespace DWMPHorde.Sync
                 return;
             if (!TryResolveWorldTarget(burn, out _, out _))
                 return;
-            // The host's own prologue pad exists on its machine only.
-            if (Sync.PersonalPrologue.IsOnProloguePad(burn.transform))
+            // A personal pad (the host's prologue, a solo dream) exists on its machine only.
+            if (Sync.PersonalPads.Contains(burn.transform))
                 return;
 
             var msg = BuildMessage(burn, burning);

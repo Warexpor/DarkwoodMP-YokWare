@@ -312,6 +312,8 @@ namespace DWMPHorde.Sync
 
             Transform dreamRoot = DreamSyncManager.GetDreamLocationTransform();
             if (dreamRoot == null) return;
+            // A solo dream's copy is the host's own.
+            if (PersonalPads.Contains(dreamRoot)) return;
 
             Item[] items = GetDreamPropItems(dreamRoot, force);
             if (items == null || items.Length == 0) return;

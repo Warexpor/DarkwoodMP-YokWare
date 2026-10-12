@@ -48,7 +48,7 @@ namespace DWMPHorde.Patches
             // The dream pad's creatures: the overworld has black chompers of the same name.
             if (!DreamSyncManager.IsDreamActive || !DreamSyncManager.IsAtDreamPad(__instance.transform.position))
                 return;
-            if (PersonalPrologue.IsOnProloguePad(__instance.transform))
+            if (PersonalPads.Contains(__instance.transform))
                 return;
             if (__instance.GetComponent<DreamBalanceProcessedMarker>() != null)
                 return;

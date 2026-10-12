@@ -207,8 +207,8 @@ namespace DWMPHorde.Networking
                 int i = (_scanStart + n) % nAll;
                 Character c = all[i];
                 if (c == null) continue;
-                // The host's own prologue creatures live on its private pads (PersonalPrologue).
-                if (PersonalPrologue.IsOnProloguePad(c.transform))
+                // Creatures on a personal pad (the host's prologue, a solo dream) are that machine's only.
+                if (PersonalPads.Contains(c.transform))
                     continue;
 
                 // During dreams, stream dream NPCs only; skip frozen overworld AI.

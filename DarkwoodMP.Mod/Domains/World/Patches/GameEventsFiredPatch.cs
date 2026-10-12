@@ -32,6 +32,10 @@ namespace DWMPHorde.Patches
             if (LanNetworkManager.IsApplyingRemoteState || NetworkApplyGuard.IsActive)
                 return true;
 
+            // A personal pad (a solo dream's copy) runs its own events, as in single player.
+            if (PersonalPads.Contains(__instance.transform))
+                return true;
+
             // multipleFire can re-run (ambient loops); still prefer host for one-shots.
             if (ModRuntime.Network.Role == NetworkRole.Client && !__instance.multipleFire)
                 return IsOwnPersonalLesson(__instance);
@@ -96,8 +100,8 @@ namespace DWMPHorde.Patches
             // A night scene's copy: clients replay the scene where they are (ScenarioEventFired).
             if (NightEventAnchor.PlayingScene)
                 return;
-            // The host's own prologue: its pads exist on its machine only.
-            if (PersonalPrologue.IsOnProloguePad(__instance.transform))
+            // A personal pad (the host's prologue, a solo dream) exists on its machine only.
+            if (PersonalPads.Contains(__instance.transform))
                 return;
 
             Vector3 p = __instance.transform.position;

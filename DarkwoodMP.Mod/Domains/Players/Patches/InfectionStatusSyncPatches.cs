@@ -86,8 +86,8 @@ namespace DWMPHorde.Patches
             {
                 Infection infection = all[i];
                 if (infection == null || infection.disappearing) continue;
-                // The host's own prologue pads are not the world.
-                if (PersonalPrologue.IsOnProloguePad(infection.transform)) continue;
+                // Personal pads (the host's prologue, a solo dream) are not the world.
+                if (PersonalPads.Contains(infection.transform)) continue;
                 if (sent >= MaxLateJoinInfectionSpawns) break;
 
                 Vector3 pos = infection.transform.position;

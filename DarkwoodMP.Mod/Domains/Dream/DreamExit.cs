@@ -121,6 +121,13 @@ namespace DWMPHorde.Sync
                 return false;
             if (!DreamSession.IsActive || DreamSession.IsEnding)
                 return false;
+            // A solo dream: every ending of this player's own copy is its own way out.
+            Transform own = SeparateDream.OwnPad;
+            if (own != null)
+            {
+                GameEvents soloGe = eventObject.GetComponent<GameEvents>();
+                return soloGe != null && eventObject.transform.IsChildOf(own) && HasEndDream(soloGe);
+            }
             Dreams dreams = Dreams.Instance;
             if (dreams == null || dreams.preset == null || PresetHandsOver(dreams.preset))
                 return false;
@@ -298,6 +305,18 @@ namespace DWMPHorde.Sync
         internal static void NoteLocalExitStep() => LocalLeaving = true;
 
         /// <summary>
+        /// A solo dream ends here by anything (an ending event, a scripted scene, a death): it is
+        /// this player's own copy, so it is this player's own way out.
+        /// </summary>
+        internal static bool LocalSoloEnd()
+        {
+            if (LocalLeaving || !SeparateDream.LocalActive || DreamSyncManager.IsHostOrderedDreamEnd)
+                return false;
+            LocalLeaving = true;
+            return true;
+        }
+
+        /// <summary>
         /// initiateEndDreaming of this player's own exit. False: the host leaves and nobody else is
         /// in the dream, so its end is the session's (the usual path).
         /// </summary>
@@ -353,6 +372,9 @@ namespace DWMPHorde.Sync
         internal static bool KeepPad(Dreams dreams)
         {
             if (!HostKeepsPlace || dreams == null || dreams.dreamLocation == null)
+                return false;
+            // A solo dream's copy is the host's own: nobody else plays in it.
+            if (SeparateDream.OwnPad != null)
                 return false;
             _keptPad = dreams.dreamLocation;
             _keptPreset = dreams.preset;

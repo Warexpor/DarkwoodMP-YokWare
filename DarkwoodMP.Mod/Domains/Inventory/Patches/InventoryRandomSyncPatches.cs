@@ -34,7 +34,8 @@ namespace DWMPHorde.Patches
         private static bool Prefix(InventoryRandom __instance)
         {
             var net = ModRuntime.Network;
-            if (net != null && net.Role == NetworkRole.Client)
+            // A personal pad's container (a solo dream's cupboard) fills itself, as in single player.
+            if (net != null && net.Role == NetworkRole.Client && !PersonalPads.Contains(__instance.transform))
             {
                 __instance.spawnedItems = true;
                 if (ModRuntime.VerboseLogging)
@@ -52,7 +53,8 @@ namespace DWMPHorde.Patches
         private static bool Prefix(InventoryRandom __instance)
         {
             var net = ModRuntime.Network;
-            if (net != null && net.Role == NetworkRole.Client)
+            // A personal pad's container (a solo dream's cupboard) fills itself, as in single player.
+            if (net != null && net.Role == NetworkRole.Client && !PersonalPads.Contains(__instance.transform))
             {
                 __instance.spawnedItems = true;
                 if (ModRuntime.VerboseLogging)
@@ -99,8 +101,8 @@ namespace DWMPHorde.Patches
         {
             if (net == null || inv == null || inv.slots == null)
                 return;
-            // The host's own prologue containers (its private pads) are not the world's.
-            if (PersonalPrologue.IsOnProloguePad(inv.transform))
+            // Containers on a personal pad (the host's prologue, a solo dream) are not the world's.
+            if (PersonalPads.Contains(inv.transform))
                 return;
             var slots = new List<SlotStateEntry>();
             for (int i = 0; i < inv.slots.Count; i++)

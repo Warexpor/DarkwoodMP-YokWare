@@ -306,6 +306,16 @@ namespace DWMPHorde.Sync
             return Mathf.Abs(p.x - pad.x) < PadSlotHalf && Mathf.Abs(p.z - pad.z) < PadSlotHalf;
         }
 
+        /// <summary>In the slot of one of this machine's prologue pads.</summary>
+        internal static bool IsAtProloguePad(Vector3 pos)
+        {
+            TrackPads();
+            for (int i = 0; i < _pads.Count; i++)
+                if (_pads[i] != null && InPadSlot(pos, _pads[i].position))
+                    return true;
+            return false;
+        }
+
         internal static bool IsOnProloguePad(Transform t)
         {
             if (t == null)

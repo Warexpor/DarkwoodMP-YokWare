@@ -49,7 +49,7 @@ namespace DWMPHorde.Networking
             DeliveryMethod method = DeliveryMethod.Unreliable, bool skipLoadingPeers = false,
             int excludePlayerId = 0)
         {
-            if (_role == NetworkRole.Host && Sync.PersonalPrologue.HostBlocksSend(type)) return;
+            if (Sync.PersonalPads.BlocksSend(type, _role)) return;
             BuildPacketHot(type, writeBody, out byte[] data, out int length);
             FanOutHot(data, length, method, skipLoadingPeers, excludePlayerId);
         }
@@ -119,6 +119,7 @@ namespace DWMPHorde.Networking
         public void SendToPlayer(int playerId, NetMessageType type, Action<NetWriter> writeBody,
             DeliveryMethod method = DeliveryMethod.Unreliable)
         {
+            if (Sync.PersonalPads.BlocksSend(type, _role)) return;
             byte[] data = BuildPacket(type, writeBody);
             SendRawToPlayer(playerId, data, method);
         }
@@ -251,8 +252,8 @@ namespace DWMPHorde.Networking
             DeliveryMethod method = DeliveryMethod.Unreliable, bool skipLoadingPeers = false)
         {
             if (PeerCount == 0) return;
-            // The host's own prologue happens on its private pads, not in the shared world.
-            if (_role == NetworkRole.Host && Sync.PersonalPrologue.HostBlocksSend(type)) return;
+            // The host's own prologue and a solo dream happen on private pads, not in the shared world.
+            if (Sync.PersonalPads.BlocksSend(type, _role)) return;
             // Built before the loop: a body writer that itself sends must not run mid-iteration.
             byte[] data = BuildPacket(type, writeBody);
             SendFramedToPeers(data, data.Length, method,
@@ -283,7 +284,7 @@ namespace DWMPHorde.Networking
             DeliveryMethod method = DeliveryMethod.ReliableOrdered)
         {
             if (_role != NetworkRole.Host || PeerCount == 0) return;
-            if (Sync.PersonalPrologue.HostBlocksSend(type)) return;
+            if (Sync.PersonalPads.BlocksSend(type, _role)) return;
             byte[] data = BuildPacket(type, writeBody);
             SendFramedToPeers(data, data.Length, method, FanOutFilter.InWorld, 0);
         }
@@ -375,6 +376,7 @@ namespace DWMPHorde.Networking
             DeliveryMethod method = DeliveryMethod.Unreliable)
         {
             if (PeerCount == 0) return;
+            if (Sync.PersonalPads.BlocksSend(type, _role)) return;
             byte[] data = BuildPacket(type, writeBody);
             SendFramedToFirstPeer(data, data.Length, method, 0);
         }

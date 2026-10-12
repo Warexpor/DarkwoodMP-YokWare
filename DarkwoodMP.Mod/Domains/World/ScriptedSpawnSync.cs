@@ -119,7 +119,7 @@ namespace DWMPHorde.Sync
                 return;
             if (TraverseHack.ApplyingFromNetwork || Core.loadingGame || !Core.worldGenFinished())
                 return;
-            if (PersonalPrologue.IsOnProloguePad(result.transform))
+            if (PersonalPads.Contains(result.transform))
                 return;
             if (!NetGuard.ConnectedHost(out LanNetworkManager net))
                 return;

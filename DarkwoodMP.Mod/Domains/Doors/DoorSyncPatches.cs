@@ -27,8 +27,8 @@ namespace DWMPHorde.Sync
 
             if (TraverseHack.ApplyingFromNetwork)
                 return;
-            // The host's own prologue pad exists on its machine only.
-            if (PersonalPrologue.IsOnProloguePad(__instance.transform))
+            // A personal pad (the host's prologue, a solo dream) exists on its machine only.
+            if (PersonalPads.Contains(__instance.transform))
                 return;
 
             Vector3 p = __instance.transform.position;
@@ -85,8 +85,8 @@ namespace DWMPHorde.Sync
             // Peers load the same save, and a late joiner gets the trap bulk.
             if (Core.loadingGame)
                 return;
-            // The host's own prologue pad exists on its machine only.
-            if (PersonalPrologue.IsOnProloguePad(__instance.transform))
+            // A personal pad (the host's prologue, a solo dream) exists on its machine only.
+            if (PersonalPads.Contains(__instance.transform))
                 return;
 
             Vector3 p = __instance.transform.position;
@@ -141,7 +141,7 @@ namespace DWMPHorde.Sync
                 return;
             if (!TrapNetworkId.IsWorldTrap(__instance.gameObject))
                 return;
-            if (PersonalPrologue.IsOnProloguePad(__instance.transform))
+            if (PersonalPads.Contains(__instance.transform))
                 return;
             Vector3 key = WorldPos.Key(__state);
             int trapId = TrapNetworkId.GetOrMintHost(__instance.gameObject);
@@ -202,8 +202,8 @@ namespace DWMPHorde.Sync
                 return;
             if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected)
                 return;
-            // Placed on the host's own prologue pad: not the world, and not in the trap ledger.
-            if (PersonalPrologue.LocalInPrologue)
+            // Placed on a personal pad (the host's prologue, a solo dream): not the world, and not in the trap ledger.
+            if (PersonalPads.LocalOn)
                 return;
 
             Vector3 euler = __state.Rot.eulerAngles;
@@ -241,8 +241,8 @@ namespace DWMPHorde.Sync
                 return;
             if (TraverseHack.ApplyingFromNetwork || LanNetworkManager.IsApplyingRemoteState)
                 return;
-            // The host's own prologue pad exists on its machine only.
-            if (PersonalPrologue.IsOnProloguePad(__instance.transform))
+            // A personal pad (the host's prologue, a solo dream) exists on its machine only.
+            if (PersonalPads.Contains(__instance.transform))
                 return;
 
             Vector3 p = __instance.transform.position;
@@ -275,8 +275,8 @@ namespace DWMPHorde.Sync
                 return;
             if (TraverseHack.ApplyingFromNetwork || LanNetworkManager.IsApplyingRemoteState)
                 return;
-            // The host's own prologue pad exists on its machine only.
-            if (PersonalPrologue.IsOnProloguePad(__instance.transform))
+            // A personal pad (the host's prologue, a solo dream) exists on its machine only.
+            if (PersonalPads.Contains(__instance.transform))
                 return;
 
             Vector3 p = __instance.transform.position;
@@ -309,8 +309,8 @@ namespace DWMPHorde.Sync
                 return;
             if (TraverseHack.ApplyingFromNetwork || LanNetworkManager.IsApplyingRemoteState)
                 return;
-            // The host's own prologue pad exists on its machine only.
-            if (PersonalPrologue.IsOnProloguePad(__instance.transform))
+            // A personal pad (the host's prologue, a solo dream) exists on its machine only.
+            if (PersonalPads.Contains(__instance.transform))
                 return;
 
             Vector3 p = __instance.transform.position;
@@ -377,8 +377,8 @@ namespace DWMPHorde.Sync
                 return;
             if (!__instance.isLight && !__instance.switchable)
                 return;
-            // The host's own prologue pad exists on its machine only.
-            if (PersonalPrologue.IsOnProloguePad(__instance.transform))
+            // A personal pad (the host's prologue, a solo dream) exists on its machine only.
+            if (PersonalPads.Contains(__instance.transform))
                 return;
 
             Vector3 p = __instance.transform.position;
@@ -411,8 +411,8 @@ namespace DWMPHorde.Sync
                 return;
             if (!__instance.isLight && !__instance.switchable)
                 return;
-            // The host's own prologue pad exists on its machine only.
-            if (PersonalPrologue.IsOnProloguePad(__instance.transform))
+            // A personal pad (the host's prologue, a solo dream) exists on its machine only.
+            if (PersonalPads.Contains(__instance.transform))
                 return;
 
             Vector3 p = __instance.transform.position;
@@ -465,8 +465,8 @@ namespace DWMPHorde.Sync
 
             if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected)
                 return;
-            // The host's own prologue pad exists on its machine only: not sent, not in the bulk.
-            if (PersonalPrologue.IsOnProloguePad(__instance.transform))
+            // A personal pad (the host's prologue, a solo dream) exists on its machine only: not sent, not in the bulk.
+            if (PersonalPads.Contains(__instance.transform))
                 return;
 
             // A repaired item is one item, not a site: it can be pushed or broken again, so
@@ -548,8 +548,8 @@ namespace DWMPHorde.Sync
                 return;
             if (!__instance.isLight && !__instance.switchable)
                 return;
-            // The host's own prologue pad exists on its machine only.
-            if (PersonalPrologue.IsOnProloguePad(__instance.transform))
+            // A personal pad (the host's prologue, a solo dream) exists on its machine only.
+            if (PersonalPads.Contains(__instance.transform))
                 return;
 
             Vector3 p = __instance.transform.position;

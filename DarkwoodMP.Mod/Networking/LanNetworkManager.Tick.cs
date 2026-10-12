@@ -358,8 +358,8 @@ namespace DWMPHorde.Networking
                 if (inOutsideLoc && (locChanged || heartbeatRetry))
                 {
                     _locationSyncCounter = 0;
-                    // The host's prologue pads are not sent (HostBlocksSend); no "sent" line every second.
-                    bool held = _role == NetworkRole.Host && Sync.PersonalPrologue.HostBlocksSend(NetMessageType.LocationEnter);
+                    // Personal pads (the host's prologue, a solo dream) are not sent; no "sent" line every second.
+                    bool held = Sync.PersonalPads.BlocksSend(NetMessageType.LocationEnter, _role);
                     if (!held && !string.IsNullOrEmpty(locName))
                     {
                         // Use the live dream pad name during the session, not the

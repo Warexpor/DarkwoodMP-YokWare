@@ -15,6 +15,11 @@ namespace DWMPHorde.Players
         /// </summary>
         public void ApplyNetworkState(PlayerStateNet state)
         {
+            // In a solo dream each player is in its own copy: a body in this player's copy is
+            // not there. It waits below the world, as before its first state, out of sight,
+            // out of every trigger and every creature's reach, until it is somewhere else.
+            if (Sync.SeparateDream.HidesBody(state.Position))
+                state.Position = AbsentPosition;
             _targetRotationY = state.TorsoFacingY;
             _hasState = true;
 
@@ -74,6 +79,9 @@ namespace DWMPHorde.Players
                 }
             }
         }
+
+        /// <summary>Where a body that is not in this world waits (as a new proxy before its first state).</summary>
+        internal static readonly Vector3 AbsentPosition = new Vector3(0f, -2000f, 0f);
 
         private void Awake()
         {

@@ -115,8 +115,8 @@ namespace DWMPHorde.Sync
                     continue;
 
                 // Heavy filters only for objects we are about to serialize.
-                // The host's own prologue pads are not the world (not a DreamSession either).
-                if (PersonalPrologue.IsOnProloguePad(rootGo.transform)) continue;
+                // Personal pads (the host's prologue, a solo dream) are not the world.
+                if (PersonalPads.Contains(rootGo.transform)) continue;
                 if (rootGo.GetComponent<Player>() != null) continue;
                 if (rootGo.GetComponent<RemotePlayerProxy>() != null) continue;
                 if (rootGo.GetComponent<Character>() != null) continue;

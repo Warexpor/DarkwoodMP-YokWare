@@ -3,11 +3,12 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.264**. The current Horde wire protocol is **63**. Every install in a session
+**0.8.265**. The current Horde wire protocol is **64**. Every install in a session
 needs the same DLL; the protocol is checked on join.
 
 Protocol history (newest first):
 
+- **64**, 0.8.265: `SessionSettings` gains the host's `SoloHomeDream`.
 - **63**, 0.8.259 to 0.8.264: `TradeCommit` gains the trade's change to the trader's standing; a
   `DialogMirror` element gains the language entry its text came from; `PlayerEffectSync` uses
   a spare bit (`MovedHome`, Flags2 64).
@@ -76,6 +77,35 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.265 — the home dream is played alone; the others see a client's dream clothes
+
+- **The home dream (`dream_home`) is played alone, by default.** New host setting
+  `SoloHomeDream` (on). The party still goes in together and the session is shared, but every
+  player plays their own copy of the flat, as in single player. Its events, doors, cupboards,
+  items, lights, examines and the clock are that player's own. Nothing of it is sent, nothing of
+  another player's copy is applied, and the other players are not there: their bodies wait
+  below the world while they are inside this player's copy. Every ending of a player's own copy
+  (an exit, a scripted end, a death) is that player's own way out; the first one out decides what
+  the dream changed in the world, as before. Voice and chat still work. The host's value goes to
+  the clients with the session settings (protocol 64), and a session keeps the choice it began
+  with. Checked with three players: each copy fired only its own events, and the host, then
+  each client, woke in turn. How: the copy is a personal pad like the host's prologue, so every
+  sync gate that left the prologue alone now leaves it alone too (`PersonalPads`,
+  `SeparateDream`). On top of that, a client in its own copy does not ask the host for its
+  events, uses, examines, cupboards and doors, and sends only its own body, saves and the dream
+  session. A host in its own copy does not send its player's own actions there, while the world
+  it runs for players already awake keeps going.
+- **The host saw a client in its old clothes in the home dream.** The client changed its look
+  inside a step applied from the host, and the look was not sent from inside an apply. It went
+  out only at the client's next weapon swap. A player's own look is now sent whatever changed
+  it. (`PlayerAnimLibraryPatch`)
+- **A player who woke by their own exit stayed in the dream's clothes.** The others were still
+  dreaming, so the session went on. Only the session's end gave a player their own clothes back.
+  Every player waking up now gets them back. (`DreamSyncManager.OnLocalDreamLeft`)
+- **An awake player's doors did not reach the others while anyone was still dreaming.** Door
+  opens went out only for the dream's own doors while a dream session ran. This is now limited
+  to the player who is in the dream or going into it. (`DoorOpenSyncPatch.BroadcastDoorOpened`)
 
 ## 0.8.264 — a dropped player rejoins straight into the dream
 

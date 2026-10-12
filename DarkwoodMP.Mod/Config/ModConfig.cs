@@ -39,6 +39,8 @@ namespace DWMPHorde.Config
         public static ModSetting<bool> NamedNpcScaleEnabled { get; private set; }
         /// <summary>Comma-separated short names (e.g. ChomperBlack). Dream presence only.</summary>
         public static ModSetting<string> NamedNpcAllowlist { get; private set; }
+        /// <summary>Host: every player plays the home dream alone (see <see cref="Sync.SeparateDream"/>).</summary>
+        public static ModSetting<bool> SoloHomeDream { get; private set; }
         public static ModSetting<bool> VerboseLogging { get; private set; }
         /// <summary>Transition-only light sync logs (flare/flash on/off, join bulk). Not 30 Hz spam.</summary>
         public static ModSetting<bool> VerboseLightSync { get; private set; }
@@ -223,6 +225,8 @@ namespace DWMPHorde.Config
                 "Host: multiply allowlisted dream NPC presence by LootShareMode party multiplier (default ChomperBlack).");
             NamedNpcAllowlist = config.Bind("Gameplay", "NamedNpcAllowlist", "ChomperBlack",
                 "Comma-separated character short names scaled in dreams only (not night hideout trash).");
+            SoloHomeDream = config.Bind("Gameplay", "SoloHomeDream", true,
+                "Host: the home dream (the flat, dream_home) is played alone. Everyone goes in together and wakes by their own way out, but each player has their own copy of the flat and does not see the others there. Off: the party plays it together like the other dreams.");
             MaxPeerDamage = config.Bind("Gameplay", "MaxPeerDamage", 200,
                 "Host clamps peer-reported attack/FF damage to this max per hit (anti-grief). A per-peer budget (20 hits/s, burst 40; 1000 damage/s, burst 3000) caps sustained spam while multi-hit bursts like shotgun pellets still apply in full.");
             NightMonsterMultiplier = config.Bind("Gameplay", "NightMonsterMultiplier", 1f,

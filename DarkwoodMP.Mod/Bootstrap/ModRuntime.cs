@@ -231,6 +231,7 @@ namespace DWMPHorde
             NetworkResetRegistry.Register(EpilogueNetHandlers.ResetSceneLoadState);
             NetworkResetRegistry.Register(CutsceneSyncHelpers.Reset);
             NetworkResetRegistry.Register(PersonalPrologue.Reset);
+            NetworkResetRegistry.Register(SeparateDream.Reset);
             NetworkResetRegistry.Register(ChapterTransitionHelpers.Reset);
             NetworkResetRegistry.Register(Audio.MovingObjectSoundService.Reset);
             NetworkResetRegistry.Register(Audio.ItemMovingSoundHelper.ResetSuppress);

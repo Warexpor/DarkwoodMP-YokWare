@@ -43,8 +43,8 @@ namespace DWMPHorde.Networking
                     continue;
                 if (item.GetComponent<Generator>() != null)
                     continue;
-                // The host's own prologue pads are not the world.
-                if (PersonalPrologue.IsOnProloguePad(item.transform))
+                // Personal pads (the host's prologue, a solo dream) are not the world.
+                if (PersonalPads.Contains(item.transform))
                     continue;
 
                 Vector3 p = item.transform.position;
@@ -89,7 +89,7 @@ namespace DWMPHorde.Networking
                     continue;
                 if (scope.HasValue && !scope.Value.Contains(gen.transform))
                     continue;
-                if (PersonalPrologue.IsOnProloguePad(gen.transform))
+                if (PersonalPads.Contains(gen.transform))
                     continue;
 
                 Vector3 p = gen.transform.position;
@@ -202,6 +202,9 @@ namespace DWMPHorde.Networking
         internal void ResyncOutsideLocationPadForPeer(int targetPlayerId, Location loc)
         {
             if (_net.Role != NetworkRole.Host || targetPlayerId <= 0 || loc == null)
+                return;
+            // The host's own copy of a solo dream (a personal pad) is nobody else's to catch up on.
+            if (PersonalPads.Contains(loc.transform))
                 return;
 
             int barrDoors = _net.BarricadeHandlers.SendBarricadeDoorsTo(targetPlayerId);
@@ -319,7 +322,7 @@ namespace DWMPHorde.Networking
                 if (door == null || door.transform == null) continue;
                 if (loc != null && !IsUnderOrNearLocation(door.transform, root, anchor, maxDistSqr))
                     continue;
-                if (PersonalPrologue.IsOnProloguePad(door.transform))
+                if (PersonalPads.Contains(door.transform))
                     continue;
                 if (WorldQueryHelper.IsInactiveTwin(door, doors))
                     continue;

@@ -225,6 +225,7 @@ namespace DWMPHorde.Sync
             SetPendingHostPreset(presetName);
             FinalDreamsceneManager.OnDreamStarted();
             ArmStartingWatchdog();
+            SeparateDream.OnSessionPreset(presetName);
             ModLog.Event(LogCat.Dream, $"Starting session {SessionId} preset={presetName}");
             return true;
         }
@@ -263,6 +264,7 @@ namespace DWMPHorde.Sync
             SetPendingHostPreset(presetName);
             FinalDreamsceneManager.OnDreamStarted();
             ArmStartingWatchdog();
+            SeparateDream.OnSessionPreset(presetName);
             ModLog.Event(LogCat.Dream, $"Starting session {SessionId} preset={presetName} (from host)");
             return true;
         }
@@ -284,6 +286,7 @@ namespace DWMPHorde.Sync
                 $"UpdateActivePreset {PresetName} → {presetName} (session {SessionId})");
             PresetName = presetName;
             SetPendingHostPreset(presetName);
+            SeparateDream.OnSessionPreset(presetName);
             // Keep ResolveActivePresetName on the live pocket (prefers _localDreamPreset).
             DreamSyncManager.NoteLocalDreamPreset(presetName);
         }
@@ -419,6 +422,7 @@ namespace DWMPHorde.Sync
             _pendingHostPreset = null;
             LevelBits = 0;
             DreamExit.OnSessionOver();
+            SeparateDream.OnSessionOver();
         }
 
         /// <summary>Abort Starting/Active when prepare or pad load failed (no completion mark).</summary>
@@ -432,6 +436,7 @@ namespace DWMPHorde.Sync
             _pendingHostPreset = null;
             LevelBits = 0;
             DreamExit.OnSessionOver();
+            SeparateDream.OnSessionOver();
         }
 
         public static void Reset()
@@ -444,6 +449,7 @@ namespace DWMPHorde.Sync
             NextLevelBits = 0;
             PendingRequestBits = 0;
             DreamExit.OnSessionOver();
+            SeparateDream.OnSessionOver();
         }
 
         public static void ResetIncludingCompletions()

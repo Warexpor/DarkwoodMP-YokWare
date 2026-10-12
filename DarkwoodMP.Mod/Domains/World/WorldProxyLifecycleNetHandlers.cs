@@ -148,6 +148,9 @@ namespace DWMPHorde.Networking
                     return;
             }
 
+            // Not into this player's own copy of a solo dream (RemotePlayerProxy.ApplyNetworkState).
+            if (Sync.SeparateDream.HidesBody(position))
+                position = RemotePlayerProxy.AbsentPosition;
             var rb = proxy.GetComponent<Rigidbody>();
             if (rb != null)
             {

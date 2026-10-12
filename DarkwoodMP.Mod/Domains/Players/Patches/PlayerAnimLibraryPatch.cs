@@ -1,5 +1,4 @@
 using DWMPHorde.Networking;
-using DWMPHorde.Sync;
 using HarmonyLib;
 using UnityEngine;
 
@@ -27,7 +26,10 @@ namespace DWMPHorde.Patches
         {
             var net = ModRuntime.Network;
             if (net == null || net.Role == NetworkRole.Offline) return;
-            if (TraverseHack.ApplyingFromNetwork) return;
+            // Always this player's own look, also when a step applied from the host changed it
+            // (a dream's clothes, its start): a skip under an apply left the others seeing the
+            // old clothes until the next weapon swap.
+            if (__instance != Player.Instance) return;
             if (__instance.torsoAnimator == null || __instance.torsoAnimator.Library == null) return;
 
             string libName = __instance.torsoAnimator.Library.name;

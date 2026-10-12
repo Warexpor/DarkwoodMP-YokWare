@@ -151,8 +151,8 @@ namespace DWMPHorde.Networking
             {
                 ChainParent chain = all[i];
                 if (chain == null || chain.transform == null) continue;
-                // The host's own prologue pads are not the world.
-                if (PersonalPrologue.IsOnProloguePad(chain.transform)) continue;
+                // Personal pads (the host's prologue, a solo dream) are not the world.
+                if (PersonalPads.Contains(chain.transform)) continue;
 
                 float maxHp = chain.maxHealth > 0f ? chain.maxHealth : chain.health;
                 bool damaged = maxHp > 0f && chain.health < maxHp;

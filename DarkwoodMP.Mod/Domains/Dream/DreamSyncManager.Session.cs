@@ -608,6 +608,8 @@ namespace DWMPHorde.Sync
                 foreach (var proxy in net.GetAllProxies())
                     proxy.FreezePosition = false;
             }
+            // A player's own exit wakes it in its own clothes too, as the party's end does.
+            RestoreLookAfterDream(leftPreset);
             ModRuntime.LegacyInfo($"[DreamSync] Local player left the dream: {leftPreset}"
                 + (keepSession ? " (it goes on for the others)" : ""));
             if (!keepSession)

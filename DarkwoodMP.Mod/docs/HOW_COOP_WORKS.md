@@ -836,6 +836,14 @@ party events.
   (the bunker door, for one). Every dream lookup is scoped to the dream's own map
   slot (the whole scene, not only near its centre), so a player in the overworld is
   never affected.
+- **The home dream is played alone (`SoloHomeDream`, on by default, the host's
+  choice).** Everyone still goes in together and the session is shared (who is in it,
+  who left, what the dream changed in the world), but each player plays their own copy
+  of the flat, as in single player: its events, doors, cupboards, items and lights are
+  their own, nothing of it is sent, and the others are not there (their bodies wait
+  out of the scene). Every ending of a player's own copy, its death included, is that
+  player's own way out. Voice and chat still work. Off: the party plays it together
+  like the other dreams.
 - **Host migration during a dream** carries the dream over to the new host (done in
   code, not yet playtested).
 

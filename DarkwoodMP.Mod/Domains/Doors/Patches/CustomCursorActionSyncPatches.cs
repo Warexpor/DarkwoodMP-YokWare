@@ -53,6 +53,8 @@ namespace DWMPHorde.Patches
 
             var net = ModRuntime.Network;
             if (net == null || net.Role != NetworkRole.Client) return true;
+            // A personal pad (a solo dream's copy) is this player's own world: used here.
+            if (PersonalPads.Contains(destGO.transform)) return true;
 
             bool cursor = destGO.GetComponent<CustomCursorAction>() != null;
             // What the host replays is the object's EventTriggers (and a bed's time skip). A plain

@@ -63,8 +63,9 @@ namespace DWMPHorde.Patches
             if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected)
                 return true;
 
-            // This player's own exit (DreamExit): it leaves, the dream goes on for the others.
-            if (DreamExit.LocalLeaving && DreamExit.BeginLocalLeave(__instance))
+            // This player's own exit (DreamExit): it leaves, the dream goes on for the others. In
+            // a solo dream every ending of its copy is its own exit.
+            if ((DreamExit.LocalLeaving || DreamExit.LocalSoloEnd()) && DreamExit.BeginLocalLeave(__instance))
                 return true;
 
             // An ending that is everyone's, reached on a host that already left the dream: it

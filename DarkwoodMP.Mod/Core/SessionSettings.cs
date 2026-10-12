@@ -5,7 +5,7 @@ namespace DWMPHorde
     /// <summary>
     /// Gameplay settings every peer must agree on. The host owns them: a connected client
     /// applies the host's values (<see cref="ApplyFromHost"/>) instead of reading its own
-    /// <see cref="ModConfig"/>, so friendly fire, loot share and the party multiplier behave
+    /// <see cref="ModConfig"/>, so friendly fire, loot share, the party multiplier and the solo home dream behave
     /// the same on every side. Offline, as host, and before the host has sent anything the
     /// local <see cref="ModConfig"/> values apply; <see cref="ResetToLocal"/> restores that on
     /// every session boundary.
@@ -17,6 +17,7 @@ namespace DWMPHorde
         private static bool _hostDoubleItems;
         private static LootShareMode _hostLootShare;
         private static int _hostPartyMultiplier;
+        private static bool _hostSoloHomeDream;
 
         /// <summary>True once a host value set is in effect (connected client only).</summary>
         public static bool HostApplied => _hostApplied;
@@ -52,6 +53,17 @@ namespace DWMPHorde
             }
         }
 
+        /// <summary>The home dream is played alone by every player (<see cref="Sync.SeparateDream"/>).</summary>
+        public static bool SoloHomeDream
+        {
+            get
+            {
+                if (_hostApplied)
+                    return _hostSoloHomeDream;
+                return ModConfig.SoloHomeDream == null || ModConfig.SoloHomeDream.Value;
+            }
+        }
+
         /// <summary>
         /// Host-announced party multiplier, or 0 when none was announced (callers then derive it
         /// from the shared roster, see <see cref="CoopBalance.GetPartyMultiplier"/>).
@@ -60,8 +72,9 @@ namespace DWMPHorde
 
         /// <summary>Client: take the host's values. <paramref name="partyMultiplier"/> below 1 means "derive locally".</summary>
         public static void ApplyFromHost(bool friendlyFire, LootShareMode lootShare, bool doubleItems,
-            int partyMultiplier)
+            int partyMultiplier, bool soloHomeDream)
         {
+            _hostSoloHomeDream = soloHomeDream;
             _hostFriendlyFire = friendlyFire;
             _hostLootShare = lootShare;
             _hostDoubleItems = doubleItems;
@@ -77,6 +90,7 @@ namespace DWMPHorde
             _hostDoubleItems = false;
             _hostLootShare = LootShareMode.Off;
             _hostPartyMultiplier = 0;
+            _hostSoloHomeDream = false;
         }
     }
 }

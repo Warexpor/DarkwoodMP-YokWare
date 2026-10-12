@@ -61,6 +61,8 @@ namespace DWMPHorde.Patches
             if (door == null) return;
             var net = ModRuntime.Network;
             if (net == null || !net.IsConnected || net.Role != NetworkRole.Client) return;
+            // A personal pad's door (a solo dream's copy) is this player's alone.
+            if (PersonalPads.Contains(door.transform)) return;
             if (TraverseHack.ApplyingFromNetwork || LanNetworkManager.IsApplyingRemoteState) return;
             Padlock pad = door.GetComponent<Padlock>();
             Locked locked = door.GetComponent<Locked>();
@@ -90,6 +92,8 @@ namespace DWMPHorde.Patches
             if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected)
                 return;
             if (TraverseHack.ApplyingFromNetwork) return;
+            // A personal pad's door (a solo dream's copy) is this player's alone.
+            if (PersonalPads.Contains(door.transform)) return;
             // Leave-door GE already syncs via GameEventsFired; DoorOpen would play openSound twice.
             if (DialogueDoorAftermath.SuppressDialogueDoorOpenBroadcast)
                 return;
@@ -106,10 +110,14 @@ namespace DWMPHorde.Patches
             // Object name: Door.name is the display name in the player's language.
             string name = door.gameObject.name ?? "";
 
-            // During dreams only fan-out doors that belong to the dream pad.
+            // During this player's dream only fan-out doors that belong to the dream pad.
             // Entry transition: IsDreamActive but dreamLocation not ready. Suppress all
-            // door fan-out so overworld twins do not leak mid-video.
-            if (DreamSyncManager.IsDreamActive)
+            // door fan-out so overworld twins do not leak mid-video. A player already awake
+            // (its own exit, while the dream goes on for others) opens the world's doors.
+            Dreams dreams = Dreams.Instance;
+            bool localDreaming = Core.EnteringDream || DreamSyncManager.IsLocalDreamActive
+                || (dreams != null && (dreams.dreaming || dreams.dreamPrepared));
+            if (DreamSyncManager.IsDreamActive && localDreaming)
             {
                 Transform dreamRoot = DreamSyncManager.GetDreamLocationTransform();
                 if (dreamRoot == null)
@@ -188,6 +196,8 @@ namespace DWMPHorde.Patches
             if (TraverseHack.ApplyingFromNetwork) return;
             if (LanNetworkManager.IsApplyingRemoteState && !HostApplyGuard.Active)
                 return;
+            // A personal pad's door (a solo dream's copy) is this player's alone.
+            if (PersonalPads.Contains(__instance.transform)) return;
 
             Vector3 pos = __instance.transform.position;
             ModRuntime.Network.SendLockedUnlock(new LockedUnlockMessage
@@ -211,6 +221,8 @@ namespace DWMPHorde.Patches
             if (TraverseHack.ApplyingFromNetwork) return;
             if (LanNetworkManager.IsApplyingRemoteState && !HostApplyGuard.Active)
                 return;
+            // A personal pad's door (a solo dream's copy) is this player's alone.
+            if (PersonalPads.Contains(__instance.transform)) return;
 
             // Re-use DoorOpen with name prefix so client applies unblock+open attempt.
             // Dedicated message would need protocol bump; open handler also unblocks.

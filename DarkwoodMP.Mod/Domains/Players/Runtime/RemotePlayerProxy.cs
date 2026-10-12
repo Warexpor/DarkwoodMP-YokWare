@@ -120,7 +120,7 @@ namespace DWMPHorde.Players
             GameObject clone = PlayerProxyBuilder.CreatePlayerClone(
                 source,
                 "RemotePlayer",
-                new Vector3(0f, -2000f, 0f),
+                AbsentPosition,
                 PlayerCloneKind.Remote,
                 log);
             if (clone == null)

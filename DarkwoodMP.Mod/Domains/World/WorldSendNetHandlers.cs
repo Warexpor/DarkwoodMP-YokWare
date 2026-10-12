@@ -179,6 +179,8 @@ namespace DWMPHorde.Networking
 
         internal void SendLiquidStopBurning(Vector3 pos)
         {
+            // A personal pad (the host's prologue, a solo dream) is not the shared world.
+            if (PersonalPads.Contains(pos)) return;
             if (!_net.IsConnected) return;
             var msg = new LiquidStopBurningMessage { PosX = pos.x, PosY = pos.y, PosZ = pos.z };
             _net.Broadcast(NetMessageType.LiquidStopBurning, w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);
@@ -193,6 +195,8 @@ namespace DWMPHorde.Networking
 
         internal void SendExplosionSpawnObject(string prefabName, Vector3 pos, Vector3 rot)
         {
+            // A personal pad (the host's prologue, a solo dream) is not the shared world.
+            if (PersonalPads.Contains(pos)) return;
             if (!_net.IsConnected) return;
             var msg = new ExplosionSpawnObjectMessage { PrefabName = prefabName, PosX = pos.x, PosY = pos.y, PosZ = pos.z, RotX = rot.x, RotY = rot.y, RotZ = rot.z };
             _net.Broadcast(NetMessageType.ExplosionSpawnObject, w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);
@@ -200,6 +204,8 @@ namespace DWMPHorde.Networking
 
         internal void SendConstructible(ConstructibleMessage msg)
         {
+            // A personal pad (the host's prologue, a solo dream) is not the shared world.
+            if (PersonalPads.Contains(new Vector3(msg.PosX, msg.PosY, msg.PosZ))) return;
             if (!_net.IsConnected) return;
             if (LanNetworkManager.IsApplyingRemoteState) return;
             _net.Broadcast(NetMessageType.ConstructibleConstruction, w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);
@@ -207,6 +213,8 @@ namespace DWMPHorde.Networking
 
         internal void SendInteractiveItemSwitch(InteractiveItemSwitchMessage msg)
         {
+            // A personal pad (the host's prologue, a solo dream) is not the shared world.
+            if (PersonalPads.Contains(new Vector3(msg.PosX, msg.PosY, msg.PosZ))) return;
             if (!_net.IsConnected) return;
             if (LanNetworkManager.IsApplyingRemoteState) return;
             _net.Broadcast(NetMessageType.InteractiveItemSwitch, w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);
@@ -214,6 +222,8 @@ namespace DWMPHorde.Networking
 
         internal void SendPadlockUnlock(PadlockUnlockMessage msg)
         {
+            // A personal pad (the host's prologue, a solo dream) is not the shared world.
+            if (PersonalPads.Contains(new Vector3(msg.PosX, msg.PosY, msg.PosZ))) return;
             if (!_net.IsConnected) return;
             if (LanNetworkManager.IsApplyingRemoteState && !HostApplyGuard.Active) return;
             _net.Broadcast(NetMessageType.PadlockUnlock, w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);
@@ -221,6 +231,8 @@ namespace DWMPHorde.Networking
 
         internal void SendLockedUnlock(LockedUnlockMessage msg)
         {
+            // A personal pad (the host's prologue, a solo dream) is not the shared world.
+            if (PersonalPads.Contains(new Vector3(msg.PosX, msg.PosY, msg.PosZ))) return;
             if (!_net.IsConnected) return;
             if (LanNetworkManager.IsApplyingRemoteState && !HostApplyGuard.Active) return;
             _net.Broadcast(NetMessageType.LockedUnlock, w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);
@@ -228,6 +240,8 @@ namespace DWMPHorde.Networking
 
         internal void SendGameEventsFired(GameEventsFiredMessage msg)
         {
+            // A personal pad (the host's prologue, a solo dream) is not the shared world.
+            if (PersonalPads.Contains(new Vector3(msg.PosX, msg.PosY, msg.PosZ))) return;
             if (!_net.IsConnected) return;
             // ProcessInboundMessage holds LanNetworkManager.IsApplyingRemoteState for DialogNpcLock Release.
             // HostFireNpcCloseDialogue runs under DialogHostApplyGuard and MUST fan out
@@ -255,6 +269,8 @@ namespace DWMPHorde.Networking
 
         internal void SendLightState(LightStateMessage ls)
         {
+            // A personal pad (the host's prologue, a solo dream) is not the shared world.
+            if (PersonalPads.Contains(new Vector3(ls.PosX, ls.PosY, ls.PosZ))) return;
             if (!_net.IsConnected) return;
             if (LanNetworkManager.IsApplyingRemoteState) return;
             // World light state is sticky; lost Unreliable packets permanently desync lamps.
@@ -263,6 +279,8 @@ namespace DWMPHorde.Networking
 
         internal void SendWorldObjectRemoved(WorldObjectRemovedMessage msg)
         {
+            // A personal pad (the host's prologue, a solo dream) is not the shared world.
+            if (PersonalPads.Contains(new Vector3(msg.PosX, msg.PosY, msg.PosZ))) return;
             if (!_net.IsConnected) return;
             if (LanNetworkManager.IsApplyingRemoteState) return;
             // Disarm destroy path used to fire TrapDestroy + disarm-postfix + progressBar
@@ -359,6 +377,8 @@ namespace DWMPHorde.Networking
 
         internal void SendExplosionTrigger(ExplosionTriggerMessage msg)
         {
+            // A personal pad (the host's prologue, a solo dream) is not the shared world.
+            if (PersonalPads.Contains(new Vector3(msg.PosX, msg.PosY, msg.PosZ))) return;
             if (!_net.IsConnected) return;
             if (LanNetworkManager.IsApplyingRemoteState) return;
             // Must be reliable; lost barrel or molotov triggers desync combat and effects.
@@ -376,6 +396,8 @@ namespace DWMPHorde.Networking
 
         internal void SendGasTrailSpawn(GasTrailSpawnMessage msg)
         {
+            // A personal pad (the host's prologue, a solo dream) is not the shared world.
+            if (PersonalPads.Contains(new Vector3(msg.PosX, msg.PosY, msg.PosZ))) return;
             if (!_net.IsConnected) return;
             if (LanNetworkManager.IsApplyingRemoteState) return;
             _net.Broadcast(NetMessageType.GasTrailSpawn, w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);
@@ -383,6 +405,8 @@ namespace DWMPHorde.Networking
 
         internal void SendMeleeWorldHit(MeleeWorldHitMessage msg)
         {
+            // A personal pad (the host's prologue, a solo dream) is not the shared world.
+            if (PersonalPads.Contains(new Vector3(msg.PosX, msg.PosY, msg.PosZ))) return;
             if (!_net.IsConnected) return;
             if (_net.Role != NetworkRole.Client) return;
             _net.Broadcast(NetMessageType.MeleeWorldHit, w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);
@@ -390,6 +414,8 @@ namespace DWMPHorde.Networking
 
         internal void SendGasIgnite(GasIgniteMessage msg)
         {
+            // A personal pad (the host's prologue, a solo dream) is not the shared world.
+            if (PersonalPads.Contains(new Vector3(msg.PosX, msg.PosY, msg.PosZ))) return;
             if (!_net.IsConnected) return;
             if (LanNetworkManager.IsApplyingRemoteState) return;
             _net.Broadcast(NetMessageType.GasIgnite, w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);
@@ -397,6 +423,8 @@ namespace DWMPHorde.Networking
 
         internal void SendSawState(SawStateMessage msg)
         {
+            // A personal pad (the host's prologue, a solo dream) is not the shared world.
+            if (PersonalPads.Contains(new Vector3(msg.PosX, msg.PosY, msg.PosZ))) return;
             if (!_net.IsConnected) return;
             if (LanNetworkManager.IsApplyingRemoteState) return;
             _net.Broadcast(NetMessageType.SawState, w => msg.Serialize(w), LiteNetLib.DeliveryMethod.ReliableOrdered);
@@ -440,6 +468,8 @@ namespace DWMPHorde.Networking
 
         internal void SendBulletImpact(BulletImpactMessage msg)
         {
+            // A personal pad (the host's prologue, a solo dream) is not the shared world.
+            if (PersonalPads.Contains(new Vector3(msg.PosX, msg.PosY, msg.PosZ))) return;
             if (!_net.IsConnected) return;
             // A player's own getHit blood for a hit that arrived over the network is still theirs to send.
             if (LanNetworkManager.IsApplyingRemoteState && Patches.HitscanBloodPatch.OwnHitDepth == 0) return;

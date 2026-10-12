@@ -30,6 +30,13 @@ namespace DWMPHorde.Networking
                 return true;
             }
 
+            // This player's own copy of a solo dream: another player's copy is not this one.
+            if (SeparateDream.Contains(pos))
+            {
+                ModRuntime.LegacyInfo($"[GameEventsSync] drop GE '{msg.EventName}' — own copy of a solo dream");
+                return true;
+            }
+
             // Ending camera pan is personal to peers already in the epilogue.
             // A living player outside must not start EpilogueOutcomes because
             // someone else finished the crawl.

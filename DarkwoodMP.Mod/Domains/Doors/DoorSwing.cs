@@ -860,8 +860,8 @@ namespace DWMPHorde.Sync
             => door != null && rb != null && door.body != null && door.opened && !door.destroyed
                 && !door.barricaded && !rb.isKinematic && door.gameObject.activeInHierarchy;
 
-        /// <summary>The host's own prologue pad: its doors exist on its machine only.</summary>
-        private static bool IsPersonal(Door door) => PersonalPrologue.IsOnProloguePad(door.transform);
+        /// <summary>A personal pad (the host's prologue, a solo dream): its doors exist on its machine only.</summary>
+        private static bool IsPersonal(Door door) => PersonalPads.Contains(door.transform);
 
         private static Rigidbody Body(Door door)
         {

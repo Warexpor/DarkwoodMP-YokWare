@@ -370,6 +370,8 @@ namespace DWMPHorde.Patches
             // Access the private 'inventory' field via Harmony Traverse
             Inventory inv = HarmonyLib.Traverse.Create(__instance).Field("inventory").GetValue<Inventory>();
             if (inv == null) return;
+            // A personal pad's container (a solo dream's cupboard) is this player's alone.
+            if (PersonalPads.Contains(inv.transform)) return;
             var net = ModRuntime.Network;
 
             Vector3 pos = inv.transform.position;

@@ -20,7 +20,8 @@ namespace DWMPHorde.Networking
                 FriendlyFireEnabled = ModConfig.FriendlyFireEnabled == null || ModConfig.FriendlyFireEnabled.Value,
                 DoubleItemsEnabled = ModConfig.DoubleItemsEnabled == null || ModConfig.DoubleItemsEnabled.Value,
                 LootShare = (byte)ModConfig.GetLootShareMode(),
-                PartyMultiplier = CoopBalance.GetPartySize(this)
+                PartyMultiplier = CoopBalance.GetPartySize(this),
+                SoloHomeDream = ModConfig.SoloHomeDream == null || ModConfig.SoloHomeDream.Value
             };
         }
 
@@ -35,7 +36,7 @@ namespace DWMPHorde.Networking
             ModLog.Event(LogCat.Session,
                 "SessionSettings → p" + playerId + " ff=" + msg.FriendlyFireEnabled
                 + " lootShare=" + (LootShareMode)msg.LootShare + " doubleItems=" + msg.DoubleItemsEnabled
-                + " party=" + msg.PartyMultiplier);
+                + " party=" + msg.PartyMultiplier + " soloHome=" + msg.SoloHomeDream);
         }
 
         /// <summary>Host: broadcast the current settings to every peer. No-op off host.</summary>
@@ -50,7 +51,7 @@ namespace DWMPHorde.Networking
             ModLog.Event(LogCat.Session,
                 "SessionSettings broadcast ff=" + msg.FriendlyFireEnabled
                 + " lootShare=" + (LootShareMode)msg.LootShare + " doubleItems=" + msg.DoubleItemsEnabled
-                + " party=" + msg.PartyMultiplier);
+                + " party=" + msg.PartyMultiplier + " soloHome=" + msg.SoloHomeDream);
         }
 
         /// <summary>Host roster tick: re-broadcast only when something a peer applies has changed.</summary>
@@ -64,7 +65,8 @@ namespace DWMPHorde.Networking
                 && cur.FriendlyFireEnabled == last.FriendlyFireEnabled
                 && cur.LootShare == last.LootShare
                 && cur.DoubleItemsEnabled == last.DoubleItemsEnabled
-                && cur.PartyMultiplier == last.PartyMultiplier)
+                && cur.PartyMultiplier == last.PartyMultiplier
+                && cur.SoloHomeDream == last.SoloHomeDream)
                 return;
             BroadcastSessionSettings();
         }
@@ -83,11 +85,11 @@ namespace DWMPHorde.Networking
                 return;
             }
             SessionSettings.ApplyFromHost(msg.FriendlyFireEnabled, (LootShareMode)msg.LootShare,
-                msg.DoubleItemsEnabled, msg.PartyMultiplier);
+                msg.DoubleItemsEnabled, msg.PartyMultiplier, msg.SoloHomeDream);
             ModLog.Event(LogCat.Session,
                 "SessionSettings from host ff=" + msg.FriendlyFireEnabled
                 + " lootShare=" + (LootShareMode)msg.LootShare + " doubleItems=" + msg.DoubleItemsEnabled
-                + " party=" + msg.PartyMultiplier);
+                + " party=" + msg.PartyMultiplier + " soloHome=" + msg.SoloHomeDream);
         }
     }
 }

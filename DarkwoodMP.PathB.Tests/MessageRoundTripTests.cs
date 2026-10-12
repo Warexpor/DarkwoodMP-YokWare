@@ -216,7 +216,7 @@ public class MessageRoundTripTests
         var msg = new SessionSettingsMessage
         {
             FriendlyFireEnabled = friendlyFire, LootShare = lootShare,
-            DoubleItemsEnabled = doubleItems, PartyMultiplier = party
+            DoubleItemsEnabled = doubleItems, PartyMultiplier = party, SoloHomeDream = friendlyFire
         };
         var r = new NetReader(Bytes(msg.Serialize));
         var back = SessionSettingsMessage.Deserialize(r);
@@ -225,6 +225,7 @@ public class MessageRoundTripTests
         Assert.Equal(lootShare, back.LootShare);
         Assert.Equal(doubleItems, back.DoubleItemsEnabled);
         Assert.Equal(party, back.PartyMultiplier);
+        Assert.Equal(friendlyFire, back.SoloHomeDream);
         Assert.Equal(0, r.AvailableBytes);
     }
 

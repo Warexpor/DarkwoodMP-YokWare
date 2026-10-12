@@ -363,6 +363,8 @@ namespace DWMPHorde.Sync
         public static bool ShouldSyncPhysicsObject(Transform t)
         {
             if (t == null) return true;
+            // A solo dream's copy is this machine's own.
+            if (PersonalPads.Contains(t)) return false;
             if (!IsLocalDreamActive && !DreamSession.IsActive)
                 return true; // overworld: all free bodies
             // The host is awake while the dream runs on for others: both places are its to send.

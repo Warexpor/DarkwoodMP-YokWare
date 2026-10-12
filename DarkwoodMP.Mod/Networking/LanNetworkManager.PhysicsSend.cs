@@ -38,6 +38,9 @@ namespace DWMPHorde.Networking
         {
             if (PeerCount == 0)
                 return;
+            // A client in its solo dream has only its own copy's bodies to send.
+            if (Sync.PersonalPads.BlocksSend(NetMessageType.PhysicsState, _role))
+                return;
 
             msg.Reliable = false;
             msg.Sequence = ++_nextPhysicsStateSequence;
