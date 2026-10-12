@@ -90,6 +90,41 @@ namespace DWMPHorde.Sync
             }
         }
 
+        /// <summary>
+        /// Players still playing the dream: in it, alive in it, and not on their way out by their
+        /// own exit. A host that left (or is leaving) and runs the dream from outside is not one.
+        /// </summary>
+        internal static int LiveDreamers()
+        {
+            var net = ModRuntime.Network;
+            int n = 0;
+            Dreams dreams = Singleton<Dreams>.Instance;
+            bool localIn = DreamSyncManager.IsLocalDreamActive || (dreams != null && dreams.dreaming);
+            if (localIn && !_localDeadInDream && !DreamExit.LocalLeaving && !DreamExit.HostHostsFromOutside
+                && (net == null || !DreamExit.HasLeft(net.LocalPlayerId)))
+                n++;
+            if (net == null)
+                return n;
+            var seen = new HashSet<int>();
+            foreach (int id in net.GetHandshakedPeerIds())
+                n += LiveRemote(net, id, seen);
+            foreach (var proxy in net.GetAllProxies())
+            {
+                if (proxy != null)
+                    n += LiveRemote(net, proxy.PlayerId, seen);
+            }
+            foreach (int id in DreamSyncManager.RemoteDreamParticipantIds())
+                n += LiveRemote(net, id, seen);
+            return n;
+        }
+
+        private static int LiveRemote(LanNetworkManager net, int id, HashSet<int> seen)
+        {
+            if (id <= 0 || id == net.LocalPlayerId || !seen.Add(id) || !DreamSyncManager.IsRemoteInDream(id))
+                return 0;
+            return _deadPlayerIds.Contains(id) || DeathStateTracker.IsRemoteNightDead(id) ? 0 : 1;
+        }
+
         /// <summary>Refresh roster and report whether any remote participants are tracked.</summary>
         public static bool HasRemoteParticipants()
         {
@@ -244,6 +279,8 @@ namespace DWMPHorde.Sync
 
             if (AllDead)
                 TryHostEndAllDead("after local death");
+            else
+                DWMPHorde.Patches.NamedNpcScalePatch.HostTrimExtras("a dreamer died");
         }
 
         /// <summary>
@@ -290,6 +327,8 @@ namespace DWMPHorde.Sync
 
             if (AllDead)
                 TryHostEndAllDead("all remotes dead");
+            else
+                DWMPHorde.Patches.NamedNpcScalePatch.HostTrimExtras("a dreamer died");
         }
 
         /// <summary>

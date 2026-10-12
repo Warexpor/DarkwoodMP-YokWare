@@ -365,6 +365,7 @@ namespace DWMPHorde.Sync
                 if (DreamOutcomePolicy.ShouldMarkCompletedOnEnd(outcome))
                     DreamSession.MarkCompleted(DreamSession.PresetName);
                 net.Broadcast(NetMessageType.DreamLeft, w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);
+                DWMPHorde.Patches.NamedNpcScalePatch.HostTrimExtras("the host left");
             }
             else
             {
@@ -547,6 +548,8 @@ namespace DWMPHorde.Sync
             if (first)
                 DreamSyncManager.HostFireOutcomeWorldFor(playerId, preset, outcome);
             HostAfterRosterChange(net, outcome);
+            if (DreamSession.IsActive)
+                DWMPHorde.Patches.NamedNpcScalePatch.HostTrimExtras("p" + playerId + " left");
         }
 
         /// <summary>Host: someone left. Nobody in it any more ends the session; only dead players in it ends it for them.</summary>

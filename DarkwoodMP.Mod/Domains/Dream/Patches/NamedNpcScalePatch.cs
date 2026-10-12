@@ -25,15 +25,21 @@ namespace DWMPHorde.Patches
     /// come with the creature's first activation (<c>Character.Start</c>), the moment it enters
     /// the dream, at its spot. One placed active (dream_doctor_02) starts with the dream.
     /// Night hideout scenarios are intentionally not scaled.
+    /// The count is the players still playing the dream, not the party: a player who took its own
+    /// way out (the grave meadow's grave) or died in it brings no extra, and one who leaves or dies
+    /// after the creatures came takes its extra with it (<see cref="HostTrimExtras"/>).
     /// </summary>
     [HarmonyPatch(typeof(Character), "Start")]
     public static class NamedNpcScalePatch
     {
         private static bool _spawningExtra; // process-scoped: reentry guard, reset per session
+        /// <summary>The scene's creatures that brought extras, for <see cref="HostTrimExtras"/>.</summary>
+        private static readonly List<Character> _scaled = new List<Character>(); // reset-in: Reset
 
         public static void Reset()
         {
             _spawningExtra = false;
+            _scaled.Clear();
             CoopBalance.InvalidateAllowlistCache();
         }
 
@@ -57,15 +63,106 @@ namespace DWMPHorde.Patches
             if (!CoopBalance.IsNamedNpcAllowlisted(nameKey))
                 return;
 
-            int mult = CoopBalance.GetPartyMultiplier();
+            int mult = DreamMultiplier(out int dreamers);
             if (mult <= 1)
+            {
+                ModLog.Event(LogCat.Session,
+                    $"[DreamNpcScale] '{nameKey}' at {__instance.transform.position} no extras (dreamers={dreamers})");
                 return;
+            }
 
             var marker = __instance.gameObject.AddComponent<DreamBalanceProcessedMarker>();
             marker.Extras = SpawnExtras(__instance, ResolvePrefabPath(__instance.gameObject, nameKey), mult - 1);
+            _scaled.RemoveAll(c => c == null);
+            _scaled.Add(__instance);
 
             ModLog.Event(LogCat.Session,
-                $"[DreamNpcScale] '{nameKey}' at {__instance.transform.position} mult={mult} extras={marker.Extras.Count}");
+                $"[DreamNpcScale] '{nameKey}' at {__instance.transform.position} mult={mult} dreamers={dreamers} extras={marker.Extras.Count}");
+        }
+
+        /// <summary>The party multiplier, capped at the players still playing the dream.</summary>
+        private static int DreamMultiplier(out int dreamers)
+        {
+            dreamers = FinalDreamsceneManager.LiveDreamers();
+            int mult = CoopBalance.GetPartyMultiplier();
+            return dreamers < mult ? System.Math.Max(1, dreamers) : mult;
+        }
+
+        /// <summary>
+        /// Host: a dreamer left the dream or died in it. Each scene creature's living group (it and
+        /// its extras) shrinks to the players still playing it; the extras that go are the ones
+        /// farthest from any player, then the latest spawned.
+        /// </summary>
+        internal static void HostTrimExtras(string why)
+        {
+            if (_scaled.Count == 0 || !NetGuard.ConnectedHost(out _) || !DreamSyncManager.IsDreamActive)
+                return;
+            int mult = DreamMultiplier(out int dreamers);
+            for (int i = _scaled.Count - 1; i >= 0; i--)
+            {
+                Character original = _scaled[i];
+                if (original == null)
+                {
+                    _scaled.RemoveAt(i);
+                    continue;
+                }
+                var marker = original.GetComponent<DreamBalanceProcessedMarker>();
+                if (marker == null || marker.Extras == null)
+                    continue;
+                marker.Extras.RemoveAll(e => e == null || !e.alive);
+                int alive = (original.alive ? 1 : 0) + marker.Extras.Count;
+                int removed = 0;
+                while (alive > mult && marker.Extras.Count > 0)
+                {
+                    int pick = FarthestFromPlayers(marker.Extras);
+                    Character extra = marker.Extras[pick];
+                    marker.Extras.RemoveAt(pick);
+                    if (extra.target != null)
+                        extra.stopAttacking(extra.target);
+                    Object.Destroy(extra.gameObject);
+                    alive--;
+                    removed++;
+                }
+                if (removed > 0)
+                    ModLog.Event(LogCat.Session,
+                        $"[DreamNpcScale] {why}: '{original.name}' loses {removed} extra(s), dreamers={dreamers}");
+            }
+        }
+
+        private static int FarthestFromPlayers(List<Character> extras)
+        {
+            int best = extras.Count - 1;
+            float bestD = -1f;
+            for (int i = extras.Count - 1; i >= 0; i--)
+            {
+                float d = NearestPlayerDistance(extras[i].transform.position);
+                if (d > bestD + 1f)
+                {
+                    bestD = d;
+                    best = i;
+                }
+            }
+            return best;
+        }
+
+        private static float NearestPlayerDistance(Vector3 pos)
+        {
+            float best = float.MaxValue;
+            if (Player.Instance != null && Player.Instance.gameObject.activeInHierarchy
+                && DreamSyncManager.IsAtDreamPad(Player.Instance.transform.position))
+                best = Vector3.Distance(pos, Player.Instance.transform.position);
+            var net = ModRuntime.Network;
+            if (net == null)
+                return best;
+            foreach (var proxy in net.GetAllProxies())
+            {
+                if (proxy == null || !DreamSyncManager.IsRemoteInDream(proxy.PlayerId))
+                    continue;
+                float d = Vector3.Distance(pos, proxy.transform.position);
+                if (d < best)
+                    best = d;
+            }
+            return best;
         }
 
         private static string ResolvePrefabPath(GameObject go, string shortName)

@@ -3,12 +3,12 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.270**. The current Horde wire protocol is **64**. Every install in a session
+**0.8.271**. The current Horde wire protocol is **64**. Every install in a session
 needs the same DLL; the protocol is checked on join.
 
 Protocol history (newest first):
 
-- **64**, 0.8.265 to 0.8.270: `SessionSettings` gains the host's `SoloHomeDream`.
+- **64**, 0.8.265 to 0.8.271: `SessionSettings` gains the host's `SoloHomeDream`.
 - **63**, 0.8.259 to 0.8.264: `TradeCommit` gains the trade's change to the trader's standing; a
   `DialogMirror` element gains the language entry its text came from; `PlayerEffectSync` uses
   a spare bit (`MovedHome`, Flags2 64).
@@ -77,6 +77,21 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.271 — a dream's extra creatures match the players still in it
+
+- **A client fought the grave meadow's chompers alone, two of them.** The host lay down in the
+  grave (its own way out); the client took the shovel, and two chompers came for the one player
+  left. A dream's black chompers bring one extra per player besides the first, and that count
+  was the whole party, also players who had already left the dream or died in it. It is now the
+  players still playing the dream (in it, alive, not on their way out), so a player alone gets
+  vanilla's one. This is the same rule for every dream with scaled creatures (the grave meadow,
+  the church ruins, the doctor's dreams).
+- **A player who leaves or dies after the creatures came takes its extra with it.** The host
+  removes surplus extras (the ones farthest from the players first) when a dreamer leaves by its
+  own exit, the host included, or dies in the dream; the removal reaches every client as a
+  despawn. `NamedNpcScalePatch` (`DreamMultiplier`, `HostTrimExtras`),
+  `FinalDreamsceneManager.LiveDreamers`, calls from `DreamExit` and the dream-death paths.
 
 ## 0.8.270 — voice chat no longer silences the game in the church ruins dream
 
