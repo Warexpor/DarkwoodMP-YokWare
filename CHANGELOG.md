@@ -3,12 +3,12 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.260**. The current Horde wire protocol is **63**. Every install in a session
+**0.8.262**. The current Horde wire protocol is **63**. Every install in a session
 needs the same DLL; the protocol is checked on join.
 
 Protocol history (newest first):
 
-- **63**, 0.8.259 to 0.8.260: `TradeCommit` gains the trade's change to the trader's standing; a
+- **63**, 0.8.259 to 0.8.262: `TradeCommit` gains the trade's change to the trader's standing; a
   `DialogMirror` element gains the language entry its text came from; `PlayerEffectSync` uses
   a spare bit (`MovedHome`, Flags2 64).
 - **62**, 0.8.252 to 0.8.258: new `PeerNotice` (173). 0.8.257 uses a spare bit of the entity
@@ -76,6 +76,52 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.262 — no stutter while a dead player's body looks for its bag; save time broken down
+
+From the host log of the long three-player Steam session on 0.8.258: the game held 100 fps
+nearly the whole time. What broke it:
+
+- **A 33 ms stutter once a second after a night death.** A dead player's body looks for the
+  death bag dropped beside it, once a second for 30 seconds, by searching every object in the
+  world for bags (`FindObjectsOfType<DeathDrop>`, about 33 ms at a time on the host). When the
+  bag never showed up, the stutter ran the full 30 seconds; the log had it twice, once for each
+  death. The bags are now kept in a list as they appear and go (`DeathDrop.Start` /
+  `OnDestroy`), and the body looks through that list. (`PlayerCorpses.FindBag`,
+  `DeathBagRegistry`)
+- **Saves hold the frame for about 200-300 ms on every player** (34 saves in the session). The
+  `[SaveTiming]` line now says where the time goes. Measured on the same campaign (day 6) with
+  two players: about 200 ms, nearly all of it vanilla's own save: about 120 ms writing the
+  world's objects as JSON (`objWrite`), about 52 ms reading them off the scene (`objRead`),
+  and 10 to 15 ms for the rest. The co-op steps around it take about 10 ms.
+  (`SaveStageTiming`, `SaveSyncPatches.cs`)
+- **The host's world froze for about 3 seconds at every alt-tab** (three one-second frames
+  each time; 13 times in the session). While the host's window is hidden, Hyprland stops
+  showing its frames, and each frame then waits a second. Switching vsync off does not stop
+  this: a hidden host in a test desktop stayed at one frame a second with vsync off. Hyprland's
+  `render_unfocused` window rule did stop it: the hidden host ran at 100 fps. That is a desktop
+  setting, not something the mod can set, so the mod is unchanged here.
+- Not the mod: the 1 to 4.5 second frames while a save loads (vanilla loading about 21,000
+  objects behind the loading screen), and a few short dips under 60 fps in busy fights, where
+  the mod's own work came to under 2 ms a frame.
+
+## 0.8.261 — leaving to the main menu ends the session; one join line per join
+
+- **Going to the main menu leaves the session.** A client that played and then went back to
+  the title (exit to menu, the permadeath box, the end of the credits) stayed connected: the
+  host still counted it as a player, and the next save it opened played on inside the old
+  session. `Core.returnToMainMenu` now disconnects any player, as the multiplayer menu's
+  Disconnect does. A host still hands the world to a player who is in it first; with nobody to
+  take it, it now stops hosting instead of hosting from the title with no world.
+  (`ReturnToMenuPatch`, formerly `HostReturnToMenuPatch`; `MainMenuMultiplayerInject.Disconnect`
+  takes who may become host.)
+- **No "left" line while a player joins.** Joining drops the link once on purpose: the joiner
+  loads the shared world on its own, then connects again under a new id. The host's chat read
+  "X is joining, X left the game, X is joining" for one join. That drop is now part of the join:
+  no "left" line, no second "is joining", just "X is in the game" once it is in. A joiner that
+  never comes back within 3 minutes is reported as having left. A real connection loss
+  during the join is still reported as one. (`PeerNotices.HostLoadingDetach` / `HostTick`,
+  `LanNetworkManager.OnHostPeerDisconnectedGameplay`.)
 
 ## 0.8.260 — the morning clock runs once anyone walks out; the bunker dream comes with the next level-up; dreams played through by three players: the chained Doctor dream in one place for all, dream residents and the dream's music on every game, dream doors and events far from the scene's centre synced, no repeated door creak
 

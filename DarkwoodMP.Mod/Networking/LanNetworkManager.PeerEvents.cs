@@ -125,8 +125,12 @@ namespace DWMPHorde.Networking
         /// </summary>
         private void OnHostPeerDisconnectedGameplay(int playerId, bool removeLanSlot, string reasonTag, bool lost)
         {
-            // Before the name records below are cleared.
-            Sync.PeerNotices.HostGone(this, playerId, Sync.PlayerNames.Shown(playerId), lost);
+            // Before the name records below are cleared. A joiner that drops the link to load the
+            // world comes back under a new id: that is part of its join, not a leave.
+            if (!lost && _session.Link.LoadingWorld.Contains(playerId) && !_session.Link.CoopReconnect.Contains(playerId))
+                Sync.PeerNotices.HostLoadingDetach(this, playerId, Sync.PlayerNames.ReportedName(playerId));
+            else
+                Sync.PeerNotices.HostGone(this, playerId, Sync.PlayerNames.Shown(playerId), lost);
 
             // Capture before Remove so TryLeaveUnoccupied sees remaining occupants only.
             string leftLoc = null;

@@ -21,11 +21,66 @@ namespace DWMPHorde.Sync
         /// <summary>Host: players already told to be in the game (a world resend loads them again).</summary>
         private static readonly HashSet<int> _inGame = new HashSet<int>(); // reset-in: Reset
 
-        public static void Reset() => _inGame.Clear();
+        /// <summary>
+        /// Host: joiners that dropped the link to load the shared world on their own and will
+        /// connect again under a new id, by name, with the time they dropped. Their drop and
+        /// return are one join: without this the chat read "joining, left, joining".
+        /// </summary>
+        private static readonly Dictionary<string, float> _loading = new Dictionary<string, float>(); // reset-in: Reset
+
+        /// <summary>How long a joiner may take to load the world before it counts as gone.</summary>
+        private const float LoadingGrace = 180f;
+
+        public static void Reset()
+        {
+            _inGame.Clear();
+            _loading.Clear();
+        }
 
         /// <summary>Host: a new player's name is known (the first thing a joiner sends after the handshake).</summary>
         internal static void HostJoining(LanNetworkManager net, int playerId, string name)
-            => HostTell(net, playerId, Joining, name);
+        {
+            // Back from loading the world: already announced.
+            if (name != null && _loading.Remove(name))
+                return;
+            HostTell(net, playerId, Joining, name);
+        }
+
+        /// <summary>
+        /// Host: a joiner dropped the link to load the world (the join's own offline load);
+        /// its return is no news, and only a joiner that never comes back is told as gone.
+        /// </summary>
+        internal static void HostLoadingDetach(LanNetworkManager net, int playerId, string name)
+        {
+            _inGame.Remove(playerId);
+            if (net == null || net.Role != NetworkRole.Host || string.IsNullOrEmpty(name))
+                return;
+            _loading[name] = UnityEngine.Time.realtimeSinceStartup;
+        }
+
+        /// <summary>Host, each frame: joiners that went to load the world and never came back left.</summary>
+        internal static void HostTick(LanNetworkManager net)
+        {
+            if (_loading.Count == 0)
+                return;
+            float now = UnityEngine.Time.realtimeSinceStartup;
+            List<string> gone = null;
+            foreach (var kv in _loading)
+            {
+                if (now - kv.Value > LoadingGrace)
+                    (gone ?? (gone = new List<string>())).Add(kv.Key);
+            }
+            if (gone == null)
+                return;
+            foreach (string name in gone)
+            {
+                _loading.Remove(name);
+                // No id any more: tell every client.
+                var msg = new PeerNoticeMessage { PlayerId = 0, Kind = Left, Name = name };
+                Show(msg);
+                net.Broadcast(NetMessageType.PeerNotice, w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);
+            }
+        }
 
         /// <summary>Host: the player sent its first in-world state.</summary>
         internal static void HostInGame(LanNetworkManager net, int playerId)

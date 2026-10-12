@@ -49,6 +49,7 @@ namespace DWMPHorde.Patches
         private static void Prefix()
         {
             _gcBefore = System.GC.CollectionCount(0);
+            SaveStageTiming.Begin();
             _sw.Restart();
         }
 
@@ -60,8 +61,121 @@ namespace DWMPHorde.Patches
             _sw.Stop();
             if (__runOriginal && _sw.ElapsedMilliseconds >= 50 && ModRuntime.Network != null && ModRuntime.Network.IsConnected)
                 ModLog.Event(LogCat.Save, "[SaveTiming] Save held the frame " + _sw.ElapsedMilliseconds + " ms, collections="
-                    + (System.GC.CollectionCount(0) - _gcBefore));
+                    + (System.GC.CollectionCount(0) - _gcBefore) + " | " + SaveStageTiming.Describe(_sw.Elapsed.TotalMilliseconds));
+            SaveStageTiming.End();
         }
+    }
+
+    /// <summary>
+    /// Where a Save's frame goes, for the <c>[SaveTiming]</c> line: vanilla's own body (and in it
+    /// the profile file, the file moves, the id pass, reading each saved object off its
+    /// GameObject, writing the objects, the static file, the closing step) against the co-op
+    /// steps before and after it.
+    /// </summary>
+    internal static class SaveStageTiming
+    {
+        internal enum Stage { Vanilla, Profiles, Backup, Ids, Capture, WriteObjs, Static, Finish, Count }
+
+        private static readonly double[] _ms = new double[(int)Stage.Count]; // reset-in: Begin
+        private static readonly long[] _start = new long[(int)Stage.Count]; // reset-in: Begin
+        private static readonly int[] _depth = new int[(int)Stage.Count]; // reset-in: Begin
+        private static bool _on; // process-scoped: set and cleared around each Save
+
+        internal static void Begin()
+        {
+            System.Array.Clear(_ms, 0, _ms.Length);
+            System.Array.Clear(_depth, 0, _depth.Length);
+            _on = true;
+        }
+
+        internal static void End()
+        {
+            _on = false;
+        }
+
+        internal static void Enter(Stage st)
+        {
+            if (!_on || _depth[(int)st]++ > 0)
+                return;
+            _start[(int)st] = System.Diagnostics.Stopwatch.GetTimestamp();
+        }
+
+        internal static void Exit(Stage st)
+        {
+            if (!_on || _depth[(int)st] == 0 || --_depth[(int)st] > 0)
+                return;
+            _ms[(int)st] += (System.Diagnostics.Stopwatch.GetTimestamp() - _start[(int)st]) * 1000.0
+                / System.Diagnostics.Stopwatch.Frequency;
+        }
+
+        internal static string Describe(double totalMs)
+        {
+            double v = _ms[(int)Stage.Vanilla];
+            double parts = _ms[(int)Stage.Profiles] + _ms[(int)Stage.Backup] + _ms[(int)Stage.Ids] + _ms[(int)Stage.Capture]
+                + _ms[(int)Stage.WriteObjs] + _ms[(int)Stage.Static] + _ms[(int)Stage.Finish];
+            return "vanilla=" + v.ToString("F0") + " (profiles=" + _ms[(int)Stage.Profiles].ToString("F0")
+                + " files=" + _ms[(int)Stage.Backup].ToString("F0") + " ids=" + _ms[(int)Stage.Ids].ToString("F0")
+                + " objRead=" + _ms[(int)Stage.Capture].ToString("F0") + " objWrite=" + _ms[(int)Stage.WriteObjs].ToString("F0")
+                + " static=" + _ms[(int)Stage.Static].ToString("F0") + " finish=" + _ms[(int)Stage.Finish].ToString("F0")
+                + " rest=" + System.Math.Max(0, v - parts).ToString("F0") + ") coop=" + System.Math.Max(0, totalMs - v).ToString("F0");
+        }
+    }
+
+    [HarmonyPatch(typeof(SaveManager), "Save")]
+    internal static class SaveStageVanillaPatch
+    {
+        // Right around the original: every other prefix runs before, every other postfix after.
+        [HarmonyPriority(Priority.Last)] private static void Prefix() => SaveStageTiming.Enter(SaveStageTiming.Stage.Vanilla);
+        [HarmonyPriority(Priority.First)] private static void Postfix() => SaveStageTiming.Exit(SaveStageTiming.Stage.Vanilla);
+    }
+
+    [HarmonyPatch(typeof(SaveManager), nameof(SaveManager.saveGameProfiles))]
+    internal static class SaveStageProfilesPatch
+    {
+        private static void Prefix() => SaveStageTiming.Enter(SaveStageTiming.Stage.Profiles);
+        private static void Postfix() => SaveStageTiming.Exit(SaveStageTiming.Stage.Profiles);
+    }
+
+    [HarmonyPatch(typeof(SaveManager), nameof(SaveManager.backupFile))]
+    internal static class SaveStageBackupPatch
+    {
+        private static void Prefix() => SaveStageTiming.Enter(SaveStageTiming.Stage.Backup);
+        private static void Postfix() => SaveStageTiming.Exit(SaveStageTiming.Stage.Backup);
+    }
+
+    [HarmonyPatch(typeof(SaveManager), nameof(SaveManager.assignUniqueIds), typeof(List<UnityEngine.Transform>))]
+    internal static class SaveStageIdsPatch
+    {
+        private static void Prefix() => SaveStageTiming.Enter(SaveStageTiming.Stage.Ids);
+        private static void Postfix() => SaveStageTiming.Exit(SaveStageTiming.Stage.Ids);
+    }
+
+    [HarmonyPatch(typeof(SaveManager.SavedObj), nameof(SaveManager.SavedObj.StoreObject))]
+    internal static class SaveStageCapturePatch
+    {
+        private static void Prefix() => SaveStageTiming.Enter(SaveStageTiming.Stage.Capture);
+        private static void Postfix() => SaveStageTiming.Exit(SaveStageTiming.Stage.Capture);
+    }
+
+    [HarmonyPatch(typeof(SaveManager), "saveObjs")]
+    internal static class SaveStageWriteObjsPatch
+    {
+        private static void Prefix() => SaveStageTiming.Enter(SaveStageTiming.Stage.WriteObjs);
+        private static void Postfix() => SaveStageTiming.Exit(SaveStageTiming.Stage.WriteObjs);
+    }
+
+    [HarmonyPatch(typeof(SaveManager), nameof(SaveManager.saveStatic))]
+    internal static class SaveStageStaticPatch
+    {
+        private static void Prefix() => SaveStageTiming.Enter(SaveStageTiming.Stage.Static);
+        private static void Postfix() => SaveStageTiming.Exit(SaveStageTiming.Stage.Static);
+    }
+
+    [HarmonyPatch(typeof(SaveManager), "finishSaving")]
+    internal static class SaveStageFinishPatch
+    {
+        private static void Prefix() => SaveStageTiming.Enter(SaveStageTiming.Stage.Finish);
+        private static void Postfix() => SaveStageTiming.Exit(SaveStageTiming.Stage.Finish);
     }
 
     /// <summary>

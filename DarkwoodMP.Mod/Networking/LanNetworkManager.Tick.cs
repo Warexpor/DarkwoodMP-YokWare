@@ -269,6 +269,7 @@ namespace DWMPHorde.Networking
             if (_role == NetworkRole.Host)
             {
                 Patches.TraderRestockDefer.Tick();
+                Sync.PeerNotices.HostTick(this);
                 Patches.CombatMusicSync.Tick(this);
                 EpilogueNetHandlers.EpilogueCredits.Tick(this);
                 Sync.TrapLedger.Tick();

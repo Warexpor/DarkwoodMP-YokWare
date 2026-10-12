@@ -226,10 +226,10 @@ namespace DWMPHorde.Players
         {
             DeathDrop best = null;
             float bestDist = BagRadius;
-            DeathDrop[] all = Object.FindObjectsOfType<DeathDrop>();
-            for (int i = 0; i < all.Length; i++)
+            // The live bags, not a scene search: FindObjectsOfType walked every object in the
+            // world (~33 ms) once a second for the 30 s a body looks for its bag.
+            foreach (DeathDrop dd in DeathBagRegistry.Live)
             {
-                DeathDrop dd = all[i];
                 if (dd == null || Claimed(dd))
                     continue;
                 Vector3 p = dd.transform.position;
@@ -274,5 +274,23 @@ namespace DWMPHorde.Players
                     hidden[i].enabled = true;
             hidden.Clear();
         }
+    }
+
+    /// <summary>Every death bag in the world, kept as bags start and go (vanilla's own Start and OnDestroy).</summary>
+    internal static class DeathBagRegistry
+    {
+        internal static readonly HashSet<DeathDrop> Live = new HashSet<DeathDrop>(); // process-scoped: entries leave with their bag (OnDestroy)
+    }
+
+    [HarmonyLib.HarmonyPatch(typeof(DeathDrop), "Start")]
+    internal static class DeathBagStartPatch
+    {
+        private static void Postfix(DeathDrop __instance) => DeathBagRegistry.Live.Add(__instance);
+    }
+
+    [HarmonyLib.HarmonyPatch(typeof(DeathDrop), "OnDestroy")]
+    internal static class DeathBagDestroyPatch
+    {
+        private static void Postfix(DeathDrop __instance) => DeathBagRegistry.Live.Remove(__instance);
     }
 }
