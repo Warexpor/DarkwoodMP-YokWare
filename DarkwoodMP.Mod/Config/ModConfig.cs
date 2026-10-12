@@ -39,6 +39,8 @@ namespace DWMPHorde.Config
         public static ModSetting<bool> NamedNpcScaleEnabled { get; private set; }
         /// <summary>Comma-separated short names (e.g. ChomperBlack). Dream presence only.</summary>
         public static ModSetting<string> NamedNpcAllowlist { get; private set; }
+        /// <summary>Host: every player plays the home dream alone (see <see cref="Sync.SeparateDream"/>).</summary>
+        public static ModSetting<bool> SoloHomeDream { get; private set; }
         public static ModSetting<bool> VerboseLogging { get; private set; }
         /// <summary>Transition-only light sync logs (flare/flash on/off, join bulk). Not 30 Hz spam.</summary>
         public static ModSetting<bool> VerboseLightSync { get; private set; }
@@ -212,7 +214,8 @@ namespace DWMPHorde.Config
             ShowPlayerNames = config.Bind("Network", "ShowPlayerNames", "pointed",
                 "When other players' names show over them: pointed (cursor on them, default) | always (while you can see them) | off.");
             MaxPlayers = config.Bind("Network", "MaxPlayers", 8, "Maximum players including host.");
-            AllowJoinDuringDream = config.Bind("Network", "AllowJoinDuringDream", false, "If false, reject joins during dream session.");
+            AllowJoinDuringDream = config.Bind("Network", "AllowJoinDuringDream", true,
+                "A player joining (or rejoining after a drop) while a dream runs is pulled into it. If false, joins wait until the dream ends. Joins during a dream's entry are always refused.");
             FriendlyFireEnabled = config.Bind("Gameplay", "FriendlyFireEnabled", true, "Players can damage each other.");
             DoubleItemsEnabled = config.Bind("Gameplay", "DoubleItemsEnabled", true,
                 "Master switch for loot sharing (hideout furnace fuels / isExpItem).");
@@ -222,6 +225,8 @@ namespace DWMPHorde.Config
                 "Host: multiply allowlisted dream NPC presence by LootShareMode party multiplier (default ChomperBlack).");
             NamedNpcAllowlist = config.Bind("Gameplay", "NamedNpcAllowlist", "ChomperBlack",
                 "Comma-separated character short names scaled in dreams only (not night hideout trash).");
+            SoloHomeDream = config.Bind("Gameplay", "SoloHomeDream", true,
+                "Host: the home dream (the flat, dream_home) is played alone. Everyone goes in together and wakes by their own way out, but each player has their own copy of the flat and does not see the others there. Off: the party plays it together like the other dreams.");
             MaxPeerDamage = config.Bind("Gameplay", "MaxPeerDamage", 200,
                 "Host clamps peer-reported attack/FF damage to this max per hit (anti-grief). A per-peer budget (20 hits/s, burst 40; 1000 damage/s, burst 3000) caps sustained spam while multi-hit bursts like shotgun pellets still apply in full.");
             NightMonsterMultiplier = config.Bind("Gameplay", "NightMonsterMultiplier", 1f,
@@ -325,6 +330,16 @@ namespace DWMPHorde.Config
                 + "line (both logs). Needs the host's setting on; a client with it off ignores digests.");
             DesyncCheckIntervalSec = config.Bind("Debug", "DesyncCheckIntervalSec", 15,
                 "Seconds between desync checks (clamped 5..300).");
+
+            // AllowJoinDuringDream became true by default. A cfg written before keeps the old
+            // false; turn it on once, then leave the player's choice alone.
+            var dreamJoinDefaulted = config.Bind("Network", "AllowJoinDuringDreamDefaultApplied", false,
+                "Internal: AllowJoinDuringDream was switched to its new default (true) once.");
+            if (!dreamJoinDefaulted.Value)
+            {
+                AllowJoinDuringDream.Value = true;
+                dreamJoinDefaulted.Value = true;
+            }
 
             // A read-only or locked cfg must not abort startup: every setting is already bound
             // with its in-memory value, the file is only a convenience.

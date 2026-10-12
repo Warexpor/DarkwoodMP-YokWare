@@ -21,8 +21,8 @@ namespace DWMPHorde.Networking
             {
                 Door door = doors[i];
                 if (door == null) continue;
-                // The host's own prologue pads are not the world.
-                if (PersonalPrologue.IsOnProloguePad(door.transform)) continue;
+                // Personal pads (the host's prologue, a solo dream) are not the world.
+                if (PersonalPads.Contains(door.transform)) continue;
                 // The live twin at this position owns the state.
                 if (WorldQueryHelper.IsInactiveTwin(door, doors)) continue;
 
@@ -96,7 +96,7 @@ namespace DWMPHorde.Networking
             {
                 Window window = windows[i];
                 if (window == null || !window.barricaded) continue;
-                if (PersonalPrologue.IsOnProloguePad(window.transform)) continue;
+                if (PersonalPads.Contains(window.transform)) continue;
                 // The live twin at this position owns the state (an inactive twin keeps its
                 // authored boards and would re-board a window torn open on the host).
                 if (WorldQueryHelper.IsInactiveTwin(window, windows)) continue;
@@ -141,7 +141,7 @@ namespace DWMPHorde.Networking
                     continue;
                 if (!item.destructible)
                     continue;
-                if (PersonalPrologue.IsOnProloguePad(item.transform))
+                if (PersonalPads.Contains(item.transform))
                     continue;
 
                 bool repaired = !item.destroyed && _repairedItems.Contains(item);

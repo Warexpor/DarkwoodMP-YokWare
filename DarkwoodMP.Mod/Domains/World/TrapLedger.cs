@@ -123,7 +123,7 @@ namespace DWMPHorde.Sync
         {
             // The host's own prologue pad traps: freeing the pad must not log them as gone.
             if (t != null && TrapNetworkId.IsWorldTrap(t.gameObject)
-                && !PersonalPrologue.IsOnProloguePad(t.transform))
+                && !PersonalPads.Contains(t.transform))
                 Watch(t.gameObject);
         }
 

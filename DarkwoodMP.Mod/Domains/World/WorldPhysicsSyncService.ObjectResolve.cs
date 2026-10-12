@@ -272,9 +272,9 @@ namespace DWMPHorde.Sync
         {
             Transform pad = DreamSyncManager.GetDreamLocationTransform();
             if (pad == null) return true;
-            bool targetOnPad = Vector3.Distance(targetPos, pad.position) <= 250f;
-            bool candOnPad = candidate.IsChildOf(pad)
-                || Vector3.Distance(candidate.position, pad.position) <= 250f;
+            // The pad's slot, not a radius around its origin: dream scenes reach thousands out.
+            bool targetOnPad = DreamSyncManager.IsInPadSlot(pad, targetPos);
+            bool candOnPad = candidate.IsChildOf(pad) || DreamSyncManager.IsInPadSlot(pad, candidate.position);
             return targetOnPad == candOnPad;
         }
 

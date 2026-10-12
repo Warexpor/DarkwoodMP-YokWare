@@ -3,12 +3,14 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.262**. The current Horde wire protocol is **63**. Every install in a session
+**0.8.273**. The current Horde wire protocol is **65**. Every install in a session
 needs the same DLL; the protocol is checked on join.
 
 Protocol history (newest first):
 
-- **63**, 0.8.259 to 0.8.262: `TradeCommit` gains the trade's change to the trader's standing; a
+- **65**, 0.8.272 to 0.8.273: `DreamEnded` gains `WorldOutcome` (the outcome whose world events the dream's end runs).
+- **64**, 0.8.265 to 0.8.271: `SessionSettings` gains the host's `SoloHomeDream`.
+- **63**, 0.8.259 to 0.8.264: `TradeCommit` gains the trade's change to the trader's standing; a
   `DialogMirror` element gains the language entry its text came from; `PlayerEffectSync` uses
   a spare bit (`MovedHome`, Flags2 64).
 - **62**, 0.8.252 to 0.8.258: new `PeerNotice` (173). 0.8.257 uses a spare bit of the entity
@@ -76,6 +78,260 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.273 — every dreamer gets the dream's container weapon; everyone wakes through the death transition when all die
+
+From a two-player run of the church ruins dream.
+
+- **Only one player got the church ruins dream's axe.** The axe lies in the wardrobe, and the
+  client took it; the wardrobe is a shared container, so the host found it empty and had nothing
+  to fight the chompers with. Vanilla lays it out for the one dreamer. Items lying on a dream's
+  ground were already each dreamer's own (the grave meadow's shovel); a dream's containers now
+  follow the same rule. The host keeps one copy in the slot for each living dreamer who has not
+  taken theirs: after a take it puts the stack back, and the normal container sync shows it to
+  everyone. A client taking from the same slot again is refused and refunded. Journal items
+  (the box in the same wardrobe), stacks a player put in, and what bodies carry stay single.
+  The dream bag is thrown away on waking, so nothing is multiplied into the world. This covers
+  the other dreams' container loot too (the bunker dream's backpack, the lockpicks in the church
+  ruins, the camp fire meat in the Doctor's dreams). (`DreamLootParty`,
+  `ContainerLootNetHandlers.HandleContainerItem`, `ContainerSyncHelpers.SendContainerAction`)
+- **A client that died first woke from the dream with a hard cut.** When the last dreamer died,
+  the host played the dream's death transition, and only at its end sent the dream's end to the
+  others; the dead client then woke with the hard cleanup used for a dream that cannot play its
+  own end. The host now sends the end when its death transition starts, and a client that died
+  in the dream plays the same death transition (vanilla `initiateEndDreaming` with
+  `playerDeath`) alongside, whichever of them died last. An all-dead end decided from outside
+  the dream (the host already left) does the same. (`DreamSyncManager.NotifyPeersDeathEndBeginning`
+  / `TryBeginHostOrderedStoryEnd`, `FinalDreamsceneManager.EndDreamForBoth`,
+  `InitiateEndDreaming` authority patch)
+- **A death end run inside a peer's death message left a pass open.** The all-dead end sets a
+  one-time pass for its own `initiateEndDreaming`; run while handling the last peer's death
+  message, the authority patch stood down under the apply guard and never used it, so a later
+  death in another dream would have ended that dream for the dying player alone. The pass is
+  now cleared once the call returns. (`FinalDreamsceneManager.EndDreamForBoth`)
+
+## 0.8.272 — the furthest ending a dreamer reached is what the dream changes in the world; no lock-out in the apartment dream
+
+- **The host was locked out of the apartment dream's studio.** The client walked into the studio
+  first; its area trigger locks the wooden door behind the player, and the host, still in the
+  corridor, could not get in. Walk-in triggers that lock a door already wait on the host until
+  every living player in that location has walked in (`LockBehindPartyGate`), but "in that
+  location" was the Location under the trigger, and on a dream's pad the host in the corridor
+  was not under the same one, so it never counted. On a dream's pad the gate now waits for every
+  player still playing the dream (in it, alive, not gone by their own exit). The same holds for
+  every dream with a lock-behind trigger. (`LockBehindPartyGate.PartyThrough`,
+  `FinalDreamsceneManager.LocalIsLiveDreamer` / `IsLiveRemoteDreamer`)
+- **A player who stayed in the dream and went further now sets the real world's outcome.** The
+  first player out of a dream used to decide what it changed in the world: a host who lay down
+  in the grave (its own way out) fixed the world's outcome, whatever the client still in the
+  dream then did. Rewards stay each player's own outcome's. The world's part is now decided when
+  the dream is over for everyone: the furthest ending anyone reached wins (an ending that is
+  everyone's, such as a creature killed or the won sluice, over a player's own way out, over a
+  death or failure; the earliest of equals). Every leaver's wake-up runs only its own part of its
+  outcome (its body's steps, its items); the world events run once at the end. The host, also
+  from outside the dream, fires them; a player still dreaming wakes with them in place of its own
+  outcome's; a player who left early replays them when the end is announced. This covers the
+  all-dead end too: a dream whose last players died after another player got out by an exit
+  takes that exit's world outcome, not the death's. A dead dreamer's world events now come from
+  the death outcome when the party's end was "allDead" (they used to fall back to the dream's
+  default, its reward outcome). (`DreamExit.WorldOutcomeFor`, `OfferWorld`, `HostEndFromOutside`,
+  `TakeAwaitedWorld`; `DreamEndPatch`; `DreamSyncManager.WithPartyWorldEvents`,
+  `HostFireOutcomeWorldFor`, `ReplayDeferredWorld`; protocol 65: `DreamEnded.WorldOutcome`)
+
+## 0.8.271 — a dream's extra creatures match the players still in it
+
+- **A client fought the grave meadow's chompers alone, two of them.** The host lay down in the
+  grave (its own way out); the client took the shovel, and two chompers came for the one player
+  left. A dream's black chompers bring one extra per player besides the first, and that count
+  was the whole party, also players who had already left the dream or died in it. It is now the
+  players still playing the dream (in it, alive, not on their way out), so a player alone gets
+  vanilla's one. This is the same rule for every dream with scaled creatures (the grave meadow,
+  the church ruins, the doctor's dreams).
+- **A player who leaves or dies after the creatures came takes its extra with it.** The host
+  removes surplus extras (the ones farthest from the players first) when a dreamer leaves by its
+  own exit, the host included, or dies in the dream; the removal reaches every client as a
+  despawn. `NamedNpcScalePatch` (`DreamMultiplier`, `HostTrimExtras`),
+  `FinalDreamsceneManager.LiveDreamers`, calls from `DreamExit` and the dream-death paths.
+
+## 0.8.270 — voice chat no longer silences the game in the church ruins dream
+
+- **The whole game went silent for a client in the church ruins dream.** The sound was fine until
+  the host spoke over voice chat; from then on the client heard nothing at all. A talker's
+  speaker is created on their first voice packet. It plays a looping clip of ones (a carrier) and
+  its script filter multiplies the decoded voice into it. A scene's `AudioReverbZone` takes its
+  send from the source ahead of that filter, so it got a constant full-scale signal instead of the
+  voice. The church ruins dream is the one place with such a zone (custom room, 8.4 s decay, 5000
+  radius over the whole pad). Its reverb piled the carrier up until it drowned the mix. Voice
+  speakers now bypass reverb zones; the voice keeps its own room through `RoomReverb`, as
+  everywhere else. (`VoiceChatService.Speakers`)
+
+## 0.8.269 — the client sees the "Saving" indicator too
+
+- **No "Saving" indicator on a client.** At a dream's entry the host showed the bottom-right
+  "Saving" indicator and the client did not. A connected client's own world saves are blocked
+  (the host owns the world save; the client keeps a backup and gets the host's SaveSync), and
+  vanilla shows the indicator only at the end of a save that ran (`SaveManager.finishSaving`).
+  A blocked save that asked for the indicator now shows it, so the client sees it wherever the
+  host does: dream entry, level-up, sleep. (`ClientConnectedWorldSaveBlockPatch`)
+
+## 0.8.268 — the other player's entry movie shows; dream containers filled on a client that loads late
+
+From the logs of a two-player run (two level-up dreams started by the client: the home dream,
+then the church ruins).
+
+- **Another player's entry movie was black.** When a peer starts a dream, everyone else plays
+  its entry movie too. The overlay was switched on only after the video was asked to prepare,
+  and Unity refuses that on a disabled player ("Cannot Prepare a disabled VideoPlayer"), so the
+  host saw ten seconds of black with only the stinger. The overlay is switched on first, as
+  vanilla `DreamTransition.transition` does. That copy also muted the movie's own sound track (the
+  stinger plays instead) on the game's one video player and never unmuted it, so this player's
+  own next entry movie would have played silent; the track is unmuted when the movie ends.
+  (`DreamSyncManager.Transition`, `DreamSyncManager.RemoteEntry`)
+- **Dream containers came up empty on a client.** The host sends the dream's container contents
+  as soon as its own pad has settled, which is before a client's copy of the pad has finished
+  spawning. The client found no container there, dropped the contents ("no inventory at ..."),
+  and kept the empty containers its skipped roll left, until a player opened one and asked the
+  host again. Contents for a pad slot that arrive while this client is still bringing a dream pad
+  in are now held and applied once the pad has loaded; anything left after 30 s is dropped.
+  (`ContainerPendingNetHandlers`, `DreamSyncManager.SceneLoad`)
+- **Checked, no change.** The client's "NO FLAG OF NAME dream_home_flashlight" is vanilla: the
+  home dream's wardrobe sets a flag that is not in the game's flag list. The DOTween safe-mode
+  count at quit, the BoxCollider negative-scale warnings and the early "Dropping PlayerAudio
+  (no handshake yet)" are vanilla or harmless join-order noise.
+- **The client's sound in the church ruins dream:** found and fixed in 0.8.270 (voice chat and
+  the dream's reverb zone).
+
+## 0.8.267 — the bunker dream's forest spirit leaves a warded client alone; woken players are out of the dream
+
+- **The forest spirit chased a client on the escape path.** The path to the bed carries
+  the forest-spirit ward; vanilla's spirit runs from a warded player on every check. On
+  the host, the spirit after a client is aimed at that client first (it attacks
+  constantly), and the mod ran the ward's run-away before that aim, so the aim won and
+  the spirit kept coming. It also ran away only once, then went straight back. Now the
+  aim comes first and the run-away last, on every check while the ward lasts, as in
+  vanilla (`HostWardScopePatch`). The same order fixes the shadow ward for constant
+  attackers.
+- **A player who woke up by the bed still took hits.** Their body stays on the pad
+  through the wake-up, and the spirit's area damage hit it four more times (16 each)
+  while the client was already waking up. A player who has left the running dream
+  by their own exit is now out of sight, out of every trigger and out of every
+  creature's reach on the pad, as in the solo dream (`DreamExit.HidesLeaverBody`,
+  `RemotePlayerProxy.ApplyNetworkState`, `TeleportRemoteProxyTo`).
+- **Errors after waking first.** A client that woke while the host was still in the
+  dream logged a `NullReferenceException` (AstarPath.GetNodesAround) every pass: the
+  host's flashlight on the pad was looked up against the pad's path graph, which is
+  gone once you are out. Its beam is no longer lit while it is on a pad this player
+  woke up from (`RemoteFlashlightNodesPatch`).
+- **Level-up with no dream (checked, no change).** Confirming a level-up whose dream
+  the party already played returns to the essence screen, which needs one more press
+  to close, then saves (vanilla's own save, ~170 ms). With a dream, vanilla goes
+  straight into it, so the extra step only shows now.
+
+## 0.8.266 — level-up dreams once per party
+
+- **What changed.** Each player's level-up used to start that level's dream for
+  everyone: three players reaching level 2 meant the bunker plus two more dreams
+  for the same level. Now a level's dream (levels 2, 3, 5, 6, 7) is played once per
+  party: the first player to reach the level brings it to everyone, and from the
+  moment it begins the level counts as played, however it ends (woken out, died).
+  Anyone reaching that level later just levels up, whether they were in that dream
+  or not. Story dreams are untouched.
+- **How.** The host marks the level slot played when the dream begins
+  (`DreamSession.MarkLevelSlotsPlayed`). It is kept in the played-dream set under a
+  `#levelN` key, so it is saved with the world (`CoopWorldCopyMeta.CompletedDreams`)
+  and reaches every peer with the played dreams it already sends (DreamStarted, bulk).
+  A played bunker counts as a played level 2 (older worlds).
+  `SkillsMenuLevelDreamPatch` marks a played slot as had before vanilla's level step,
+  so no dream is wanted (the old "missed the bunker, roll a random one" path is gone).
+- **Races.** Two players levelling at once: the host refuses the second request
+  (`level_played`, not retried). A waiting level-up dream (host was dead or busy) is
+  dropped once the party played that level; this also covers a dream owed by a peer
+  that became the host (its level slot now travels with it, `DreamRetry`).
+- No wire change (protocol stays 64).
+- Files: `DreamSession.cs`, `DreamSyncManager.Session.cs`, `DreamNetHandlers.cs`,
+  `DreamRetry.cs`, `DreamSyncPatches.Authority.cs`, `HOW_COOP_WORKS.md`.
+
+## 0.8.265 — the home dream is played alone; the others see a client's dream clothes
+
+- **The home dream (`dream_home`) is played alone, by default.** New host setting
+  `SoloHomeDream` (on). The party still goes in together and the session is shared, but every
+  player plays their own copy of the flat, as in single player. Its events, doors, cupboards,
+  items, lights, examines and the clock are that player's own. Nothing of it is sent, nothing of
+  another player's copy is applied, and the other players are not there: their bodies wait
+  below the world while they are inside this player's copy. Every ending of a player's own copy
+  (an exit, a scripted end, a death) is that player's own way out; the first one out decides what
+  the dream changed in the world, as before. Voice and chat still work. The host's value goes to
+  the clients with the session settings (protocol 64), and a session keeps the choice it began
+  with. Checked with three players: each copy fired only its own events, and the host, then
+  each client, woke in turn. How: the copy is a personal pad like the host's prologue, so every
+  sync gate that left the prologue alone now leaves it alone too (`PersonalPads`,
+  `SeparateDream`). On top of that, a client in its own copy does not ask the host for its
+  events, uses, examines, cupboards and doors, and sends only its own body, saves and the dream
+  session. A host in its own copy does not send its player's own actions there, while the world
+  it runs for players already awake keeps going.
+- **The host saw a client in its old clothes in the home dream.** The client changed its look
+  inside a step applied from the host, and the look was not sent from inside an apply. It went
+  out only at the client's next weapon swap. A player's own look is now sent whatever changed
+  it. (`PlayerAnimLibraryPatch`)
+- **A player who woke by their own exit stayed in the dream's clothes.** The others were still
+  dreaming, so the session went on. Only the session's end gave a player their own clothes back.
+  Every player waking up now gets them back. (`DreamSyncManager.OnLocalDreamLeft`)
+- **An awake player's doors did not reach the others while anyone was still dreaming.** Door
+  opens went out only for the dream's own doors while a dream session ran. This is now limited
+  to the player who is in the dream or going into it. (`DoorOpenSyncPatch.BroadcastDoorOpened`)
+
+## 0.8.264 — a dropped player rejoins straight into the dream
+
+- **Joining during a dream is allowed by default.** A player who joins, or rejoins after a
+  drop, while a party dream runs gets the save taken going in, and the session bulk pulls them
+  onto the dream's pad (the same path 0.8.263 opened for a dream the host's game reloaded into).
+  Before, a dropped player stayed locked out until the dream ended. `AllowJoinDuringDream` is
+  now `true`. A cfg written before keeps its old `false` otherwise, so it is switched on once
+  (`AllowJoinDuringDreamDefaultApplied`); after that the player's own value stays.
+- **Joins during a dream's entry are still refused, whatever the setting says.** That covers
+  the entry movie, the prepare and the pad spawn: the joiner would land between the overworld
+  and a pad that does not exist yet. (`DreamSyncManager.IsDreamEntryWindow`, both the LAN and
+  the Steam accept gates)
+
+## 0.8.263 — the grave meadow's black chompers on every screen; a join during the host's dream no longer breaks the save; the dream fades in at the same pace for everyone
+
+- **Clients did not see the grave meadow dream's extra black chomper** until it came near the
+  dream's centre (35 seconds in a test). A client only made a copy of a creature within 5000 of
+  the dream's origin, and that dream's chomper glade lies about 5050 out, so the host's extra
+  chomper stayed missing on the client. The client now accepts anything in the dream's own
+  slot. The same radius mistake is fixed in two other places. Object matching on the pad
+  counted only 250 from the origin as "on the pad". The bunker dream's forest spirit fallback
+  looked for a client's trigger within 2000 of the origin. (`DreamSyncManager.IsInPadSlot`,
+  `ClientEntityInterpolationService.SpawnEntityLocally` / `SamePresentationWorld`,
+  `WorldPhysicsSyncService.IsSameWorldAsTarget`, `ThreatTriggerContext.TryGetRecentProxyOnPad`)
+- **Why the chompers came so late in the playtest:** the corpse only vanishes, and only then
+  are the chompers let out, once nobody sees it. Vanilla counts seeing as looking at the spot or
+  standing within about 180 of it, and the grave is 164 away. The client stood near the corpse
+  and then dug at the grave, so it "saw" the spot the whole time. The corpse vanished only
+  after the client left, and the chompers came out as the host climbed into the grave. A solo
+  player at the grave holds it the same way. Checked in a run: with everyone away the corpse
+  vanishes, and coming back lets the chompers out. Unchanged.
+- **A join during the host's dream wrote a broken save.** When the host's game reloaded into a
+  dream (it quit or dropped mid-dream) and a friend joined, the world share force-saved the
+  world mid-dream. That save loads with the host standing on the dream's pad, no dream resumed
+  and the dream's inventory in the bags, and the next dream start threw (`Dreams.startDreaming`).
+  The share now sends the save taken going into the dream, without a new save. The joiner is
+  pulled into the host's dream, which becomes the party's. Two other co-op saves stand down
+  inside a dream: the host's save after a client's day death, and a client's local save on the
+  host's save broadcast. Vanilla saves again on waking. Tested: quit both games mid-dream,
+  relaunched, the client joined into the host's dream, the dream resumed again after a second
+  quit, and both woke at home. (`DreamSyncManager.IsLocalMidDream`,
+  `WorldSaveShareService.HostShare`, `CombatDeathStateNetHandlers.SaveAfterRemoteDeath`,
+  `SaveNetHandlers.ApplySaveSyncLocalSave`)
+- **A save already broken that way is repaired on load.** The player is woken the way vanilla
+  ends a dream: the pre-dream inventory, effects and time come back, at the spot where the
+  dream started. (`StrandedDreamSaveRepair`)
+- **The client came out of the dream's black screen seconds before the host.** After the entry
+  movie, vanilla waits 0.3 s once the dream is loaded, then fades the movie's black last frame
+  out over the movie's own fade (3 s for the usual entry). The co-op entry path cut the movie
+  and lifted the black in 0.5 s. It now uses the vanilla pace. (`DreamSyncManager.DoFadeInDreamBlackScreen`)
+- Test pilot: `sight <name>` prints whether each player sees a sight-triggered object, as the
+  host's check does. `pending` also prints the client's loading flags.
 
 ## 0.8.262 — no stutter while a dead player's body looks for its bag; save time broken down
 

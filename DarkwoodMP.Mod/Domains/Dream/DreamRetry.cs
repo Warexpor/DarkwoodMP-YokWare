@@ -36,6 +36,8 @@ namespace DWMPHorde.Sync
         /// </summary>
         private static string _hostWaiting; // reset-in: Reset (NetworkResetRegistry)
         private static float _hostNotBefore; // reset-in: Reset (NetworkResetRegistry)
+        /// <summary>Host: level slot(s) the waiting dream is for (a migrated peer's owed level-up).</summary>
+        private static byte _hostLevelBits; // reset-in: Reset (NetworkResetRegistry)
 
         internal static void Reset()
         {
@@ -47,6 +49,7 @@ namespace DWMPHorde.Sync
             HostDreamRunning = false;
             _hostWaiting = null;
             _hostNotBefore = 0f;
+            _hostLevelBits = 0;
         }
 
         /// <summary>
@@ -76,6 +79,7 @@ namespace DWMPHorde.Sync
         private static void HostPark(string preset)
         {
             _hostWaiting = preset;
+            _hostLevelBits = 0;
             _hostNotBefore = Time.unscaledTime + RetryDelaySec;
             // Kept here, not in wantToDream: with no dream of its own coming, that flag would
             // hold the host's location activation and spawning as if one were (WhereAmI, Location).
@@ -100,9 +104,10 @@ namespace DWMPHorde.Sync
                 && !DreamSyncManager.IsLocalDeadOutsideDream() && !PersonalPrologue.LocalInPrologue;
         }
 
-        private static void HostStart(string preset)
+        private static void HostStart(string preset, byte levelBits = 0)
         {
             Dreams dreams = Dreams.Instance;
+            DreamSession.NextLevelBits |= levelBits;
             dreams.wantToDream = true;
             dreams.StartCoroutine(dreams.prepareDream(preset));
         }
@@ -118,12 +123,21 @@ namespace DWMPHorde.Sync
                 _hostWaiting = null;
                 return;
             }
+            if (_hostLevelBits != 0 && DreamSession.LevelSlotsPlayed(_hostLevelBits))
+            {
+                ModRuntime.LegacyInfo("[DreamRetry] host: the party played this level's dream meanwhile — dropped");
+                _hostWaiting = null;
+                _hostLevelBits = 0;
+                return;
+            }
             if (!HostCanStart())
                 return;
             string name = _hostWaiting;
+            byte bits = _hostLevelBits;
             _hostWaiting = null;
-            ModRuntime.LegacyInfo($"[DreamRetry] host: start waiting dialogue dream '{name}'");
-            HostStart(name);
+            _hostLevelBits = 0;
+            ModRuntime.LegacyInfo($"[DreamRetry] host: start waiting dream '{name}'");
+            HostStart(name, bits);
         }
 
         /// <summary>The entry transition sent a start request for <paramref name="dreamName"/> ("" = random roll).</summary>
@@ -187,6 +201,7 @@ namespace DWMPHorde.Sync
                 if (_waiting != null && _hostWaiting == null)
                 {
                     _hostWaiting = _waiting;
+                    _hostLevelBits = _levelBits;
                     _hostNotBefore = Time.unscaledTime + RetryDelaySec;
                 }
                 _waiting = null;
@@ -224,6 +239,14 @@ namespace DWMPHorde.Sync
             if (_waiting.Length > 0 && DreamSession.IsPresetCompleted(_waiting))
             {
                 _waiting = null;
+                return;
+            }
+            // Nor a level-up dream whose level the party had a dream for meanwhile.
+            if (_levelBits != 0 && DreamSession.LevelSlotsPlayed(_levelBits))
+            {
+                ModRuntime.LegacyInfo("[DreamRetry] the party played this level's dream meanwhile — owed dream dropped");
+                _waiting = null;
+                _levelBits = 0;
                 return;
             }
 

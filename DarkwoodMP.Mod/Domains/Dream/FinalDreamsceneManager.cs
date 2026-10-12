@@ -90,6 +90,54 @@ namespace DWMPHorde.Sync
             }
         }
 
+        /// <summary>
+        /// Players still playing the dream: in it, alive in it, and not on their way out by their
+        /// own exit. A host that left (or is leaving) and runs the dream from outside is not one.
+        /// </summary>
+        internal static int LiveDreamers()
+        {
+            var net = ModRuntime.Network;
+            int n = LocalIsLiveDreamer() ? 1 : 0;
+            if (net == null)
+                return n;
+            var seen = new HashSet<int>();
+            foreach (int id in net.GetHandshakedPeerIds())
+                n += LiveRemote(net, id, seen);
+            foreach (var proxy in net.GetAllProxies())
+            {
+                if (proxy != null)
+                    n += LiveRemote(net, proxy.PlayerId, seen);
+            }
+            foreach (int id in DreamSyncManager.RemoteDreamParticipantIds())
+                n += LiveRemote(net, id, seen);
+            return n;
+        }
+
+        private static int LiveRemote(LanNetworkManager net, int id, HashSet<int> seen)
+        {
+            if (id <= 0 || id == net.LocalPlayerId || !seen.Add(id))
+                return 0;
+            return IsLiveRemoteDreamer(id) ? 1 : 0;
+        }
+
+        /// <summary>The local player is still playing the dream (<see cref="LiveDreamers"/>).</summary>
+        internal static bool LocalIsLiveDreamer()
+        {
+            var net = ModRuntime.Network;
+            Dreams dreams = Singleton<Dreams>.Instance;
+            bool localIn = DreamSyncManager.IsLocalDreamActive || (dreams != null && dreams.dreaming);
+            return localIn && !_localDeadInDream && !DreamExit.LocalLeaving && !DreamExit.HostHostsFromOutside
+                && (net == null || !DreamExit.HasLeft(net.LocalPlayerId));
+        }
+
+        /// <summary>A remote player is still playing the dream: in it, alive in it, not gone by its own exit.</summary>
+        internal static bool IsLiveRemoteDreamer(int id)
+        {
+            if (id <= 0 || !DreamSyncManager.IsRemoteInDream(id))
+                return false;
+            return !_deadPlayerIds.Contains(id) && !DeathStateTracker.IsRemoteNightDead(id);
+        }
+
         /// <summary>Refresh roster and report whether any remote participants are tracked.</summary>
         public static bool HasRemoteParticipants()
         {
@@ -127,6 +175,7 @@ namespace DWMPHorde.Sync
             ClearPeerDeadInDreamFlags();
             DWMPHorde.Patches.DialogueDoorAftermath.Reset();
             DreamForestSpiritAggro.Reset();
+            DreamLootParty.Reset();
             if (!_isActive) return;
             _isActive = false;
             _localDeadInDream = false;
@@ -244,6 +293,8 @@ namespace DWMPHorde.Sync
 
             if (AllDead)
                 TryHostEndAllDead("after local death");
+            else
+                DWMPHorde.Patches.NamedNpcScalePatch.HostTrimExtras("a dreamer died");
         }
 
         /// <summary>
@@ -290,6 +341,8 @@ namespace DWMPHorde.Sync
 
             if (AllDead)
                 TryHostEndAllDead("all remotes dead");
+            else
+                DWMPHorde.Patches.NamedNpcScalePatch.HostTrimExtras("a dreamer died");
         }
 
         /// <summary>
@@ -451,17 +504,25 @@ namespace DWMPHorde.Sync
                 AllowDeathEndPass = true;
                 ModRuntime.LegacyInfo(
                     "[FinalDreamscene] All-dead — initiateEndDreaming(playerDeath)");
+                // The others play their death transition alongside the host's.
+                if (net != null && net.IsConnected && net.Role == NetworkRole.Host)
+                    DreamSyncManager.NotifyPeersDeathEndBeginning(dreams.preset != null ? dreams.preset.name : null);
                 try
                 {
                     dreams.initiateEndDreaming();
                 }
                 catch (System.Exception ex)
                 {
-                    AllowDeathEndPass = false;
                     ModRuntime.Log?.LogWarning(
                         "[FinalDreamscene] initiateEndDreaming failed, falling back to endDreaming: "
                         + ex.Message);
                     dreams.endDreaming();
+                }
+                finally
+                {
+                    // Run inside a peer's death message the authority patch stands down under the
+                    // apply guard and never took the pass: it must not let a later death through.
+                    AllowDeathEndPass = false;
                 }
             }
             else
@@ -470,7 +531,13 @@ namespace DWMPHorde.Sync
                     "[FinalDreamscene] Dreams.Instance not dreaming — cleaning up directly");
                 var cam = Singleton<CamMain>.Instance;
                 if (cam != null) cam.followTarget = player != null ? player.transform : null;
-                if (net != null && net.IsConnected && DreamSession.IsActive)
+                if (net != null && net.IsConnected && net.Role == NetworkRole.Host && DreamExit.HostHostsFromOutside
+                    && DreamSession.IsActive)
+                {
+                    // The host left before them: the world takes the furthest ending reached.
+                    DreamExit.HostEndFromOutside(net, "allDead", partyEnding: true, actor: 0);
+                }
+                else if (net != null && net.IsConnected && DreamSession.IsActive)
                 {
                     net.Broadcast(NetMessageType.DreamEnded,
                         w => DreamEndedMessage.Build(DreamSession.PresetName ?? "", "allDead")

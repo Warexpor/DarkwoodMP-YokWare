@@ -40,9 +40,9 @@ namespace DWMPHorde.Patches
             if (spawned == null) { ModRuntime.LegacyInfo("[SendDrop] spawned is null"); return; }
             if (!NetGuard.Connected(out var net)) { ModRuntime.LegacyInfo("[SendDrop] net not connected"); return; }
             if (LanNetworkManager.IsApplyingRemoteState) { ModRuntime.LegacyInfo("[SendDrop] applying remote state"); return; }
-            // The host's own prologue: the drop lies on its pad (under ItemContainer, not the pad
+            // A personal pad (the host's prologue, a solo dream): the drop lies on it (under ItemContainer, not the pad
             // root). No GUID, so neither the live spawn nor the late-join drop bulk carries it.
-            if (PersonalPrologue.LocalInPrologue) return;
+            if (PersonalPads.LocalOn) return;
 
             string guid = System.Guid.NewGuid().ToString("N");
             ModRuntime.LegacyInfo($"[SendDrop] adding identifier guid={guid} to {spawned.name}");
@@ -281,7 +281,7 @@ namespace DWMPHorde.Patches
         /// </summary>
         internal static bool IsDreamScenePickup(Item worldItem)
         {
-            if (worldItem == null || !DreamSyncManager.IsDreamActive || PersonalPrologue.LocalInPrologue)
+            if (worldItem == null || !DreamSyncManager.IsDreamActive || PersonalPads.LocalOn)
                 return false;
             if (!NetGuard.Connected(out _))
                 return false;

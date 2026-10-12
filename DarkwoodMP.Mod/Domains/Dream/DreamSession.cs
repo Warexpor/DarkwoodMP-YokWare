@@ -13,12 +13,11 @@ namespace DWMPHorde.Sync
     /// Sole authority for the party's completed-preset set (persisted with the world, see
     /// <see cref="EnsureSeeded"/>) and the level slot(s) the running dream is for.
     ///
-    /// Level dreams are per player, as in vanilla: <c>Dreams.hadDreamAtLvl2/3/5/6/7</c> are each
-    /// player's own. The first player to reach a level brings that level's dream to everyone who
-    /// is there, and every player who was in it has that level's slot marked. Someone who was in
-    /// it does not get it again on their own level-up; someone who was not (a late joiner, a
-    /// player sitting it out dead) still gets a dream for that level, one the party has not
-    /// played (a played dream is never repeated; the bunker's slot rolls a random one instead).
+    /// Level dreams are once per party: the first player to reach a level brings that level's
+    /// dream to everyone who is there, however it ends. The level's slot is then played for the
+    /// party (<see cref="MarkLevelSlotsPlayed"/>, kept in the completed set): nobody gets a dream
+    /// for that level again, whether they were in it or not. Vanilla's per-player
+    /// <c>Dreams.hadDreamAtLvl2/3/5/6/7</c> follow it. Story dreams are not level slots.
     /// </summary>
     internal static class DreamSession
     {
@@ -57,6 +56,76 @@ namespace DWMPHorde.Sync
         internal static byte NextLevelBits; // reset-in: Reset
         /// <summary>Client: level slot(s) its own confirmed level-up wants a dream for (sent with the request).</summary>
         internal static byte PendingRequestBits; // reset-in: Reset
+
+        /// <summary>
+        /// A level slot's dream played by the party, kept in the completed set under this key so
+        /// it is persisted with the world (<see cref="CoopWorldCopyMeta.CompletedDreams"/>) and
+        /// reaches every peer with the played dreams. No preset has such a name.
+        /// </summary>
+        private const string LevelSlotKeyPrefix = "#level";
+
+        private static string LevelSlotKey(byte bit)
+        {
+            switch (bit)
+            {
+                case LvlFlag2: return LevelSlotKeyPrefix + "2";
+                case LvlFlag3: return LevelSlotKeyPrefix + "3";
+                case LvlFlag5: return LevelSlotKeyPrefix + "5";
+                case LvlFlag6: return LevelSlotKeyPrefix + "6";
+                case LvlFlag7: return LevelSlotKeyPrefix + "7";
+                default: return null;
+            }
+        }
+
+        /// <summary>The level slot bit for a player level (0 = not a dream level).</summary>
+        internal static byte LvlFlagForLevel(int level)
+        {
+            switch (level)
+            {
+                case 2: return LvlFlag2;
+                case 3: return LvlFlag3;
+                case 5: return LvlFlag5;
+                case 6: return LvlFlag6;
+                case 7: return LvlFlag7;
+                default: return 0;
+            }
+        }
+
+        /// <summary>Host: a dream for these level slots began for the party.</summary>
+        internal static void MarkLevelSlotsPlayed(byte bits)
+        {
+            for (int i = 0; i < 5; i++)
+            {
+                byte bit = (byte)(1 << i);
+                if ((bits & bit) != 0)
+                    _completedPresets.Add(LevelSlotKey(bit));
+            }
+            if (bits != 0)
+                ModLog.Event(LogCat.Dream, "Level dream slot(s) played by the party: " + bits);
+        }
+
+        /// <summary>
+        /// The party played a dream for every slot in <paramref name="bits"/>. The bunker is the
+        /// level-2 dream, so a played bunker is a played level-2 slot (worlds from before the slots).
+        /// </summary>
+        internal static bool LevelSlotsPlayed(byte bits)
+        {
+            if (bits == 0)
+                return false;
+            EnsureSeeded();
+            for (int i = 0; i < 5; i++)
+            {
+                byte bit = (byte)(1 << i);
+                if ((bits & bit) == 0)
+                    continue;
+                if (_completedPresets.Contains(LevelSlotKey(bit)))
+                    continue;
+                if (bit == LvlFlag2 && _completedPresets.Contains(BunkerPreset))
+                    continue;
+                return false;
+            }
+            return true;
+        }
 
         internal static byte TakePendingRequestBits()
         {
@@ -225,6 +294,7 @@ namespace DWMPHorde.Sync
             SetPendingHostPreset(presetName);
             FinalDreamsceneManager.OnDreamStarted();
             ArmStartingWatchdog();
+            SeparateDream.OnSessionPreset(presetName);
             ModLog.Event(LogCat.Dream, $"Starting session {SessionId} preset={presetName}");
             return true;
         }
@@ -263,6 +333,7 @@ namespace DWMPHorde.Sync
             SetPendingHostPreset(presetName);
             FinalDreamsceneManager.OnDreamStarted();
             ArmStartingWatchdog();
+            SeparateDream.OnSessionPreset(presetName);
             ModLog.Event(LogCat.Dream, $"Starting session {SessionId} preset={presetName} (from host)");
             return true;
         }
@@ -284,6 +355,7 @@ namespace DWMPHorde.Sync
                 $"UpdateActivePreset {PresetName} → {presetName} (session {SessionId})");
             PresetName = presetName;
             SetPendingHostPreset(presetName);
+            SeparateDream.OnSessionPreset(presetName);
             // Keep ResolveActivePresetName on the live pocket (prefers _localDreamPreset).
             DreamSyncManager.NoteLocalDreamPreset(presetName);
         }
@@ -419,6 +491,7 @@ namespace DWMPHorde.Sync
             _pendingHostPreset = null;
             LevelBits = 0;
             DreamExit.OnSessionOver();
+            SeparateDream.OnSessionOver();
         }
 
         /// <summary>Abort Starting/Active when prepare or pad load failed (no completion mark).</summary>
@@ -432,6 +505,7 @@ namespace DWMPHorde.Sync
             _pendingHostPreset = null;
             LevelBits = 0;
             DreamExit.OnSessionOver();
+            SeparateDream.OnSessionOver();
         }
 
         public static void Reset()
@@ -444,6 +518,7 @@ namespace DWMPHorde.Sync
             NextLevelBits = 0;
             PendingRequestBits = 0;
             DreamExit.OnSessionOver();
+            SeparateDream.OnSessionOver();
         }
 
         public static void ResetIncludingCompletions()

@@ -16,7 +16,7 @@ namespace DWMPHorde.Patches
     /// peer's hideout far from the host: nodes near a remote stay active and the physics scan
     /// covers every player), and its motion reaches the client through PhysicsState as any push.
     /// The push is dropped before it does anything; particles and sounds still play here.
-    /// A body on the client's own prologue pad is its own world and keeps vanilla.
+    /// A body on the client's own personal pad (its prologue, a solo dream) is its own world and keeps vanilla.
     /// </summary>
     [HarmonyPatch(typeof(MoveMe), "Update")]
     internal static class MoveMeClientPatch
@@ -28,7 +28,7 @@ namespace DWMPHorde.Patches
             if (__instance == null || __instance.GetComponent<Rigidbody>() == null
                 || __instance.GetComponent<Item>() == null)
                 return true;
-            if (PersonalPrologue.IsOnProloguePad(__instance.transform))
+            if (PersonalPads.Contains(__instance.transform))
                 return true;
             Object.Destroy(__instance);
             return false;

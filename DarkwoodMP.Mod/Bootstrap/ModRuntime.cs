@@ -200,6 +200,7 @@ namespace DWMPHorde
             NetworkResetRegistry.Register(FlagSyncIntPatch.Reset);
             NetworkResetRegistry.Register(DeathStateTracker.ResetSession);
             NetworkResetRegistry.Register(SharedPermadeathDeath.Reset);
+            NetworkResetRegistry.Register(DreamLootParty.Reset);
             SharedPermadeathDeath.Install();
             NetworkResetRegistry.Register(ClientEntityInterpolationService.Reset);
             NetworkResetRegistry.Register(EnemyAttackNetHandlers.Reset);
@@ -231,6 +232,7 @@ namespace DWMPHorde
             NetworkResetRegistry.Register(EpilogueNetHandlers.ResetSceneLoadState);
             NetworkResetRegistry.Register(CutsceneSyncHelpers.Reset);
             NetworkResetRegistry.Register(PersonalPrologue.Reset);
+            NetworkResetRegistry.Register(SeparateDream.Reset);
             NetworkResetRegistry.Register(ChapterTransitionHelpers.Reset);
             NetworkResetRegistry.Register(Audio.MovingObjectSoundService.Reset);
             NetworkResetRegistry.Register(Audio.ItemMovingSoundHelper.ResetSuppress);

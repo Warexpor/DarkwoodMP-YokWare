@@ -226,8 +226,8 @@ namespace DWMPHorde.Networking
             {
                 ShadowArmor armor = all[i];
                 if (armor == null) continue;
-                // The host's own prologue pads are not the world.
-                if (PersonalPrologue.IsOnProloguePad(armor.transform)) continue;
+                // Personal pads (the host's prologue, a solo dream) are not the world.
+                if (PersonalPads.Contains(armor.transform)) continue;
 
                 float maxHp = armor.maxHealth > 0f ? armor.maxHealth : armor.health;
                 if (!(maxHp > 0f && armor.health < maxHp))

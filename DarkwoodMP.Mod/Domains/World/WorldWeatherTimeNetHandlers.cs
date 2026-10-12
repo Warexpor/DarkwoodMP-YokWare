@@ -250,6 +250,10 @@ namespace DWMPHorde.Networking
                 || Sync.DreamSyncManager.IsDreamActive;
 
             int appliedTime = dreamClock ? msg.CurrentTime : msg.OverworldTime;
+            // This player's own copy of a solo dream keeps its own hour (its scene changes it,
+            // the morning of the home dream); the host's is the host's copy.
+            if (Sync.SeparateDream.LocalActive)
+                appliedTime = (int)prevTime;
             ctrl.CurrentTime = appliedTime;
             ctrl.day = msg.Day;
             Sync.NightVillage.SetAway(msg.VillagersAway);

@@ -84,6 +84,10 @@ namespace DWMPHorde.Patches
             bool lightNow = Player.Instance != null && !Player.Instance.inEpilogue
                 && !Singleton<OutsideLocations>.Instance.loading
                 && !Singleton<Dreams>.Instance.switchingDream && !Singleton<Dreams>.Instance.dreaming;
+            // A peer still in a dream this player woke up from: the pad's path graph went with the
+            // dream's end here (StashLeftDreamPadLights), so its beam lights nothing; looked up, it
+            // threw in AstarPath.GetNodesAround every pass until that peer woke too.
+            Transform leftPad = Sync.DreamSyncManager.GetLoadedDreamPad();
             for (int i = 0; i < Stash.Count; i++)
             {
                 Light2D lt = Stash[i];
@@ -91,7 +95,8 @@ namespace DWMPHorde.Patches
                     continue;
                 if (!__instance.logicLights.Contains(lt))
                     __instance.logicLights.Add(lt);
-                if (lightNow && lt.gameObject.activeInHierarchy)
+                if (lightNow && lt.gameObject.activeInHierarchy
+                    && (leftPad == null || !Sync.DreamSyncManager.IsInPadSlot(leftPad, lt.transform.position)))
                     lt.lightGraphNodes(BeamBounds(lt));
             }
             Stash.Clear();

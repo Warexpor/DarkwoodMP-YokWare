@@ -47,7 +47,7 @@ namespace DWMPHorde.Patches
                     string outcome = __instance.Value ?? "";
                     int actor = Sync.GeFireActorContext.PeekOr(0);
                     Singleton<Controller>.Instance.waitFramesAndRun(
-                        () => Sync.DreamExit.HostEndFromOutside(hostNet, outcome, runWorld: true, actor: actor), 1);
+                        () => Sync.DreamExit.HostEndFromOutside(hostNet, outcome, partyEnding: true, actor: actor), 1);
                     __result = HarmonyCoroutineUtil.Empty();
                     return false;
                 }

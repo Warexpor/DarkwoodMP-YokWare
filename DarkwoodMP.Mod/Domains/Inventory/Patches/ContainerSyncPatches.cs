@@ -188,6 +188,8 @@ namespace DWMPHorde.Patches
             }
             if (Core.loadingGame) return;
             if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected) return;
+            // A personal pad's container (a solo dream's cupboard) is this player's alone.
+            if (PersonalPads.Contains(pos)) return;
             if (slotIdx < 0)
             {
                 ModRuntime.Log?.LogWarning($"[Container] SendContainerAction BLOCKED (bad slotIdx): {action} slot={slotIdx} type={itemType}");
@@ -232,6 +234,8 @@ namespace DWMPHorde.Patches
                 Inventory taken = WorldQueryHelper.FindInventoryByPos(pos);
                 if (taken != null && taken.invType == Inventory.InvType.deathDrop)
                     net.CombatDeathBagHandlers?.TryHostFanDeathBagEmptied(taken);
+                DreamLootParty.HostAfterTake(taken, slotIdx, itemType, amount, durability, ammo, isRecipe,
+                    upgrades, shouldBeActive, net.LocalPlayerId);
             }
 
             // Track the pre-take player inventory count for a precise denial refund.

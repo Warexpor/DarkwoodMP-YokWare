@@ -104,9 +104,16 @@ namespace DWMPHorde.Networking
             // make client SaveManager.Load NRE with "ERROR WHEN LOADING DYNAMIC AND STATIC SAVE"
             // and leave loadingGame stuck, preventing phase-3 reconnect.
             // waitForGameSave / manual resend always force; late-join forces only when needed.
-            bool forceForConsistency = !waitForGameSave && hasAnyFiles
+            // A join (or a rejoin after a drop) while the host is in a dream: no save. One written
+            // mid-dream strands the host on the pad at its next load. The save on disk is the one
+            // taken going in (vanilla prepareDream); the joiner drops its dream resume on load and
+            // the session bulk pulls it onto the host's pad (AdoptSoloDreamForParty).
+            bool midDream = DreamSyncManager.IsLocalMidDream;
+            if (midDream && hasAnyFiles)
+                ModLog.Event(LogCat.Save, "World share during the host's dream: the save taken going in, no new save");
+            bool forceForConsistency = !waitForGameSave && hasAnyFiles && !midDream
                 && OnDiskSavPairNeedsForceSave(savPath, savsPath);
-            if ((waitForGameSave || forceForConsistency) && Singleton<SaveManager>.Instance != null)
+            if (((waitForGameSave && !midDream) || forceForConsistency) && Singleton<SaveManager>.Instance != null)
             {
                 ModLog.Event(LogCat.Save, waitForGameSave
                     ? "Post-worldgen/resend share: force-saving once"

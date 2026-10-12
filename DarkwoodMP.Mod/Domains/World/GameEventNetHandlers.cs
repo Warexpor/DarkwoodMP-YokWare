@@ -161,8 +161,8 @@ namespace DWMPHorde.Networking
                         continue;
                     if (ge.isSavedDelayedEvent)
                         continue;
-                    // Fired one-shots on the host's own prologue pad (exist on its machine only).
-                    if (PersonalPrologue.IsOnProloguePad(ge.transform))
+                    // Fired one-shots on a personal pad (the host's prologue, a solo dream; on its machine only).
+                    if (PersonalPads.Contains(ge.transform))
                         continue;
 
                     string eventName = ge.name ?? "";
@@ -295,6 +295,9 @@ namespace DWMPHorde.Networking
                     if (ge.isSavedDelayedEvent)
                         continue;
                     if (!IsUnderOrNearLocation(ge.transform, root, anchor, maxDistSqr))
+                        continue;
+                    // A personal pad (the host's prologue, a solo dream) is not the shared world.
+                    if (PersonalPads.Contains(ge.transform))
                         continue;
                     // Dream active: only pad children / near dream root (never overworld twin).
                     if (dreamRoot != null

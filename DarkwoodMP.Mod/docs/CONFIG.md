@@ -50,7 +50,8 @@ changes are kept without asking.
 | `ChatEnabled` | `true` | Co-op text chat. Ctrl+C opens the input, Enter sends, Esc closes. Gameplay input (movement, hotbar, walkie) is held while typing. |
 | `ShowPlayerNames` | `pointed` | When other players' names show over them: `pointed` (when the cursor is on them), `always` (while you can see them) or `off`. |
 | `MaxPlayers` | `8` | Maximum players including the host. |
-| `AllowJoinDuringDream` | `false` | When false, joins are rejected while a dream session is running. |
+| `AllowJoinDuringDream` | `true` | A player joining (or rejoining after a drop) while a dream runs is pulled onto its pad. When false, joins are rejected until the dream ends. Joins during a dream's entry (movie, prepare) are always rejected. |
+| `AllowJoinDuringDreamDefaultApplied` | `false` | Internal. Set once when `AllowJoinDuringDream` is switched to its new default (true) in a cfg written while the default was false; after that the player's own value is kept. |
 | `HostMigrationEnabled` | `true` | When the host crashes or times out, the survivors elect the lowest remaining player id as the new host (LAN and Steam) and reconnect to it. |
 
 ## Saves
@@ -69,6 +70,7 @@ changes are kept without asking.
 | `LootShareMode` | `ScaleWithPlayers` | `Off` or `ScaleWithPlayers` (1 + remote peers). Scales hideout fuels (mushrooms, odd meat, eggs and similar); not wood, nails or regular dog meat. |
 | `NamedNpcScaleEnabled` | `true` | Host: multiply allowlisted dream NPC presence by the party multiplier. |
 | `NamedNpcAllowlist` | `ChomperBlack` | Comma-separated character short names scaled in dreams only (not night hideout trash). |
+| `SoloHomeDream` | `true` | Host. The home dream (the flat, `dream_home`) is played alone: everyone goes in together and wakes by their own way out, but each player has their own copy of the flat and does not see the others there. Off: the party plays it together like the other dreams. Clients follow the host's value. |
 | `MaxPeerDamage` | `200` | The host clamps peer-reported attack / friendly-fire damage to this maximum per hit (anti-grief). Separately, each peer has a fixed hit budget (20 hits/s with a burst of 40, 1000 damage/s with a burst of 3000): bursts such as shotgun pellets apply in full, sustained spam is rejected. |
 | `NightMonsterMultiplier` | `1` | Host: how many night monsters come to each hideout compared with vanilla (1 = vanilla, up to 10; Host settings offers x1, x1.5, x2, x3, x4, x5, x7 and x10). Raises how many of each kind may be out at once and how fast they come. Applies at once, also mid-night; works in a solo game too. Worms, shadows and night events are not changed. |
 | `SharedDrag` | `true` | Experimental: a second player can take hold of a body another player is dragging (E on it) and the two move it together: 1.5 times a lone player's speed walking the same way, held still pulling apart, 0.75 times when one stands. When the dragger lets go, the other drags on. Both players need it on; with it off here, this machine neither joins nor accepts a second holder. |

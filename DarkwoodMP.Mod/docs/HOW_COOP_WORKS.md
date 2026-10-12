@@ -150,7 +150,7 @@ the rest of this document easier to read.
 | **Host-only, client suppressed** | The thing is world state and must happen exactly once. Clients skip the vanilla method (Harmony prefix) and receive the result. | Spawners, enemy AI, random events, world generation, loot rolls, the clock, one-shot story events |
 | **Request, validate, broadcast** | A client acts on the world. | Doors, container takes, pickups, attacks, trades, generator switches, gasoline |
 | **Host replays the client's action** | The action runs complex vanilla code that only the host may run for the world. The client does it locally for itself, the host re-runs it silently for the world. | Dialogue outcomes, examining objects |
-| **Per-player instance** | Vanilla does it for "the player", and every player should get their own. | Prologue, morning reward, home oven, level-up dreams, hints and one-shot "lessons" |
+| **Per-player instance** | Vanilla does it for "the player", and every player should get their own. | Prologue, morning reward, home oven, hints and one-shot "lessons" |
 | **One for every player** | A unique item would block everyone except its holder. | Chapter 2 oxygen tank |
 | **Party check** | Vanilla asks "does the player have X?" for a unique item. With one shared world, any player holding it counts. | Event "has item" requirements |
 | **Arbitration (first come, first served)** | Two players race for one thing. The host picks the winner and the loser is refused cleanly (and refunded). | Container slots, ground pickups, hand-ins of shared story items, one speaker per NPC |
@@ -231,8 +231,8 @@ on the host, so a returning player gets their own character back, not the host's
   ([section 18](#18-balancing-for-the-party)).
 - **Black chompers in dreams:** one extra per extra player
   ([section 18](#18-balancing-for-the-party)).
-- **Items lying in a dream's scene** (the grave meadow's shovel): each dreamer takes
-  their own ([section 13](#13-dreams)).
+- **Items in a dream's scene and its containers** (the grave meadow's shovel, the
+  church ruins wardrobe's axe): each dreamer takes their own ([section 13](#13-dreams)).
 - **Morning:** every hideout a living player greets the dawn in gets its own
   morning ([section 6](#6-night-morning-and-hideouts)).
 
@@ -285,8 +285,12 @@ ready.
 5. A player new to this world then plays their own prologue
    ([section 14](#14-prologue-tutorial-and-ending)).
 
-Joining is refused while a dream is running (and from the start of a dream's entry
-movie), unless the host sets `AllowJoinDuringDream`.
+A player joining (or rejoining after a drop) while a dream runs gets the save taken going into
+it and is pulled onto its pad; a dream the host's game reloaded into (it quit or dropped
+mid-dream) becomes the party's with the first joiner. `AllowJoinDuringDream = false` makes
+joins wait until the dream ends. Joins during a dream's entry (movie, prepare, pad spawn) are
+always refused. No co-op save is
+ever written inside a dream: such a save strands the player on the pad at the next load.
 
 ### Saving
 
@@ -795,31 +799,43 @@ party events.
   bed in the bunker dream, an exit area, the grave) wakes that player alone; the
   others stay in the dream until each of them leaves, and the host keeps it running
   after its own exit. From the first wake-up the world runs again for whoever is
-  awake (creatures, clock). What the dream changed in the world is decided by the
-  first player out; everyone gets their own outcome's items. Endings nobody else
+  awake (creatures, clock). Everyone gets their own outcome's items. What the dream
+  changes in the real world is decided when it is over for everyone: the furthest
+  ending anyone reached wins (an ending that is everyone's, such as a creature killed,
+  over a player's own way out, over a death). A player who stayed and went further
+  sets the world for the whole party; until the dream ends, a player who left early
+  has only their own part of their outcome. Endings nobody else
   could trigger again (a creature killed, a scripted scene, a dialogue), a dream that
-  hands over to its next part and the ending still finish it for everyone.
+  hands over to its next part and the ending still finish it for everyone. A player
+  who has left is gone from the dream for those still in it, also while their
+  wake-up plays: nothing there sees, triggers on or hurts them.
 - **Anyone can drive the story.** A client's talk, lamp, area step or blow on a story
   object moves the dream on for everyone; a dream that hands over to the next one
   (doctor 1 to 2) takes everyone along. Creatures the story sends (the forest spirit,
-  chompers) go after the player who set them off.
+  chompers) go after the player who set them off, and run from that player's ward
+  (the bunker dream's escape path) as they do from the host's.
 - **Level-up dreams.** The first player to reach level 2, 3, 5, 6 or 7 brings that
-  level's dream to everyone present, and everyone who was in it has that level's
-  dream done. A player who missed it (late, or dead) still gets an unplayed dream
-  for that level later, or just levels up if none is left. A played dream is never
-  repeated for the party. The bunker dream (level 2) is played once per world (a
+  level's dream to everyone present, and that level's dream is then played for the
+  whole party, however it ended: a player who reaches the level later just levels
+  up, whether they were in that dream or not (late, dead, or another player levelled
+  first). Two players levelling at once get one dream. Story dreams are not level
+  dreams and keep their own rules. A played dream is never repeated for the party. The bunker dream (level 2) is played once per world (a
   new world started in a save slot does not inherit the old world's played dreams);
   in chapter 1 a world that has not played it gets it with its next level-up dream.
 - **Dying in a dream:** you spectate until it ends. When every dreamer is dead, the
-  dream ends as a death outcome, also when the host is not one of the dreamers.
-- **Items in the scene:** an item the dream's scene has lying around (a weapon against
-  its creature) is there for each dreamer: taking it does not take it from the others.
-  What a player drops in a dream is one shared item. The dream bag is gone on waking.
+  dream ends as a death outcome, also when the host is not one of the dreamers, and
+  every dreamer wakes through the dream's death transition at the same time.
+- **Items in the scene:** an item the dream's scene has lying around or in its
+  containers (a weapon against its creature, the church ruins wardrobe's axe) is there
+  for each dreamer: taking it does not take it from the others. A container keeps one
+  copy for each living dreamer who has not taken theirs; a player gets one copy from a
+  slot. Journal items, what a player put in, and what bodies carry stay single. What a
+  player drops in a dream is one shared item. The dream bag is gone on waking.
 - **A dream's look is seen by all.** A dream that changes how a player looks (the
   Doctor in his dream, the home dream's clothes) shows it to every other player, and
   each player wakes in their own clothes.
-- **Rewards:** dream outcome items are given to each dreamer. The outcome's world
-  events reach every player, including one who died in the dream. A failed or
+- **Rewards:** dream outcome items are given to each dreamer. The world outcome's
+  events (above) reach every player, including one who died in the dream or left it early. A failed or
   abandoned dream gives nothing and is not marked done.
 - **One scene, in one place.** Every player loads the dream's scene at the spot
   the host's game put it, a dream's next part too, so everything in it lines up.
@@ -832,6 +848,14 @@ party events.
   (the bunker door, for one). Every dream lookup is scoped to the dream's own map
   slot (the whole scene, not only near its centre), so a player in the overworld is
   never affected.
+- **The home dream is played alone (`SoloHomeDream`, on by default, the host's
+  choice).** Everyone still goes in together and the session is shared (who is in it,
+  who left, what the dream changed in the world), but each player plays their own copy
+  of the flat, as in single player: its events, doors, cupboards, items and lights are
+  their own, nothing of it is sent, and the others are not there (their bodies wait
+  out of the scene). Every ending of a player's own copy, its death included, is that
+  player's own way out. Voice and chat still work. Off: the party plays it together
+  like the other dreams.
 - **Host migration during a dream** carries the dream over to the new host (done in
   code, not yet playtested).
 
@@ -1041,7 +1065,7 @@ By design:
 - **A shared story item cannot be handed over twice.**
 - **A night-dead player cannot respawn before morning,** and F4 cannot release them.
 - **Peers cannot mix mod versions.** The protocol must match.
-- **Joining during a dream** is refused unless the host allows it.
+- **Joining during a dream's entry** (movie, prepare) is refused; once the dream runs, a joiner is pulled into it.
 - **A Steam host cannot be joined from a GOG copy** over Steam; use LAN.
 - **A client cannot join a host that is still on the title screen.**
 - **Nobody stays in a session from the title screen.** Going back to the main menu after

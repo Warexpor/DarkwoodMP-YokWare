@@ -98,8 +98,30 @@ namespace DWMPHorde.Sync
             return presetGO != null ? presetGO.GetComponent<DreamPreset>() : null;
         }
 
+        /// <summary>
+        /// When this peer began bringing a dream pad in (DreamStarted or a chain), until the pad has
+        /// loaded. The host's pad settles first and sends its containers' contents meanwhile.
+        /// </summary>
+        private static float _padLoadSince = -1f; // reset-in: OnDisconnectedCleanup
+
+        private const float PadLoadMaxSeconds = 60f;
+
+        internal static void NotePadLoadBegins() => _padLoadSince = Time.realtimeSinceStartup;
+
+        /// <summary>
+        /// A dream pad is on its way in here and <paramref name="pos"/> is in a pad slot: something
+        /// of that pad the host sent may not exist yet.
+        /// </summary>
+        internal static bool IsDreamPadLoadingFor(Vector3 pos)
+        {
+            if (_padLoadSince < 0f || Time.realtimeSinceStartup - _padLoadSince > PadLoadMaxSeconds)
+                return false;
+            return ClientStateBackup.IsDreamPadCoordinate(pos);
+        }
+
         private static IEnumerator LoadDreamSceneCoroutine(string locationName, Vector3 position, bool _, int playerId = 0)
         {
+            NotePadLoadBegins();
             int gen = _entryGeneration;
             int sid = DreamSession.SessionId;
             // Vanilla prepareDream sets Dreams.preset for every dream; a peer that loads the pad
@@ -276,6 +298,8 @@ namespace DWMPHorde.Sync
             {
                 var netFlush = ModRuntime.Network;
                 netFlush?.GameEventHandlers?.TryFlushPendingGameEventsAfterDreamLoad();
+                _padLoadSince = -1f;
+                netFlush?.ContainerPendingHandlers?.FlushPendingPadStates();
             }
             catch { /* non-fatal */ }
 
@@ -377,12 +401,37 @@ namespace DWMPHorde.Sync
                 var ui = Singleton<UI>.Instance;
                 if (ui == null) return;
 
-                // Vanilla: only blackScreenTop, 0.5s, if alpha != 0.
+                // After an entry movie, vanilla DreamTransition.onLoaded: 0.3 s after the dream
+                // loads, the movie's last (black) frame fades out over its fadeOut (3 s for the
+                // usual entry). The peer path cut the movie and lifted the black in 0.5 s, so a
+                // pulled-in player saw the dream seconds before the one who started it.
+                float fade = _entryVideoFadeOut > 0f ? _entryVideoFadeOut : 0.5f;
+                bool afterMovie = _entryVideoFadeOut > 0f;
+                _entryVideoFadeOut = 0f;
+                if (afterMovie && Singleton<Controller>.Instance != null)
+                    Singleton<Controller>.Instance.Invoke(delegate { LiftDreamBlack(fade); }, 0.3f, false);
+                else
+                    LiftDreamBlack(fade);
+            }
+            catch (Exception ex)
+            {
+                ModRuntime.Log?.LogWarning("[DreamSync] DoFadeInDreamBlackScreen: " + ex.Message);
+            }
+        }
+
+        private static void LiftDreamBlack(float time)
+        {
+            try
+            {
+                var ui = Singleton<UI>.Instance;
+                if (ui == null) return;
+
+                // Vanilla startDreaming: only blackScreenTop, if alpha != 0.
                 if (ui.blackScreenTop != null)
                 {
                     var topSprite = ui.blackScreenTop.GetComponent<tk2dBaseSprite>();
                     if (topSprite == null || topSprite.color.a != 0f)
-                        ui.tweenBlackScreenTop(new Color(0f, 0f, 0f, 0f), 0.5f);
+                        ui.tweenBlackScreenTop(new Color(0f, 0f, 0f, 0f), time);
                 }
 
                 // Remote entry may also leave base blackScreen full; clear it at the same pace.
@@ -392,16 +441,16 @@ namespace DWMPHorde.Sync
                         ? ui.blackScreen.GetComponent<tk2dBaseSprite>()
                         : null;
                     if (baseSprite != null && baseSprite.color.a > 0.01f)
-                        ui.tweenBlackScreen(new Color(0f, 0f, 0f, 0f), 0.5f);
+                        ui.tweenBlackScreen(new Color(0f, 0f, 0f, 0f), time);
                 }
                 catch
                 {
-                    ui.tweenBlackScreen(new Color(0f, 0f, 0f, 0f), 0.5f);
+                    ui.tweenBlackScreen(new Color(0f, 0f, 0f, 0f), time);
                 }
             }
             catch (Exception ex)
             {
-                ModRuntime.Log?.LogWarning("[DreamSync] DoFadeInDreamBlackScreen: " + ex.Message);
+                ModRuntime.Log?.LogWarning("[DreamSync] LiftDreamBlack: " + ex.Message);
             }
         }
 

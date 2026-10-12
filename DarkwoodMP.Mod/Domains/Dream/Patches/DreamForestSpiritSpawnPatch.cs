@@ -28,13 +28,13 @@ namespace DWMPHorde.Patches
 
             var net = ModRuntime.Network;
             // The player whose step into the forest set the scene off (the area trigger's actor):
-            // vanilla's "the player". A recent trigger near the pad's origin was guessed before,
-            // within 2000 of it: the forest lies some 8000 out, so the spirit always took the host.
+            // vanilla's "the player". Else a recent peer trigger on the pad (its slot: the forest
+            // lies some 8000 from the pad's origin, out of the 2000 radius once used here).
             Transform prefer = GeFireActorContext.Depth > 0 ? GeFireActorContext.ActorBody() : null;
             if (prefer == null)
             {
                 Transform pad = DreamSyncManager.GetDreamLocationTransform();
-                prefer = pad != null ? ThreatTriggerContext.TryGetRecentProxyNear(pad.position, 2000f, 8f) : null;
+                prefer = pad != null ? ThreatTriggerContext.TryGetRecentProxyOnPad(pad, 8f) : null;
             }
             if (prefer != null && prefer.GetComponentInParent<RemotePlayerProxy>() == null)
                 prefer = null; // the host's own body: the host branch below

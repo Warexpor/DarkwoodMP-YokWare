@@ -171,6 +171,12 @@ namespace DWMPHorde.Networking
                     DenyContainerTake(_net.CurrentReceivePlayerId, msg, denyReason);
                     return;
                 }
+                // A party dream's loot: one copy per dreamer, and this one already has theirs.
+                if (fromClient && DreamLootParty.IsRepeatTake(inv, msg.SlotIndex, msg.ItemType, _net.CurrentReceivePlayerId))
+                {
+                    DenyContainerTake(_net.CurrentReceivePlayerId, msg, "dream loot: already took theirs");
+                    return;
+                }
 
                 if (msg.SlotIndex < inv.slots.Count)
                 {
@@ -188,6 +194,7 @@ namespace DWMPHorde.Networking
                             return;
                         }
 
+                        int taken = Math.Min(msg.Amount, slot.invItem.amount);
                         if (msg.Amount >= slot.invItem.amount)
                         {
                             ModRuntime.LegacyInfo($"[Container] HandleContainerItem: removing {slot.invItem.type} x{slot.invItem.amount} from slot {msg.SlotIndex}");
@@ -199,6 +206,9 @@ namespace DWMPHorde.Networking
                             slot.invItem.removeAmount(msg.Amount);
                         }
                         FireRemoteContainerStoryTrigger(inv, EventTrigger.Type.onTakeInvItem, msg);
+                        if (fromClient)
+                            DreamLootParty.HostAfterTake(inv, msg.SlotIndex, msg.ItemType, taken, msg.Durability, msg.Ammo,
+                                msg.IsRecipe, msg.Upgrades, msg.ShouldBeActive, _net.CurrentReceivePlayerId);
 
                         // World dropped-item pickups (shiny stone): empty inventory still leaves the GO.
                         // DestroyEmptyItemInvAt only destroys Item.isDroppedItem, not wardrobes or chests.

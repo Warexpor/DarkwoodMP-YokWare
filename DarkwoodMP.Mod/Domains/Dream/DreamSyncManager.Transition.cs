@@ -60,6 +60,7 @@ namespace DWMPHorde.Sync
                     else if (obj.type == DreamTransition.TransitionObject.Type.Video)
                     {
                         hasVideo = true;
+                        _entryVideoFadeOut = obj.fadeOut;
                         Renderer renderer = Singleton<UI>.Instance.videoOverlay.GetComponent<Renderer>();
                         if (renderer == null) continue;
 
@@ -79,9 +80,13 @@ namespace DWMPHorde.Sync
                         if (!string.IsNullOrEmpty(_remoteEntryAudioId))
                             vp.SetDirectAudioMute(0, true);
 
+                        // Active first, as vanilla DreamTransition.transition does: a disabled
+                        // VideoPlayer refuses Prepare ("Cannot Prepare a disabled VideoPlayer"), so
+                        // an observer never saw the other player's entry movie, only black.
+                        Singleton<UI>.Instance.videoOverlay.gameObject.SetActive(true);
+                        vp.prepareCompleted -= OnRemoteTransitionVideoPrepared;
                         vp.prepareCompleted += OnRemoteTransitionVideoPrepared;
                         vp.Prepare();
-                        Singleton<UI>.Instance.videoOverlay.gameObject.SetActive(true);
 
                         // Fade in
                         if (obj.fadeIn > 0f)

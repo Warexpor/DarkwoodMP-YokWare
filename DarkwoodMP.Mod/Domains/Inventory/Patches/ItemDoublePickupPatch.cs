@@ -96,7 +96,7 @@ namespace DWMPHorde.Patches
             return CoopBalance.GetPartyMultiplier();
         }
 
-        private static bool IsPlayerPlacedSlot(InvSlot slot)
+        internal static bool IsPlayerPlacedSlot(InvSlot slot)
         {
             if (slot?.inventory == null) return false;
             if (!IsWorldContainer(slot.inventory)) return false;

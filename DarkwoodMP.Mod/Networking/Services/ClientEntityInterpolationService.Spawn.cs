@@ -139,9 +139,9 @@ namespace DWMPHorde.Networking
                     return null;
                 if (dreamTf != null)
                 {
-                    // Dream pads sit far off-map; 5km radius around pad is generous.
-                    const float maxDistSq = 5000f * 5000f;
-                    if ((position - dreamTf.position).sqrMagnitude > maxDistSq)
+                    // Only the pad's own slot. A 5000 radius around the pad's origin cut off the
+                    // grave meadow's chomper glade (~5050 out): its extra chomper never appeared here.
+                    if (!DreamSyncManager.IsInPadSlot(dreamTf, position))
                         return null;
                     // In the pad, as the host's copy is: vanilla destroys the pad, and with it
                     // this body, when the dream ends. Unparented, it stayed on the client.

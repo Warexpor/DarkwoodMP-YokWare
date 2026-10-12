@@ -73,6 +73,8 @@ namespace DWMPHorde.Networking
 
         internal void SendItemSpawn(ItemSpawnMessage msg)
         {
+            // A personal pad (the host's prologue, a solo dream) is not the shared world.
+            if (PersonalPads.Contains(new Vector3(msg.PosX, msg.PosY, msg.PosZ))) return;
             if (!_net.IsConnected) return;
             if (LanNetworkManager.IsApplyingRemoteState) return;
             ModRuntime.LegacyInfo($"[ItemSpawn] sending {msg.ItemType} at {msg.PosX},{msg.PosY},{msg.PosZ}");
@@ -82,6 +84,8 @@ namespace DWMPHorde.Networking
 
         internal void SendThrowableSpawn(ThrowableSpawnMessage msg)
         {
+            // A personal pad (the host's prologue, a solo dream) is not the shared world.
+            if (PersonalPads.Contains(new Vector3(msg.PosX, msg.PosY, msg.PosZ))) return;
             if (!_net.IsConnected) return;
             if (LanNetworkManager.IsApplyingRemoteState) return;
             _net.Broadcast(NetMessageType.ThrowableSpawn, w => msg.Serialize(w), LiteNetLib.DeliveryMethod.ReliableOrdered);
@@ -89,6 +93,8 @@ namespace DWMPHorde.Networking
 
         internal void SendDroppedItemSpawn(DroppedItemSpawnMessage msg)
         {
+            // A personal pad (the host's prologue, a solo dream) is not the shared world.
+            if (PersonalPads.Contains(new Vector3(msg.PosX, msg.PosY, msg.PosZ))) return;
             if (!_net.IsConnected) return;
             if (LanNetworkManager.IsApplyingRemoteState) return;
             _net.Broadcast(NetMessageType.DroppedItemSpawn, w => msg.Serialize(w), LiteNetLib.DeliveryMethod.ReliableOrdered);
@@ -182,6 +188,8 @@ namespace DWMPHorde.Networking
 
         public void SendDoorState(DoorState door)
         {
+            // A personal pad (the host's prologue, a solo dream) is not the shared world.
+            if (PersonalPads.Contains(new Vector3(door.PosX, door.PosY, door.PosZ))) return;
             if (!_net.IsConnected) return;
             // DialogHostApplyGuard: host replaying client dialogue close must fan out DoorState.
             if (LanNetworkManager.IsApplyingRemoteState && !HostApplyGuard.Active) return;
@@ -208,6 +216,8 @@ namespace DWMPHorde.Networking
         /// </summary>
         internal void BroadcastTrapState(TrapState ts)
         {
+            // A personal pad (the host's prologue, a solo dream) is not the shared world.
+            if (PersonalPads.Contains(new Vector3(ts.PosX, ts.PosY, ts.PosZ))) return;
             if (!_net.IsConnected) return;
             var msg = WorldPhysicsSyncService.StampSnapshot(
                 new PhysicsStateMessage { Traps = new[] { ts } });
@@ -275,8 +285,8 @@ namespace DWMPHorde.Networking
             {
                 if (list.Count >= maxSend) break;
                 GameObject go = kv.Value;
-                // The host's own prologue pads are not the world.
-                if (go == null || PersonalPrologue.IsOnProloguePad(go.transform)) continue;
+                // Personal pads (the host's prologue, a solo dream) are not the world.
+                if (go == null || PersonalPads.Contains(go.transform)) continue;
                 if (padScoped && !IsTrapUnderOrNear(go.transform, root, anchor, maxDistSqr))
                     continue;
                 Vector3 p = go.transform.position;
@@ -308,7 +318,7 @@ namespace DWMPHorde.Networking
             foreach (var go in WorldPhysicsSyncService.GetKnownTrapsSnapshot())
             {
                 if (list.Count >= maxSend) break;
-                if (go == null || PersonalPrologue.IsOnProloguePad(go.transform)) continue;
+                if (go == null || PersonalPads.Contains(go.transform)) continue;
                 if (padScoped && !IsTrapUnderOrNear(go.transform, root, anchor, maxDistSqr))
                     continue;
                 int id = Sync.TrapNetworkId.GetOrMintHost(go);

@@ -135,6 +135,7 @@ namespace DWMPHorde.Sync
 
         private static IEnumerator ProcessRemoteDreamCoroutine(int playerId, Vector3 locationPosition)
         {
+            NotePadLoadBegins();
             int gen = _entryGeneration;
             int sid = DreamSession.SessionId;
             string presetName = _currentDreamPreset.TryGetValue(playerId, out var p) ? p : null;
@@ -327,6 +328,15 @@ namespace DWMPHorde.Sync
         /// in here loaded into a world about to freeze and missed the DreamStarted roster.
         /// </summary>
         internal static bool IsHostDreamEntryPending => _hostEntryFreeze;
+
+        /// <summary>
+        /// Host: a dream is on its way in but not started (entry movie, prepare, pad spawn). A join
+        /// here is always refused, whatever <c>AllowJoinDuringDream</c> says: the joiner would land
+        /// between the overworld and a pad that does not exist yet. Once the dream runs, the
+        /// session bulk pulls a joiner onto its pad.
+        /// </summary>
+        internal static bool IsDreamEntryWindow =>
+            !_localDreamActive && (_hostEntryFreeze || DreamSession.IsStarting || _earlyEntryTransitionPlayed);
         private static int _hostEntryWatch;   // process-scoped: generation of the host entry poll, bumped per start
 
         /// <summary>
@@ -432,6 +442,7 @@ namespace DWMPHorde.Sync
         internal static void AbortEntryVisuals()
         {
             FadeOutDreamTransition();
+            _entryVideoFadeOut = 0f;
             DoFadeInDreamBlackScreen();
             try
             {
@@ -566,6 +577,14 @@ namespace DWMPHorde.Sync
                         VideoPlayer vp = renderer.GetComponent<VideoPlayer>();
                         if (vp != null && vp.isPlaying)
                             vp.Stop();
+                        // The observer's copy muted the movie's own track (the stinger plays
+                        // instead). The player is the game's one video overlay: left muted, this
+                        // player's own next entry movie played without its sound.
+                        if (vp != null)
+                        {
+                            try { vp.SetDirectAudioMute(0, false); }
+                            catch { /* no audio track */ }
+                        }
                         // Snap off. DOFade(0.5s) exposed overworld when black was not yet solid.
                         if (renderer.material != null)
                             renderer.material.color = new Color(1f, 1f, 1f, 0f);

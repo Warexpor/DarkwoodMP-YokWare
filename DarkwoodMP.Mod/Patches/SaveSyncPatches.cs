@@ -19,7 +19,7 @@ namespace DWMPHorde.Patches
     public static class ClientConnectedWorldSaveBlockPatch
     {
         [HarmonyPriority(Priority.High)]
-        private static bool Prefix()
+        private static bool Prefix(bool showSavingIndicator)
         {
             if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected)
                 return true;
@@ -32,6 +32,19 @@ namespace DWMPHorde.Patches
 
             ModLog.Event(LogCat.Save,
                 "Client world Save blocked — host owns Flags/DynamicSave; backup + SaveSync only");
+            // Vanilla shows the corner "Saving" indicator at the end of every save that asks for
+            // it (SaveManager.finishSaving). Blocked here, the client never saw it where the host
+            // did: the dream entry, a level-up, a sleep.
+            if (showSavingIndicator)
+            {
+                try
+                {
+                    UI ui = Singleton<UI>.Instance;
+                    if (ui != null)
+                        ui.showSavingIndicator();
+                }
+                catch { /* UI not up */ }
+            }
             return false;
         }
     }

@@ -181,8 +181,8 @@ namespace DWMPHorde.Networking
             {
                 Liquid liquid = all[i];
                 if (liquid == null || !liquid.flammable) continue;
-                // The host's own prologue pads are not the world.
-                if (PersonalPrologue.IsOnProloguePad(liquid.transform)) continue;
+                // Personal pads (the host's prologue, a solo dream) are not the world.
+                if (PersonalPads.Contains(liquid.transform)) continue;
 
                 Vector3 p = liquid.transform.position;
                 // Cap bulk so join flood stays reasonable (trails are dense when pouring).

@@ -53,16 +53,13 @@ namespace DWMPHorde.Patches
         }
 
         /// <summary>
-        /// Same memory, but only if that enter happened near <paramref name="near"/>.
-        /// A door in the meadow must not count as the dream bunker.
+        /// Same memory, but only if that enter happened in the slot of <paramref name="pad"/> (a
+        /// dream pad): a door in the meadow must not count as the dream bunker.
         /// </summary>
-        public static Transform TryGetRecentProxyNear(Vector3 near, float maxDist, float maxAgeSec)
+        public static Transform TryGetRecentProxyOnPad(Transform pad, float maxAgeSec)
         {
             Transform t = TryGetRecentProxyTransform(maxAgeSec);
-            if (t == null) return null;
-            if (Core.trueDistance(_lastProxyEnterPos, near) > maxDist)
-                return null;
-            return t;
+            return t != null && DWMPHorde.Sync.DreamSyncManager.IsInPadSlot(pad, _lastProxyEnterPos) ? t : null;
         }
 
         public static Vector3? TryGetRecentProxyPosition(float maxAgeSec)

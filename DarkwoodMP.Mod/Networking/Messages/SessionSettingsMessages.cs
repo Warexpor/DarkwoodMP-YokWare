@@ -12,6 +12,8 @@ namespace DWMPHorde.Networking
         public byte LootShare;
         public bool DoubleItemsEnabled;
         public int PartyMultiplier;
+        /// <summary>The home dream is played alone by every player.</summary>
+        public bool SoloHomeDream;
 
         public void Serialize(NetWriter w)
         {
@@ -19,6 +21,7 @@ namespace DWMPHorde.Networking
             w.Put(LootShare);
             w.Put(DoubleItemsEnabled);
             w.Put(PartyMultiplier);
+            w.Put(SoloHomeDream);
         }
 
         public static SessionSettingsMessage Deserialize(NetReader r) => new SessionSettingsMessage
@@ -26,7 +29,8 @@ namespace DWMPHorde.Networking
             FriendlyFireEnabled = r.GetBool(),
             LootShare = r.GetByte(),
             DoubleItemsEnabled = r.GetBool(),
-            PartyMultiplier = r.GetInt()
+            PartyMultiplier = r.GetInt(),
+            SoloHomeDream = r.GetBool()
         };
     }
 }

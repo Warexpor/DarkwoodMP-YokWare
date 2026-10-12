@@ -37,6 +37,14 @@ namespace DWMPHorde.Patches
                 return true;
             }
 
+            // A solo dream is this player's own copy: dying there ends it for this player alone,
+            // as in single player (its end is this player's own exit, DreamExit.LocalSoloEnd).
+            if (SeparateDream.LocalActive)
+            {
+                ModRuntime.LegacyInfo("[Death] Client died in its own copy of a solo dream — vanilla dream death");
+                return true;
+            }
+
             // Shared dream death: skip bag/respawn — but never steal epilogue crawl/cam path.
             // onDeath is IEnumerator; StartCoroutine(null) if Prefix returns false without __result.
             if (FinalDreamsceneManager.IsActive)

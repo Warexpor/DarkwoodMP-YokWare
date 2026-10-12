@@ -171,6 +171,12 @@ namespace DWMPHorde.Patches
             // this examine drew so the host takes the same line out of the shared deck. The local
             // examine ran for the personal HUD; onExamine triggers are blocked in
             // Core.sendTriggerInfo (see ExaminableOnExamineTriggerPatch).
+            // A personal pad (a solo dream's copy): examined here only, as in single player.
+            if (PersonalPads.Contains(__instance.transform))
+            {
+                DescriptionDeck.TakeDraw(out _, out _, out _);
+                return;
+            }
             if (net.Role == NetworkRole.Client)
             {
                 if (LanNetworkManager.IsApplyingRemoteState) return;
@@ -243,9 +249,9 @@ namespace DWMPHorde.Patches
         new[] { typeof(GameObject), typeof(EventTrigger.Type), typeof(bool) })]
     public static class ExaminableOnExamineTriggerPatch
     {
-        private static bool Prefix(EventTrigger.Type triggerType)
+        private static bool Prefix(GameObject destGO, EventTrigger.Type triggerType)
         {
-            return ExaminableOnExamineTrigger.Allow(triggerType);
+            return ExaminableOnExamineTrigger.Allow(destGO, triggerType);
         }
     }
 
@@ -253,18 +259,20 @@ namespace DWMPHorde.Patches
         new[] { typeof(GameObject), typeof(EventTrigger.Type), typeof(string), typeof(bool) })]
     public static class ExaminableOnExamineTriggerValuePatch
     {
-        private static bool Prefix(EventTrigger.Type triggerType)
+        private static bool Prefix(GameObject destGO, EventTrigger.Type triggerType)
         {
-            return ExaminableOnExamineTrigger.Allow(triggerType);
+            return ExaminableOnExamineTrigger.Allow(destGO, triggerType);
         }
     }
 
     internal static class ExaminableOnExamineTrigger
     {
-        internal static bool Allow(EventTrigger.Type triggerType)
+        internal static bool Allow(GameObject destGO, EventTrigger.Type triggerType)
         {
             if (triggerType != EventTrigger.Type.onExamine) return true;
             if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected) return true;
+            // A personal pad (a solo dream's copy) runs its own examine triggers.
+            if (destGO != null && PersonalPads.Contains(destGO.transform)) return true;
             if (LanNetworkManager.IsApplyingRemoteState || NetworkApplyGuard.IsActive)
                 return true;
             var net = ModRuntime.Network;
