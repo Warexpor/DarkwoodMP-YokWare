@@ -276,12 +276,29 @@ namespace DWMPHorde.Networking
             DreamSyncManager.CancelRefusedEntry();
         }
 
+        internal const string LevelPlayedReason = "level_played";
+
         internal void HandleDreamStartRequest(DreamStartRequestMessage msg)
         {
             if (_net.Role != NetworkRole.Host)
                 return;
 
             int requesterId = _net.CurrentReceivePlayerId;
+
+            // Level dreams are once per party: a level-up confirmed before the requester heard
+            // that the party's dream for the level began (two players levelling at once) gets none.
+            if (msg.LvlFlags != 0 && DreamSession.LevelSlotsPlayed(msg.LvlFlags))
+            {
+                if (string.IsNullOrEmpty(msg.PresetName)
+                    || string.Equals(msg.PresetName, DreamSession.BunkerPreset, StringComparison.OrdinalIgnoreCase))
+                {
+                    ModLog.Event(LogCat.Dream,
+                        "[DreamSync] reject start request — the party played this level's dream: " + msg.LvlFlags);
+                    RejectStartRequest(requesterId, LevelPlayedReason);
+                    return;
+                }
+                msg.LvlFlags = 0; // a story dream that came with the level-up: not a level slot
+            }
 
             // The host runs every dream as a participant; dead, it cannot. The requester keeps the
             // dream and asks again once the host is back (DreamRetry), as vanilla keeps wantToDream.

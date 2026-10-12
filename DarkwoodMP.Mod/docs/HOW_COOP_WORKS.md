@@ -150,7 +150,7 @@ the rest of this document easier to read.
 | **Host-only, client suppressed** | The thing is world state and must happen exactly once. Clients skip the vanilla method (Harmony prefix) and receive the result. | Spawners, enemy AI, random events, world generation, loot rolls, the clock, one-shot story events |
 | **Request, validate, broadcast** | A client acts on the world. | Doors, container takes, pickups, attacks, trades, generator switches, gasoline |
 | **Host replays the client's action** | The action runs complex vanilla code that only the host may run for the world. The client does it locally for itself, the host re-runs it silently for the world. | Dialogue outcomes, examining objects |
-| **Per-player instance** | Vanilla does it for "the player", and every player should get their own. | Prologue, morning reward, home oven, level-up dreams, hints and one-shot "lessons" |
+| **Per-player instance** | Vanilla does it for "the player", and every player should get their own. | Prologue, morning reward, home oven, hints and one-shot "lessons" |
 | **One for every player** | A unique item would block everyone except its holder. | Chapter 2 oxygen tank |
 | **Party check** | Vanilla asks "does the player have X?" for a unique item. With one shared world, any player holding it counts. | Event "has item" requirements |
 | **Arbitration (first come, first served)** | Two players race for one thing. The host picks the winner and the loser is refused cleanly (and refunded). | Container slots, ground pickups, hand-ins of shared story items, one speaker per NPC |
@@ -808,10 +808,11 @@ party events.
   (doctor 1 to 2) takes everyone along. Creatures the story sends (the forest spirit,
   chompers) go after the player who set them off.
 - **Level-up dreams.** The first player to reach level 2, 3, 5, 6 or 7 brings that
-  level's dream to everyone present, and everyone who was in it has that level's
-  dream done. A player who missed it (late, or dead) still gets an unplayed dream
-  for that level later, or just levels up if none is left. A played dream is never
-  repeated for the party. The bunker dream (level 2) is played once per world (a
+  level's dream to everyone present, and that level's dream is then played for the
+  whole party, however it ended: a player who reaches the level later just levels
+  up, whether they were in that dream or not (late, dead, or another player levelled
+  first). Two players levelling at once get one dream. Story dreams are not level
+  dreams and keep their own rules. A played dream is never repeated for the party. The bunker dream (level 2) is played once per world (a
   new world started in a save slot does not inherit the old world's played dreams);
   in chapter 1 a world that has not played it gets it with its next level-up dream.
 - **Dying in a dream:** you spectate until it ends. When every dreamer is dead, the

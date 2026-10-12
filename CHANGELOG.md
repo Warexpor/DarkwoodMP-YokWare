@@ -3,12 +3,12 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.265**. The current Horde wire protocol is **64**. Every install in a session
+**0.8.266**. The current Horde wire protocol is **64**. Every install in a session
 needs the same DLL; the protocol is checked on join.
 
 Protocol history (newest first):
 
-- **64**, 0.8.265: `SessionSettings` gains the host's `SoloHomeDream`.
+- **64**, 0.8.265 to 0.8.266: `SessionSettings` gains the host's `SoloHomeDream`.
 - **63**, 0.8.259 to 0.8.264: `TradeCommit` gains the trade's change to the trader's standing; a
   `DialogMirror` element gains the language entry its text came from; `PlayerEffectSync` uses
   a spare bit (`MovedHome`, Flags2 64).
@@ -77,6 +77,30 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.266 — level-up dreams once per party
+
+- **What changed.** Each player's level-up used to start that level's dream for
+  everyone: three players reaching level 2 meant the bunker plus two more dreams
+  for the same level. Now a level's dream (levels 2, 3, 5, 6, 7) is played once per
+  party: the first player to reach the level brings it to everyone, and from the
+  moment it begins the level counts as played, however it ends (woken out, died).
+  Anyone reaching that level later just levels up, whether they were in that dream
+  or not. Story dreams are untouched.
+- **How.** The host marks the level slot played when the dream begins
+  (`DreamSession.MarkLevelSlotsPlayed`). It is kept in the played-dream set under a
+  `#levelN` key, so it is saved with the world (`CoopWorldCopyMeta.CompletedDreams`)
+  and reaches every peer with the played dreams it already sends (DreamStarted, bulk).
+  A played bunker counts as a played level 2 (older worlds).
+  `SkillsMenuLevelDreamPatch` marks a played slot as had before vanilla's level step,
+  so no dream is wanted (the old "missed the bunker, roll a random one" path is gone).
+- **Races.** Two players levelling at once: the host refuses the second request
+  (`level_played`, not retried). A waiting level-up dream (host was dead or busy) is
+  dropped once the party played that level; this also covers a dream owed by a peer
+  that became the host (its level slot now travels with it, `DreamRetry`).
+- No wire change (protocol stays 64).
+- Files: `DreamSession.cs`, `DreamSyncManager.Session.cs`, `DreamNetHandlers.cs`,
+  `DreamRetry.cs`, `DreamSyncPatches.Authority.cs`, `HOW_COOP_WORKS.md`.
 
 ## 0.8.265 — the home dream is played alone; the others see a client's dream clothes
 

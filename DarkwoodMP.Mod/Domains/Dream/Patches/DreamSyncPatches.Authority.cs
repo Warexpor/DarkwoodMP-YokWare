@@ -163,14 +163,13 @@ namespace DWMPHorde.Patches
     }
 
     /// <summary>
-    /// Level-up dreams per player (see <see cref="DreamSession"/>). Vanilla marks the new
+    /// Level-up dreams once per party (see <see cref="DreamSession"/>). Vanilla marks the new
     /// level's slot (<c>hadDreamAtLvl*</c>) and wants a dream when this player has not had that
-    /// level's dream; the slot is this player's own, marked also when it was in another player's
-    /// dream for that level. Here:
-    /// - The bunker (level 2) is a story dream played once per world. When the party has played
-    ///   it, a player who was not in it gets a random dream for the slot instead, if one is left.
+    /// level's dream. Here:
+    /// - A slot the party already played a dream for is marked as had first: no dream comes for
+    ///   it, whether this player was in that dream or not.
     /// - The slot this confirm marked travels with the dream request (client) or the dream the
-    ///   host begins (host), so everyone in that dream gets it marked.
+    ///   host begins (host), so the party has it played once that dream begins.
     /// </summary>
     [HarmonyPatch(typeof(SkillsMenu), "confirmSkills")]
     public static class SkillsMenuLevelDreamPatch
@@ -184,17 +183,14 @@ namespace DWMPHorde.Patches
             Player p = Player.Instance;
             if (dreams == null || p == null || dreams.disabled)
                 return;
-            if (p.currentLevel == 2 && !dreams.hadDreamAtLvl2
-                && DreamSession.IsPresetCompleted(DreamSession.BunkerPreset))
-            {
-                // Vanilla's level-2 step is skipped (slot already marked); the random check
-                // after it decides whether a dream is left for this player.
-                dreams.hadDreamAtLvl2 = true;
-                dreams.wantToDream = true;
-                if (dreams.startTransition != null)
-                    dreams.startTransition.dreamToTransitionTo = "";
-                ModRuntime.LegacyInfo("[DreamSync] Level 2: the party played the bunker — a random dream instead");
-            }
+            byte slot = DreamSession.LvlFlagForLevel(p.currentLevel);
+            if (slot == 0 || (__state & slot) != 0 || !DreamSession.LevelSlotsPlayed(slot))
+                return;
+            // Vanilla's step for this level is skipped (slot already marked), and the slot is not
+            // this confirm's to send: the party had that level's dream.
+            DreamSession.ApplyLvlFlags(slot);
+            __state |= slot;
+            ModRuntime.LegacyInfo($"[DreamSync] Level {p.currentLevel}: the party played this level's dream — none for it");
         }
 
         private static void Postfix(byte __state)

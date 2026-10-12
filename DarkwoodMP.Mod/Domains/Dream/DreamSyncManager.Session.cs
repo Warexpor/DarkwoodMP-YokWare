@@ -491,8 +491,10 @@ namespace DWMPHorde.Sync
                         if (dreamProxy != null && !IsPeerDeadOutsideDream(net, dreamProxy.PlayerId))
                             NoteRemoteInDream(dreamProxy.PlayerId);
                     }
-                    // The host is in it: the level slot(s) it is for are had.
+                    // The host is in it: the level slot(s) it is for are had, and played for the
+                    // party (the played set below carries that to every peer).
                     DreamSession.ApplyLvlFlags(DreamSession.LevelBits);
+                    DreamSession.MarkLevelSlotsPlayed(DreamSession.LevelBits);
                     var started = DreamStartedMessage.Build(
                         presetName, locationPosition.x, locationPosition.y, locationPosition.z);
                     started.EntryTransition = _entryTransitionSeen;
