@@ -129,7 +129,9 @@ namespace DWMPHorde.Patches
                         AttackerPosZ = atkPos.z,
                         CanCutInHalf = CanCutInHalf,
                         AttackerPlayerId = localId,
-                        VictimPlayerId = proxy.PlayerId
+                        VictimPlayerId = proxy.PlayerId,
+                        CanInterrupt = canInterrupt,
+                        NormalHit = normalHit
                     }.Serialize(w);
                 }, DeliveryMethod.ReliableOrdered);
 

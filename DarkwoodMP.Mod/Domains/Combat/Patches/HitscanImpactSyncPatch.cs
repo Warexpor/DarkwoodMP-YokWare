@@ -163,7 +163,9 @@ namespace DWMPHorde.Patches
                             AttackerPosY = atkPos.y,
                             AttackerPosZ = atkPos.z,
                             AttackerPlayerId = net.LocalPlayerId,
-                            VictimPlayerId = proxy.PlayerId
+                            VictimPlayerId = proxy.PlayerId,
+                            CanInterrupt = true,
+                            NormalHit = true
                         }.Serialize(w), DeliveryMethod.ReliableOrdered);
                     ModRuntime.LegacyInfo($"[HitscanFF] client hit proxy {proxy.PlayerId} dmg={dmg}");
                 }

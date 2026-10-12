@@ -78,7 +78,11 @@ namespace DWMPHorde.Patches
                     TargetPosZ = targetPos.z,
                     CanCutInHalf = canCut,
                     // The flame's burn reaches the host's creature (vanilla activates it before the hit).
-                    Effects = flameEffects
+                    Effects = flameEffects,
+                    // As the vanilla caller passed them: a bullet interrupts, fire contact neither
+                    // interrupts nor counts as a normal hit.
+                    CanInterrupt = (bool)__args[4],
+                    NormalHit = (bool)__args[5]
                 }.Serialize(w), DeliveryMethod.ReliableOrdered);
                 ClientEntityInterpolationService.ShowHitHealthBar(__instance);
 

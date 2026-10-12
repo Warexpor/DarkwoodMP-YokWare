@@ -59,7 +59,10 @@ namespace DWMPHorde.Patches
                 CanCutInHalf = dmg >= 80,
                 AttackerPlayerId = ModRuntime.Network?.LocalPlayerId ?? 0,
                 VictimPlayerId = proxy.PlayerId,
-                Effects = SensorEffectCodec.ToWire(__instance.effects)
+                Effects = SensorEffectCodec.ToWire(__instance.effects),
+                // Vanilla: only a fully charged swing interrupts (Player sets the sensor's flag).
+                CanInterrupt = __instance.canInterrupt,
+                NormalHit = true
             };
             ModRuntime.Network?.Send(NetMessageType.FriendlyFire, w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);
 
@@ -150,9 +153,12 @@ namespace DWMPHorde.Patches
             if (ClientEntityInterpolationService.IsHostSynced(c))
                 CharacterTracker.TryGetStableId(c, out nameHash);
 
-            // Hit SFX + Hit roll locally (host owns damage). Echo GetHit is ignored briefly.
-            ClientEntityInterpolationService.NoteLocalHitPresentation(c, nameHash);
-            ClientEntityInterpolationService.HoldTimelineClipsNow(nameHash);
+            // Hit SFX locally (host owns damage). Echo GetHit is ignored briefly. The hit roll only
+            // where vanilla interrupts: a fully charged swing on a creature that can be interrupted.
+            bool hitRoll = __instance.canInterrupt && !c.dontGetInterrupted;
+            ClientEntityInterpolationService.NoteLocalHitPresentation(c, nameHash, hitRoll);
+            if (hitRoll)
+                ClientEntityInterpolationService.HoldTimelineClipsNow(nameHash);
 
             Vector3 pos = local != null ? local.transform.position : c.transform.position;
             int dmg = Mathf.Max(1, (int)((float)__instance.damage * strengthMod));
@@ -175,7 +181,9 @@ namespace DWMPHorde.Patches
                 TargetPosY = c.transform.position.y,
                 TargetPosZ = c.transform.position.z,
                 Effects = SensorEffectCodec.ToWire(__instance.effects),
-                IsMelee = true
+                IsMelee = true,
+                CanInterrupt = __instance.canInterrupt,
+                NormalHit = true
             };
             ModRuntime.Network?.Send(NetMessageType.PlayerAttack, w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);
             ClientEntityInterpolationService.ShowHitHealthBar(c);

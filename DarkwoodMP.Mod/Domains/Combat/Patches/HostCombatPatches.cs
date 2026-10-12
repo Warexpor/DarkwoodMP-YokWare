@@ -151,7 +151,9 @@ namespace DWMPHorde.Patches
                 CanCutInHalf = dmg >= 80,
                 ShowRedScreen = true,
                 NormalHit = true,
-                CanInterrupt = true,
+                // Enemy sensor: vanilla Player.getHit(dmg) interrupts. The host's own weapon: only
+                // a fully charged swing, as vanilla's player sensor passes it.
+                CanInterrupt = !isPlayer || __instance.canInterrupt,
                 // Vanilla shadow sensors hit the player through getHitByShadow (flat, no armor).
                 ShadowHit = !isPlayer && __instance.shadowSensor,
                 // The victim's own client activates these (vanilla applies sensor effects after getHit).

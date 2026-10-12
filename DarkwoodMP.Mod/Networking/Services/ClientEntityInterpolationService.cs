@@ -300,7 +300,7 @@ namespace DWMPHorde.Networking
             return dx * dx + dz * dz <= (driven ? ClientInterestLeaveSq : ClientInterestDistanceSq);
         }
 
-        public static void NoteLocalHitPresentation(Character c, short hostId)
+        public static void NoteLocalHitPresentation(Character c, short hostId, bool hitRoll)
         {
             if (c == null) return;
             short id = hostId;
@@ -325,6 +325,7 @@ namespace DWMPHorde.Networking
                 finally { TraverseHack.InsideCharacterSounds = prevInside; }
             }
 
+            if (!hitRoll) return;
             tk2dSpriteAnimator body = ResolveBodyAnimator(c);
             if (body == null) return;
             string hitClip = PickHitClip(body);

@@ -182,7 +182,9 @@ namespace DWMPHorde.Players
                         AttackerPosY = pos.y,
                         AttackerPosZ = pos.z,
                         AttackerPlayerId = net.LocalPlayerId,
-                        VictimPlayerId = PlayerId
+                        VictimPlayerId = PlayerId,
+                        CanInterrupt = true,
+                        NormalHit = true
                     }.Serialize(w);
                 }, LiteNetLib.DeliveryMethod.ReliableOrdered);
             }

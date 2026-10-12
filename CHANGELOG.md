@@ -3,11 +3,13 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.273**. The current Horde wire protocol is **65**. Every install in a session
+**0.8.274**. The current Horde wire protocol is **66**. Every install in a session
 needs the same DLL; the protocol is checked on join.
 
 Protocol history (newest first):
 
+- **66**, 0.8.274: `PlayerAttack` gains `CanInterrupt` and `NormalHit`; `FriendlyFire` gains
+  `CanInterrupt` and `NormalHit`.
 - **65**, 0.8.272 to 0.8.273: `DreamEnded` gains `WorldOutcome` (the outcome whose world events the dream's end runs).
 - **64**, 0.8.265 to 0.8.271: `SessionSettings` gains the host's `SoloHomeDream`.
 - **63**, 0.8.259 to 0.8.264: `TradeCommit` gains the trade's change to the trader's standing; a
@@ -78,6 +80,44 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.274 — client hits stagger creatures exactly as vanilla does (knife and sickle never do); host swing roll checked in a run
+
+From a suspicion that the host's swings never roll a dog over while the clients' do.
+
+- **Checked in an automated host + client run (omabox): the host's swing does roll the dog.**
+  A real host swing (vanilla `initiateAttack2` + `attack`, the spawned sensor's contact) on a
+  dog that was idle, chasing or in the middle of its own attack played `Hit1`/`Hit2` on the
+  host and the same clip on the client's copy. Rechecked with the plank with nails (the
+  reported weapon) and a real physics contact on a dog in mid-bite: `Hit1` plays, and the
+  second plank hit (11 + 11 of the dog's 20) kills. Not reproduced on this build.
+- **Client hits always staggered, whatever the weapon.** Vanilla makes a creature play its hit
+  clip (the dog's roll) and break its attack when the hit carries `canInterrupt`: every normal
+  or special melee swing does (`getAttackFrame` always returns 0, so `fullyLoadedAttack` is set),
+  except weapons with `attackDoesNotInterrupt` (the knife and the sickle). The host applied every
+  client hit with `canInterrupt: true`, so a client's knife or sickle knocked dogs over, and the
+  client played the roll on its own copy for those too. `PlayerAttack` now carries the swing's
+  `canInterrupt` and `normalHit`, the host applies them as vanilla does, and the client shows
+  its local hit roll only where vanilla would interrupt (the sensor's `canInterrupt`, the
+  creature's `dontGetInterrupted`). Bullets keep interrupting (vanilla `Bullet`).
+- **A client's flamethrower contact counted as a normal hit.** Vanilla fire contact passes
+  `canInterrupt: false, normalHit: false` (no blood, no hit sound, no wake, no stagger). The
+  client's redirected hit now passes the vanilla caller's values through.
+- **Friendly fire had the same gap.** A client's knife or sickle on another player, and the
+  host's own on a client, always staggered the victim. `FriendlyFire` carries the hit's
+  `canInterrupt` and `normalHit`, the host forwards them to the victim, and the host's own
+  weapon sensor on a client stand-in sends its `canInterrupt` (enemy sensors still interrupt,
+  as vanilla `Player.getHit` does).
+- Test pilot: `cstate <name>` (a creature's hit / attack state and clip), `cwatch <name> [sec]`
+  (one line per frame that state changes), `swing <name> [item|-] [phys]` (a real melee swing
+  whose sensor touches the nearest living creature; `phys` leaves the contact to physics).
+- Protocol **66**. (`PlayerAttackMessage`, `FriendlyFireMessage`, `ClientMeleeSensorPatch`,
+  `ClientFriendlyFirePatch`, `ClientDamageRedirectPatch`, `ProxyDamagePatch`,
+  `HostMeleeSensorPatch`, `CombatAttackNetHandlers`,
+  `ClientEntityInterpolationService.NoteLocalHitPresentation`, `TestPilot`)
+
+Status: unit-tested build; host swing roll checked in an automated run; the client-side change
+not yet playtested.
 
 ## 0.8.273 — every dreamer gets the dream's container weapon; everyone wakes through the death transition when all die
 

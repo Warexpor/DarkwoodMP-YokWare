@@ -151,8 +151,10 @@ namespace DWMPHorde.Networking
                 // shows it to the player who hit, which is the client (it shows its own). Here it
                 // popped up on the host's screen for a hit far away; a bar the host already has
                 // on this target is refreshed below, as vanilla refreshes it.
-                target.getHit(damage, attackerT, msg.CanCutInHalf, byPlayer: true, canInterrupt: true,
-                    dontShowHealthBar: true);
+                // The client's canInterrupt / normalHit, as its vanilla call had them: a quick
+                // swing does not knock a dog over (only a fully charged one does, as for the host).
+                target.getHit(damage, attackerT, msg.CanCutInHalf, byPlayer: true, canInterrupt: msg.CanInterrupt,
+                    normalHit: msg.NormalHit, dontShowHealthBar: true);
                 HealthBarRefresh.IfShowing(target.gameObject);
                 // Vanilla MeleeSensor: after getHit, each weapon effect goes to character.effects.activate.
                 SensorEffectCodec.Apply(target.effects, msg.Effects, "HandlePlayerAttack");
@@ -398,7 +400,11 @@ namespace DWMPHorde.Networking
                 if (host == null) return;
                 // The host's own getHit blood goes to everyone (one splat, none on a block).
                 Patches.HitscanBloodPatch.OwnHitDepth++;
-                try { host.getHit(damage, atkTransform, msg.CanCutInHalf, byPlayer: true, canInterrupt: true); }
+                try
+                {
+                    host.getHit(damage, atkTransform, msg.CanCutInHalf, byPlayer: true,
+                        canInterrupt: msg.CanInterrupt, normalHit: msg.NormalHit);
+                }
                 finally { Patches.HitscanBloodPatch.OwnHitDepth--; }
                 SensorEffectCodec.Apply(host.effects, msg.Effects, "FriendlyFire");
                 EntitySyncLog.Damage(
@@ -419,8 +425,8 @@ namespace DWMPHorde.Networking
                         AttackerPosZ = atkPos.z,
                         CanCutInHalf = msg.CanCutInHalf,
                         ShowRedScreen = true,
-                        NormalHit = true,
-                        CanInterrupt = true,
+                        NormalHit = msg.NormalHit,
+                        CanInterrupt = msg.CanInterrupt,
                         Effects = msg.Effects
                     }.Serialize(w);
                 }, DeliveryMethod.ReliableOrdered);
