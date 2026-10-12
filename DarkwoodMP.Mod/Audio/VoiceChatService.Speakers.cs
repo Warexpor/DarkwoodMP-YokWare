@@ -28,8 +28,8 @@ namespace DWMPHorde.Audio
         internal const float NearRadioRange = 260f;
         private const float NearRadioFull = 45f;
         private const float NearRadioVolume = 0.7f;
-        private const float WallVolume = 0.75f;
-        private const float WallCutoff = 1500f;
+        private const float WallVolume = 0.8f;
+        private const float WallCutoff = 2600f;
         /// <summary>A radio stays held by its talker this long after their last packet.</summary>
         private const float ChannelHoldSec = 0.35f;
 
@@ -64,6 +64,8 @@ namespace DWMPHorde.Audio
         {
             if (_speakers.TryGetValue(id, out Speaker existing) && existing.Go != null)
                 return existing;
+            if (existing != null)
+                DestroySpeaker(existing);
             Speaker s = CreateSpeaker(id);
             _speakers[id] = s;
             return s;
@@ -86,6 +88,7 @@ namespace DWMPHorde.Audio
             s.Go.transform.SetParent(_root.transform, false);
             s.Src = s.Go.AddComponent<AudioSource>();
             s.Beh = s.Go.AddComponent<VoiceSpeakerBehaviour>();
+            MixerRunsScripts = true;
             s.Beh.S = s;
             s.Beh.SrcRate = (int)_sampleRate;
             s.Muffle = s.Go.AddComponent<AudioLowPassFilter>();
@@ -103,9 +106,9 @@ namespace DWMPHorde.Audio
             s.Src.maxDistance = 100000f;
             s.Src.dopplerLevel = 0f;
             s.Src.spread = 60f;
-            // Same indoor reverb vanilla puts on a sound made inside (default filter, toggled).
+            // The indoor reverb vanilla puts on a sound made inside, quieter and faded (RoomReverb).
             s.Reverb = s.Go.AddComponent<AudioReverbFilter>();
-            s.Reverb.enabled = false;
+            RoomReverb.Setup(s.Reverb);
             s.Src.Play();
 
             var click = new GameObject("YokWare_VoiceClick_" + id);
@@ -120,7 +123,7 @@ namespace DWMPHorde.Audio
             s.ClickMuffle = click.AddComponent<AudioLowPassFilter>();
             s.ClickMuffle.cutoffFrequency = 22000f;
             s.ClickReverb = click.AddComponent<AudioReverbFilter>();
-            s.ClickReverb.enabled = false;
+            RoomReverb.Setup(s.ClickReverb);
             return s;
         }
 
@@ -133,19 +136,25 @@ namespace DWMPHorde.Audio
                 {
                     ModLog.Trace(LogCat.Audio, () =>
                     {
-                        string line = "[Voice] 10s tx=" + _txPackets + WorldSoundPickup.TakeStats();
+                        string line = "[Voice] 10s tx=" + _txPackets;
+                        if (_txPackets > 0)
+                            line += " enc=" + (_encodeTicks * 1000.0 / System.Diagnostics.Stopwatch.Frequency / _txPackets).ToString("0.00") + "ms";
+                        line += WorldSoundPickup.TakeStats();
                         foreach (Speaker s in _speakers.Values)
                         {
                             int buffered, under;
                             lock (s.Lock) { buffered = s.Buffered; under = s.Underruns; s.PacketsIn = 0; s.Underruns = 0; }
-                            line += " | p" + s.Id + " buf=" + buffered + " under=" + under
-                                + " level=" + s.LevelEnv.ToString("0.00") + (s.RadioMode ? " radio" : "")
+                            line += " | p" + s.Id + " buf=" + buffered + " under=" + under + " filled=" + s.Recovered
+                                + " level=" + s.LevelEnv.ToString("0.00") + (s.Radio != null && s.Radio.RadioMode ? " radio" : "")
                                 + (s.OccludedNow ? " walled" : "");
                         }
                         return line;
                     });
                 }
                 _txPackets = 0;
+                _encodeTicks = 0;
+                foreach (Speaker s in _speakers.Values)
+                    s.Recovered = 0;
             }
 
             if (_speakers.Count == 0)
@@ -167,72 +176,103 @@ namespace DWMPHorde.Audio
                     continue;
                 }
 
-                float since = Time.unscaledTime - s.LastData;
-                lock (s.Lock)
+                UpdateSpeaker(s, dt, vol, rangeFull, rangeMax, listen);
+            }
+
+            foreach (int id in _reap)
+            {
+                if (_speakers.TryGetValue(id, out Speaker dead))
+                    DestroySpeaker(dead);
+                _speakers.Remove(id);
+            }
+        }
+
+        /// <summary>
+        /// One talker, heard two ways at once: their voice from where they stand (the talker's
+        /// speaker), and, while they key their walkie, the transmission on a radio (the talker's
+        /// second speaker, <see cref="Speaker.Radio"/>): this player's own radio, or another
+        /// player's playing out loud nearby. Every frame, and at once when a talker keys their
+        /// walkie (<see cref="PlaceNow"/>), so the first packet already goes through the radio.
+        /// </summary>
+        private static void UpdateSpeaker(Speaker s, float dt, float vol, float rangeFull, float rangeMax, Vector3 listen)
+        {
+            Speaker r = s.Radio;
+            float since = Time.unscaledTime - s.LastData;
+            FlushShortSpurt(s, since);
+            if (r != null)
+                FlushShortSpurt(r, since);
+
+            // Walkie packets stopped: the talker let go of the key.
+            if (s.WalkieActive && since > 0.3f)
+            {
+                s.WalkieActive = false;
+                if (r != null)
+                    r.WalkieActive = false;
+                PlayTalkerClick(s, keyDown: false);
+            }
+
+            if (r != null && r.RadioWasActive && since > 0.3f)
+            {
+                r.RadioWasActive = false;
+                WriteSquelchTail(r);
+            }
+
+            // Loudness: up at once with the voice, down slowly between words.
+            float level = since > 0.4f ? 0f : s.Level;
+            s.LevelEnv = level > s.LevelEnv ? level : Mathf.MoveTowards(s.LevelEnv, level, dt / LevelReleaseSec);
+
+            // The voice itself, from where the talker stands.
+            var net = ModRuntime.Network;
+            float proxVol = 0f;
+            float cutoff = 22000f;
+            float dist = float.MaxValue;
+            Vector3 talkerPos = Vector3.zero;
+            var proxy = net?.GetProxy(s.Id);
+            bool talkerHere = Player.Instance != null && proxy != null && proxy.transform != null;
+            if (talkerHere)
+            {
+                talkerPos = proxy.transform.position;
+                dist = DistXz(listen, talkerPos);
+
+                // The louder they spoke, the farther it carries.
+                float loud = Mathf.Lerp(QuietRangeShare, 1f, s.LevelEnv);
+                float range = Mathf.Max(rangeMax * loud, 60f);
+                float full = Mathf.Min(rangeFull * loud, range * 0.5f);
+                float t = Mathf.InverseLerp(range, full, dist);
+                proxVol = t * vol;
+                cutoff = Mathf.Lerp(4500f, 22000f, t);
+
+                if (Time.unscaledTime >= s.NextOcclusionCheck)
                 {
-                    if (s.Priming && s.Buffered > 0 && since > PrimeFlushSec)
-                        s.PrimeRelease = true;
+                    s.NextOcclusionCheck = Time.unscaledTime + 0.15f;
+                    s.OccludedNow = IsOccluded(listen, talkerPos);
                 }
+                s.Occlusion = Mathf.MoveTowards(s.Occlusion, s.OccludedNow ? 1f : 0f, dt * 5f);
+                // A wall between: vanilla muffles its short sounds to 0.75 volume and 1500 Hz; a
+                // voice at that cutoff lost its consonants, so it keeps more (0.8, 2600 Hz).
+                proxVol *= Mathf.Lerp(1f, WallVolume, s.Occlusion);
+                cutoff = Mathf.Lerp(cutoff, Mathf.Min(cutoff, WallCutoff), s.Occlusion);
+            }
+            bool talkerInside = talkerHere && IsInsideCached(s, net, s.Id);
 
-                // Walkie packets stopped: the talker let go of the key.
-                if (s.WalkieActive && since > 0.3f)
-                {
-                    s.WalkieActive = false;
-                    PlayTalkerClick(s, keyDown: false);
-                }
-
-                if (s.RadioWasActive && since > 0.3f)
-                {
-                    s.RadioWasActive = false;
-                    WriteSquelchTail(s);
-                }
-
-                // Loudness: up at once with the voice, down slowly between words.
-                float level = since > 0.4f ? 0f : s.Level;
-                s.LevelEnv = level > s.LevelEnv ? level : Mathf.MoveTowards(s.LevelEnv, level, dt / LevelReleaseSec);
-
-                var net = ModRuntime.Network;
-                float proxVol = 0f;
-                float cutoff = 22000f;
-                float dist = float.MaxValue;
-                Vector3 talkerPos = Vector3.zero;
-                var proxy = net?.GetProxy(s.Id);
-                bool talkerHere = Player.Instance != null && proxy != null && proxy.transform != null;
-                if (talkerHere)
-                {
-                    talkerPos = proxy.transform.position;
-                    dist = DistXz(listen, talkerPos);
-
-                    // The louder they spoke, the farther it carries.
-                    float loud = Mathf.Lerp(QuietRangeShare, 1f, s.LevelEnv);
-                    float range = Mathf.Max(rangeMax * loud, 60f);
-                    float full = Mathf.Min(rangeFull * loud, range * 0.5f);
-                    float t = Mathf.InverseLerp(range, full, dist);
-                    proxVol = t * vol;
-                    cutoff = Mathf.Lerp(4500f, 22000f, t);
-
-                    if (Time.unscaledTime >= s.NextOcclusionCheck)
-                    {
-                        s.NextOcclusionCheck = Time.unscaledTime + 0.15f;
-                        s.OccludedNow = IsOccluded(listen, talkerPos);
-                    }
-                    s.Occlusion = Mathf.MoveTowards(s.Occlusion, s.OccludedNow ? 1f : 0f, dt * 5f);
-                    // Vanilla's own muffle for a sound behind a wall (AudioController: 0.75 volume, 1500 Hz).
-                    proxVol *= Mathf.Lerp(1f, WallVolume, s.Occlusion);
-                    cutoff = Mathf.Lerp(cutoff, Mathf.Min(cutoff, WallCutoff), s.Occlusion);
-                }
-
-                // On the radio: this player's own walkie, or the nearest other player's walkie
-                // playing it out loud (a small speaker, heard a short way). Radios are half
-                // duplex: this player's own radio is silent while they key it. A channel carries
-                // the talker who keyed first; a second one keying over them is heard garbled
-                // under static.
+            // The transmission, on a radio: this player's own walkie, or the nearest other
+            // player's walkie playing it out loud (a small speaker, heard a short way). Radios
+            // are half duplex: this player's own radio is silent while they key it. A channel
+            // carries the talker who keyed first; a second one keying over them is heard
+            // garbled under static.
+            float radioVol = 0f;
+            float radioCutoff = 22000f;
+            HearMode mode = HearMode.Direct;
+            bool tail = false;
+            int nearRadioId = 0;
+            Vector3 nearRadioPos = Vector3.zero;
+            if (r != null)
+            {
                 bool holder = s.WalkieActive && HoldsChannel(s.Id);
                 bool doubling = s.WalkieActive && !holder && _radioHolder != 0 && HoldsChannel(_radioHolder);
                 bool onAir = holder || doubling;
                 float airShare = doubling ? DoublingUnderShare : 1f;
                 bool talkerUnder = PeerUnderground(net, s.Id);
-                bool talkerInside = talkerHere && IsInsideCached(s, net, s.Id);
 
                 byte local = LocalWalkieState;
                 float ownRadioVol = 0f;
@@ -246,9 +286,8 @@ namespace DWMPHorde.Audio
                 }
                 float nearRadioVol = 0f;
                 float nearQuality = 0f;
-                Vector3 nearRadioPos = Vector3.zero;
                 float nearRadioCutoff = 22000f;
-                int nearRadioId = onAir && net != null && talkerHere ? NearestRadio(net, s.Id, listen, out nearRadioPos) : 0;
+                nearRadioId = onAir && net != null && talkerHere ? NearestRadio(net, s.Id, listen, out nearRadioPos) : 0;
                 if (nearRadioId != 0)
                 {
                     byte carrier = net.RemotePlayers.TryGetValue(nearRadioId, out RemotePlayerState cst) && cst != null ? cst.WalkieState : (byte)0;
@@ -260,109 +299,165 @@ namespace DWMPHorde.Audio
                         float d = DistXz(listen, nearRadioPos);
                         float range = hand ? NearRadioRange : NearRadioRange * 0.7f;
                         nearRadioVol = Mathf.InverseLerp(range, NearRadioFull, d) * vol * NearRadioVolume * airShare * (hand ? 1f : PocketVolume);
-                        if (nearRadioId != s.NearRadioId || Time.unscaledTime >= s.NextRadioOcclusionCheck)
+                        if (nearRadioId != r.NearRadioId || Time.unscaledTime >= r.NextRadioOcclusionCheck)
                         {
-                            s.NextRadioOcclusionCheck = Time.unscaledTime + 0.15f;
-                            s.RadioOccludedNow = IsOccluded(listen, nearRadioPos);
+                            r.NextRadioOcclusionCheck = Time.unscaledTime + 0.15f;
+                            r.RadioOccludedNow = IsOccluded(listen, nearRadioPos);
                         }
-                        s.RadioOcclusion = Mathf.MoveTowards(s.RadioOcclusion, s.RadioOccludedNow ? 1f : 0f, dt * 5f);
-                        nearRadioVol *= Mathf.Lerp(1f, WallVolume, s.RadioOcclusion);
-                        nearRadioCutoff = Mathf.Lerp(hand ? 22000f : PocketCutoff, WallCutoff, s.RadioOcclusion);
+                        r.RadioOcclusion = Mathf.MoveTowards(r.RadioOcclusion, r.RadioOccludedNow ? 1f : 0f, dt * 5f);
+                        nearRadioVol *= Mathf.Lerp(1f, WallVolume, r.RadioOcclusion);
+                        nearRadioCutoff = Mathf.Lerp(hand ? 22000f : PocketCutoff, WallCutoff, r.RadioOcclusion);
                     }
                 }
-                s.NearRadioId = nearRadioId;
+                r.NearRadioId = nearRadioId;
 
                 // The transmission just ended: the radio it was heard on plays out what it has
                 // and its squelch tail, as it was (see Speaker.RadioHoldUntil).
-                bool tail = s.Mode != HearMode.Direct && Time.unscaledTime < s.RadioHoldUntil;
+                tail = r.Mode != HearMode.Direct && Time.unscaledTime < r.RadioHoldUntil;
 
-                // The loudest way wins; the one playing keeps it until another is clearly louder.
-                HearMode mode = s.Mode;
+                // Of the two radios the louder plays it; the one playing keeps it until the
+                // other is clearly louder. Direct here is no radio at all.
+                mode = r.Mode;
                 if (!tail)
                 {
-                    float current = mode == HearMode.OwnRadio ? ownRadioVol : mode == HearMode.NearRadio ? nearRadioVol : proxVol;
-                    current *= 1.15f;
-                    if (proxVol > current) { mode = HearMode.Direct; current = proxVol * 1.15f; }
+                    float current = (mode == HearMode.OwnRadio ? ownRadioVol : mode == HearMode.NearRadio ? nearRadioVol : 0f) * 1.15f;
                     if (ownRadioVol > current) { mode = HearMode.OwnRadio; current = ownRadioVol * 1.15f; }
                     if (nearRadioVol > current) mode = HearMode.NearRadio;
                     if (mode == HearMode.OwnRadio && ownRadioVol <= 0f) mode = HearMode.Direct;
                     if (mode == HearMode.NearRadio && nearRadioVol <= 0f) mode = HearMode.Direct;
-                    s.Mode = mode;
-                    s.RadioMode = mode != HearMode.Direct;
+                    r.Mode = mode;
+                    r.RadioMode = mode != HearMode.Direct;
 
                     // The signal on the radio it is heard through: the weaker, the less voice and
                     // the more static (decode side).
-                    s.RadioQuality = mode == HearMode.NearRadio ? nearQuality : mode == HearMode.OwnRadio ? ownQuality : 0f;
-                    s.FarStatic = FarStaticGain(s.RadioQuality);
+                    r.RadioQuality = mode == HearMode.NearRadio ? nearQuality : mode == HearMode.OwnRadio ? ownQuality : 0f;
+                    r.FarStatic = FarStaticGain(r.RadioQuality);
                 }
-                s.Doubling = Mathf.MoveTowards(s.Doubling, holder && AnyoneDoubling(s.Id) ? 1f : 0f, dt * 6f);
+                r.Doubling = Mathf.MoveTowards(r.Doubling, holder && AnyoneDoubling(s.Id) ? 1f : 0f, dt * 6f);
 
-                float outVol = tail ? s.HeldVol
-                    : mode == HearMode.OwnRadio ? ownRadioVol : mode == HearMode.NearRadio ? nearRadioVol : proxVol;
-                float outCutoff = tail ? s.HeldCutoff
+                radioVol = tail ? r.HeldVol
+                    : mode == HearMode.OwnRadio ? ownRadioVol : mode == HearMode.NearRadio ? nearRadioVol : 0f;
+                radioCutoff = tail ? r.HeldCutoff
                     : mode == HearMode.OwnRadio ? (WalkieStates.InHand(local) ? 22000f : PocketCutoff)
-                    : mode == HearMode.NearRadio ? nearRadioCutoff : cutoff;
+                    : mode == HearMode.NearRadio ? nearRadioCutoff : 22000f;
                 if (!tail && mode != HearMode.Direct)
                 {
-                    s.HeldVol = outVol;
-                    s.HeldCutoff = outCutoff;
-                }
-                float soundDist = mode == HearMode.NearRadio ? DistXz(listen, nearRadioPos) : dist;
-                if (tail)
-                {
-                    // The speaker stays where the radio was.
-                }
-                else if (mode == HearMode.NearRadio)
-                    s.Go.transform.position = nearRadioPos;
-                else if (talkerHere)
-                    s.Go.transform.position = talkerPos;
-
-                if (s.Click != null)
-                {
-                    if (talkerHere)
-                        s.Click.transform.position = talkerPos;
-                    // The talker's key beep is a sound in the world like their voice: the same
-                    // wall muffle, and the room's reverb when they stand inside.
-                    s.Click.volume = Mathf.Lerp(1f, WallVolume, s.Occlusion);
-                    if (s.ClickMuffle != null)
-                        s.ClickMuffle.cutoffFrequency = Mathf.Lerp(22000f, WallCutoff, s.Occlusion);
-                    if (s.ClickReverb != null && s.ClickReverb.enabled != talkerInside)
-                        s.ClickReverb.enabled = talkerInside;
-                }
-                if (s.Reverb != null && !tail && Time.unscaledTime >= s.NextInsideCheck)
-                {
-                    s.NextInsideCheck = Time.unscaledTime + 0.5f;
-                    bool inside = mode == HearMode.OwnRadio
-                        ? Player.Instance != null && Player.Instance.isInside
-                        : IsInside(net, mode == HearMode.NearRadio ? nearRadioId : s.Id);
-                    if (s.Reverb.enabled != inside)
-                        s.Reverb.enabled = inside;
-                }
-
-                if (s.Beh != null)
-                    s.Beh.Volume = Mathf.Clamp(outVol * VoicePlayerVolumes.Get(s.Id), 0f, 2f);
-                if (s.Muffle != null)
-                {
-                    s.SmoothCutoff = Mathf.Lerp(s.SmoothCutoff, outCutoff, Mathf.Clamp01(dt * 8f));
-                    s.Muffle.cutoffFrequency = s.SmoothCutoff;
-                }
-                if (s.Src != null && !tail)
-                {
-                    // This player's own radio is in their hands: no pan. A voice or another
-                    // player's radio pans toward where it is, gently when close.
-                    float blend = mode == HearMode.OwnRadio || soundDist == float.MaxValue
-                        ? 0f : Mathf.Lerp(0.35f, 1f, Mathf.Clamp01(soundDist / FullPanDistance));
-                    s.Blend = Mathf.MoveTowards(s.Blend, blend, dt * 3f);
-                    s.Src.spatialBlend = s.Blend;
+                    r.HeldVol = radioVol;
+                    r.HeldCutoff = radioCutoff;
                 }
             }
 
-            foreach (int id in _reap)
+            // Heard both ways it is one voice twice, peak on peak: together the two get the
+            // level one alone may have, each by its share, so the sum stays under full scale.
+            float both = proxVol + radioVol;
+            float share = both > vol && both > 0f ? vol / both : 1f;
+            float playerVol = VoicePlayerVolumes.Get(s.Id);
+
+            if (r != null)
             {
-                if (_speakers.TryGetValue(id, out Speaker dead) && dead.Go != null)
-                    UnityEngine.Object.Destroy(dead.Go);
-                _speakers.Remove(id);
+                // During the tail the speaker stays where the radio was.
+                if (!tail && mode == HearMode.NearRadio)
+                    r.Go.transform.position = nearRadioPos;
+                else if (!tail && mode == HearMode.OwnRadio)
+                    r.Go.transform.position = listen;
+                if (r.Reverb != null && !tail && mode != HearMode.Direct && Time.unscaledTime >= r.NextInsideCheck)
+                {
+                    r.NextInsideCheck = Time.unscaledTime + 0.5f;
+                    r.ReverbInside = mode == HearMode.OwnRadio
+                        ? Player.Instance != null && Player.Instance.isInside
+                        : IsInside(net, nearRadioId);
+                }
+                RoomReverb.Drive(r.Reverb, r.ReverbInside, dt);
+                if (r.Beh != null)
+                    r.Beh.Volume = Mathf.Clamp(radioVol * share * playerVol * VoiceOutLevel, 0f, 2f);
+                if (r.Muffle != null)
+                {
+                    r.SmoothCutoff = Mathf.Lerp(r.SmoothCutoff, radioCutoff, Mathf.Clamp01(dt * 8f));
+                    r.Muffle.cutoffFrequency = r.SmoothCutoff;
+                }
+                if (r.Src != null && !tail)
+                {
+                    // This player's own radio is in their hands: no pan. Another player's radio
+                    // pans toward where it is, gently when close.
+                    float blend = mode == HearMode.NearRadio
+                        ? Mathf.Lerp(0.35f, 1f, Mathf.Clamp01(DistXz(listen, nearRadioPos) / FullPanDistance)) : 0f;
+                    r.Blend = Mathf.MoveTowards(r.Blend, blend, dt * 3f);
+                    r.Src.spatialBlend = r.Blend;
+                }
             }
+
+            if (talkerHere)
+                s.Go.transform.position = talkerPos;
+            if (s.Click != null)
+            {
+                if (talkerHere)
+                    s.Click.transform.position = talkerPos;
+                // The talker's key beep is a sound in the world like their voice: the same
+                // wall muffle, and the room's reverb when they stand inside.
+                s.Click.volume = Mathf.Lerp(1f, WallVolume, s.Occlusion);
+                if (s.ClickMuffle != null)
+                    s.ClickMuffle.cutoffFrequency = Mathf.Lerp(22000f, WallCutoff, s.Occlusion);
+                RoomReverb.Drive(s.ClickReverb, talkerInside, dt);
+            }
+            RoomReverb.Drive(s.Reverb, talkerInside, dt);
+
+            if (s.Beh != null)
+                s.Beh.Volume = Mathf.Clamp(proxVol * share * playerVol * VoiceOutLevel, 0f, 2f);
+            if (s.Muffle != null)
+            {
+                s.SmoothCutoff = Mathf.Lerp(s.SmoothCutoff, cutoff, Mathf.Clamp01(dt * 8f));
+                s.Muffle.cutoffFrequency = s.SmoothCutoff;
+            }
+            if (s.Src != null)
+            {
+                // A voice pans toward where the talker is, gently when close.
+                float blend = dist == float.MaxValue
+                    ? 0f : Mathf.Lerp(0.35f, 1f, Mathf.Clamp01(dist / FullPanDistance));
+                s.Blend = Mathf.MoveTowards(s.Blend, blend, dt * 3f);
+                s.Src.spatialBlend = s.Blend;
+            }
+        }
+
+        /// <summary>A spurt shorter than the prime buffer plays out once no more data comes.</summary>
+        private static void FlushShortSpurt(Speaker s, float since)
+        {
+            lock (s.Lock)
+            {
+                if (s.Priming && s.Buffered > 0 && since > PrimeFlushSec)
+                    s.PrimeRelease = true;
+            }
+        }
+
+        /// <summary>The talker's second speaker, for their transmissions as a radio plays them.</summary>
+        private static Speaker EnsureRadioSpeaker(Speaker s)
+        {
+            if (s.Radio == null || s.Radio.Go == null)
+            {
+                s.Radio = CreateSpeaker(s.Id);
+                s.Radio.Go.name = "YokWare_VoiceRadio_" + s.Id;
+            }
+            return s.Radio;
+        }
+
+        private static void DestroySpeaker(Speaker s)
+        {
+            if (s == null)
+                return;
+            if (s.Go != null)
+                UnityEngine.Object.Destroy(s.Go);
+            if (s.Radio != null && s.Radio.Go != null)
+                UnityEngine.Object.Destroy(s.Radio.Go);
+            s.Radio = null;
+        }
+
+        /// <summary><see cref="UpdateSpeaker"/> outside the frame's pass: nothing eases, only what is true now is set.</summary>
+        private static void PlaceNow(Speaker s)
+        {
+            if (s == null || s.Go == null)
+                return;
+            UpdateSpeaker(s, 0f, ModConfig.VoiceVolume?.Value ?? 1f,
+                ModConfig.VoiceFullVolumeDistance?.Value ?? 300f, ModConfig.VoiceMaxDistance?.Value ?? 1300f,
+                LocalAudioService.GetListenPosition());
         }
 
         /// <summary>A second talker keying over the one holding the channel is heard at this share, under the static.</summary>

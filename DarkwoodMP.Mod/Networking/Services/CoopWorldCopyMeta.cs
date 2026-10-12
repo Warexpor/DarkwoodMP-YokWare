@@ -227,7 +227,10 @@ namespace DWMPHorde.Networking
         }
 
         /// <summary>Force a new campaign id (brand-new world gen on this profile).</summary>
-        public static string MintNewCampaignId(int profileId)
+        /// <param name="newWorld">A freshly generated world: the slot's played dreams belonged to
+        /// the world before and are dropped. False for another copy of the same world (manual
+        /// slot load), whose dreams were played.</param>
+        public static string MintNewCampaignId(int profileId, bool newWorld = false)
         {
             if (profileId < 1 || profileId > 5) return null;
             try
@@ -244,6 +247,10 @@ namespace DWMPHorde.Networking
                 meta.OwnCampaign = true;
                 meta.HostProfileId = 0;
                 meta.Note = "New world — new campaign id.";
+                // The old world's played dreams stayed in the slot: a new world counted the bunker
+                // as played, and the first level-2 dream rolled a random one instead.
+                if (newWorld)
+                    meta.CompletedDreams = new System.Collections.Generic.List<string>();
                 Write(profileId, meta);
                 ModLog.Event(LogCat.Save,
                     "MintNewCampaignId prof" + profileId
@@ -279,6 +286,8 @@ namespace DWMPHorde.Networking
                         "CampaignId replace on prof" + profileId + ": "
                         + meta.CampaignId.Substring(0, Math.Min(8, meta.CampaignId.Length))
                         + " → " + campaignId.Substring(0, Math.Min(8, campaignId.Length)));
+                    // Another world landed in this slot: its played dreams are the host's, not the old world's.
+                    meta.CompletedDreams = null;
                 }
                 meta.CampaignId = campaignId;
                 meta.IsCoopCopy = true;
@@ -329,7 +338,6 @@ namespace DWMPHorde.Networking
                 if (string.IsNullOrEmpty(meta.CampaignId))
                     meta.CampaignId = Guid.NewGuid().ToString("N");
 
-                string fp = FingerprintProfileSlot(pid);
                 string dir = ProfileDir(pid);
                 string sav = Path.Combine(dir, "sav.dat");
                 string savs = Path.Combine(dir, "savs.dat");
@@ -352,22 +360,103 @@ namespace DWMPHorde.Networking
                 meta.Day = Core.currentProfile.day;
                 meta.Chapter = Core.currentProfile.chapter;
                 meta.WorldSeed = meta.Chapter * 100000 + meta.Day;
-                meta.ContentFingerprint = fp;
                 meta.SavBytes = File.Exists(sav) ? new FileInfo(sav).Length : 0;
                 meta.SavsBytes = File.Exists(savs) ? new FileInfo(savs).Length : 0;
-                Write(pid, meta);
 
-                ModLog.Event(LogCat.Save,
-                    "Permanent co-op copy updated after Save → slot " + pid
-                    + " day=" + meta.Day + " ch=" + meta.Chapter
-                    + " campaign=" + (meta.CampaignId.Length > 8 ? meta.CampaignId.Substring(0, 8) : meta.CampaignId)
-                    + " fp=" + (fp != null && fp.Length > 12 ? fp.Substring(0, 12) : fp)
-                    + " sav=" + meta.SavBytes + "b savs=" + meta.SavsBytes + "b");
+                // Hashing the ~12 MB of save files took a few hundred ms on the main thread: a
+                // hitch at every save on every peer. It runs on a worker and lands a moment later.
+                // Meanwhile the previous one stays: a client's state backup taken in between
+                // needs one (a backup without it is refused as a template).
+                Controller ctl = Singleton<Controller>.Instance;
+                if (WorldSaveGuards.IsQuitting || ctl == null)
+                {
+                    meta.ContentFingerprint = FingerprintProfileSlot(pid);
+                    Write(pid, meta);
+                    LogRefreshed(pid, meta);
+                    return;
+                }
+                Write(pid, meta);
+                int gen = ++_fingerprintGeneration;
+                ctl.StartCoroutine(FingerprintInBackground(pid, gen, savs, sav));
             }
             catch (Exception ex)
             {
                 ModLog.Warn(LogCat.Save, "RefreshAfterLocalSave failed: " + ex.Message);
             }
+        }
+
+        private static int _fingerprintGeneration; // process-scoped: newest pending refresh wins
+
+        private struct FileStamp
+        {
+            public long Length;
+            public long WriteTicks;
+
+            public static FileStamp Of(string path)
+            {
+                var fi = new FileInfo(path);
+                return fi.Exists ? new FileStamp { Length = fi.Length, WriteTicks = fi.LastWriteTimeUtc.Ticks } : default;
+            }
+
+            public bool Same(FileStamp o) => Length == o.Length && WriteTicks == o.WriteTicks;
+        }
+
+        private static System.Collections.IEnumerator FingerprintInBackground(int pid, int gen, string savs, string sav)
+        {
+            FileStamp savsBefore = FileStamp.Of(savs), savBefore = FileStamp.Of(sav);
+            string fp = null;
+            bool done = false;
+            System.Threading.ThreadPool.QueueUserWorkItem(_ =>
+            {
+                try { fp = FingerprintFilesQuiet(savs, sav); }
+                catch { fp = null; }
+                finally { done = true; }
+            });
+            while (!done)
+                yield return null;
+            // A newer save started its own hash, or the files changed under this one.
+            if (gen != _fingerprintGeneration || fp == null)
+                yield break;
+            if (!savsBefore.Same(FileStamp.Of(savs)) || !savBefore.Same(FileStamp.Of(sav)))
+                yield break;
+            try
+            {
+                var meta = LoadOrSalvage(pid, out bool refused);
+                if (refused || meta == null)
+                    yield break;
+                meta.ContentFingerprint = fp;
+                meta.SavBytes = savBefore.Length;
+                meta.SavsBytes = savsBefore.Length;
+                Write(pid, meta);
+                LogRefreshed(pid, meta);
+            }
+            catch (Exception ex)
+            {
+                ModLog.Warn(LogCat.Save, "RefreshAfterLocalSave fingerprint failed: " + ex.Message);
+            }
+        }
+
+        /// <summary><see cref="FingerprintFiles"/> without logging (worker thread).</summary>
+        private static string FingerprintFilesQuiet(string savsPath, string savPath)
+        {
+            using (var sha = SHA1.Create())
+            {
+                HashFile(sha, savsPath);
+                HashFile(sha, savPath);
+                sha.TransformFinalBlock(Array.Empty<byte>(), 0, 0);
+                return ToHex(sha.Hash);
+            }
+        }
+
+        private static void LogRefreshed(int pid, CoopWorldCopyMeta meta)
+        {
+            string fp = meta.ContentFingerprint;
+            ModLog.Event(LogCat.Save,
+                "Permanent co-op copy updated after Save → slot " + pid
+                + " day=" + meta.Day + " ch=" + meta.Chapter
+                + " campaign=" + (meta.CampaignId.Length > 8 ? meta.CampaignId.Substring(0, 8) : meta.CampaignId)
+                + " fp=" + (fp != null && fp.Length > 12 ? fp.Substring(0, 12) : fp)
+                + " sav=" + meta.SavBytes + "b savs=" + meta.SavsBytes + "b");
         }
 
         private static void HashFile(HashAlgorithm sha, string path)

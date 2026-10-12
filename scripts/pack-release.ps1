@@ -42,8 +42,9 @@ if (-not $NoBuild) {
 }
 
 $art = Join-Path $root "artifacts"
-Remove-Item $art -Recurse -Force -ErrorAction SilentlyContinue
+# Keep earlier versions' packs: only this run's stage dirs are cleared (zips use -Force).
 New-Item -ItemType Directory -Force -Path $art | Out-Null
+Get-ChildItem $art -Directory -Filter "stage-*" -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force
 
 function New-LoaderZip([string]$loader, [string]$loaderText, [string]$cfg) {
     $src = Join-Path $root "DarkwoodMP.Mod\bin\Release\$loader"

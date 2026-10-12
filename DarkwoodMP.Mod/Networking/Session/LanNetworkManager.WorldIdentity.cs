@@ -167,7 +167,7 @@ namespace DWMPHorde.Networking
                 if (_steamPeers.TryGetSteamId(playerId, out Steamworks.CSteamID sid))
                 {
                     Steam.CloseSession(sid);
-                    HandleSteamPeerDisconnected(playerId, reason);
+                    HandleSteamPeerDisconnected(playerId, reason, lost: false);
                 }
             }
             else if (_lanPeers.TryGetPeer(playerId, out NetPeer peer))

@@ -109,7 +109,7 @@ namespace DWMPHorde.Patches
                 Door d = all[i];
                 if (d == null || !d.opened) continue;
                 if (dreamRoot != null && !d.transform.IsChildOf(dreamRoot)
-                    && Vector3.Distance(d.transform.position, dreamRoot.position) > 200f)
+                    && !DreamSyncManager.IsAtDreamPad(d.transform.position))
                     continue;
                 if (Vector3.Distance(d.transform.position, eventPos) < 120f)
                 {
@@ -199,7 +199,7 @@ namespace DWMPHorde.Patches
                 Door d = all[i];
                 if (d == null || !d.opened) continue;
                 if (dreamRoot != null && !d.transform.IsChildOf(dreamRoot)
-                    && Vector3.Distance(d.transform.position, dreamRoot.position) > 200f)
+                    && !DreamSyncManager.IsAtDreamPad(d.transform.position))
                     continue;
                 if (dreamRoot == null && !DreamSyncManager.IsDreamActive)
                     continue;
@@ -247,7 +247,7 @@ namespace DWMPHorde.Patches
                     continue;
                 if (dreamRoot != null
                     && !c.transform.IsChildOf(dreamRoot)
-                    && Vector3.Distance(c.transform.position, dreamRoot.position) > 200f)
+                    && !DreamSyncManager.IsAtDreamPad(c.transform.position))
                     continue;
                 float d = Vector3.Distance(c.transform.position, eventPos);
                 // The overworld twin shares this name. Never adopt it from across the map.
@@ -273,7 +273,7 @@ namespace DWMPHorde.Patches
                 Door d = all[i];
                 if (d == null) continue;
                 if (dreamRoot != null && !d.transform.IsChildOf(dreamRoot)
-                    && Vector3.Distance(d.transform.position, dreamRoot.position) > 200f)
+                    && !DreamSyncManager.IsAtDreamPad(d.transform.position))
                     continue;
 
                 float dist = Vector3.Distance(d.transform.position, anchor);

@@ -26,7 +26,7 @@ namespace DWMPHorde.Networking
             try
             {
                 // Live dream pad; never force peers onto the vanilla *_done rename.
-                if (Sync.DreamSyncManager.IsDreamActive)
+                if (Sync.DreamSyncManager.IsLocalInPartyDream)
                     locationName = Sync.DreamSyncManager.CanonicalDreamLocationName(locationName);
 
                 var ol = Singleton<OutsideLocations>.Instance;

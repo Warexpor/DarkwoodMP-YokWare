@@ -288,6 +288,21 @@ namespace DWMPHorde.Patches
             if (TraverseHack.ApplyingFromNetwork) return;
 
             LightStateHelper.SendLightState(__instance, "onDoneSwitchingItem");
+
+            // A light drawn without its flame: why, for the log (vanilla refuses a natural light
+            // while the shadows flag is set, and a used-up one; anything else is a fault).
+            InvItemClass item = __instance.currentItem;
+            if (!InvItemClass.isNull(item) && item.baseClass != null && item.baseClass.lightEmitter != null
+                && __instance.itemLightEmitter == null)
+            {
+                CharacterSpawner cs = Singleton<CharacterSpawner>.Instance;
+                ModLog.Event(LogCat.World,
+                    "[Light] " + item.type + " drawn without a flame: durability=" + item.durability.ToString("F0")
+                    + "/" + item.baseClass.maxDurability.ToString("F0") + " activated=" + item.activated
+                    + " shadowsFlag=" + (cs != null && cs.spawnedShadows)
+                    + " shadowsLeft=" + (cs != null ? cs.spawnedShadowsAmount : -1)
+                    + " naturalLight=" + item.baseClass.isNaturalLight + " day=" + Core.isDay());
+            }
         }
     }
 }

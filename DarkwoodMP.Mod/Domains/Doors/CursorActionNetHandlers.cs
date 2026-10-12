@@ -103,7 +103,7 @@ namespace DWMPHorde.Networking
                 Transform dreamRoot = DreamSyncManager.GetDreamLocationTransform();
                 if (dreamRoot != null
                     && !item.transform.IsChildOf(dreamRoot)
-                    && Vector3.Distance(item.transform.position, dreamRoot.position) > 250f)
+                    && !DreamSyncManager.IsAtDreamPad(item.transform.position))
                     return false;
             }
 

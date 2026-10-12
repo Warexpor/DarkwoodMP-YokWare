@@ -165,7 +165,9 @@ namespace DWMPHorde.Sync
                         _completedPresets.Add(n);
                 }
             }
-            if (Dreams.Instance != null && Dreams.Instance.hadDreamAtLvl2)
+            // Only a world from before the list: a tracked world knows whether the bunker ran (its
+            // level-2 slot may have been a random dream).
+            if (meta?.CompletedDreams == null && Dreams.Instance != null && Dreams.Instance.hadDreamAtLvl2)
                 _completedPresets.Add(BunkerPreset);
             ModLog.Event(LogCat.Dream, "Seeded played dreams from the world: " + _completedPresets.Count);
         }
@@ -217,6 +219,7 @@ namespace DWMPHorde.Sync
             SessionId = _nextSessionId++;
             PresetName = presetName;
             Current = State.Starting;
+            DreamExit.ResetForNewSession();
             LevelBits = NextLevelBits;
             NextLevelBits = 0;
             SetPendingHostPreset(presetName);
@@ -256,6 +259,7 @@ namespace DWMPHorde.Sync
 
             PresetName = presetName;
             Current = State.Starting;
+            DreamExit.ResetForNewSession();
             SetPendingHostPreset(presetName);
             FinalDreamsceneManager.OnDreamStarted();
             ArmStartingWatchdog();
@@ -414,6 +418,7 @@ namespace DWMPHorde.Sync
             PresetName = null;
             _pendingHostPreset = null;
             LevelBits = 0;
+            DreamExit.OnSessionOver();
         }
 
         /// <summary>Abort Starting/Active when prepare or pad load failed (no completion mark).</summary>
@@ -426,6 +431,7 @@ namespace DWMPHorde.Sync
             PresetName = null;
             _pendingHostPreset = null;
             LevelBits = 0;
+            DreamExit.OnSessionOver();
         }
 
         public static void Reset()
@@ -437,6 +443,7 @@ namespace DWMPHorde.Sync
             LevelBits = 0;
             NextLevelBits = 0;
             PendingRequestBits = 0;
+            DreamExit.OnSessionOver();
         }
 
         public static void ResetIncludingCompletions()

@@ -200,7 +200,7 @@ namespace DWMPHorde.Networking
             }
         }
 
-        private void HandleSteamPeerDisconnected(int playerId, string reason)
+        private void HandleSteamPeerDisconnected(int playerId, string reason, bool lost)
         {
             // Reuse LAN disconnect cleanup by synthesizing the host branch.
             ModLog.Event(LogCat.Network, $"Steam player {playerId} disconnected: " + reason);
@@ -216,7 +216,7 @@ namespace DWMPHorde.Networking
                 {
                     // Remove Steam slot first so roster build excludes the leaver.
                     RemovePeerSlot(playerId);
-                    OnHostPeerDisconnectedGameplay(playerId, removeLanSlot: false, reasonTag: "steam peer disconnect");
+                    OnHostPeerDisconnectedGameplay(playerId, removeLanSlot: false, reasonTag: "steam peer disconnect", lost: lost);
                     StatusText = $"Steam player {playerId} left ({_steamPeers.Count} remaining)";
                 }
             }
@@ -259,7 +259,7 @@ namespace DWMPHorde.Networking
             {
                 Steam.CloseSession(_currentReceiveSteamId);
                 if (_steamPeers.TryGetPlayerId(_currentReceiveSteamId.m_SteamID, out int pid))
-                    HandleSteamPeerDisconnected(pid, "protocol mismatch");
+                    HandleSteamPeerDisconnected(pid, "protocol mismatch", lost: false);
             }
         }
 

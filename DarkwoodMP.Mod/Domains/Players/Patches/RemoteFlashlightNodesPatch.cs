@@ -19,12 +19,17 @@ namespace DWMPHorde.Patches
     {
         private static readonly List<Light2D> Stash = new List<Light2D>(4); // process-scoped: call-scoped, emptied by the Finalizer
 
+        /// <summary>Lights of a dream pad this player is no longer in, held out of the pass.</summary>
+        private static readonly List<Light2D> PadStash = new List<Light2D>(8); // process-scoped: call-scoped, emptied by the Finalizer
+
         private static void Prefix(Controller __instance)
         {
             Stash.Clear();
+            PadStash.Clear();
             var net = ModRuntime.Network;
             if (net == null || !net.IsConnected || __instance.logicLights == null)
                 return;
+            StashLeftDreamPadLights(__instance);
             foreach (RemotePlayerProxy proxy in net.GetAllProxies())
             {
                 if (proxy == null)
@@ -39,8 +44,41 @@ namespace DWMPHorde.Patches
             }
         }
 
+        /// <summary>
+        /// Vanilla's dream end removes the dream's path graph at once and destroys the dream pad 4 s
+        /// later; a co-op host awake while the others dream keeps the pad longer. Out of the dream,
+        /// the pad's logic lights went through the overworld node lookup against graphs that are
+        /// gone (<c>AstarPath.GetNodesAround</c>: a NullReferenceException with its stack trace for
+        /// every light, every pass, 12 after the home dream). Nothing on the pad is lit for a
+        /// player who is not in it, so its lights are held out until the pad is gone or entered.
+        /// </summary>
+        private static void StashLeftDreamPadLights(Controller ctrl)
+        {
+            Dreams dreams = Singleton<Dreams>.Instance;
+            Location pad = dreams != null ? dreams.dreamLocation : null;
+            if (pad == null || dreams.dreaming || dreams.switchingDream)
+                return;
+            Transform padT = pad.transform;
+            List<Light2D> lights = ctrl.logicLights;
+            for (int i = lights.Count - 1; i >= 0; i--)
+            {
+                Light2D lt = lights[i];
+                if (lt == null || !lt.transform.IsChildOf(padT))
+                    continue;
+                lt.unlightGraphNodes();
+                lights.RemoveAt(i);
+                PadStash.Add(lt);
+            }
+        }
+
         private static void Finalizer(Controller __instance)
         {
+            for (int i = 0; i < PadStash.Count; i++)
+            {
+                if (PadStash[i] != null && !__instance.logicLights.Contains(PadStash[i]))
+                    __instance.logicLights.Add(PadStash[i]);
+            }
+            PadStash.Clear();
             if (Stash.Count == 0)
                 return;
             bool lightNow = Player.Instance != null && !Player.Instance.inEpilogue

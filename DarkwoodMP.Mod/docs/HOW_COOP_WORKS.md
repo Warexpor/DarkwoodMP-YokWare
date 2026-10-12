@@ -85,8 +85,8 @@ clients.
   what one player takes is gone for everyone. Story flags, NPC states, the journal,
   the workbench level and the clock are shared.
 - **Personal:** the player character. Each player has their own bag and hotbar,
-  health, skills, level, recipes, home oven and respawn point, and trader
-  standing. A player's progress is not overwritten by the host's.
+  health, skills, level, recipes, home oven and respawn point, and standing with
+  the morning traders. A player's progress is not overwritten by the host's.
 
 When a rule is unclear, the first question is: "is this a fact about the world, or a
 fact about one player?"
@@ -187,7 +187,8 @@ the rest of this document easier to read.
 - Health, darkness, status effects, burning.
 - Skills, level, level-up dream slots, recipes, craft-limit counters.
 - Home oven and respawn point.
-- Trader standing (night and morning traders, the Wolf, Piotrek; not the Doctor).
+- Standing with the hideout's morning traders (the Trader, the Three). Standing with
+  every other NPC is shared, the ones who trade included.
 - Per-player flags: anything named `player_in*`, `player_at*` or
   `player_entering*`, help popups, the first oven talk, "survived the night".
 - Hints, thought lines and one-shot "lessons" (recipes or journal pages taught by
@@ -230,6 +231,8 @@ on the host, so a returning player gets their own character back, not the host's
   ([section 18](#18-balancing-for-the-party)).
 - **Black chompers in dreams:** one extra per extra player
   ([section 18](#18-balancing-for-the-party)).
+- **Items lying in a dream's scene** (the grave meadow's shovel): each dreamer takes
+  their own ([section 13](#13-dreams)).
 - **Morning:** every hideout a living player greets the dawn in gets its own
   morning ([section 6](#6-night-morning-and-hideouts)).
 
@@ -343,6 +346,13 @@ sends its real map, which the client loads. A client that never gets the
 world shows an error and leaves cleanly (it rejoins by hand; see
 [section 20](#20-known-gaps-and-parked-items)).
 
+### Doors that lock behind the party
+
+Some walk-in triggers lock a door behind the player (the wedding's corridor, the wolf's
+room, a dream's exit). They are built for one player. In co-op such a trigger waits until
+every living player in that location has walked into it, then fires once: nobody is locked
+out, or in a dead-end room. A player who dies or leaves the location does not hold it.
+
 ### Host migration
 
 If the host crashes or times out (`HostMigrationEnabled`, on by default), the
@@ -350,6 +360,12 @@ survivors elect the lowest remaining player id as the new host and reconnect to 
 Every survivor computes the same answer from the player roster the host shared
 while it was alive. A migration during a dream carries the dream over (done in
 code, not yet playtested).
+
+A host that leaves on purpose hands the world over the same way, without the wait:
+Disconnect in the multiplayer menu, or "exit to menu" while other players are in
+the world. The host's own character is kept as a snapshot at every save, so the
+same player joining that world later comes back as that character, in whichever
+profile slot the world lands.
 
 ---
 
@@ -375,6 +391,10 @@ code, not yet playtested).
   dialogue. When every player in the session has it open, the whole world pauses on
   every machine. The first player to close it resumes. A player still joining or
   loading keeps the world running.
+- **A player with nobody connected is in single player for pausing.** A host waiting
+  for the others gets the vanilla pause from every menu. When the first player
+  connects, a pause taken that way is lifted and the rules above apply. When the last
+  one leaves with the pause menu open, the game pauses again until the menu closes.
 - **There is no sleeping or time skip.** The game has no such mechanic (the code for
   it is dead), so there is nothing to vote on.
 
@@ -385,6 +405,9 @@ code, not yet playtested).
 - **Homes are personal, buildings are shared.** Each player has their own home oven
   and respawn point. The hideout's walls, doors, barricades, generator and
   furniture are one shared world. An oven goes out only when nobody calls it home.
+- **The party moves home together.** When a player lights a new hideout's oven, every
+  player who lived in the hideout it left moves with it (their home and respawn point
+  follow). A player who lives in another hideout keeps their own.
 - **Whoever pushes or drags a thing moves it.** The pusher's own game moves it and
   everyone else sees the result. Other players' bodies pass through pushable things
   on your screen, so nothing gets pushed twice. Furniture the night shoves around (the
@@ -419,9 +442,10 @@ code, not yet playtested).
   the most players, a tie going to the host's. Each surviving player standing in
   a hideout at dawn gets their own reward (trader standing), trader there or not.
   A player who is not home at dawn, or who died that night, gets none (as in vanilla).
-- **The morning holds until the hideout is empty.** One player walking out does not
-  despawn the trader for the others. The trader restocks only when nobody is
-  trading with it.
+- **The morning holds until the hideout is empty, the clock does not.** One player
+  walking out does not despawn the trader for the others, but the clock runs again
+  for everyone from the moment the first player (host or client) walks out. A morning
+  still held at dusk ends then. The trader restocks only when nobody is trading with it.
 - **Generators:** fuel is host-owned. A client's switch or refuel is a request. The
   Electrician skill applies at the best rate any player has.
 - **Village nights (co-op only).** Vanilla never needed this: friendly villagers go
@@ -451,14 +475,17 @@ night for players who are still alive, so in co-op:
 - The dead player becomes a spectator until morning: invulnerable, invisible,
   passing through walls, following a living player's camera and hearing what they
   hear. F4 cycles between living players. A dead player cannot release themselves
-  early.
+  early. They cannot talk either: no voice chat and no radio until the morning.
 - Enemies, worms and shadows ignore night-dead players, and attacks from a dead
   player are rejected.
 - The first death does not skip the day or save the game.
 - **The body stays where the player fell**, on every machine, lying dead, with no
-  collider (anyone walks over it). It is also the death bag: the bag drops on the
-  spot as by day, hidden under the body, and pointing at the body loots it. At the
-  morning release the body goes and whatever is left shows as a bag again. A
+  collider (anyone walks over it). It is also the death bag, and it holds everything
+  the player carried, backpack and hotbar (by day vanilla's bag takes a random half
+  of the backpack, and nothing when the backpack holds one item or none). The bag is
+  hidden under the body and pointing at the body loots it. The dead player wakes in
+  the morning with what the others gave back or left: at the morning release the body
+  goes and whatever is left shows as a bag again. A
   one-life death by day is held until morning too, but it drops a plain bag with no body.
 - **At dawn** every night-dead player is released and sent home. A death that
   arrives after the host's dawn counts as a day death.
@@ -468,7 +495,7 @@ night for players who are still alive, so in co-op:
 - **Leaving does not undo a night death.** A player who died, quit and joins again the
   same night is down again until morning (the host knows them by their Steam id or
   install key), spectating, seen dead by the others and counted for the all-dead
-  morning.
+  morning. The mark ends with that night: joining on a later night starts alive.
 
 ### Difficulty and permadeath
 
@@ -652,9 +679,12 @@ bought and what I sold"; if the host's stock no longer has the goods, the trade 
 refused and reversed on the client. A trader restocks only when nobody is trading
 with it. Several players can trade with the same trader at once, each from their own
 screen; goods sitting in one player's buy tray are held back from that player's view
-of the stock, and the first accepted trade wins. Standing with a trader is personal:
-the night and morning traders, the Wolf and Piotrek. The Doctor's standing is shared,
-because his chapter 2 story keeps its state in it.
+of the stock, and the first accepted trade wins. Standing is shared like the stock
+with the story traders (the Wolf, Piotrek, the Doctor, the underground soldier): what
+one player earns, any player can spend, and a trade that spends standing another
+player just spent is refused and undone. The exceptions are the hideout's morning
+traders, the Trader and the Three: each player has their own standing with them,
+earned by living through the night.
 
 ### Crafting, upgrades and the workbench
 
@@ -733,9 +763,11 @@ The chapter transition is a world event that only the host runs. See
   the talk. While the speaker trades, each listener gets its own trading screen on
   the same trader (and can open it from Trade). The cooking menu after a talk and
   journal pages opened by a talk are not shown to listeners.
-- **Leaving a shared talk.** When the speaker leaves while others listen in, the
-  talk is handed to the next of them (its own options from there); the NPC's close
-  events wait until the last player in the talk leaves.
+- **Leaving a shared talk.** When the speaker leaves (Exit or Esc) while others
+  listen in, the talk is handed to the next of them (its own options from there); the
+  NPC's close events wait until the last player in the talk leaves. A talk that ends
+  itself (its last board closes it) is over for everyone in it: the listeners'
+  windows close with the speaker's.
 - **Who gets what.** Items a dialogue gives are personal to the speaker. Story
   flags, world events and NPC reputation the dialogue changes are world outcomes:
   the host replays the client's finished conversation in order and applies them
@@ -755,10 +787,18 @@ party events.
 
 - **Everyone alive goes.** A dream started for one player brings every connected,
   living player along. Dead players sit it out.
-- **The host's world waits.** From the start of the entry movie until the dream is
-  up, the host freezes its world (creatures included). New joins are refused for the
+- **The host's world waits.** From the start of the entry movie until the first
+  player wakes, the host freezes its world (creatures included). New joins are refused for the
   duration unless the host allows them, except during the ending, where joiners are
   pulled onto its pad (a finished game reloads into the ending).
+- **Leaving is each player's own.** An exit a player takes with its own body (the
+  bed in the bunker dream, an exit area, the grave) wakes that player alone; the
+  others stay in the dream until each of them leaves, and the host keeps it running
+  after its own exit. From the first wake-up the world runs again for whoever is
+  awake (creatures, clock). What the dream changed in the world is decided by the
+  first player out; everyone gets their own outcome's items. Endings nobody else
+  could trigger again (a creature killed, a scripted scene, a dialogue), a dream that
+  hands over to its next part and the ending still finish it for everyone.
 - **Anyone can drive the story.** A client's talk, lamp, area step or blow on a story
   object moves the dream on for everyone; a dream that hands over to the next one
   (doctor 1 to 2) takes everyone along. Creatures the story sends (the forest spirit,
@@ -767,15 +807,31 @@ party events.
   level's dream to everyone present, and everyone who was in it has that level's
   dream done. A player who missed it (late, or dead) still gets an unplayed dream
   for that level later, or just levels up if none is left. A played dream is never
-  repeated for the party. The bunker dream (level 2) is played once per world.
+  repeated for the party. The bunker dream (level 2) is played once per world (a
+  new world started in a save slot does not inherit the old world's played dreams);
+  in chapter 1 a world that has not played it gets it with its next level-up dream.
 - **Dying in a dream:** you spectate until it ends. When every dreamer is dead, the
   dream ends as a death outcome, also when the host is not one of the dreamers.
+- **Items in the scene:** an item the dream's scene has lying around (a weapon against
+  its creature) is there for each dreamer: taking it does not take it from the others.
+  What a player drops in a dream is one shared item. The dream bag is gone on waking.
+- **A dream's look is seen by all.** A dream that changes how a player looks (the
+  Doctor in his dream, the home dream's clothes) shows it to every other player, and
+  each player wakes in their own clothes.
 - **Rewards:** dream outcome items are given to each dreamer. The outcome's world
   events reach every player, including one who died in the dream. A failed or
   abandoned dream gives nothing and is not marked done.
+- **One scene, in one place.** Every player loads the dream's scene at the spot
+  the host's game put it, a dream's next part too, so everything in it lines up.
+  The scene's own characters (its corpses, birds, talking door, chickens) and its
+  music are there on every game.
+- **What is each player's own in a dream:** a sound area or a repeatable trigger
+  plays for the player standing in it, and a cue tied to seeing something plays
+  for whoever sees it, as in vanilla. Story steps are shared.
 - **Same names, two worlds.** Dream scenes reuse object names from the overworld
-  (the bunker door, for one). Every dream lookup is scoped to the dream pad so a
-  player in the overworld is never affected.
+  (the bunker door, for one). Every dream lookup is scoped to the dream's own map
+  slot (the whole scene, not only near its centre), so a player in the overworld is
+  never affected.
 - **Host migration during a dream** carries the dream over to the new host (done in
   code, not yet playtested).
 
@@ -821,6 +877,12 @@ party events.
 - **Doors** open and close through the host. A barricaded or broken door cannot be
   opened. Door health travels with the door. Kicking a door alerts creatures the
   same way for every player.
+- **A swinging door** is run by one machine: the one whose player (or, on the host, a
+  creature or a blast) set it moving. That machine sends its angle while it swings and
+  the angle it comes to rest at; the others follow 0.1 s behind, along a curve through
+  those angles, and land on the same angle. A player walking into a door another machine runs pushes it there, and a blow
+  on it knocks it back there. If two machines start the same swing, the lower player
+  id keeps it.
 - **Barricades and constructions** are shared world objects.
 - **Lights:** lamps, generators, flares and held lights are synced; every machine
   runs a flare's own burn clock from its age, so flares go out together. A player's
@@ -867,14 +929,16 @@ party events.
   volume. Creature sounds come from the host within their range of a player.
 - **Text chat** (Ctrl+C): relayed by the host, which stamps the sender, so a
   name cannot be faked. What is said stays in the chat; nothing shows over the players.
+  The chat also says when a player is joining, is in the game, left, or lost connection.
 - **Player names**: each player tells the host their name and the host hands every
   name out with the player roster. A name shows over a player only while you can
   see them (vanilla's enemy sight test), so it never reveals someone behind a wall.
-- **Voice chat** (any install, LAN or Steam; the game's own microphone input and the
-  mod's own codec, no Steam client needed). Mic, mic volume, voice volume and each
+- **Voice chat** (any install, LAN or Steam; the game's own microphone input, carried as
+  Opus by code inside the mod, no Steam client needed; a lost packet is filled in from the
+  next one). Mic, mic volume, voice volume and each
   player's volume are in Settings > Voice:
   - Proximity voice comes from where the talker stands (panned toward them) and
-    carries as far as they spoke loud: a shout to 650 units, normal speech about three
+    carries as far as they spoke loud: a shout to 1300 units, normal speech about three
     quarters of that, a whisper about a third. Muffled through walls.
   - Creatures hear it too (host rule, on by default): talk louder than a murmur is a
     sound at the talker's position, like a step or a door. Whispering is safe.
@@ -888,8 +952,12 @@ party events.
     A keyed radio also sends the sounds around its holder (steps, doors, creatures, the
     weather), each as loud and as dull as it reaches the holder and well under the voice;
     not music, menu sounds or voice chat itself (nor the game's long ambience loops, which
-    play on two sources and cannot be tapped). Only radios play that part: a player standing by the talker
-    hears their voice and the world for themselves (`VoiceRadioWorldSounds`).
+    play on two sources and cannot be tapped). Only radios play that part: the voice heard
+    from the talker themself is their voice alone, in a world the listener hears for themselves (`VoiceRadioWorldSounds`).
+    A transmission is heard both ways at once where both reach: the talker's voice from
+    where they stand, as far as it carries, and the radio playing it (your own, or another
+    player's nearby), with its beep, band, static and squelch tail. Close together the two
+    share the level one voice has, so the pair is no louder than the voice alone.
     Every other walkie plays the talk out loud too: standing near someone who carries
     one, you hear it from them (a short way, muffled through walls), and creatures near
     a playing radio hear it.

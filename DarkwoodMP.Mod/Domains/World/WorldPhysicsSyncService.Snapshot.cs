@@ -227,6 +227,9 @@ namespace DWMPHorde.Sync
                     if (proxy != null)
                         _s.ScanCenters.Add(proxy.transform.position);
                 }
+                // A body a repeating event turns is sent from where it stands, not only when a
+                // player is next to it (the dream carousel is seen from far off).
+                ScriptedSpin.AddScanCenters(_s.ScanCenters);
             }
 
             _s.ScannedObjectIds.Clear();

@@ -30,7 +30,8 @@
     <!-- Single source of the product version: Bootstrap/PluginInfo.cs (const Version). -->
     <Version>$([System.Text.RegularExpressions.Regex]::Match($([System.IO.File]::ReadAllText('$(MSBuildThisFileDirectory)Bootstrap/PluginInfo.cs')), 'const string Version = "([^"]+)"').Groups[1].Value)</Version>
     <InformationalVersion>$(Version)-path-b</InformationalVersion>
-    <DefineConstants>$(DefineConstants);TRACE</DefineConstants>
+    <!-- PARITY: ThirdParty/Concentus built as its NuGet package is (bit-exact integer maths). -->
+    <DefineConstants>$(DefineConstants);TRACE;PARITY</DefineConstants>
     <OutputPath>bin\$(Configuration)\$(Loader)\</OutputPath>
   </PropertyGroup>
 
@@ -59,6 +60,7 @@
   <ItemGroup>
     <EmbeddedResource Include="Resources\RnNoise\rnnoise_weights.bin" LogicalName="DWMPHorde.Resources.rnnoise_weights.bin" />
     <EmbeddedResource Include="Resources\RnNoise\COPYING.txt" LogicalName="DWMPHorde.Resources.rnnoise_COPYING.txt" />
+    <EmbeddedResource Include="ThirdParty\Concentus\LICENSE.txt" LogicalName="DWMPHorde.Resources.concentus_LICENSE.txt" />
     <EmbeddedResource Include="Resources\walkie_talkie.png" LogicalName="DWMPHorde.Resources.walkie_talkie.png" />
     <EmbeddedResource Include="Resources\Radio\key.wav" LogicalName="DWMPHorde.Resources.Radio.key.wav" />
     <EmbeddedResource Include="Resources\Radio\key16.wav" LogicalName="DWMPHorde.Resources.Radio.key16.wav" />

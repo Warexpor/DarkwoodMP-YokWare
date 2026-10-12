@@ -215,6 +215,7 @@ namespace DWMPHorde
             NetworkResetRegistry.Register(HostMeleeSensorPatch.Reset);
             NetworkResetRegistry.Register(ThreatTriggerContext.Reset);
             NetworkResetRegistry.Register(EventTriggersProxyOccupancy.Reset);
+            NetworkResetRegistry.Register(LockBehindPartyGate.Reset);
             NetworkResetRegistry.Register(MorningHideoutHold.Reset);
             NetworkResetRegistry.Register(DreamForestSpiritAggro.Reset);
             NetworkResetRegistry.Register(DreamSyncManager.ResetHostEndClaim);
@@ -303,7 +304,9 @@ namespace DWMPHorde
             NetworkResetRegistry.Register(MenuShield.Reset);
             NetworkResetRegistry.Register(PauseMenuSync.Reset);
             NetworkResetRegistry.Register(PlayerNames.Reset);
+            NetworkResetRegistry.Register(PeerNotices.Reset);
             NetworkResetRegistry.Register(PauseMenuNoInputPatch.Reset);
+            NetworkResetRegistry.Register(DialogTextKeys.Reset);
             NetworkResetRegistry.Register(StackedLightProbe.Reset);
             NetworkResetRegistry.Register(BackgroundFrameRate.Reset);
             NetworkResetRegistry.Register(DescriptionDeck.Reset);
@@ -340,8 +343,12 @@ namespace DWMPHorde
         /// </summary>
         public static void EnsureRunning()
         {
-            if (_running)
+            // Unity null: MelonLoader starts the mod before the first scene, and that load destroys
+            // a root made this early, DontDestroyOnLoad or not. Build it again on the next call.
+            if (_running && _runtimeRoot != null)
                 return;
+            if (_running)
+                ModLog.Event(LogCat.Core, "Runtime root was destroyed by a scene load; creating it again");
 
             _running = true;
 

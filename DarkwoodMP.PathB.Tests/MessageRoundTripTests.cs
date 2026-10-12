@@ -501,7 +501,7 @@ public class MessageRoundTripTests
     {
         var msg = new TradeCommitMessage
         {
-            NpcName = "trader_01", PosX = 1f, PosY = 2f, PosZ = 3f, InDream = false, Denied = true,
+            NpcName = "trader_01", PosX = 1f, PosY = 2f, PosZ = 3f, InDream = false, Denied = true, RepDelta = -120,
             Bought = new[] { new TradeEntry { Type = "pistol", Count = 1, Durability = 0.5f, Ammo = 3, Active = false, Upgrades = new[] { "u1" } } },
             Sold = new[] { new TradeEntry { Type = "planks", IsRecipe = false, Count = 4, Durability = 1f } }
         };
@@ -510,6 +510,7 @@ public class MessageRoundTripTests
         Assert.Equal(0, r.AvailableBytes);
         Assert.Equal("trader_01", back.NpcName);
         Assert.True(back.Denied);
+        Assert.Equal(-120, back.RepDelta);
         Assert.Single(back.Bought);
         Assert.Equal(3, back.Bought[0].Ammo);
         Assert.Equal("u1", back.Bought[0].Upgrades[0]);
@@ -543,7 +544,8 @@ public class MessageRoundTripTests
             DialogueName = "item_key_baba_sister",
             Elements = new[]
             {
-                new DialogMirrorElement { Kind = DialogMirrorElement.KindText, Text = "line", Z = -40f, A = 1f, WriteSpeed = 0.025f, Interval = 0.5f, Menu = -1 },
+                new DialogMirrorElement { Kind = DialogMirrorElement.KindText, Text = "line", Z = -40f, A = 1f, WriteSpeed = 0.025f, Interval = 0.5f, Menu = -1,
+                    LangKey = "village_talk_1_2", LangSheet = "Dialogue_wolf", LangMode = 1, LangArg = "village" },
                 new DialogMirrorElement { Kind = DialogMirrorElement.KindDecisionBtn, Text = "nod", Target = "x_yes", Menu = 0 }
             }
         };
@@ -555,6 +557,11 @@ public class MessageRoundTripTests
         Assert.Equal("x_yes", back.Elements[1].Target);
         Assert.Equal((short)0, back.Elements[1].Menu);
         Assert.Equal(0.025f, back.Elements[0].WriteSpeed);
+        Assert.Equal("village_talk_1_2", back.Elements[0].LangKey);
+        Assert.Equal("Dialogue_wolf", back.Elements[0].LangSheet);
+        Assert.Equal((byte)1, back.Elements[0].LangMode);
+        Assert.Equal("village", back.Elements[0].LangArg);
+        Assert.Equal("", back.Elements[1].LangKey);
     }
 
     [Fact]

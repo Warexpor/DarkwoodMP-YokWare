@@ -215,29 +215,43 @@ namespace DWMPHorde.Sync
             if (gen.isOn != isOn)
             {
                 Item item = gen.GetComponent<Item>();
+                ItemSounds snd = item != null ? item.GetComponent<ItemSounds>() : null;
+                // Item.turnOn / turnOff play the start + loop / stop sounds themselves when they
+                // go through. Playing them again here started a second loop: ItemSounds keeps
+                // only the newest, so turnOff stopped that one and the first ran on with the
+                // generator off. Sounds are played here only where the item path did not.
+                bool itemPlayedSounds = false;
                 if (isOn)
                 {
                     if (item != null)
+                    {
                         DialogHostApplyGuard.RunHostWorldFanout(() => item.turnOn());
+                        // Its only early out (no fuel) returns before isOn and the sounds.
+                        itemPlayedSounds = item.isOn;
+                    }
                     else
                         DialogHostApplyGuard.RunHostWorldFanout(() => gen.turnOn());
                 }
                 else
                 {
-                    if (item != null)
+                    // Item.turnOff does nothing (and leaves the generator running) when the item
+                    // already reads off.
+                    if (item != null && item.isOn)
+                    {
                         DialogHostApplyGuard.RunHostWorldFanout(() => item.turnOff());
+                        itemPlayedSounds = true;
+                    }
                     else
                         DialogHostApplyGuard.RunHostWorldFanout(() => gen.turnOff());
                 }
 
                 // Belt: if item.turnOn early-out (fuel/disabled) left isOn wrong, force gen + SFX.
-                ItemSounds snd = item != null ? item.GetComponent<ItemSounds>() : null;
                 if (isOn && !gen.isOn && fuel > 0f)
                 {
                     gen.turnOn();
                     if (item != null) item.isOn = true;
                 }
-                if (wasOn != gen.isOn && snd != null)
+                if (wasOn != gen.isOn && snd != null && !itemPlayedSounds)
                 {
                     if (gen.isOn)
                         snd.playStart();
@@ -283,6 +297,8 @@ namespace DWMPHorde.Sync
         /// Host: snapshot Item collider isTrigger under the dream pad and fan-out so
         /// clients match walk-through lamps / solid bells after isColliderTrigger GEs.
         /// </summary>
+        private static int _lastDreamPropHash; // process-scoped: every dream start sends forced and replaces it
+
         public static void HostBroadcastDreamPropColliders(bool force = false)
         {
             if (!NetGuard.ConnectedHost(out var net))
@@ -332,6 +348,21 @@ namespace DWMPHorde.Sync
             }
 
             if (_dreamPropEntries.Count == 0) return;
+
+            // Every host GameEvents fire in a dream sent the whole list again (46 colliders at each
+            // of the home dream's dozens of events) though no collider had changed: only a change
+            // goes out, and a forced send (dream start) always.
+            int hash = 17;
+            for (int i = 0; i < _dreamPropEntries.Count; i++)
+            {
+                var e = _dreamPropEntries[i];
+                hash = hash * 31 + (e.Name != null ? e.Name.GetHashCode() : 0);
+                hash = hash * 31 + Mathf.RoundToInt(e.PosX) * 7 + Mathf.RoundToInt(e.PosZ);
+                hash = hash * 31 + (e.IsTrigger ? 1 : 0);
+            }
+            if (!force && hash == _lastDreamPropHash)
+                return;
+            _lastDreamPropHash = hash;
 
             int nEntries = _dreamPropEntries.Count;
             if (_dreamPropEntryBuf.Length != nEntries)

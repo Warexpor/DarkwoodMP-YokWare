@@ -35,6 +35,17 @@ namespace DWMPHorde.Sync
         {
             into.Clear();
             _dead.Clear();
+            // The scene registry holds the same set (every type here is one it keeps), seeded in
+            // the world load frame. Its own scene scan here was the first check's 250 ms hitch on
+            // every peer, after every load.
+            if (SceneRegistries.Covers<T>())
+            {
+                T[] live = SceneRegistry<T>.Snapshot();
+                for (int i = 0; i < live.Length; i++)
+                    if (live[i] != null)
+                        into.Add(live[i]);
+                return;
+            }
             if (!_seeded)
             {
                 _seeded = true;

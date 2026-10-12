@@ -465,7 +465,7 @@ namespace DWMPHorde.Patches
             HitIfSeen(__instance, Player.Instance != null ? Player.Instance.transform : null);
             foreach (var proxy in net.GetAllProxies())
             {
-                if (proxy != null && !DeathStateTracker.IsRemoteNightDead(proxy.PlayerId))
+                if (proxy != null && !DeathStateTracker.IsRemoteDown(proxy.PlayerId))
                     HitIfSeen(__instance, proxy.transform);
             }
 

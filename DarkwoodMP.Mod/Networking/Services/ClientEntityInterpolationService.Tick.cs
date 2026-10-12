@@ -186,13 +186,22 @@ namespace DWMPHorde.Networking
                 {
                     _unmatchedSince.Remove(c);
                     // Outside interest: hide unmapped / never-host-synced locals (look like roamers).
-                    if (!CharacterTracker.TryGetStableId(c, out short farSid)
+                    // A resident of a dream or location scene is not a roamer: the scene shows and
+                    // puts away its own characters (Location.activateCharacters), and one beyond this
+                    // range can still be on screen. Hidden here, the grave and church dreams' corpses
+                    // (whose death starts the chompers and the music), their ravens, the bunker
+                    // dream's talking door and the Doctor dream's chickens were gone for the whole
+                    // dream on every client.
+                    if ((!CharacterTracker.TryGetStableId(c, out short farSid)
                         || !_everHostSyncedIds.Contains(farSid))
+                        && !OnLocationPad(c.transform))
                     {
                         if (c.gameObject != null && c.gameObject.activeSelf
                             && (Player.Instance == null || c.gameObject != Player.Instance.gameObject)
                             && !c.name.Contains("RemotePlayer"))
+                        {
                             c.gameObject.SetActive(false);
+                        }
                     }
                     continue;
                 }
@@ -226,6 +235,18 @@ namespace DWMPHorde.Networking
 
                 _unmatchedSince.Remove(c);
             }
+        }
+
+        /// <summary>
+        /// A scene resident of a pad built far from the player (the dream pad, an outside
+        /// location): not a roamer of the open world, which stays put away.
+        /// </summary>
+        private static bool OnLocationPad(Transform t)
+        {
+            if (Sync.DreamSyncManager.IsOnDreamPad(t))
+                return true;
+            OutsideLocations ol = Singleton<OutsideLocations>.Instance;
+            return ol != null && t.IsChildOf(ol.transform);
         }
 
         /// <summary>
@@ -319,6 +340,8 @@ namespace DWMPHorde.Networking
             _drivenScratch.Clear();
         }
 
+        private const float TwinRadiusSq = 600f * 600f;
+
         private static bool HasSyncedTwin(Character c, Character[] allChars, int count)
         {
             if (c == null || allChars == null) return false;
@@ -329,6 +352,13 @@ namespace DWMPHorde.Networking
                 Character other = allChars[i];
                 if (other == null || other == c) continue;
                 if (!string.Equals(StripCloneName(other.name), name, System.StringComparison.OrdinalIgnoreCase))
+                    continue;
+                // A twin is a second body of the same thing at the same place. By name alone a
+                // dream pad's residents were "twins" of the world's (its ravens, the grave and
+                // church corpses, the bunker's talking door all have namesakes in the overworld),
+                // and each client hid them for the whole dream.
+                Vector3 d = other.transform.position - c.transform.position;
+                if (d.x * d.x + d.z * d.z > TwinRadiusSq)
                     continue;
                 if (!CharacterTracker.TryGetStableId(other, out short sid))
                     continue;

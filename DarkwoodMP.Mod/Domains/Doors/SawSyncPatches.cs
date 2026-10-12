@@ -18,10 +18,10 @@ namespace DWMPHorde.Sync
             Inventory inv = GetInventory(saw);
             if (inv != null)
             {
-                var logItem = inv.getItem("woodLog");
-                if (!InvItemClass.isNull(logItem)) woodLogAmount = logItem.amount;
-                var woodItem = inv.getItem("wood");
-                if (!InvItemClass.isNull(woodItem)) woodAmount = woodItem.amount;
+                // Every stack: logs stack to 2, so a saw loaded with several stacks read as its
+                // first one, and a convert that emptied it looked like the logs going up.
+                woodLogAmount = inv.getItemAmount("woodLog");
+                woodAmount = inv.getItemAmount("wood");
             }
 
             return new SawStateMessage
@@ -122,6 +122,27 @@ namespace DWMPHorde.Sync
             Inventory inv = saw.GetComponent<Inventory>();
             if (inv != null) return inv;
             return Traverse.Create(saw).Field("inventory").GetValue<Inventory>();
+        }
+    }
+
+    /// <summary>
+    /// Vanilla <c>Saw.refresh</c> reads the convert button of the saw's open window. A saw whose
+    /// window this machine never opened has none: the refresh threw, on the host at every log a
+    /// client placed or took (vanilla <c>Core.sendTriggerInfo</c> ends with it for a saw). Only the
+    /// fuel label is brought up to date then; the button is set when the window opens.
+    /// </summary>
+    [HarmonyPatch(typeof(Saw), nameof(Saw.refresh))]
+    public static class SawRefreshNoWindowPatch
+    {
+        private static bool Prefix(Saw __instance)
+        {
+            Button btn = __instance.convertFuelBtn != null ? __instance.convertFuelBtn.GetComponent<Button>() : null;
+            if (btn != null && btn.background != null && btn.disabledBackground != null)
+                return true;
+            Inventory inv = SawSyncHelpers.GetInventory(__instance);
+            if (inv != null && inv.thisLabel != null && inv.thisLabel.rightText != null)
+                inv.thisLabel.rightText.text = Language.Get("Fuel", "UI") + ": " + __instance.fuel;
+            return false;
         }
     }
 

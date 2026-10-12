@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using DWMPHorde.Logging;
 using DWMPHorde.Networking;
 using DWMPHorde.Players;
 using DWMPHorde.Sync;
@@ -205,11 +206,20 @@ namespace DWMPHorde.Patches
         private static readonly HashSet<int> SeenOutside = new HashSet<int>();
         private static readonly HashSet<int> Pending = new HashSet<int>();
 
+        /// <summary>
+        /// Host: a player has walked out of the hideout this morning. The clock runs again from
+        /// then on, for everyone, while the morning itself (the trader, the hideout's morning
+        /// look) holds until the hideout is empty. Before, the clock stayed stopped as long as
+        /// one player stood inside, and the ones outside lived in a frozen day.
+        /// </summary>
+        public static bool ClockReleased { get; private set; }
+
         public static void Reset()
         {
             Left.Clear();
             SeenOutside.Clear();
             Pending.Clear();
+            ClockReleased = false;
         }
 
         public static bool HasPending => Pending.Count > 0;
@@ -233,6 +243,11 @@ namespace DWMPHorde.Patches
             Pending.Remove(playerId);
             Left.Add(playerId);
             SeenOutside.Add(playerId);
+            if (!ClockReleased)
+            {
+                ClockReleased = true;
+                ModLog.Event(LogCat.Session, "[DayNight] p" + playerId + " left the hideout — the clock runs, the morning holds for those inside");
+            }
         }
 
         /// <summary>Host position tick: a pending leaver whose body is now outside the hideout.</summary>
@@ -373,7 +388,12 @@ namespace DWMPHorde.Patches
                 return true;
 
             if (!MorningHideoutHold.LocalPositionInside())
+            {
                 MorningHideoutHold.NoteLeft(net.LocalPlayerId, confirmedOutside: true);
+                // The host's own morning is over, as a client's is when it walks out (vanilla
+                // fades the end-of-night look on leaving); the trader stays for those inside.
+                ctrl.removeAfterNightEffect();
+            }
             ModRuntime.LegacyInfo("[DayNight] hideout still occupied — morning stays");
             return false;
         }

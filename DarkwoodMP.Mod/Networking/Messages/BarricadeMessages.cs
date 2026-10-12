@@ -23,8 +23,6 @@ namespace DWMPHorde.Networking
         public bool PlayerBarricade;
         public int MainHealth;
         public int DamageAmount;
-        public bool HasAttackerPos;
-        public float AttackerPosX, AttackerPosY, AttackerPosZ;
         /// <summary>
         /// Destructible items (IsWindow 2) only: the object's name. A hit can push furniture, so
         /// the receiver's copy may not be at the sender's position yet.
@@ -40,8 +38,6 @@ namespace DWMPHorde.Networking
             w.Put(PlayerBarricade);
             w.Put(MainHealth);
             w.Put(DamageAmount);
-            w.Put(HasAttackerPos);
-            w.Put(AttackerPosX); w.Put(AttackerPosY); w.Put(AttackerPosZ);
             w.Put(ItemName ?? "");
         }
 
@@ -56,10 +52,6 @@ namespace DWMPHorde.Networking
             PlayerBarricade = r.GetBool(),
             MainHealth = r.GetInt(),
             DamageAmount = r.GetInt(),
-            HasAttackerPos = r.GetBool(),
-            AttackerPosX = r.GetFloat(),
-            AttackerPosY = r.GetFloat(),
-            AttackerPosZ = r.GetFloat(),
             ItemName = r.GetString()
         };
     }

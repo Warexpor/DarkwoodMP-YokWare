@@ -87,7 +87,10 @@ namespace DWMPHorde.Networking
             {
                 if (playerId > 0)
                 {
-                    OnHostPeerDisconnectedGameplay(playerId, removeLanSlot: true, reasonTag: "peer disconnect");
+                    // The peer's own goodbye; anything else (timeout, unreachable) is a lost connection.
+                    bool lost = disconnectInfo.Reason != DisconnectReason.RemoteConnectionClose
+                        && disconnectInfo.Reason != DisconnectReason.DisconnectPeerCalled;
+                    OnHostPeerDisconnectedGameplay(playerId, removeLanSlot: true, reasonTag: "peer disconnect", lost: lost);
                     StatusText = $"Player {playerId} left ({_lanPeers.Count} remaining, ready={_session.Link.Handshaked.Count})";
                 }
             }
@@ -120,8 +123,11 @@ namespace DWMPHorde.Networking
         /// membership, destroys local proxy, pushes PeerRoster then LocationExit so
         /// remaining peers prune ghosts (N-peer safe).
         /// </summary>
-        private void OnHostPeerDisconnectedGameplay(int playerId, bool removeLanSlot, string reasonTag)
+        private void OnHostPeerDisconnectedGameplay(int playerId, bool removeLanSlot, string reasonTag, bool lost)
         {
+            // Before the name records below are cleared.
+            Sync.PeerNotices.HostGone(this, playerId, Sync.PlayerNames.Shown(playerId), lost);
+
             // Capture before Remove so TryLeaveUnoccupied sees remaining occupants only.
             string leftLoc = null;
             _session.RemoteOutsideLocation.TryGetValue(playerId, out leftLoc);

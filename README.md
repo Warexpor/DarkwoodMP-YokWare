@@ -5,8 +5,8 @@ join it: the same forest, the same nights, the same story, played together.
 
 | | |
 |--|--|
-| Product | YokWare Branch **0.8.242** |
-| Wire | Horde protocol **58** |
+| Product | YokWare Branch **0.8.260** |
+| Wire | Horde protocol **63** |
 | Players | Up to 8 by default (`MaxPlayers`, host included) |
 | Transport | LAN (LiteNetLib) or Steam lobby (SteamNetworkingSockets) |
 | Loaders | BepInEx 5.x or MelonLoader 0.7.x |
@@ -78,7 +78,8 @@ yourself (see [Building from source](#building-from-source)).
 1. Install MelonLoader 0.7.x for Darkwood. BepInEx is not needed.
 2. Copy `DarkwoodMP.Mod.dll` into `Darkwood/Mods/` and `LiteNetLib.dll` into
    `Darkwood/UserLibs/`.
-3. Launch Darkwood.
+3. Launch Darkwood. Under Wine or Proton, set `WINEDLLOVERRIDES="version=n,b"` (Steam
+   launch options: `WINEDLLOVERRIDES="version=n,b" %command%`) or the loader is skipped.
 
 To check the install, open **MULTIPLAYER** on the title screen: the bottom of the
 screen shows `YokWare Branch <version>`, as in the table above.
@@ -198,7 +199,8 @@ The full list, including what was left as is on purpose, is in
 
 Create `DarkwoodMP.Mod/GamePath.local.props` (gitignored). It is required on
 Linux, where the built-in default (a Windows path) does not exist. `SecondPlugins`
-is optional; it is the plugins folder of a second install for dual-box testing.
+and `ThirdPlugins` are optional: the plugins folders of a second and third install
+for two- and three-player testing on one machine.
 
 ```xml
 <Project>
@@ -231,7 +233,7 @@ dotnet build DarkwoodMP.Mod -c Release -p:Loader=MelonLoader
 ```
 
 The output is in `DarkwoodMP.Mod/bin/Release/<Loader>/`. A BepInEx build also
-copies the DLLs into `GameDir` and `SecondPlugins` as a development convenience;
+copies the DLLs into `GameDir`, `SecondPlugins` and `ThirdPlugins` as a development convenience;
 add `-p:SkipDeploy=true` to build without copying. Release zips for both loaders:
 
 ```bash
@@ -281,7 +283,7 @@ mod.
 LAN and Steam carry the same messages. The host owns the world simulation and
 validates everything clients send; it relays a client's message to the other
 clients only after applying it, and drops message types only the host may send.
-The highest assigned message ID is 170 (`CoHold`). Voice uses message 129.
+The highest assigned message ID is 173 (`PeerNotice`). Voice uses message 129.
 
 ---
 
@@ -308,7 +310,10 @@ recordings from Freesound, listed in
 suppression is RNNoise 0.2 by Jean-Marc Valin (Mozilla / Xiph.Org), ported to C#, with its
 trained weights, under its BSD licence: see
 [SOURCES.md](DarkwoodMP.Mod/Resources/RnNoise/SOURCES.md) and
-[COPYING.txt](DarkwoodMP.Mod/Resources/RnNoise/COPYING.txt). Darkwood is a game by Acid
+[COPYING.txt](DarkwoodMP.Mod/Resources/RnNoise/COPYING.txt). Voice is carried in Opus,
+through the managed port Concentus by Logan Stromberg, compiled into the mod under its BSD
+licence: see [SOURCES.md](DarkwoodMP.Mod/ThirdParty/Concentus/SOURCES.md) and
+[LICENSE.txt](DarkwoodMP.Mod/ThirdParty/Concentus/LICENSE.txt). Darkwood is a game by Acid
 Wizard Studio; this is an unofficial fan mod and needs a legal copy of the game.
 
 Licensed under GPLv3: see [LICENSE](LICENSE) and [COPYRIGHT](COPYRIGHT).

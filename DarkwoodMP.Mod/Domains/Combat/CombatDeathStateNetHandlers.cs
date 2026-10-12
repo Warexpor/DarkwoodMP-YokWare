@@ -29,7 +29,7 @@ namespace DWMPHorde.Networking
                 return;
             }
 
-            ModRuntime.LegacyInfo($"[Death] Remote player {playerId} died at {deathPos}, isNight={isNight}");
+            ModRuntime.LegacyInfo($"[Death] Remote player {playerId} died at {deathPos}, isNight={isNight} bag={msg.HasDropBag}");
 
             RemotePlayerProxy diedProxy = _net.GetProxy(playerId);
             if (diedProxy != null)

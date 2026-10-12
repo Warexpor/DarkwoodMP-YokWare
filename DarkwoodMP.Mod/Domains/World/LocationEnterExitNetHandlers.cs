@@ -54,7 +54,7 @@ namespace DWMPHorde.Networking
 
             // During shared dream, strip vanilla *_done so proxies land on the live pad.
             string locName = msg.LocationName;
-            if (Sync.DreamSyncManager.IsDreamActive)
+            if (Sync.DreamSyncManager.IsDreamActive && Sync.DreamSyncManager.IsDreamPadName(locName))
                 locName = Sync.DreamSyncManager.CanonicalDreamLocationName(locName);
 
             ModRuntime.LegacyInfo($"[LocationSync] player {playerId} entered location: {locName}");
@@ -156,9 +156,11 @@ namespace DWMPHorde.Networking
                 // a second bunker (duplicated ambience and lights, wrong slot Y); only wait.
                 bool dreamName = locName.StartsWith("dream_", StringComparison.OrdinalIgnoreCase)
                     || Sync.DreamSyncManager.IsDreamLocationName(locName);
+                // An ordinary location entered by a player who already left the dream is created
+                // as usual; only this machine's own dream entry holds it back.
                 if (dreamName
-                    || Sync.DreamSyncManager.IsDreamActive
-                    || (Dreams.Instance != null && (Dreams.Instance.dreamPrepared || Dreams.Instance.dreaming)))
+                    || Core.EnteringDream
+                    || (Dreams.Instance != null && Dreams.Instance.dreamPrepared && !Dreams.Instance.dreaming))
                 {
                     if (firstEnterThisLoc)
                         _net.RemoteOutsideLocation.Remove(playerId);
@@ -333,10 +335,11 @@ namespace DWMPHorde.Networking
                         return dreamLoc;
                 }
 
-                // Do not fall through to spawnedLocations or global name
-                // lookup while a dream is active; those keys have overworld
-                // twins and first-match selection is not lifecycle-safe.
-                return null;
+                // A dream's pad is only ever the live one: no fall through to spawnedLocations
+                // or a global name lookup (a finished "_done" twin could be picked).
+                if (Sync.DreamSyncManager.IsDreamPadName(locName))
+                    return null;
+                // An ordinary location: a player who already left the dream is in it.
             }
 
             if (ol.spawnedLocations != null && ol.spawnedLocations.ContainsKey(locName))
@@ -458,8 +461,8 @@ namespace DWMPHorde.Networking
         {
             if (_net.Role != NetworkRole.Host || string.IsNullOrEmpty(locName))
                 return;
-            if (Sync.DreamSyncManager.IsDreamActive
-                || Sync.DreamSyncManager.IsDreamLocationName(locName))
+            // A dream's pad is torn down by the dream's end, never as an emptied location.
+            if (Sync.DreamSyncManager.IsDreamPadName(locName))
                 return;
             if (IsAnyRemoteInOutsideLocation(locName))
                 return;

@@ -55,7 +55,7 @@ namespace DWMPHorde.Networking
                 Transform dreamRoot = DreamSyncManager.GetDreamLocationTransform();
                 bool onPad = dreamRoot != null
                     && (npc.transform.IsChildOf(dreamRoot)
-                        || Vector3.Distance(npcPos, dreamRoot.position) <= 250f);
+                        || DreamSyncManager.IsAtDreamPad(npcPos));
                 if (!onPad)
                 {
                     ModRuntime.LegacyInfo(
@@ -151,7 +151,7 @@ namespace DWMPHorde.Networking
                     continue;
                 if (dreamRoot != null
                     && !ge.transform.IsChildOf(dreamRoot)
-                    && Vector3.Distance(ge.transform.position, dreamRoot.position) > 250f)
+                    && !DreamSyncManager.IsAtDreamPad(ge.transform.position))
                     continue;
                 if (dreamRoot == null
                     && Vector3.Distance(ge.transform.position, nearPos) > 80f)
@@ -224,7 +224,7 @@ namespace DWMPHorde.Networking
 
                 if (dreamRoot != null
                     && (n.transform.IsChildOf(dreamRoot)
-                        || Vector3.Distance(n.transform.position, dreamRoot.position) <= 250f))
+                        || DreamSyncManager.IsAtDreamPad(n.transform.position)))
                 {
                     float d = Vector3.Distance(n.transform.position, dreamRoot.position);
                     if (d < bestDreamDist)

@@ -17,6 +17,7 @@ namespace DWMPHorde.Networking
             On(NetMessageType.DialogOutcomeSync, DialogOutcomeSyncMessage.Deserialize, m => DialogOutcomeApplyHandlers.HandleDialogOutcomeSync(m));
             On(NetMessageType.DreamStarted, DreamStartedMessage.Deserialize, m => DreamHandlers.HandleDreamStarted(m));
             On(NetMessageType.DreamEnded, DreamEndedMessage.Deserialize, m => DreamHandlers.HandleDreamEnded(m));
+            On(NetMessageType.DreamLeft, DreamLeftMessage.Deserialize, m => Sync.DreamExit.HandleDreamLeft(this, m));
             On(NetMessageType.DreamStartRequest, DreamStartRequestMessage.Deserialize, m => DreamHandlers.HandleDreamStartRequest(m));
             On(NetMessageType.DreamItemPickup, DreamItemPickupMessage.Deserialize, m => DreamHandlers.HandleDreamItemPickup(m));
             On(NetMessageType.DreamAudio, DreamAudioMessage.Deserialize, m => DreamHandlers.HandleDreamAudio(m));

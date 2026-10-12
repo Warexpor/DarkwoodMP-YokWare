@@ -19,8 +19,10 @@ namespace DWMPHorde.Patches
         /// <summary>Set while client ApplyGameEventsFired runs for a non-local actor.</summary>
         public static bool SuppressPersonalForLocalPlayer; // process-scoped: call-scoped, unwound by its Finalizer/finally
 
-        private static bool Prefix(GameEvent __instance, GameObject thisGO, ref IEnumerator __result)
+        private static bool Prefix(GameEvent __instance, GameObject thisGO, ref IEnumerator __result,
+            out bool __state)
         {
+            __state = false;
             if (__instance == null) return true;
 
             // Chapter jump is a world event owned by the host, whoever the actor is.
@@ -35,9 +37,34 @@ namespace DWMPHorde.Patches
                 return false;
             }
 
+            // A repeating event turning a free body: the host's loop turns it, clients follow.
+            if (ScriptedSpin.IsSpinStep(__instance, thisGO))
+            {
+                if (IsConnectedClient())
+                {
+                    __result = HarmonyCoroutineUtil.Empty();
+                    return false;
+                }
+                if (ModRuntime.Network != null && ModRuntime.Network.IsConnected)
+                    ScriptedSpin.NoteHostStep(__instance);
+            }
+
+            // A later leaver's dream outcome: the steps on its own body only; the world's part
+            // was the first leaver's.
+            if (DreamExit.PersonalOnlyFire)
+            {
+                if (IsPersonalPlayerTargeted(__instance)) return true;
+                __result = HarmonyCoroutineUtil.Empty();
+                return false;
+            }
+
             if (!ShouldSuppressPersonal()) return true;
             // A party dream's opening and endings: each dreamer is "the player" (PartyDreamScene).
-            if (PartyDreamScene.Owns(thisGO)) return true;
+            if (PartyDreamScene.Owns(thisGO))
+            {
+                __state = true;
+                return true;
+            }
             // The Wolfman's arena ends (wolf killed, walking out victorious) by taking the table leg
             // from "the player": from every player still in the arena, not only the one who set it off.
             if (WolfArena.IsTableLegDrain(__instance) && WolfArena.LocalInArena()) return true;
@@ -55,6 +82,16 @@ namespace DWMPHorde.Patches
                 return false;
             }
             return true;
+        }
+
+        /// <summary>
+        /// A party dream step let through above runs as this dreamer's own for as long as it runs:
+        /// the gates further down (a per-player flag write) would otherwise still see another actor.
+        /// </summary>
+        private static void Postfix(ref IEnumerator __result, bool __state)
+        {
+            if (__state)
+                __result = PartyDreamScene.AsOwnStep(__result);
         }
 
         internal static bool IsScenePresentation(GameEvent ge)
@@ -156,7 +193,7 @@ namespace DWMPHorde.Patches
                 case GameEvent.Type.returnToWorld:
                     return true;
                 case GameEvent.Type.modifyCharacter:
-                    // A trader's standing is each player's own: a step that changes it is a reward
+                    // A morning trader's standing is each player's own: a step that changes it is a reward
                     // for the player the event is about, not for everyone who sees it replayed.
                     return ge.characterModifyType == GameEvent.CharacterModify.player_tweenShadow
                         || TargetsPlayerBody(ge)

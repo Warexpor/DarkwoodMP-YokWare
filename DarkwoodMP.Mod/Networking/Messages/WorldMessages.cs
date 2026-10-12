@@ -140,6 +140,12 @@ namespace DWMPHorde.Networking
         public const byte Flag2PrevClip = 8;
         /// <summary>The host's InSightOfPlayer in-sight step has run (Sync.CreatureSightState).</summary>
         public const byte Flag2InSight = 16;
+        /// <summary>
+        /// The id's last snapshot for now: it left every player's range on the host and is not
+        /// sent again until it is back in one. The client puts its copy away instead of leaving it
+        /// standing where it was last seen while the real one walks on.
+        /// </summary>
+        public const byte Flag2LeftRange = 32;
 
         public bool Sleeping => (Flags & FlagSleeping) != 0;
         public bool Eating => (Flags & FlagEating) != 0;
@@ -150,6 +156,7 @@ namespace DWMPHorde.Networking
         public bool Diving => (Flags2 & Flag2Diving) != 0;
         public bool HasPrevClip => (Flags2 & Flag2PrevClip) != 0;
         public bool InSight => (Flags2 & Flag2InSight) != 0;
+        public bool LeftRange => (Flags2 & Flag2LeftRange) != 0;
 
         public Character.Behaviour PackedBehaviour
         {
@@ -396,6 +403,71 @@ namespace DWMPHorde.Networking
             PosX = r.GetFloat(),
             PosY = r.GetFloat(),
             PosZ = r.GetFloat(),
+            ForceX = r.GetFloat(),
+            ForceZ = r.GetFloat(),
+            LocalX = r.GetFloat(),
+            LocalY = r.GetFloat(),
+            LocalZ = r.GetFloat()
+        };
+    }
+
+    /// <summary>
+    /// A door's swing from the one machine that runs it, and other players' pushes and blows
+    /// sent to that machine (<c>Sync.DoorSwing</c>). Protocol 59.
+    /// </summary>
+    public struct DoorSwingMessage
+    {
+        /// <summary>The door's angle now, about 20 a second while it swings (from the machine running it).</summary>
+        public const byte ModeSample = 0;
+        /// <summary>The door came to rest at this angle; that machine no longer runs it.</summary>
+        public const byte ModeRest = 1;
+        /// <summary>A player walking into a door another machine runs (to that machine).</summary>
+        public const byte ModePush = 2;
+        /// <summary>A blow on a door another machine runs, as a force (to that machine).</summary>
+        public const byte ModeImpulse = 3;
+
+        public byte Mode;
+        /// <summary>Who sent it (the host stamps it from the transport).</summary>
+        public int SenderId;
+        /// <summary>Push and blow: the machine running the door. 0 for samples and rests.</summary>
+        public int TargetId;
+        /// <summary>The door's position, rounded to 0.1 (as door states are keyed).</summary>
+        public float PosX, PosY, PosZ;
+        /// <summary>Sample and rest: the sender's clock (unscaled seconds).</summary>
+        public float Time;
+        /// <summary>Sample and rest: the door's angle about the vertical (degrees).</summary>
+        public float Yaw;
+        /// <summary>Sample: how fast it turns (degrees a second).</summary>
+        public float Speed;
+        /// <summary>Push: walk input (direction times move speed). Blow: the force itself.</summary>
+        public float ForceX, ForceZ;
+        /// <summary>Push: the contact point in the door body's local space.</summary>
+        public float LocalX, LocalY, LocalZ;
+
+        public void Serialize(NetWriter w)
+        {
+            w.Put(Mode);
+            w.Put(SenderId);
+            w.Put(TargetId);
+            w.Put(PosX); w.Put(PosY); w.Put(PosZ);
+            w.Put(Time);
+            w.Put(Yaw);
+            w.Put(Speed);
+            w.Put(ForceX); w.Put(ForceZ);
+            w.Put(LocalX); w.Put(LocalY); w.Put(LocalZ);
+        }
+
+        public static DoorSwingMessage Deserialize(NetReader r) => new DoorSwingMessage
+        {
+            Mode = r.GetByte(),
+            SenderId = r.GetInt(),
+            TargetId = r.GetInt(),
+            PosX = r.GetFloat(),
+            PosY = r.GetFloat(),
+            PosZ = r.GetFloat(),
+            Time = r.GetFloat(),
+            Yaw = r.GetFloat(),
+            Speed = r.GetFloat(),
             ForceX = r.GetFloat(),
             ForceZ = r.GetFloat(),
             LocalX = r.GetFloat(),

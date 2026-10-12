@@ -265,23 +265,8 @@ namespace DWMPHorde.Networking
                             }
                         }
 
-                        // Apply door-swing physics when an open, unbarricaded door is melee-hit.
-                        // Mirrors vanilla Door.getHit(): bodyRB.AddForce(vector.normalized * -50000f)
-                        // using the attacker position captured in DoorGetHitPatch.
-                        // Skip if this client already predicted the swing (melee redirect path).
-                        if (msg.HasAttackerPos && door.opened && !door.destroyed && !door.barricaded
-                            && !DWMPHorde.Patches.ClientWorldMeleeRedirectHelper.ShouldSuppressDoorSwingForce(pos))
-                        {
-                            Vector3 doorPos = door.body != null ? door.body.position : door.transform.position;
-                            Vector3 forceDir = (new Vector3(msg.AttackerPosX, msg.AttackerPosY, msg.AttackerPosZ) - doorPos).normalized * -50000f;
-                            Rigidbody doorRB = Traverse.Create(door).Field("bodyRB").GetValue<Rigidbody>();
-                            if (doorRB != null)
-                            {
-                                if (doorRB.isKinematic)
-                                    doorRB.isKinematic = false;
-                                doorRB.AddForce(forceDir);
-                            }
-                        }
+                        // A blow's knock-back on an open door is applied by the striker's machine and
+                        // reaches the others as that machine's swing (DoorSwing).
                     }
                     HealthBarRefresh.IfShowing(door.gameObject);
                 }

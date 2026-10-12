@@ -102,7 +102,7 @@ namespace DWMPHorde.Patches
             net.Broadcast(NetMessageType.DeathBagSpawn, w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);
         }
 
-        private static DeathDrop FindDeathDropAt(Vector3 pos)
+        internal static DeathDrop FindDeathDropAt(Vector3 pos)
         {
             // Use XZ-only distance because dropBody() adjusts Y via
             // Core.getYPos(destPos, PosType.items2), so the spawned bag

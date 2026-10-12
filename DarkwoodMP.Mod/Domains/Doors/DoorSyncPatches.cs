@@ -80,6 +80,11 @@ namespace DWMPHorde.Sync
 
             if (!TrapNetworkId.IsWorldTrap(__instance.gameObject))
                 return;
+            // A load putting saved traps back in their triggered state is not a trap going off:
+            // the host sent a "triggered" for every sprung trap of the save while it loaded.
+            // Peers load the same save, and a late joiner gets the trap bulk.
+            if (Core.loadingGame)
+                return;
             // The host's own prologue pad exists on its machine only.
             if (PersonalPrologue.IsOnProloguePad(__instance.transform))
                 return;

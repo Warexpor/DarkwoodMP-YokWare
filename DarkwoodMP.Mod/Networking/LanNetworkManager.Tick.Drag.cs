@@ -100,18 +100,24 @@ namespace DWMPHorde.Networking
 
         /// <summary>
         /// Physics step: shared drag (the co-holder's force on the dragger's machine, the
-        /// co-holder's own body following it on its machine) and two-player pushes.
+        /// co-holder's own body following it on its machine), two-player pushes and door swings.
         /// </summary>
         private void FixedUpdate()
         {
             if (!IsConnected || !_session.Link.HandshakeComplete) return;
             Sync.SharedDrag.FixedTick();
             Sync.CoPush.FixedTick();
+            Sync.DoorSwing.FixedTick();
         }
 
         private void LateUpdate()
         {
-            if (!IsConnected || !_session.Link.HandshakeComplete) return;
+            if (!IsConnected || !_session.Link.HandshakeComplete)
+            {
+                // A host with no peers is probed too (Update arms it); its report is due here.
+                ClientPerfProbe.ReportIfDue();
+                return;
+            }
 
             bool perf = IsConnected && _session.Link.HandshakeComplete
                 && (_role == NetworkRole.Client || _role == NetworkRole.Host);

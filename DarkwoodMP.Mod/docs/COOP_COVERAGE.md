@@ -1,7 +1,7 @@
 # Co-op coverage checklist
 
-This is a compact code-coverage and runtime-verification checklist for the
-Path B Horde mod.
+A code-coverage and runtime-verification checklist per gameplay area of YokWare
+Branch. For the rules themselves see [HOW_COOP_WORKS.md](HOW_COOP_WORKS.md).
 
 **Current baseline:** the product version and protocol in the README, message IDs
 as listed in `NetMessageType.cs`, host-authoritative N-player LAN. Steam uses the same
@@ -52,9 +52,9 @@ state without changing existing players' state.
 | Inventory and containers | container, dropped-item, death-bag, journal, trade, UniqueItemSpawner TeddyBear, InventoryRandom, Feeder **116** / Lure **117**, ExperienceMachine (hideout oven) enable + flags | Code covered; runtime pending |
 | Combat and threats | combat handlers, proxy damage, projectiles, shadows, night death, mid-fight ShadowArmor HP, Flame/molotov world Burn (137; Character/Player still 41/44), client gasoline pour (`GasTrailSpawn`) + client torch/melee ignite (`GasIgnite`), night scenario late-join latch (`ScenarioStateBulk` 138) | Code covered; runtime pending |
 | Story and dialogue | `DialogOutcome`, `DialogTreeState`, `GameEventsFired` + late-join `GameEventsBulk` (136), Examinable **110** (host onExamine; DescriptionPool draw personal) | Code covered; runtime pending |
-| Dreams and epilogue | `DreamSession`, `DreamSyncManager`, dream door and scene paths, `EpilogueNetHandlers` | Code covered (all-dead grace, chain roster, epilogue gate); runtime pending |
+| Dreams and epilogue | `DreamSession`, `DreamSyncManager`, dream door and scene paths, `EpilogueNetHandlers` | Code covered (all-dead grace, chain roster, epilogue gate). Every dream played through by three players in the automated pilot (arrival, every trigger area and usable object, the Doctor chain); human playtest pending |
 | Audio and spectator mode | player/entity audio, culling, spectator listener and grid | Code covered; runtime pending |
-| Voice and walkie | `VoiceData` (129) with the mod's codec, `VoiceMic`, `VoiceChatService` (proximity, radio channel, walkie speakers), `VoiceMicChain` (`RnNoise`, `VoiceResampler`), `WorldSoundPickup`, `PlayerState` `WalkieState` byte, `VoiceAlertsEnemies` on the host | Code covered; runtime pending |
+| Voice and walkie | `VoiceData` (129) in Opus (`VoiceCodec`, `ThirdParty/Concentus`), `VoiceMic`, `VoiceChatService` (proximity, radio channel, walkie speakers), `VoiceMicChain` (`RnNoise`, `VoiceResampler`), `WorldSoundPickup`, `PlayerState` `WalkieState` byte, `VoiceAlertsEnemies` on the host | Code covered; runtime pending |
 | Names and chat | `PlayerName` (168), `PeerRoster` names, `Nameplates` (sight-tested), chat relayed and stamped by the host | Code covered; runtime pending |
 | Multiplayer menus | `MultiplayerScreens` on `UI/VanillaMenu` (Host, Join, Settings, Voice, Host settings, world-copy picker), Apply / Revert to default | Code covered; runtime pending |
 | Balance features | loot sharing and allowlisted dream NPC presence | Code covered; runtime pending |

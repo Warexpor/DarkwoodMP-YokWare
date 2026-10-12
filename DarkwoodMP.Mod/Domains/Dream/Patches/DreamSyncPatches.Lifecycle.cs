@@ -147,6 +147,10 @@ namespace DWMPHorde.Patches
             public bool RanLocalEnd;
             /// <summary>Client: the outcome loop's world events replay the host's (Finalizer ends it).</summary>
             public bool ReplayWorld;
+            /// <summary>This player's own exit: the dream goes on for the others (DreamExit).</summary>
+            public bool Left;
+            /// <summary>Host: the clock ran during the dream; vanilla's wake-up must not put it back (-1 = none).</summary>
+            public int KeepTime = -1;
         }
 
         private static void Prefix(Dreams __instance, ref EndState __state)
@@ -166,6 +170,14 @@ namespace DWMPHorde.Patches
             // The party's outcome, before a dead peer's rewards are downgraded below.
             string partyOutcome = __instance.outcome ?? "";
 
+            // Vanilla puts the clock back to where the dream began. Someone woke earlier and the
+            // world's clock ran since: the host wakes at the world's time.
+            if (ModRuntime.Network.Role == NetworkRole.Host && DreamExit.ClockRan)
+            {
+                __instance.timeCopy = DreamExit.HostWorldTime;
+                __state.KeepTime = DreamExit.HostWorldTime;
+            }
+
             if (ModRuntime.Network.Role == NetworkRole.Client)
             {
                 // The outcome's world events (vanilla fireWorldEvent in this body) replay the host's.
@@ -179,6 +191,16 @@ namespace DWMPHorde.Patches
             // Reads WasLocalDeadThisDream (DreamEnded receipt already cleared IsLocalDead). Exit video already played
             // from the story outcome; only effect grants are downgraded. Inventory restore stays.
             DowngradeSuccessRewardsIfDeadInDream(__instance, partyOutcome);
+
+            // This player's own exit: it leaves; the session, the roster and (on the host) the
+            // dream's place stay for the players still in it.
+            if (DreamExit.LocalLeaving)
+            {
+                DreamExit.OnLocalLeaveEnd(__instance.outcome ?? "");
+                __state.RanLocalEnd = true;
+                __state.Left = true;
+                return;
+            }
 
             // DreamPrepareChainPatch owns chain broadcasts. Both
             // transferToDream and wantToSwitchDream reach prepareDream.
@@ -222,6 +244,17 @@ namespace DWMPHorde.Patches
             if (LanNetworkManager.IsApplyingRemoteState)
                 return;
 
+            // An outcome with its own end time would set the shared clock a second time.
+            if (__state != null && __state.KeepTime >= 0)
+            {
+                var ctrl = Singleton<Controller>.Instance;
+                if (ctrl != null && ctrl.CurrentTime != __state.KeepTime)
+                {
+                    ctrl.CurrentTime = __state.KeepTime;
+                    ctrl.refreshTimeNoLogic();
+                }
+            }
+
             try
             {
                 SnapOffPadIfStranded(__instance);
@@ -230,7 +263,7 @@ namespace DWMPHorde.Patches
             {
                 // Chain keeps the pose for the final exit (switchingDream / session still live).
                 if (__state != null && __state.RanLocalEnd && (__instance == null || !__instance.switchingDream)
-                    && !DreamSession.IsActive)
+                    && (!DreamSession.IsActive || __state.Left))
                     DreamSyncManager.ClearPreDreamState();
             }
         }
@@ -239,6 +272,7 @@ namespace DWMPHorde.Patches
         {
             if (__state != null && __state.ReplayWorld)
                 DreamSyncManager.ClearOutcomeWorldReplay();
+            DreamExit.OnLocalLeaveDone();
         }
 
         private static void SnapOffPadIfStranded(Dreams __instance)
@@ -380,10 +414,46 @@ namespace DWMPHorde.Patches
         [HarmonyPriority(Priority.First)]
         private static bool Prefix(string type)
         {
+            // A later leaver: the world's part of the outcome was the first leaver's.
+            if (DreamExit.PersonalOnlyOutcome)
+            {
+                DreamSyncManager.RunOutcomePersonalOnly(type);
+                return false;
+            }
             if (!DreamSyncManager.OutcomeWorldReplayActive)
                 return true;
             DreamSyncManager.ReplayOutcomeWorldEvent(type);
             return false;
+        }
+    }
+
+    /// <summary>
+    /// Host leaving a dream that goes on for others (<see cref="DreamExit"/>): vanilla's teardown
+    /// of the pad (its walk grid, its path graph, the location itself) waits for the last dreamer.
+    /// </summary>
+    [HarmonyPatch(typeof(Dreams), nameof(Dreams.destroyDream))]
+    public static class DreamKeepPadPatch
+    {
+        private static bool Prefix(Dreams __instance) => !DreamExit.KeepPad(__instance);
+    }
+
+    /// <summary>
+    /// An outcome's own event (vanilla's fireGameEvent effect fires it directly) of a leaver whose
+    /// world part was another's runs for its own part only (<see cref="DreamExit.PersonalOnlyFire"/>).
+    /// </summary>
+    [HarmonyPatch(typeof(GameEvents), "fire")]
+    public static class DreamOwnPartOutcomePatch
+    {
+        [HarmonyPriority(Priority.First)]
+        private static void Prefix(GameEvents __instance, out bool __state)
+        {
+            __state = DreamExit.BeginOwnPartFire(__instance);
+        }
+
+        private static void Finalizer(bool __state)
+        {
+            if (__state)
+                DreamExit.EndOwnPartFire();
         }
     }
 

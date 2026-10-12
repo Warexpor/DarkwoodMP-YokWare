@@ -1,3 +1,5 @@
+using System.Collections.Generic;
+using System.Reflection;
 using DWMPHorde.Logging;
 using DWMPHorde.Networking;
 using DWMPHorde.Sync;
@@ -31,6 +33,76 @@ namespace DWMPHorde.Patches
             ModLog.Event(LogCat.Save,
                 "Client world Save blocked — host owns Flags/DynamicSave; backup + SaveSync only");
             return false;
+        }
+    }
+
+    /// <summary>
+    /// How long a Save holds the frame (vanilla's write plus every co-op step around it). Saves
+    /// were the regular ~320 ms hitch in playtests; this tells the next log what is left of it.
+    /// </summary>
+    [HarmonyPatch(typeof(SaveManager), "Save")]
+    public static class SaveDurationPatch
+    {
+        private static readonly System.Diagnostics.Stopwatch _sw = new System.Diagnostics.Stopwatch(); // process-scoped: timer
+
+        [HarmonyPriority(Priority.First + 1)]
+        private static void Prefix()
+        {
+            _gcBefore = System.GC.CollectionCount(0);
+            _sw.Restart();
+        }
+
+        private static int _gcBefore; // process-scoped: timing scratch
+
+        [HarmonyPriority(Priority.Last - 1)]
+        private static void Postfix(bool __runOriginal)
+        {
+            _sw.Stop();
+            if (__runOriginal && _sw.ElapsedMilliseconds >= 50 && ModRuntime.Network != null && ModRuntime.Network.IsConnected)
+                ModLog.Event(LogCat.Save, "[SaveTiming] Save held the frame " + _sw.ElapsedMilliseconds + " ms, collections="
+                    + (System.GC.CollectionCount(0) - _gcBefore));
+        }
+    }
+
+    /// <summary>
+    /// Vanilla ends every Save with <c>GC.Collect()</c> (<c>finishSaving</c>): a full collection
+    /// with every script thread stopped until it is done. Alone that is part of the save's frozen
+    /// frame and no more, the sound card's mixing thread is not a script thread and plays on. With
+    /// voice chat it is one (<see cref="Audio.VoiceChatService.MixerRunsScripts"/>), so the whole
+    /// game's sound stopped with the frame: a gap in the music and every sound at each save, heard
+    /// most at daybreak, where a save always runs under the morning's sounds. The collection is
+    /// left to the runtime then (it collects in slices of a few ms, <c>gc-max-time-slice</c>), and
+    /// what the save allocated goes over the next frames.
+    /// </summary>
+    [HarmonyPatch(typeof(SaveManager), "finishSaving")]
+    public static class SaveNoFullCollectPatch
+    {
+        private static void Collect()
+        {
+            if (!Audio.VoiceChatService.MixerRunsScripts)
+                System.GC.Collect();
+        }
+
+        private static IEnumerable<CodeInstruction> Transpiler(IEnumerable<CodeInstruction> instructions)
+        {
+            MethodInfo collect = AccessTools.Method(typeof(System.GC), nameof(System.GC.Collect), System.Type.EmptyTypes);
+            MethodInfo ours = AccessTools.Method(typeof(SaveNoFullCollectPatch), nameof(Collect));
+            var list = new List<CodeInstruction>(instructions);
+            int patched = 0;
+            if (collect != null && ours != null)
+            {
+                foreach (var ins in list)
+                {
+                    if (ins.Calls(collect))
+                    {
+                        ins.operand = ours;
+                        patched++;
+                    }
+                }
+            }
+            if (patched == 0)
+                ModLog.Error(LogCat.Save, "[SaveTiming] SaveManager.finishSaving collection hook not applied");
+            return list;
         }
     }
 

@@ -76,8 +76,9 @@ changes are kept without asking.
 
 ## Voice
 
-Voice is recorded with the game's own microphone input and sent in the mod's own codec,
-so it needs no Steam client and works in LAN and Steam sessions alike. Most of these are
+Voice is recorded with the game's own microphone input and sent as Opus (16 kHz, about
+30 kbit/s, managed code inside the mod: no extra file), so it needs no Steam client and
+works in LAN and Steam sessions alike. A packet lost on the way is filled in from the next one. Most of these are
 set in Multiplayer > Settings > Voice.
 
 | Key | Default | Meaning |

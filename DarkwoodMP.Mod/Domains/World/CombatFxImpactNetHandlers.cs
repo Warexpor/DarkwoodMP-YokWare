@@ -148,6 +148,9 @@ namespace DWMPHorde.Networking
                     ModRuntime.LegacyInfo($"[MeleeWorldHit] door not found at {pos}");
                     return;
                 }
+                // The striker's machine knocked its open door back already (DoorSwing): the host
+                // runs the blow's damage only, not a second knock-back from the stand-in.
+                Sync.DoorSwing.NoteRemoteStrike(door);
                 PlayerWorldHitScope.Run(playerId, () =>
                     door.getHit(damage, attackerT, !suppressed, false));
                 return;

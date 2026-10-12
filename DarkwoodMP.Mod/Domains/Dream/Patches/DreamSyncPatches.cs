@@ -30,6 +30,19 @@ namespace DWMPHorde.Patches
                 {
                     // Depleted save pool → empty Random.Range throw → stuck black void.
                     EnsureHostRandomPoolHasEligible(Dreams.Instance);
+                    // The bunker is vanilla's first level dream (level 2). A world whose level-2
+                    // slot went to a random dream without it (a party that played it elsewhere,
+                    // or the stale played-dream list of an older world in the same save slot)
+                    // gets it at the next level dream instead of never.
+                    Dreams d = Dreams.Instance;
+                    if (DreamSession.NextLevelBits != 0 && HasPreset(d, DreamSession.BunkerPreset)
+                        && !DreamSession.IsPresetCompleted(DreamSession.BunkerPreset)
+                        && Singleton<WorldGenerator>.Instance != null
+                        && Singleton<WorldGenerator>.Instance.chapterID == 1)
+                    {
+                        presetName = DreamSession.BunkerPreset;
+                        ModRuntime.LegacyInfo("[DreamSync] Level dream: the bunker is not played yet — it comes first");
+                    }
                     // Let vanilla roll; postfix broadcasts resolved name + TryBegin.
                     __state = StateHostRolled;
                     return true;
@@ -90,6 +103,19 @@ namespace DWMPHorde.Patches
                 ModRuntime.LegacyInfo(
                     $"[DreamSync] Refilled random dream pool (+{added}) — save had depleted presetList");
             }
+        }
+
+        private static bool HasPreset(Dreams dreams, string name)
+        {
+            if (dreams == null || dreams.allPresets == null)
+                return false;
+            for (int i = 0; i < dreams.allPresets.Count; i++)
+            {
+                DreamPreset p = dreams.allPresets[i];
+                if (p != null && string.Equals(DreamSession.ResolvePresetName(p), name, System.StringComparison.OrdinalIgnoreCase))
+                    return true;
+            }
+            return false;
         }
 
         private static int CountEligibleRandom(Dreams dreams)

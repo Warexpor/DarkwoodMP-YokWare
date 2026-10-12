@@ -18,6 +18,12 @@ namespace DWMPHorde.Sync
     /// (<see cref="NetMessageType.PauseMenuState"/>); the host decides and tells everyone
     /// (<see cref="NetMessageType.WorldPause"/>). The first player to close the menu resumes their own
     /// game at once and the host resumes the rest.
+    /// <para>
+    /// A player with nobody connected is in single player as far as pausing goes: the menu pauses
+    /// the game the vanilla way, a host waiting for the others included. The two rules meet when
+    /// the first player connects or the last one leaves, and the pause changes hands there
+    /// (<see cref="LiftSoloPause"/>, <see cref="PauseAlone"/>).
+    /// </para>
     /// </summary>
     internal static class PauseMenuSync
     {
@@ -30,11 +36,13 @@ namespace DWMPHorde.Sync
         private static float _nextHostEval; // reset-in: Reset
         private static bool _hostWorldPaused; // reset-in: Reset
         private static bool _appliedPause; // reset-in: Reset
+        private static bool _live; // reset-in: Reset
 
         public static void Reset()
         {
-            ReleaseLocal();
+            PauseAlone();
             _appliedPause = false;
+            _live = false;
             _peerOpen.Clear();
             _reportedOpen = false;
             _lastReportAt = -999f;
@@ -48,12 +56,20 @@ namespace DWMPHorde.Sync
         /// <summary>Every frame (unscaled time: a paused machine still runs it).</summary>
         internal static void Tick(LanNetworkManager net)
         {
-            if (net == null || !net.IsConnected)
+            bool live = net != null && net.IsConnected;
+            if (live != _live)
             {
-                if (_appliedPause)
-                    ReleaseLocal();
-                return;
+                _live = live;
+                // The host's last verdict was for the other side of this change.
+                _hostWorldPaused = false;
+                _nextHostEval = 0f;
+                if (live)
+                    LiftSoloPause();
+                else
+                    PauseAlone();
             }
+            if (!live)
+                return;
 
             bool open = GameScreen.InPauseMenu;
             if (!open && _appliedPause)
@@ -152,6 +168,7 @@ namespace DWMPHorde.Sync
             Time.timeScale = 0f;
             Core.Paused = true;
             _appliedPause = true;
+            PauseSuppression.UiPauseHeld = false;
             AudioObject menuMusic = Singleton<MainMenu>.Instance != null ? Singleton<MainMenu>.Instance.menuMusic : null;
             try
             {
@@ -173,10 +190,45 @@ namespace DWMPHorde.Sync
             if (!_appliedPause)
                 return;
             _appliedPause = false;
+            PauseSuppression.UiPauseHeld = false;
             Time.timeScale = 1f;
             Core.Paused = false;
             try { AudioController.UnpauseAll(0f); }
             catch (System.Exception ex) { ModLog.Warn(LogCat.Audio, "[PauseMenu] resuming audio: " + ex.Message); }
+        }
+
+        /// <summary>
+        /// Another player connected to one who was alone. A menu opened alone (the pause menu a
+        /// host invites from, the map, the journal, a dialogue) paused the game the vanilla way,
+        /// and in co-op no menu holds the world: it runs again here, and the co-op rule decides
+        /// from this tick on.
+        /// </summary>
+        private static void LiftSoloPause()
+        {
+            if (_appliedPause || !Core.Paused || !PauseSuppression.UiPauseHeld || !CoopInWorld())
+                return;
+            _appliedPause = true;
+            ReleaseLocal();
+            ModLog.Event(LogCat.Session, "[PauseMenu] another player connected: the pause of a menu opened alone is lifted");
+        }
+
+        /// <summary>
+        /// Nobody else is connected (the last player left, or the session ended). In the pause
+        /// menu the game pauses as in single player, and that pause is the menu's from here on:
+        /// closing it unpauses the vanilla way. Out of the menu a shared pause just ends.
+        /// </summary>
+        internal static void PauseAlone()
+        {
+            if (!GameScreen.InPauseMenu)
+            {
+                ReleaseLocal();
+                return;
+            }
+            ApplyLocal();
+            if (!_appliedPause)
+                return;
+            _appliedPause = false;
+            PauseSuppression.UiPauseHeld = true;
         }
 
         /// <summary>In a session with a chapter loaded: the pause menu follows the co-op rules.</summary>
@@ -263,16 +315,22 @@ namespace DWMPHorde.Sync
     {
         private static void Prefix(out bool __state)
         {
-            __state = Core.mainMenu && PauseMenuSync.CoopInWorld();
-            if (__state)
-                PauseSuppression.BeginNoPause();
+            // Core.mainMenu alone is the title screen too.
+            __state = GameScreen.InPauseMenu;
+            if (!__state)
+                return;
+            PauseSuppression.UiOpenDepth++;
+            PauseSuppression.BeginNoPause();
         }
 
         // Finalizer (not Postfix): OnEnable can throw after Begin → stuck SuppressPause.
         private static void Finalizer(bool __state)
         {
-            if (__state)
-                PauseSuppression.EndNoPause();
+            if (!__state)
+                return;
+            PauseSuppression.EndNoPause();
+            if (PauseSuppression.UiOpenDepth > 0)
+                PauseSuppression.UiOpenDepth--;
         }
     }
 

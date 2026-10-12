@@ -44,6 +44,8 @@ namespace DWMPHorde.Networking
         private readonly System.Collections.Generic.List<DeferredApply> _deferredApplies =
             new System.Collections.Generic.List<DeferredApply>();
         private Coroutine _deferredApplyCo;
+        // The queue itself is applying its head (that apply must not queue behind the rest).
+        private bool _applyingDeferred;
         // Drain start / finish counters (see the StartCoroutine site).
         private int _drainGeneration;
         private int _drainDoneGeneration;
@@ -78,6 +80,11 @@ namespace DWMPHorde.Networking
             // The host listens in on someone's talk: its window is that view until it leaves.
             if (DialogMirror.SpectatorActive)
                 return true;
+            // The host is this NPC's speaker (it was handed the talk a peer left): what that peer
+            // still had on the way would run its boards in the host's own open window.
+            if (npc != null && NpcDialogueLock.GetOwner(NpcRef.Of(npc)) == _net.LocalPlayerId
+                && GeFireActorContext.PeekOr(_net.CurrentReceivePlayerId) != _net.LocalPlayerId)
+                return true;
             if (Player.Instance != null && Player.Instance.inDialogue && dw.opened
                 && dw.npc != null && (npc == null || dw.npc != npc))
                 return true;
@@ -85,6 +92,9 @@ namespace DWMPHorde.Networking
                 return true;
             return false;
         }
+
+        /// <summary>Outcomes are applied in the order they came: a new one never passes the queue.</summary>
+        private bool QueuedAhead => !_applyingDeferred && _deferredApplies.Count > 0;
 
         /// <summary>
         /// Session end: drop queued outcomes, stop the drain / replay coroutines and forget the pending
@@ -122,12 +132,17 @@ namespace DWMPHorde.Networking
 
         private void DeferApply(DialogOutcomeSyncMessage msg)
         {
-            _deferredApplies.Add(new DeferredApply
+            var deferred = new DeferredApply
             {
                 Msg = msg,
                 From = GeFireActorContext.PeekOr(_net.CurrentReceivePlayerId),
                 QueuedAt = Time.realtimeSinceStartup
-            });
+            };
+            // The queue's own head found the window busy again: it keeps its place.
+            if (_applyingDeferred)
+                _deferredApplies.Insert(0, deferred);
+            else
+                _deferredApplies.Add(deferred);
             ModRuntime.LegacyInfo(
                 $"[DialogOutcome] host window busy — deferring apply NPC={msg.NpcName} "
                 + $"dialogue={msg.DialogueName} target={msg.TargetDialogueName}");
@@ -165,12 +180,17 @@ namespace DWMPHorde.Networking
                     // Outside the inbound packet: stamp the sender as the GE actor explicitly.
                     bool pushed = next.From > 0 && GeFireActorContext.Depth == 0;
                     if (pushed) GeFireActorContext.Push(next.From);
+                    _applyingDeferred = true;
                     try { HandleDialogOutcomeSync(next.Msg); }
                     catch (Exception ex)
                     {
                         ModRuntime.Log?.LogWarning("[DialogOutcome] deferred apply failed: " + ex.Message);
                     }
-                    finally { if (pushed) GeFireActorContext.Pop(); }
+                    finally
+                    {
+                        _applyingDeferred = false;
+                        if (pushed) GeFireActorContext.Pop();
+                    }
                     ReplayDeferredCloseIfIdle(NpcRef.From(next.Msg));
                     // One outcome per frame: an apply that queued itself again cannot spin.
                     yield return null;
@@ -207,7 +227,7 @@ namespace DWMPHorde.Networking
                     return;
                 }
 
-                if (ApplyBusyFor(dw, npc))
+                if (QueuedAhead || ApplyBusyFor(dw, npc))
                 {
                     DeferApply(msg);
                     return;
@@ -405,7 +425,7 @@ namespace DWMPHorde.Networking
                 return;
             }
 
-            if (ApplyBusyFor(dw, npc))
+            if (QueuedAhead || ApplyBusyFor(dw, npc))
             {
                 DeferApply(msg);
                 return;

@@ -131,7 +131,12 @@ namespace DWMPHorde.Sync
             string name = Clean(msg.Name);
             if (_reported.TryGetValue(id, out string old) && old == name)
                 return;
+            // First word from this player, and no roster names it (a promoted host hears the
+            // names of players it already knows again): a new joiner.
+            bool joining = old == null && !_roster.ContainsKey(id);
             _reported[id] = name;
+            if (joining)
+                PeerNotices.HostJoining(net, id, name);
             ModLog.Event(LogCat.Session, "[Names] p" + id + " goes by " + name);
             net.BroadcastPeerRoster();
         }

@@ -119,10 +119,9 @@ namespace DWMPHorde.Audio
                     if (s.Reverb != null && Time.unscaledTime >= s.NextInsideCheck)
                     {
                         s.NextInsideCheck = Time.unscaledTime + 0.5f;
-                        bool inside = IsInside(net, nearId);
-                        if (s.Reverb.enabled != inside)
-                            s.Reverb.enabled = inside;
+                        s.ReverbInside = IsInside(net, nearId);
                     }
+                    RoomReverb.Drive(s.Reverb, s.ReverbInside, dt);
                 }
                 else
                 {
@@ -137,7 +136,7 @@ namespace DWMPHorde.Audio
             s.LevelEnv = since > 0.4f ? 0f : s.Level;
 
             if (s.Beh != null)
-                s.Beh.Volume = Mathf.Clamp(outVol, 0f, 2f);
+                s.Beh.Volume = Mathf.Clamp(outVol * VoiceOutLevel, 0f, 2f);
             if (s.Muffle != null)
             {
                 s.SmoothCutoff = Mathf.Lerp(s.SmoothCutoff, outCutoff, Mathf.Clamp01(dt * 8f));
@@ -219,11 +218,12 @@ namespace DWMPHorde.Audio
                     _knobSrc.dopplerLevel = 0f;
                     _knobMuffle = go.AddComponent<AudioLowPassFilter>();
                     _knobReverb = go.AddComponent<AudioReverbFilter>();
+                    RoomReverb.Setup(_knobReverb);
                 }
                 bool walled = IsOccluded(listen, at);
                 _knobSrc.transform.position = at;
                 _knobMuffle.cutoffFrequency = walled ? WallCutoff : 22000f;
-                _knobReverb.enabled = IsInside(net, proxy.PlayerId);
+                RoomReverb.Set(_knobReverb, IsInside(net, proxy.PlayerId));
                 float vol = Mathf.Clamp01((ModConfig.VoiceVolume?.Value ?? 1f) * 0.3f * KnobLevel * (walled ? WallVolume : 1f));
                 _knobSrc.PlayOneShot(clip, vol);
             }

@@ -6,6 +6,8 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <IsPackable>false</IsPackable>
     <RootNamespace>DarkwoodMP.PathB.Tests</RootNamespace>
+    <!-- As the mod builds ThirdParty/Concentus. -->
+    <DefineConstants>$(DefineConstants);PARITY</DefineConstants>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="LiteNetLib" Version="1.3.5" />
@@ -49,7 +51,9 @@
     <Compile Include="..\DarkwoodMP.Mod\Networking\Messages\WorldSaveShareMessages.cs" Link="Shipped\WorldSaveShareMessages.cs" />
     <Compile Include="..\DarkwoodMP.Mod\Networking\Messages\VoiceDataMessage.cs" Link="Shipped\VoiceDataMessage.cs" />
     <Compile Include="..\DarkwoodMP.Mod\Audio\VoiceCodec.cs" Link="Shipped\VoiceCodec.cs" />
+    <Compile Include="..\DarkwoodMP.Mod\ThirdParty\Concentus\**\*.cs" Link="Shipped\Concentus\%(RecursiveDir)%(Filename)%(Extension)" />
     <Compile Include="..\DarkwoodMP.Mod\Audio\VoiceResampler.cs" Link="Shipped\VoiceResampler.cs" />
+    <Compile Include="..\DarkwoodMP.Mod\Audio\VoicePlayout.cs" Link="Shipped\VoicePlayout.cs" />
     <Compile Include="..\DarkwoodMP.Mod\Audio\VoiceMicChain.cs" Link="Shipped\VoiceMicChain.cs" />
     <Compile Include="..\DarkwoodMP.Mod\Audio\RnNoise.cs" Link="Shipped\RnNoise.cs" />
     <EmbeddedResource Include="..\DarkwoodMP.Mod\Resources\RnNoise\rnnoise_weights.bin" LogicalName="DWMPHorde.Resources.rnnoise_weights.bin" />

@@ -132,7 +132,7 @@ namespace DWMPHorde.Patches
             return door.destroyed ? Mathf.Min(door.health, 0) : door.health;
         }
 
-        internal static void SendBarricadeEvent(Vector3 pos, byte targetType, BarricadeAction action, int health, bool playerBarricade, int mainHealth = BarricadeEventMessage.NoMainHealth, int damageAmount = -1, Vector3? attackerPos = null, string itemName = null)
+        internal static void SendBarricadeEvent(Vector3 pos, byte targetType, BarricadeAction action, int health, bool playerBarricade, int mainHealth = BarricadeEventMessage.NoMainHealth, int damageAmount = -1, string itemName = null)
         {
             if (LanNetworkManager.ProcessingBarricadeEvent) { if (ModRuntime.VerboseLogging) ModRuntime.LegacyInfo($"[Barr] suppressed (processing)"); return; }
             if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected) return;
@@ -148,10 +148,6 @@ namespace DWMPHorde.Patches
                 PlayerBarricade = playerBarricade,
                 MainHealth = mainHealth,
                 DamageAmount = damageAmount,
-                HasAttackerPos = attackerPos.HasValue,
-                AttackerPosX = attackerPos?.x ?? 0f,
-                AttackerPosY = attackerPos?.y ?? 0f,
-                AttackerPosZ = attackerPos?.z ?? 0f,
                 ItemName = itemName
             };
             if (ModRuntime.VerboseLogging) ModRuntime.LegacyInfo($"[Barr] SEND type={targetType} act={action} hp={health} pos={key}");
@@ -310,14 +306,6 @@ namespace DWMPHorde.Patches
             if (__args.Length > 1 && __args[1] is Transform atk && ClientWorldMeleeRedirectHelper.ShouldRedirect(atk))
                 return;
 
-            // Capture attacker position for door-swing physics sync.
-            // Vanilla Door.getHit applies bodyRB.AddForce when the door is open,
-            // not barricaded, and not destroyed. We relay the attacker position
-            // so HandleBarricadeEvent can apply the same force on the receiver.
-            Vector3? attackerPos = null;
-            if (__args.Length > 1 && __args[1] is Transform at && at != null)
-                attackerPos = at.position;
-
             // Real door health, always carried: vanilla subtracts the whole hit, so a broken door
             // sits at or below zero (e.g. -4) and the receiver breaks it on MainHealth <= 0.
             int mainHealth = BarricadeSyncHelpers.DoorMainHealthForWire(__instance);
@@ -329,14 +317,14 @@ namespace DWMPHorde.Patches
                     __instance.transform.position, 0,
                     wasDestroyed ? BarricadeAction.Destroyed : BarricadeAction.Damaged,
                     __instance.barricadeHealth, playerBarricadeBefore,
-                    mainHealth, damage, attackerPos);
+                    mainHealth, damage);
             }
             else
             {
                 BarricadeSyncHelpers.SendBarricadeEvent(
                     __instance.transform.position, 0,
                     __instance.destroyed ? BarricadeAction.Destroyed : BarricadeAction.Damaged,
-                    0, false, mainHealth, damage, attackerPos);
+                    0, false, mainHealth, damage);
             }
         }
 

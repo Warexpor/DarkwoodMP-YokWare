@@ -76,9 +76,6 @@ namespace DWMPHorde.Sync
         /// <summary>Seconds between lease renewals while a dialogue window stays open.</summary>
         private const float LeaseRenewIntervalSeconds = 30f;
 
-        /// <summary>An NPC this close to the dream pad (or under it) is the pad twin.</summary>
-        private const float DreamPadRadius = 250f;
-
         // One entry per held NPC. The bunker's door_underground (and every other dream NPC) exists
         // on the dream pad and in the overworld; one peer talking to the pad twin must not lock the
         // overworld one, and release must find the lock it took. The world travels on the wire
@@ -130,7 +127,7 @@ namespace DWMPHorde.Sync
             if (pad == null || npc == null)
                 return DreamSyncManager.IsLocalDreamActive;
             Transform t = npc.transform;
-            return t.IsChildOf(pad) || Vector3.Distance(t.position, pad.position) <= DreamPadRadius;
+            return t.IsChildOf(pad) || DreamSyncManager.IsAtDreamPad(t.position);
         }
 
         /// <summary>Count of active (non-expired) locks for tests and diagnostics.</summary>
@@ -367,7 +364,7 @@ namespace DWMPHorde.Sync
                 Transform pad = DreamSyncManager.GetDreamLocationTransform();
                 if (pad == null
                     || (!npc.transform.IsChildOf(pad)
-                        && Vector3.Distance(npc.transform.position, pad.position) > DreamPadRadius))
+                        && !DreamSyncManager.IsAtDreamPad(npc.transform.position)))
                 {
                     ModRuntime.LegacyInfo(
                         $"[DialogLock] skip onEnterDialogue — NPC '{npcRef}' not on the dream pad");

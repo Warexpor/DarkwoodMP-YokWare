@@ -279,6 +279,17 @@ namespace DWMPHorde.Sync
             if (Dreams.Instance != null)
                 Dreams.Instance.switchingDream = true;
 
+            // The next part's pad sits where the host's spawn put it, not on the first part's spot.
+            Vector3? hostPad = null;
+            yield return OutsidePadSlots.AwaitHostPadPosition(presetName, p => hostPad = p);
+            if (EntryStale(gen, sid))
+                yield break;
+            if (hostPad.HasValue)
+            {
+                locationPosition = hostPad.Value;
+                ModRuntime.LegacyInfo($"[DreamSync] chained pad '{presetName}' at the host's slot {locationPosition}");
+            }
+
             yield return LoadDreamSceneCoroutine(presetName, locationPosition, false, 0);
             if (EntryStale(gen, sid))
                 yield break;

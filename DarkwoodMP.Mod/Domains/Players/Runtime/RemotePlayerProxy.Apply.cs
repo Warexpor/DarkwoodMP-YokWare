@@ -333,11 +333,22 @@ namespace DWMPHorde.Players
 
             // Decay push force gradually
             _pushOffset = Vector3.Lerp(_pushOffset, Vector3.zero, Time.fixedDeltaTime * 10f);
+        }
 
-            // Smoothly interpolate Y rotation to avoid cone/view jitter from low-rate network updates
-            float rotT = 18f * Time.fixedDeltaTime;
+        /// <summary>The body's turn towards the player's facing, per second (the pace of the old 0.36 a physics step).</summary>
+        private const float BodyTurnRate = 22.3f;
+
+        /// <summary>
+        /// The body turns on every rendered frame. On the physics step it turned 50 times a
+        /// second, which showed as a stepping turn on a faster screen. Not while shared drag or
+        /// a vault holds the body (the position code above stands down for the same two).
+        /// </summary>
+        private void Update()
+        {
+            if (!_hasState || _rb == null || _coHeld || _isVaulting)
+                return;
             Vector3 euler = transform.eulerAngles;
-            euler.y = Mathf.LerpAngle(euler.y, _targetRotationY, rotT);
+            euler.y = Mathf.LerpAngle(euler.y, _targetRotationY, 1f - Mathf.Exp(-BodyTurnRate * Time.deltaTime));
             transform.eulerAngles = euler;
         }
 

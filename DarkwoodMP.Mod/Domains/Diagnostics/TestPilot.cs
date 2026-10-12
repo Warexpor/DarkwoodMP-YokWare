@@ -83,12 +83,31 @@ namespace DWMPHorde.Sync
             }
         }
 
+        private static readonly HashSet<string> TraceNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase); // process-scoped: pilot debugging
+        private static float _nextTraceScan; // process-scoped: pilot debugging
+
+        private static void AttachTracers()
+        {
+            if (TraceNames.Count == 0 || Time.realtimeSinceStartup < _nextTraceScan)
+                return;
+            // Characters only, once a second: a scan of every transform held each frame ~90 ms.
+            _nextTraceScan = Time.realtimeSinceStartup + 1f;
+            foreach (Character t in Resources.FindObjectsOfTypeAll<Character>())
+            {
+                if (t == null || !t.gameObject.scene.IsValid() || !TraceNames.Contains(t.name)
+                    || t.GetComponent<PilotDisableTracer>() != null)
+                    continue;
+                t.gameObject.AddComponent<PilotDisableTracer>();
+            }
+        }
+
         internal static void Tick(LanNetworkManager net)
         {
             if (!Active || net == null)
                 return;
             try
             {
+                AttachTracers();
                 Step(net);
             }
             catch (Exception ex)
@@ -1060,6 +1079,48 @@ namespace DWMPHorde.Sync
                     Out("  " + byMesh.Count + " light meshes, " + shared + " shared");
                     return;
                 }
+                case "padsnap":
+                {
+                    // "padsnap": the running dream's state, one line per thing, positions relative to
+                    // the pad so the games' lines diff: doors, lights, fired GameEvents, active
+                    // creatures, sounds playing on the pad, the music.
+                    Dreams d = Dreams.Instance;
+                    Transform pad = d != null && d.dreamLocation != null ? d.dreamLocation.transform : null;
+                    if (pad == null) { Out("  no dream pad"); return; }
+                    Func<Transform, string> rel = t => t.name + "@" + Pos(t.position - pad.position);
+                    foreach (Door dr in pad.GetComponentsInChildren<Door>(true))
+                        if (dr != null) Out("  door " + rel(dr.transform) + " open=" + dr.opened + " on=" + dr.gameObject.activeInHierarchy);
+                    foreach (Item it in pad.GetComponentsInChildren<Item>(true))
+                        if (it != null && it.isLight) Out("  light " + rel(it.transform) + " isOn=" + it.isOn + " on=" + it.gameObject.activeInHierarchy);
+                    foreach (GameEvents ge in pad.GetComponentsInChildren<GameEvents>(true))
+                        if (ge != null && ge.fired) Out("  fired " + rel(ge.transform));
+                    // Creatures near every player only: a client puts a body far from itself away
+                    // (off screen) and shows it again when it comes near; the host keeps the scene's own.
+                    var near = new List<Vector3>();
+                    if (Player.Instance != null) near.Add(Player.Instance.transform.position);
+                    foreach (RemotePlayerProxy rp in UnityEngine.Object.FindObjectsOfType<RemotePlayerProxy>())
+                        if (rp != null) near.Add(rp.transform.position);
+                    foreach (Character c in pad.GetComponentsInChildren<Character>(true))
+                    {
+                        if (c == null || !c.gameObject.activeInHierarchy) continue;
+                        if (!near.TrueForAll(q => Flat(q, c.transform.position) <= ClientEntityInterpolationService.ClientInterestDistance - 100f)) continue;
+                        CharBase cb = c.GetComponent<CharBase>();
+                        Out("  char " + c.name + " alive=" + (cb == null || cb.alive));
+                    }
+                    var playing = new SortedDictionary<string, int>(StringComparer.Ordinal);
+                    foreach (AudioSource src in pad.GetComponentsInChildren<AudioSource>(true))
+                    {
+                        if (src == null || !src.isPlaying || src.clip == null) continue;
+                        playing.TryGetValue(src.clip.name, out int k);
+                        playing[src.clip.name] = k + 1;
+                    }
+                    foreach (KeyValuePair<string, int> kv in playing)
+                        Out("  sound " + kv.Key + " x" + kv.Value);
+                    Controller ctl = Singleton<Controller>.Instance;
+                    Out("  music " + (ctl != null ? ctl.musicTrack : "-") + " playing=" + (ctl != null && ctl.isPlayingMusic()));
+                    Out("  padsnap done " + pad.name);
+                    return;
+                }
                 case "events":
                 {
                     // GameEvents under the current dream pad (or within a radius), numbered for "fire".
@@ -1099,6 +1160,88 @@ namespace DWMPHorde.Sync
                             + " active=" + ge.gameObject.activeInHierarchy + " :" + sb);
                     }
                     Out("  " + _events.Count + " GameEvents" + (pad != null ? " on " + pad.name : ""));
+                    return;
+                }
+                case "padtrig":
+                {
+                    // "padtrig": the dream pad's player-driven triggers, as a player sets them off:
+                    // "area" volumes to walk into (world position), "use" objects to press E on
+                    // (onActivate / onExamine / onTurnOn / onTurnOff), each with its first target.
+                    Dreams d = Dreams.Instance;
+                    Transform pad = d != null && d.dreamLocation != null ? d.dreamLocation.transform : null;
+                    if (pad == null) { Out("  no dream pad"); return; }
+                    int areas = 0, uses = 0;
+                    foreach (EventTriggers ets in pad.GetComponentsInChildren<EventTriggers>(true))
+                    {
+                        if (ets == null || ets.eventTriggers == null) continue;
+                        bool area = false, use = false;
+                        foreach (EventTrigger et in ets.eventTriggers)
+                        {
+                            if (et == null || et.disabled) continue;
+                            if (et.type == EventTrigger.Type.area) area = true;
+                            if (et.type == EventTrigger.Type.onActivate || et.type == EventTrigger.Type.onExamine
+                                || et.type == EventTrigger.Type.onTurnOn || et.type == EventTrigger.Type.onTurnOff)
+                                use = true;
+                        }
+                        Vector3 w = ets.transform.position;
+                        if (area && ets.reactsToPlayer && ets.GetComponent<Collider>() != null)
+                        {
+                            areas++;
+                            Out("  area " + ets.name + " " + w.x.ToString("0.0", CultureInfo.InvariantCulture)
+                                + " " + w.z.ToString("0.0", CultureInfo.InvariantCulture) + " active=" + ets.gameObject.activeInHierarchy);
+                        }
+                        if (use && ets.GetComponent<Item>() != null)
+                        {
+                            uses++;
+                            Out("  use " + ets.name + " " + w.x.ToString("0.0", CultureInfo.InvariantCulture)
+                                + " " + w.z.ToString("0.0", CultureInfo.InvariantCulture) + " active=" + ets.gameObject.activeInHierarchy);
+                        }
+                    }
+                    Out("  " + areas + " areas, " + uses + " uses on " + pad.name);
+                    return;
+                }
+                case "useat":
+                {
+                    // "useat <x> <z>": press E on the nearest Item to that point (a padtrig "use").
+                    Vector3 at = new Vector3(F(a[1]), p.transform.position.y, F(a[2]));
+                    Item best = null;
+                    float bestD = 60f;
+                    foreach (Item it in UnityEngine.Object.FindObjectsOfType<Item>())
+                    {
+                        if (it == null) continue;
+                        float dd = Flat(at, it.transform.position);
+                        if (dd < bestD) { bestD = dd; best = it; }
+                    }
+                    if (best == null) { Out("  nothing to use at " + Pos(at)); return; }
+                    p.teleportTo(best.transform.position + new Vector3(30f, 0f, 0f), p.transform.rotation);
+                    p.selectedObject = best.transform;
+                    Out("  used " + best.name + "@" + Pos(best.transform.position) + " -> " + best.activate());
+                    return;
+                }
+                case "traceoff":
+                    // "traceoff <name>...": log who switches off scene objects of these names
+                    // (a stack trace in the log at each disable), attached as they appear.
+                    for (int i = 1; i < a.Length; i++)
+                        TraceNames.Add(a[i]);
+                    Out("  tracing " + string.Join(",", TraceNames));
+                    return;
+                case "firen":
+                {
+                    // "firen <name>": fire the dream pad's GameEvents of that object name (its own
+                    // game's copy, so every game can be told to fire the same one).
+                    Dreams d = Dreams.Instance;
+                    Transform pad = d != null && d.dreamLocation != null ? d.dreamLocation.transform : null;
+                    if (pad == null) { Out("  no dream pad"); return; }
+                    string want = string.Join(" ", a, 1, a.Length - 1);
+                    GameEvents hit = null;
+                    foreach (GameEvents ge in pad.GetComponentsInChildren<GameEvents>(true))
+                    {
+                        if (ge == null || ge.name != want) continue;
+                        if (hit == null || (hit.fired && !ge.fired)) hit = ge;
+                    }
+                    if (hit == null) { Out("  no GameEvents named " + want); return; }
+                    hit.fire();
+                    Out("  fired " + want + "@" + Pos(hit.transform.position - pad.position));
                     return;
                 }
                 case "fire":
@@ -1692,6 +1835,17 @@ namespace DWMPHorde.Sync
             if (sndItem == null)
                 return;
             TestPilot.NoteSound(sndItem.Name, __result != null ? __result.transform.position : worldPosition);
+        }
+    }
+
+    /// <summary>Pilot "traceoff": logs who switched this object off.</summary>
+    internal sealed class PilotDisableTracer : MonoBehaviour
+    {
+        private void OnDisable()
+        {
+            if (!gameObject.activeSelf)
+                ModLog.Event(LogCat.Session, "[Pilot] traceoff " + name + "@" + transform.position
+                    + " switched off:\n" + Environment.StackTrace);
         }
     }
 }

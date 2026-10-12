@@ -372,6 +372,8 @@ namespace DWMPHorde.Networking
         public bool InDream;
         /// <summary>Host→client: the host's stock did not have what was bought; undo it.</summary>
         public bool Denied;
+        /// <summary>What the trade did to the trader's standing on the trading client (sold minus bought).</summary>
+        public int RepDelta;
         public TradeEntry[] Bought;
         public TradeEntry[] Sold;
 
@@ -383,6 +385,7 @@ namespace DWMPHorde.Networking
             w.Put(PosZ);
             w.Put(InDream);
             w.Put(Denied);
+            w.Put(RepDelta);
             PutEntries(w, Bought);
             PutEntries(w, Sold);
         }
@@ -412,6 +415,7 @@ namespace DWMPHorde.Networking
             PosZ = r.GetFloat(),
             InDream = r.GetBool(),
             Denied = r.GetBool(),
+            RepDelta = r.GetInt(),
             Bought = GetEntries(r),
             Sold = GetEntries(r)
         };
@@ -481,6 +485,15 @@ namespace DWMPHorde.Networking
         public string Target;
         /// <summary>Its place in the window's menu options (-1: not an option).</summary>
         public short Menu;
+        /// <summary>
+        /// The language entry <see cref="Text"/> came from (empty: not known), for a listener to
+        /// read it in its own language (<c>Sync.DialogTextKeys</c>): key, sheet, what vanilla
+        /// put into the entry and with what (a location's name).
+        /// </summary>
+        public string LangKey;
+        public string LangSheet;
+        public byte LangMode;
+        public string LangArg;
 
         public void Serialize(NetWriter w)
         {
@@ -493,6 +506,10 @@ namespace DWMPHorde.Networking
             w.Put(Interval);
             w.Put(Target ?? "");
             w.Put(Menu);
+            w.Put(LangKey ?? "");
+            w.Put(LangSheet ?? "");
+            w.Put(LangMode);
+            w.Put(LangArg ?? "");
         }
 
         public static DialogMirrorElement Deserialize(NetReader r)
@@ -507,7 +524,11 @@ namespace DWMPHorde.Networking
                 WriteSpeed = r.GetFloat(),
                 Interval = r.GetFloat(),
                 Target = r.GetString(),
-                Menu = r.GetShort()
+                Menu = r.GetShort(),
+                LangKey = r.GetString(),
+                LangSheet = r.GetString(),
+                LangMode = r.GetByte(),
+                LangArg = r.GetString()
             };
         }
     }
@@ -1627,6 +1648,29 @@ namespace DWMPHorde.Networking
         public void Serialize(NetWriter w) => w.Put(Name ?? "");
 
         public static PlayerNameMessage Deserialize(NetReader r) => new PlayerNameMessage { Name = r.GetString() };
+    }
+
+    /// <summary>Host→clients: a player is joining, is in the game, or is gone (<c>Sync.PeerNotices</c> kinds).</summary>
+    public struct PeerNoticeMessage
+    {
+        public int PlayerId;
+        public byte Kind;
+        /// <summary>The name the player goes by (a player that is gone is no longer in the roster).</summary>
+        public string Name;
+
+        public void Serialize(NetWriter w)
+        {
+            w.Put(PlayerId);
+            w.Put(Kind);
+            w.Put(Name ?? "");
+        }
+
+        public static PeerNoticeMessage Deserialize(NetReader r) => new PeerNoticeMessage
+        {
+            PlayerId = r.GetInt(),
+            Kind = r.GetByte(),
+            Name = r.GetString()
+        };
     }
 
     /// <summary>Host→clients: every player is in the pause menu, so the whole world is paused (or no longer is).</summary>

@@ -237,7 +237,7 @@ namespace DWMPHorde.Patches
                 CharBase pcb = proxy.CachedCharBase;
                 if (pcb == null || !pcb.alive || pcb.invisible || pcb.ignoreMe)
                     continue;
-                if (DeathStateTracker.IsRemoteNightDead(proxy.PlayerId))
+                if (DeathStateTracker.IsRemoteDown(proxy.PlayerId))
                     continue;
                 if (c.charactersInSight.Contains(pcb) || !SeesFaction(c, pcb.faction))
                     continue;

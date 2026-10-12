@@ -292,6 +292,7 @@ namespace DWMPHorde.Logging
                 level == LogLevel.Trace ? "TRACE" :
                 level == LogLevel.Info ? "INFO" : "EVENT";
             string line = tag + "[" + lvl + "] " + body;
+            CoopPerfProbe.NoteLogLine();
 
             switch (level)
             {
@@ -318,6 +319,7 @@ namespace DWMPHorde.Logging
             if (_preset != LogPreset.Dev && _preset != LogPreset.Trace) return;
             string key = message.Length > 48 ? message.Substring(0, 48) : message;
             if (!PassRate("legacy:" + key, 0.5f)) return;
+            CoopPerfProbe.NoteLogLine();
             _log.LogInfo("[YokWare][LEGACY] " + message);
         }
 

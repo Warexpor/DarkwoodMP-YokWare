@@ -103,7 +103,7 @@ namespace DWMPHorde.Patches
                 CharBase proxyCb = proxy.CachedCharBase;
                 if (proxyCb != null && !proxyCb.alive)
                     continue;
-                if (DeathStateTracker.IsRemoteNightDead(proxy.PlayerId))
+                if (DeathStateTracker.IsRemoteDown(proxy.PlayerId))
                     continue;
 
                 // Player-thrown: when FF is off, only the thrower takes proxy damage

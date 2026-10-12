@@ -268,37 +268,33 @@ namespace DWMPHorde
             => outcomeType == TypeTransportOutside || outcomeType == TypeReturnToWorld;
 
         /// <summary>
-        /// <c>NPC.name</c> of every vanilla NPC whose Character has <c>isNightTrader</c> set
-        /// (scene + prefab data): the night trader, the Three, and the underground soldier
-        /// (outside_bunker_underground_part2_01). Used when the NPC is not loaded, e.g. after
-        /// the trader is removed at day end.
+        /// <c>NPC.name</c> of the hideout's morning traders: the Trader ("nightTrader") and, in
+        /// chapter 2, the Three. Each player earns a standing with them by living through the
+        /// night, so it is that player's own. Every other NPC's standing is the party's, the ones
+        /// who trade included (the Wolf, Piotrek, the Doctor, the underground soldier): one stock,
+        /// one standing to spend on it.
         /// </summary>
-        private static readonly string[] NightTraderNpcNames = { "nightTrader", "theThree", "soldier_underground" };
+        private static readonly string[] MorningTraderNpcNames = { "nightTrader", "theThree" };
 
-        /// <summary>
-        /// <c>NPC.name</c> of the other traders whose standing is only what a player has to spend
-        /// with them (trades and quest rewards): the Wolf (every "wolfman": the camps, the hideout
-        /// mornings, the Doctor's house) and Piotrek. The Doctor trades too but is left out: his
-        /// chapter 2 story keeps its state in his reputation (setDoctorState_A/B/C_act2).
-        /// </summary>
-        private static readonly string[] OwnStandingTraderNpcNames = { "wolfman", "piotrek" };
-
-        /// <summary>Traders whose standing is each player's own (night and morning traders, the Wolf, Piotrek).</summary>
+        /// <summary>The morning traders: their standing is each player's own.</summary>
         public static bool IsPerPlayerReputationNpcName(string npcName)
         {
             if (string.IsNullOrEmpty(npcName)) return false;
-            for (int i = 0; i < NightTraderNpcNames.Length; i++)
+            for (int i = 0; i < MorningTraderNpcNames.Length; i++)
             {
-                if (string.Equals(npcName, NightTraderNpcNames[i], System.StringComparison.OrdinalIgnoreCase))
-                    return true;
-            }
-            for (int i = 0; i < OwnStandingTraderNpcNames.Length; i++)
-            {
-                if (string.Equals(npcName, OwnStandingTraderNpcNames[i], System.StringComparison.OrdinalIgnoreCase))
+                if (string.Equals(npcName, MorningTraderNpcNames[i], System.StringComparison.OrdinalIgnoreCase))
                     return true;
             }
             return false;
         }
+
+        /// <summary>
+        /// Host: a client's trade moves the party's standing with a trader by
+        /// <paramref name="delta"/>. Refused when the party no longer has that much to spend
+        /// (another player spent it first); earning is always fine.
+        /// </summary>
+        public static bool SharedStandingCovers(int standing, int delta)
+            => delta >= 0 || standing + delta >= 0;
 
         /// <summary>Shared NPC reputation defers on client; night traders apply locally.</summary>
         public static bool ShouldDeferSharedReputation(bool isNightTrader)

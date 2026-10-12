@@ -21,9 +21,8 @@ namespace DWMPHorde.Players
             string legsClip,
             short currentFrame = -1)
         {
-            _networkLegFacingY = legFacingY;
+            SetLegHeading(legFacingY);
             _networkReverseLegs = reverseLegs;
-            _hasNetworkLegFacing = true;
 
             if (flipX != _flipX)
                 SetFlipX(flipX);
@@ -54,13 +53,8 @@ namespace DWMPHorde.Players
                 else
                 {
                     EndStaleGetUp();
-                    PlayTorso(torsoClip);
-                    // Sync animation frame if provided.
-                    if (currentFrame >= 0
-                        && _torsoAnimator != null && _torsoAnimator.CurrentClip != null
-                        && _torsoAnimator.CurrentClip.name == torsoClip
-                        && currentFrame < _torsoAnimator.CurrentClip.frames.Length)
-                        _torsoAnimator.SetFrame(currentFrame);
+                    bool started = PlayTorso(torsoClip);
+                    FollowTorsoFrame(torsoClip, currentFrame, started);
                 }
             }
             else if (state == LocomotionState.Idle)
@@ -77,7 +71,7 @@ namespace DWMPHorde.Players
                     hideLegs = ShouldHideLegsForTorso(_torsoAnimator.CurrentClip.name);
             }
             else
-                ApplyLocomotion(state, Vector3.zero, legFacingY, reverseLegs);
+                ApplyLocomotion(state, Vector3.zero, reverseLegs);
 
             // Vanilla ProcessAnims: when jumping / beartrap / dodge / etc., legs
             // renderer is disabled and walk clips must not keep playing on the proxy.
@@ -107,24 +101,46 @@ namespace DWMPHorde.Players
                 // so we must stop them immediately.
                 if (_legsAnimator.CurrentClip != null &&
                     _legsAnimator.CurrentClip.name.IndexOf("Run") >= 0)
-                {
                     StopLegsAtNeutral();
-                    _feetNeutralReached = true;
-                    if (_legsAnimator != null)
-                        _legsAnimator.transform.rotation = transform.rotation;
-                }
             }
+        }
 
-            if (state == LocomotionState.Walk)
+        /// <summary>The copy's clip this many frames off its player's is put back on the player's frame.</summary>
+        private const int TorsoFrameDrift = 2;
+
+        /// <summary>
+        /// The copy's torso clip runs on the player's frames. A clip the player starts part-way
+        /// starts there too: vanilla plays a cancelled swing's AimReturn from the frame the windup
+        /// had reached (Player.setLastClipFrame), and the copy started it from its first frame,
+        /// the fully raised arm, so a swing let go at once snapped up and back down. tk2d's SetFrame,
+        /// used before, shows a frame for one update and leaves the clip time alone. A running clip
+        /// is put back on the player's frame only when it has drifted (packets come about 30 a
+        /// second, a frame is longer): the copy plays smoothly on its own clock in between.
+        /// </summary>
+        private void FollowTorsoFrame(string clipName, short senderFrame, bool started)
+        {
+            if (senderFrame < 0 || _torsoAnimator == null || _torsoAnimator.CurrentClip == null
+                || _torsoAnimator.CurrentClip.name != clipName)
+                return;
+            tk2dSpriteAnimationClip clip = _torsoAnimator.CurrentClip;
+            int len = clip.frames != null ? clip.frames.Length : 0;
+            if (len <= 1 || senderFrame >= len)
+                return;
+            if (started)
             {
-                _feetNeutralReached = false;
-                AlignLegsToFacing(legFacingY, snapRunToBody: false);
+                if (senderFrame > 0)
+                    _torsoAnimator.PlayFromFrame(clip, senderFrame);
+                return;
             }
-            else if (state == LocomotionState.Run)
+            int off = _torsoAnimator.CurrentFrame - senderFrame;
+            if (clip.wrapMode == tk2dSpriteAnimationClip.WrapMode.Loop)
             {
-                _feetNeutralReached = false;
-                AlignLegsToFacing(legFacingY, snapRunToBody: true);
+                off = ((off % len) + len) % len;
+                if (off > len / 2)
+                    off -= len;
             }
+            if (Mathf.Abs(off) >= TorsoFrameDrift)
+                _torsoAnimator.PlayFromFrame(clip, senderFrame);
         }
 
         /// <summary>Frames a stand-up may still run on its own after its player left the clip.</summary>
@@ -214,7 +230,6 @@ namespace DWMPHorde.Players
         private void ApplyLocomotion(
             LocomotionState state,
             Vector3 velocity,
-            short legFacingY,
             bool reverseLegs)
         {
             _state = state;
@@ -227,13 +242,11 @@ namespace DWMPHorde.Players
                 case LocomotionState.Run:
                     PlayTorso("Run");
                     PlayLegs("LegsRun");
-                    AlignLegsToFacing(legFacingY, snapRunToBody: true);
                     break;
 
                 case LocomotionState.Walk:
                     PlayTorso("Idle");
                     PlayLegs(reverseLegs ? "LegsWalkReverse" : "LegsWalk");
-                    AlignLegsToFacing(legFacingY, snapRunToBody: false);
                     break;
 
                 default:
@@ -243,39 +256,66 @@ namespace DWMPHorde.Players
         }
 
         /// <summary>
-        /// Smoothly rotates legs back to align with the body rotation when idling.
+        /// The peer's torso library changed (weapon, or a new look: the doctor dream's antagonist,
+        /// the epilogue clothes, naked). Vanilla <c>switchAniLibrary</c> picks the legs and the
+        /// bare-handed library from the same look, so they follow from the torso's name. The
+        /// running clips are replayed from the new library at the same frame: tk2d keeps playing
+        /// the old clip object, so a player standing still kept the old look until it moved.
         /// </summary>
-        public void ResetLegsToStanding()
+        internal void ApplyTorsoLibrary(tk2dSpriteAnimation lib)
         {
-            if (_legsAnimator == null)
+            if (_torsoAnimator == null || lib == null)
                 return;
+            SkinLibraries(lib.name, out string noneName, out string legsName);
+            var none = Resources.Load(noneName, typeof(tk2dSpriteAnimation)) as tk2dSpriteAnimation;
+            if (none != null)
+                _noneAnimsLib = none;
 
-            Quaternion target = Quaternion.Euler(90f, transform.eulerAngles.y, 0f);
-            _legsAnimator.transform.rotation = Quaternion.Slerp(
-                _legsAnimator.transform.rotation,
-                target,
-                Time.deltaTime * LegBlendSpeed);
-        }
-
-        private void AlignLegsToFacing(short legFacingY, bool snapRunToBody)
-        {
-            if (_legsAnimator == null)
-                return;
-
-            if (snapRunToBody)
+            if (_legsAnimator != null)
             {
-                _legsAnimator.transform.rotation = transform.rotation;
-                return;
+                var legs = Resources.Load(legsName, typeof(tk2dSpriteAnimation)) as tk2dSpriteAnimation;
+                if (legs != null && _legsAnimator.Library != legs)
+                    SwapLibraryKeepClip(_legsAnimator, legs);
             }
-
-            float y = _hasNetworkLegFacing ? legFacingY : transform.eulerAngles.y;
-            _legsAnimator.transform.rotation = Quaternion.Euler(90f, y, 0f);
+            SwapLibraryKeepClip(_torsoAnimator, lib);
+            if (_legsAnimator != null)
+                ApplyLegsClipFps();
         }
 
-        internal void PlayTorso(string clipName)
+        private static void SwapLibraryKeepClip(tk2dSpriteAnimator anim, tk2dSpriteAnimation lib)
+        {
+            string clip = anim.CurrentClip != null ? anim.CurrentClip.name : null;
+            int frame = anim.CurrentFrame;
+            bool playing = anim.Playing;
+            anim.Library = lib;
+            tk2dSpriteAnimationClip next = string.IsNullOrEmpty(clip) ? null : lib.GetClipByName(clip);
+            if (next == null || next.frames == null || next.frames.Length == 0)
+                return;
+            anim.PlayFromFrame(clip, Mathf.Clamp(frame, 0, next.frames.Length - 1));
+            if (!playing)
+                anim.Stop();
+        }
+
+        /// <summary>Vanilla switchAniLibrary's look families: bare-handed torso and legs per look.</summary>
+        internal static void SkinLibraries(string torsoLib, out string noneLib, out string legsLib)
+        {
+            noneLib = "PlayerNoneAnims";
+            legsLib = "PlayerNoneAnims";
+            if (string.IsNullOrEmpty(torsoLib))
+                return;
+            if (torsoLib.StartsWith("AntagonistAct1", System.StringComparison.Ordinal))
+                noneLib = legsLib = "AntagonistAct1NoneAnims";
+            else if (torsoLib.StartsWith("PlayerNaked", System.StringComparison.Ordinal))
+                noneLib = legsLib = "PlayerNakedNoneAnims";
+            else if (torsoLib.StartsWith("PlayerEpilogue", System.StringComparison.Ordinal))
+                noneLib = "PlayerEpilogueAnims";
+        }
+
+        /// <returns>True when the clip was started now (not already playing).</returns>
+        internal bool PlayTorso(string clipName)
         {
             if (_torsoAnimator == null || string.IsNullOrEmpty(clipName))
-                return;
+                return false;
 
             if (_torsoAnimator.GetClipByName(clipName) == null)
             {
@@ -286,7 +326,7 @@ namespace DWMPHorde.Players
                 }
                 else
                 {
-                    return;
+                    return false;
                 }
             }
 
@@ -294,19 +334,19 @@ namespace DWMPHorde.Players
             // Allows replay when a non-looping clip finishes and restarts
             // (for example, double-barrel reload loop; the same clip plays twice).
             if (_torsoAnimator.Playing && _torsoAnimator.CurrentClip?.name == clipName)
-                return;
+                return false;
 
             // A stand-up the proxy already played through (it runs on its own clock) must not
             // restart while the sender is still on its tail.
             if (IsGetUpClip(clipName) && _torsoAnimator.CurrentClip?.name == clipName)
-                return;
+                return false;
 
             // Prevent replay of death clips once played to completion;
             // the host sends "Death1"/"Death2" every 30ms in PlayerStateMessage,
             // but the non-looping clip finishes and restarts endlessly.
             bool death = IsDeathClip(clipName);
             if (death && _deathClipPlayed)
-                return;
+                return false;
 
             // A stand-up left waiting on its first frame must not hold the next clip still.
             if (_torsoAnimator.Paused) _torsoAnimator.Resume();
@@ -315,6 +355,7 @@ namespace DWMPHorde.Players
 
             // One play per death: any other clip (the respawn stand-up) ends that death.
             _deathClipPlayed = death;
+            return true;
         }
 
         /// <summary>
@@ -371,10 +412,7 @@ namespace DWMPHorde.Players
             if (_legsRenderer != null)
                 _legsRenderer.enabled = !hide;
             if (hide && _legsAnimator != null && _legsAnimator.Playing)
-            {
                 StopLegsAtNeutral();
-                _feetNeutralReached = true;
-            }
         }
 
         /// <summary>

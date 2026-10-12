@@ -231,7 +231,7 @@ namespace DWMPHorde.Networking
             // Targeted delivery only (SendToPlayer). FF / environmental gates are
             // enforced by senders (ProxyDamagePatch vs ExplosionFriendlyFirePatch).
             if (_net.Role != NetworkRole.Client) return;
-            if (DeathStateTracker.LocalNightDeath) return; // already dead — ignore late hits
+            if (DeathStateTracker.LocalDown) return; // already dead (night or dream) — ignore late hits
             Player local = Player.Instance;
             if (local == null || !local.alive) return;
 
@@ -357,8 +357,8 @@ namespace DWMPHorde.Networking
             }
 
             // Night-dead victim: ignore further FF.
-            if ((victimPlayerId > 0 && DeathStateTracker.IsRemoteNightDead(victimPlayerId))
-                || ((victimPlayerId == _net.LocalPlayerId || victimPlayerId == 0) && DeathStateTracker.LocalNightDeath))
+            if ((victimPlayerId > 0 && DeathStateTracker.IsRemoteDown(victimPlayerId))
+                || ((victimPlayerId == _net.LocalPlayerId || victimPlayerId == 0) && DeathStateTracker.LocalDown))
             {
                 _net.SuppressRelay();
                 return;

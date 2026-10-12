@@ -1,4 +1,5 @@
 using DG.Tweening;
+using DWMPHorde.Logging;
 using DWMPHorde.Networking;
 using DWMPHorde.Players;
 using DWMPHorde.Spectator;
@@ -238,6 +239,20 @@ namespace DWMPHorde.Sync
 
         public static bool IsLocalDreamActive => _localDreamActive;
 
+        /// <summary>
+        /// A party dream is on and this player is part of it (in it, or on its way in or out):
+        /// false for a host that left by its own exit while the dream runs on for others
+        /// (<see cref="DreamExit"/>). For what describes where the local player is.
+        /// </summary>
+        public static bool IsLocalInPartyDream => IsDreamActive && !DreamExit.HostHostsFromOutside;
+
+        /// <summary>A location name that is a dream's pad, not an ordinary outside location.</summary>
+        public static bool IsDreamPadName(string locName)
+            => !string.IsNullOrEmpty(locName)
+               && (locName.StartsWith("dream_", System.StringComparison.OrdinalIgnoreCase)
+                   || locName.StartsWith("epilog", System.StringComparison.OrdinalIgnoreCase)
+                   || IsDreamLocationName(locName));
+
         /// <summary>True while this peer is already in the dream-entry video.</summary>
         public static bool HasPendingEntryTransition =>
             _earlyEntryTransitionPlayed || _remoteEntryTransitionPlaying;
@@ -252,6 +267,9 @@ namespace DWMPHorde.Sync
         public static bool IsRemoteInDream(int playerId)
         {
             if (playerId <= 0 || !_remoteDreamActive.TryGetValue(playerId, out bool active) || !active)
+                return false;
+            // Left by its own exit: the dream goes on without it.
+            if (DreamExit.HasLeft(playerId))
                 return false;
             if (_dreamEntryConfirmed.Contains(playerId))
                 return true;
@@ -551,6 +569,57 @@ namespace DWMPHorde.Sync
             return false;
         }
 
+        /// <summary>
+        /// This player left the dream by its own exit (<see cref="DreamExit"/>). The dream is not
+        /// over: the host (<paramref name="keepSession"/>) keeps the session, the roster and the
+        /// death tracking of the players still in it; a client only stops being part of it.
+        /// </summary>
+        public static void OnLocalDreamLeft(bool keepSession)
+        {
+            ResetHostEndClaim();
+            if (!_localDreamActive)
+                return;
+            string leftPreset = ResolveActivePresetName();
+            // A clock that ran meanwhile (someone woke earlier) is not put back.
+            UnfreezeWorld(restoreTime: false);
+            var net = ModRuntime.Network;
+            if (!keepSession)
+            {
+                FinalDreamsceneManager.OnDreamEnded();
+                ClearRemoteDreamRoster();
+                net?.GameEventHandlers?.ClearPendingDreamGameEvents();
+            }
+            _localDreamActive = false;
+            _hostOrderedDreamEnd = false;
+            if (net != null)
+            {
+                foreach (var proxy in net.GetAllProxies())
+                    proxy.FreezePosition = false;
+            }
+            ModRuntime.LegacyInfo($"[DreamSync] Local player left the dream: {leftPreset}"
+                + (keepSession ? " (it goes on for the others)" : ""));
+            if (!keepSession)
+                _localDreamPreset = null;
+        }
+
+        /// <summary>Host, awake: the dream it kept running for the others is over.</summary>
+        internal static void OnHostedDreamOver()
+        {
+            ResetHostEndClaim();
+            ClearRemoteDreamRoster();
+            _currentDreamPreset.Clear();
+            _dreamEndBroadcastSent = false;
+            _hostOrderedDreamEnd = false;
+            _localDreamPreset = null;
+            var net = ModRuntime.Network;
+            net?.GameEventHandlers?.ClearPendingDreamGameEvents();
+            if (net != null)
+            {
+                foreach (var proxy in net.GetAllProxies())
+                    proxy.FreezePosition = false;
+            }
+        }
+
         public static void OnLocalDreamEnded()
         {
             ResetHostEndClaim();
@@ -602,9 +671,29 @@ namespace DWMPHorde.Sync
                     proxy.FreezePosition = false;
             }
 
+            RestoreLookAfterDream(endedPreset);
             ModRuntime.LegacyInfo($"[DreamSync] Local dream ended: {endedPreset}, outcome={outcomeName}");
 
             _localDreamPreset = null;
+        }
+
+        /// <summary>
+        /// The home dream dresses the player with a toggle (<c>special_changeClothes</c> at its
+        /// start, again at its end). In a party dream the end event can reach a player twice or
+        /// not at all, and a player woke up in the dream's clothes, seen so by the others too.
+        /// Vanilla's net effect of a dream outside the epilogue is the player's own clothes: kept.
+        /// </summary>
+        private static void RestoreLookAfterDream(string preset)
+        {
+            Player p = Player.Instance;
+            if (p == null || p.inEpilogue || (!p.changedClothes && !p.naked))
+                return;
+            if (!string.IsNullOrEmpty(preset) && preset.StartsWith("epilog", System.StringComparison.OrdinalIgnoreCase))
+                return;
+            p.changedClothes = false;
+            p.naked = false;
+            p.switchAniLibrary("");
+            ModLog.Event(LogCat.Dream, "Woke in the dream's clothes (" + preset + ") — own clothes back");
         }
 
     }

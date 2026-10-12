@@ -289,7 +289,6 @@ namespace DWMPHorde.Networking
             float bestD = float.MaxValue;
             bool bestLatched = false;
             float softMaxSq = softMax * softMax;
-            float rootMaxSq = 250f * 250f;
 
             void Consider(GameEvents ge)
             {
@@ -297,7 +296,7 @@ namespace DWMPHorde.Networking
                 if (dreamRoot != null)
                 {
                     if (!ge.transform.IsChildOf(dreamRoot)
-                        && (ge.transform.position - dreamRoot.position).sqrMagnitude > rootMaxSq)
+                        && !DreamSyncManager.IsAtDreamPad(ge.transform.position))
                         return;
                 }
                 float dSq = (ge.transform.position - pos).sqrMagnitude;

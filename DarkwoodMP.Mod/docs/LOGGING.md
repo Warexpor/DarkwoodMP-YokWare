@@ -1,4 +1,19 @@
-# DWMP Horde logging guide
+# Logging guide
+
+What the mod writes to the game log, how to get more of it, and what to send with a
+bug report.
+
+## More detail for a bug report
+
+1. Close the game.
+2. Open the settings file (below) and, under `[Logging]`, set `LogPreset = Trace`.
+3. Start the game, play until the problem shows, then quit.
+4. Send `BepInEx/LogOutput.log` (MelonLoader: `MelonLoader/Latest.log`) from the
+   game folder of **every** player, before anyone starts the game again: the file is
+   overwritten on each launch.
+
+`Trace` logs are large and cost some frame time; set `LogPreset = Support` again for
+normal play.
 
 ## Defaults
 
@@ -40,13 +55,15 @@ for maximum dual-box capture.
 1. Prefer **Trace** (max), or **Support** with `PerfProbe = true`, on **both** installs, same mod build.  
 2. Reproduce; quit cleanly.  
 3. Attach **both** `BepInEx/LogOutput.log` files.  
-4. Or run the gate script (defaults to this machine’s Steam + SecondDarkwood paths):
+4. Or run the gate script (defaults to a Steam install plus a `SecondDarkwood` copy; see the script for its paths):
 
 ```bash
 ./scripts/check-dualbox-perf.sh
 ```
 
-5. Look for `[Perf] role=Host|Client` every ~2s while co-op connected.
+5. Look for `[Perf] role=Host|Client` every ~2s while hosting (peers or none) or connected as a client.
+   `over=N/B ms` counts frames over 1.5 times the frame budget `B`, `gc=N` the garbage collections,
+   `worst[net= log= gc= work= wait= fixed=]` what the longest frame held (network tick ms, log lines written, collections) and how it split: `work` from its first physics step or Update to the end of rendering on the CPU, `wait` from there to the next frame (present, vsync, GPU, compositor), `fixed` the physics steps it ran, with `(phys upd co late rend)` splitting `work` into physics steps, Update, coroutines, LateUpdate and rendering. `avg[work phys upd co late rend workOver]` is the same split averaged per frame over the window; `workOver` counts frames whose work alone ran over the budget. With `DWMP_FRAME_PROFILE=1` in the game's environment (test runs only: it times every call) `[FrameProf]` lines name the Unity methods and cameras that took the most in each slow frame, a per-frame average every minute, and each desync section that took 0.5 ms or more.
    Immediate single-frame hitches also emit `[PerfCliff]` (rate-limited ~0.5s).
    Hot Update segments emit `[PerfSeg]` when ≥25ms.
 
@@ -90,12 +107,12 @@ for maximum dual-box capture.
 3. Quit cleanly.  
 4. Attach both LogOutput.log files + steps.
 
-| Install | Linux | Windows |
+| Install | Linux (Steam) | Windows (Steam) |
 |---------|-------|---------|
-| Host (Steam) | `~/.local/share/Steam/steamapps/common/Darkwood/BepInEx/LogOutput.log` | `...\Steam\steamapps\common\Darkwood\BepInEx\LogOutput.log` |
-| Client (second) | `.../SecondDarkwood/Darkwood/BepInEx/LogOutput.log` | `...\SecondDarkwood\Darkwood\BepInEx\LogOutput.log` |
+| BepInEx | `~/.local/share/Steam/steamapps/common/Darkwood/BepInEx/LogOutput.log` | `C:\Program Files (x86)\Steam\steamapps\common\Darkwood\BepInEx\LogOutput.log` |
 
-MelonLoader installs write `MelonLoader/Latest.log` in the game folder instead.
+A GOG or second install has the same `BepInEx/LogOutput.log` inside its own game
+folder. MelonLoader installs write `MelonLoader/Latest.log` in the game folder instead.
 
 ## Desync check
 
@@ -126,10 +143,18 @@ desyncs are open. `grep -n "DESYNC" LogOutput.log` lists them.
 | `[YokWare/Session]` | Session / join / bulk |
 | `[YokWare/Combat]` | Combat |
 | `[YokWare/Entity]` | Entities |
+| `[YokWare/Phys]` | Physics: pushed objects, door swings |
+| `[YokWare/Loot]` | Containers |
 | `[YokWare/World]` | World |
+| `[YokWare/AI]` | Creature targeting |
 | `[YokWare/Dream]` | Dreams |
 | `[YokWare/Death]` | Death |
+| `[YokWare/Audio]` | Sounds and voice |
+| `[YokWare/UI]` | Menus and HUD |
 | `[YokWare/Save]` | Save share |
+
+`LogExtraCategories` and `LogTraceCategories` add categories on top of a preset by their
+names in [`CONFIG.md`](CONFIG.md) (`Physics`, `Container`, `Audio`...).
 
 Host creature targeting (AI category, Trace level, host with remote players only):
 

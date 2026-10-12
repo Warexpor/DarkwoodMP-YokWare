@@ -55,9 +55,11 @@ namespace DWMPHorde.Patches
             // ClientBackup inv/skills onto day-1.
             var net = ModRuntime.Network;
             bool coopSession = net != null && (net.IsConnected || net.Role == NetworkRole.Host);
+            // A new forest has played no dream yet (the played set is kept per profile slot).
+            Sync.DreamSession.ResetIncludingCompletions();
             if (Core.currentProfile != null
                 && (coopSession || CoopWorldCopyMeta.TryGetCampaignIdForCurrentProfile() != null))
-                CoopWorldCopyMeta.MintNewCampaignId(Core.currentProfile.id);
+                CoopWorldCopyMeta.MintNewCampaignId(Core.currentProfile.id, newWorld: true);
 
             if (net == null || net.Role != NetworkRole.Host)
                 return;

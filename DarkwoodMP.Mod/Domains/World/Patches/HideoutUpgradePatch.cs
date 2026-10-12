@@ -1,3 +1,4 @@
+using DWMPHorde.Logging;
 using DWMPHorde.Networking;
 using HarmonyLib;
 using UnityEngine;
@@ -71,6 +72,61 @@ namespace DWMPHorde.Patches
             }, 1);
         }
 
+        /// <summary>
+        /// A peer moved home from <paramref name="from"/> to <paramref name="to"/>. A player who
+        /// lived in the oven it moved out of moves with it: the party had one home, and the one
+        /// who never talked to the new oven woke up after a night death alone in the old hideout.
+        /// A player living elsewhere keeps its own home. Runs next frame, outside the apply scope,
+        /// so an old oven nobody lives in any more goes out on every peer.
+        /// </summary>
+        private static bool _movedHome; // reset-in: ConsumeMovedHome (read on the next effect send)
+        private static bool _following; // process-scoped: call-scoped, a follow is not a move of its own
+
+        /// <summary>The local player moved home itself (vanilla setExperienceMachine from a live home).</summary>
+        internal static void NoteLocalMove()
+        {
+            if (!_following)
+                _movedHome = true;
+        }
+
+        internal static bool ConsumeMovedHome()
+        {
+            bool moved = _movedHome;
+            _movedHome = false;
+            return moved;
+        }
+
+        internal static void FollowPeerMove(Vector3 from, Vector3 to, bool moverInStory)
+        {
+            if (moverInStory || Sync.PersonalPrologue.LocalInPrologue)
+                return;
+            if (!LivesAt(Player.Instance, from))
+                return;
+            var ctrl = Singleton<Controller>.Instance;
+            if (ctrl == null)
+                return;
+            ctrl.waitFramesAndRun(() =>
+            {
+                Player p = Player.Instance;
+                if (!LivesAt(p, from))
+                    return;
+                ExperienceMachine next = Sync.WorldQueryHelper.FindNearest<ExperienceMachine>(to, 2f);
+                if (next == null || next == p.experienceMachine)
+                {
+                    ModRuntime.Log?.LogWarning("[HideoutUpgrade] party moved home but no oven found at " + to);
+                    return;
+                }
+                _following = true;
+                try { p.setExperienceMachine(next, doEnable: true); }
+                finally { _following = false; }
+                ModLog.Event(LogCat.World, "[HideoutUpgrade] party moved home — following to " + next.transform.position);
+            }, 1);
+        }
+
+        private static bool LivesAt(Player p, Vector3 oven)
+            => p != null && p.experienceMachine != null
+                && (p.experienceMachine.transform.position - oven).sqrMagnitude <= SameOvenSq;
+
         /// <summary>Another player (not <paramref name="exceptPlayerId"/>) has this oven as home.</summary>
         internal static bool IsOtherPlayersHome(ExperienceMachine oven, int exceptPlayerId)
         {
@@ -86,6 +142,28 @@ namespace DWMPHorde.Patches
                     return true;
             }
             return false;
+        }
+    }
+
+    /// <summary>
+    /// The local player moved from a home it had to another oven (the oven talk). A first home
+    /// (fresh character, prologue) is not a move. Tells <see cref="OvenHomes"/> so the next
+    /// effect sync says so and the players who lived in the old hideout follow.
+    /// </summary>
+    [HarmonyPatch(typeof(Player), nameof(Player.setExperienceMachine))]
+    public static class OvenMoveHomeNotePatch
+    {
+        // First: OvenMoveHomePatch's prefix may skip the original, and the home it held must be read before.
+        [HarmonyPriority(Priority.First)]
+        private static void Prefix(Player __instance, out ExperienceMachine __state)
+            => __state = __instance != null ? __instance.experienceMachine : null;
+
+        private static void Postfix(Player __instance, ExperienceMachine __state)
+        {
+            if (__instance == null || __instance != Player.Instance || __state == null)
+                return;
+            if (__instance.experienceMachine != null && __instance.experienceMachine != __state)
+                OvenHomes.NoteLocalMove();
         }
     }
 

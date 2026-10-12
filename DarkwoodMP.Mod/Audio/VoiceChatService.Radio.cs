@@ -112,10 +112,10 @@ namespace DWMPHorde.Audio
         }
 
         /// <summary>The caller's beep and the squelch tail inside a received transmission, against the voice.</summary>
-        private const float BeepGain = 0.5f;
+        private const float BeepGain = 0.3f;
         /// <summary>Past the tail's own length: the audio thread reads in blocks and may start late.</summary>
         private const float TailHoldSlackSec = 0.2f;
-        private const float TailGain = 0.6f;
+        private const float TailGain = 0.46f;
         /// <summary>The radio's static goes on under the squelch tail for this long, fading out: a carrier does not stop dead.</summary>
         private const float StaticFadeSec = 0.25f;
         /// <summary>The steady static under a clear transmission, at this level (the recording is at RMS 0.055, all of it in the radio's band).</summary>
@@ -238,13 +238,16 @@ namespace DWMPHorde.Audio
                 if (s.Click == null || ModRuntime.Network?.GetProxy(s.Id) == null)
                     return;
                 EnsureSquelchClips();
-                float vol = Mathf.Clamp01((ModConfig.VoiceVolume?.Value ?? 1f) * 0.3f);
+                float vol = Mathf.Clamp01((ModConfig.VoiceVolume?.Value ?? 1f) * (keyDown ? KeyBeepShare * 0.3f : 0.3f));
                 AudioClip clip = keyDown ? _keyClip : _releaseClip;
                 if (clip != null)
                     s.Click.PlayOneShot(clip, vol);
             }
             catch { /* audio not ready */ }
         }
+
+        /// <summary>The call beep against the squelch tail of the same radio: the beep is a pure tone and cut through at the same level.</summary>
+        private const float KeyBeepShare = 0.7f;
 
         internal enum RadioSound { PowerOn, PowerOff, Dead }
 
@@ -310,7 +313,7 @@ namespace DWMPHorde.Audio
                 _localRadio.playOnAwake = false;
                 _localRadio.spatialBlend = 0f;
                 _localRadioReverb = go.AddComponent<AudioReverbFilter>();
-                _localRadioReverb.enabled = false;
+                RoomReverb.Setup(_localRadioReverb);
             }
         }
 
@@ -326,8 +329,7 @@ namespace DWMPHorde.Audio
             EnsureLocalRadioSource();
             Player p = Player.Instance;
             bool inside = p != null && p.isInside;
-            if (_localRadioReverb != null && _localRadioReverb.enabled != inside)
-                _localRadioReverb.enabled = inside;
+            RoomReverb.Set(_localRadioReverb, inside);
             _localRadio.PlayOneShot(clip, vol);
         }
 
@@ -338,7 +340,7 @@ namespace DWMPHorde.Audio
             {
                 EnsureLocalRadioSource();
                 EnsureSquelchClips();
-                float vol = Mathf.Clamp01((ModConfig.VoiceVolume?.Value ?? 1f) * 0.35f);
+                float vol = Mathf.Clamp01((ModConfig.VoiceVolume?.Value ?? 1f) * (keyDown ? KeyBeepShare * 0.35f : 0.35f));
                 PlayLocal(keyDown ? _keyClip : _releaseClip, vol);
             }
             catch { /* audio not ready */ }

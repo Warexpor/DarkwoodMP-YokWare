@@ -92,7 +92,7 @@ namespace DWMPHorde.Networking
             string locName = ol.currentLocationName ?? "";
             if (string.IsNullOrEmpty(locName)) return false;
 
-            bool dreamLocActive = Sync.DreamSyncManager.IsDreamActive;
+            bool dreamLocActive = Sync.DreamSyncManager.IsLocalInPartyDream;
             string txName = dreamLocActive
                 ? Sync.DreamSyncManager.CanonicalDreamLocationName(locName)
                 : locName;
@@ -135,11 +135,11 @@ namespace DWMPHorde.Networking
                 if (string.IsNullOrEmpty(locName)) continue;
 
                 // Dream pads: LoadDreamSceneCoroutine owns spawn — never createLocation.
-                if (locName.StartsWith("dream_", StringComparison.OrdinalIgnoreCase)
-                    || Sync.DreamSyncManager.IsDreamLocationName(locName)
-                    || Sync.DreamSyncManager.IsDreamActive
-                    || (Dreams.Instance != null
-                        && (Dreams.Instance.dreamPrepared || Dreams.Instance.dreaming)))
+                // An ordinary location a player who already left the dream walks into is
+                // created as usual; only this machine's own entry holds it back.
+                if (Sync.DreamSyncManager.IsDreamPadName(locName)
+                    || Core.EnteringDream
+                    || (Dreams.Instance != null && Dreams.Instance.dreamPrepared && !Dreams.Instance.dreaming))
                     continue;
 
                 Location existing = ResolveOutsideLocation(ol, locName);

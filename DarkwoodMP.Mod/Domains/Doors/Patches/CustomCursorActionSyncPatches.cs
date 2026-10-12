@@ -55,8 +55,11 @@ namespace DWMPHorde.Patches
             if (net == null || net.Role != NetworkRole.Client) return true;
 
             bool cursor = destGO.GetComponent<CustomCursorAction>() != null;
-            bool worldUse = destGO.GetComponent<Item>() != null
-                || destGO.GetComponent<EventTriggers>() != null;
+            // What the host replays is the object's EventTriggers (and a bed's time skip). A plain
+            // Item without either (furniture picked up to drag) has nothing to replay: the request
+            // only made the host search for it, and miss it while it was being pushed around.
+            bool worldUse = destGO.GetComponent<EventTriggers>() != null
+                || (destGO.GetComponent<Item>() != null && destGO.GetComponent<TimeSkip>() != null);
             if (!cursor && !worldUse) return true;
 
             Vector3 p = destGO.transform.position;

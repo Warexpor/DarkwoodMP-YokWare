@@ -392,6 +392,8 @@ namespace DWMPHorde.Networking
             {
                 state.reputation = msg.Reputation;
             }
+            if (!perPlayerRep)
+                Patches.ReputationSyncUtil.RefreshOpenTrade(msg.NpcName);
 
             if (msg.HasAttackedId)
                 Patches.NpcAttackedIdSync.ApplyAttackedId(state, msg.NpcName, msg.AttackedId);

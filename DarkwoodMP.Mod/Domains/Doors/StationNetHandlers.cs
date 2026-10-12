@@ -96,10 +96,8 @@ namespace DWMPHorde.Networking
             Inventory inv = Sync.SawSyncHelpers.GetInventory(saw);
             if (inv != null)
             {
-                var logItem = inv.getItem("woodLog");
-                if (!InvItemClass.isNull(logItem)) prevLogs = logItem.amount;
-                var woodItem = inv.getItem("wood");
-                if (!InvItemClass.isNull(woodItem)) prevWood = woodItem.amount;
+                prevLogs = inv.getItemAmount("woodLog");
+                prevWood = inv.getItemAmount("wood");
             }
 
             if (_net.Role == NetworkRole.Host && senderId > 0)

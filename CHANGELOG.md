@@ -3,11 +3,20 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.242**. The current Horde wire protocol is **58**. Every install in a session
+**0.8.260**. The current Horde wire protocol is **63**. Every install in a session
 needs the same DLL; the protocol is checked on join.
 
 Protocol history (newest first):
 
+- **63**, 0.8.259 to 0.8.260: `TradeCommit` gains the trade's change to the trader's standing; a
+  `DialogMirror` element gains the language entry its text came from; `PlayerEffectSync` uses
+  a spare bit (`MovedHome`, Flags2 64).
+- **62**, 0.8.252 to 0.8.258: new `PeerNotice` (173). 0.8.257 uses a spare bit of the entity
+  snapshot (`Flag2LeftRange`, 32); the layout is unchanged.
+- **61**, 0.8.248 to 0.8.251: `VoiceData` (129) carries Opus; with flag 2 its data starts with the voice
+  block's length (2 bytes).
+- **60**, 0.8.247: new `DreamLeft` (172).
+- **59**, 0.8.243 to 0.8.246: new `DoorSwing` (171); `BarricadeEvent` drops the attacker position.
 - **58**, 0.8.241 to 0.8.242: `DragSync` gains the co-holder's id and where it stands; new `CoHold` (170).
 - **57**, 0.8.240: `ConstructibleConstruction` gains the save id and the repaired item's pose;
   new `ItemPose` (169).
@@ -67,6 +76,880 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.260 — the morning clock runs once anyone walks out; the bunker dream comes with the next level-up; dreams played through by three players: the chained Doctor dream in one place for all, dream residents and the dream's music on every game, dream doors and events far from the scene's centre synced, no repeated door creak
+
+Deployed to the Steam, second and third installs (md5 6865c0db), played by the test pilot in the box (three players, every dream), not by people. Protocol 63, no change.
+
+Docs: How co-op works (dreams: one scene in one place, what is each player's own in a dream, the bunker with the next level-up), LOGGING.md (a step-by-step for a detailed bug log, every log tag, install-neutral paths), the coverage table's dream row, the README's third test install.
+
+**The clock stayed stopped all morning while anyone stood in the hideout.** The morning freeze
+held the clock for everyone until the last player walked out, so the players outside lived in a
+frozen day. Now the first player to walk out (host or client) starts the clock for everyone;
+the trader stays until the hideout is empty, and those still inside keep the morning look. A
+morning still held at dusk ends then, so the trader never reaches into the night.
+(`MorningHideoutHold.ClockReleased`, the host clock gate in `ClientTimeAuthorityPatches`, the
+host's own end-of-night look removed on walking out in `MorningHideoutExitPatch`.)
+
+**Dreams, played through by three players in the test box** (`scripts/pilot/dream-soak.sh`: every
+dream, every trigger area walked into and every usable object used by the host and both clients in
+turn, each game's view of the dream scene compared):
+- **The Doctor's second dream was in another place on the clients.** The first Doctor dream
+  chains into the second; the host loads the second scene while the first still stands, so it
+  goes to the next free spot of the map (slot 6), and the clients loaded it on the first scene's
+  spot (slot 5), 25000 units off: no position, door, light or event of that dream lined up. A
+  client now asks the host where the next scene is and loads it there
+  (`OutsidePadSlots.AwaitHostPadPosition`, log `[DreamSync] chained pad '…' at the host's slot`).
+- **The bunker dream's room objects were missing on the clients.** A scene's spawn points
+  (`SpawnPrefab`) build their object at the scene's start; clients skipped them everywhere (the
+  host's objects reach them by the world sync), but a dream or location scene is loaded by each
+  game itself and nothing else builds them there. Clients now run them inside such a scene
+  (`SpawnPrefabSyncPatches`).
+- **Dream residents were hidden on the clients.** The grave dream's corpse (whose death sets off
+  the chompers and the dream's music: the clients missed `dream_tutorial_01_witch_attack` and
+  the music's second part), the church corpse and ravens, the bunker's talking door, the Doctor
+  dream's chickens and dummy. A client puts away a creature the host has never driven once it is
+  more than 1400 units from the player (a far roamer of the open world); a dream or location
+  scene's residents are not roamers, the scene shows its own, and one beyond that range can be
+  on screen. They were hidden at the dream's start and stayed so (the pilot's `traceoff` caught
+  the call). A scene's residents are no longer put away there
+  (`ClientEntityInterpolationService` unmatched cleanup). Also, a creature counted as the "twin" of
+  a host-driven one of the same name anywhere in the world; a twin must now be within 600 units.
+- **Doors, events, items and talks far from a dream scene's centre were treated as not in the
+  dream.** Fifteen checks took "within 200 to 250 units of the dream scene's origin" for "in the
+  dream", but a dream scene is thousands of units across: a client dropped the host's opening of
+  the acid dream's studio door (`drop non-dream DoorOpen 'Door1'`, 288 units out), and the same
+  test decided which doors, game events (and the late-join list of fired ones), usable objects,
+  dialogue closes, unique objects and explosions belonged to the dream. They now ask whether the
+  spot lies in the dream's own map slot (`DreamSyncManager.IsAtDreamPad`, half a slot, 12500
+  units; the overworld and other locations sit at least a slot away). (`DoorNetHandlers`,
+  `DreamDoorSyncPatches`, `GameEventNetHandlers`, `CursorActionNetHandlers`,
+  `DialogOutcomeCloseNetHandlers`, `NpcDialogueLock`, `UniqueObjectsDreamPatch`, the explosion
+  side check.)
+- **The host dreamed without the dream's music.** Vanilla starts a dream's track on the dream
+  scene (`Dreams.startDreaming`, 5 s delay) before it moves the player there; the co-op sound
+  range check judged it from the player's spot in the world and refused it. Clients load the
+  scene with the player already in it and heard it. The dream's own track is never range-checked
+  now (`AudioSuppressionLogic.IsDreamMusic`).
+- **A door swung by another player creaked again and again.** Following another machine's swing,
+  the door waits at the last sample when the next is late; vanilla stops the creak when the door
+  stands and starts a new one when it moves (15 creaks over one swing on a client, one on the
+  swinger's). While the followed swing is under way the creak keeps going (`DoorFollowCreakPatch`).
+
+- The test pilot gained `padsnap`, `padtrig`, `useat`, `firen` and `traceoff` (who disables a
+  named object, with the stack); `scripts/pilot/dream-soak.sh` plays a chained dream's next part too.
+
+Checked, not changed: a Doctor dream lamp settles a few units apart on each game when the scene
+loads (its body is pushed out of a wall); the host's full resync sets it once a player comes within
+40 units. Sound areas (the acid dream's drilling, the wind) play for the player standing in them, as
+in vanilla, and the home dream's cue when the hatted man comes into view plays for whoever sees him.
+A creature the host drives is put away on a client while it is more than 1400 units from that
+client's player (off screen) and shown again when it comes near: the Doctor dream's chickens and
+the church ravens did that in the run, as intended. A dream exit area ends the dream for the player
+who walks into it (the others dream on), as before.
+
+**A world whose level-2 dream was not the bunker never got the bunker.** The bunker comes only
+through the level-2 slot in vanilla; once that slot is used, it was gone for good. The next level
+dream in chapter 1 now plays the bunker while the world has not played it
+(`DreamGetPresetPatch`). The 11 October campaign's played-dream list no longer lists it (edited
+by hand, backup `dwmp_coop_meta.json.bak-before-bunker`), so its next level-up dream is the bunker.
+
+## 0.8.259 — the host's game no longer stays frozen after a friend joins behind an open menu; no gap in the game's sound at a save; the Wolf's, Piotrek's and the other story traders' standing is shared; a talk listened in on reads in the listener's language; a dream's weapon for every dreamer; a player down for the night is silent and their body holds their whole kit; a player rejoining on a later night is no longer down; the party moves home together; a new world plays the bunker dream; a dream's look (the Doctor, the home dream's clothes) is seen by the others
+
+Deployed to the Steam, second and third installs (md5 29d2f049), not played. Protocol 63 (`TradeCommit` gains `RepDelta`, a `DialogMirror`
+element gains its language entry): every player needs this build.
+
+From the 11 October session logs (host Steam log, two client logs):
+
+**A player rejoining the next night started dead.** funtikFM left on day 6 and came back that
+night: the host put them straight into spectate ("Rejoin: p7 died this night before leaving").
+They had died the night before (day 5) and been released at dawn, but the host's list of
+"died this night, by Steam id" (kept so a quit-and-rejoin the same night stays down) was only
+cleared by the all-dead morning, not by the normal dawn release. The dawn release now clears it
+(`DeathStateTracker.ClearRemoteNightState`). This was the broken join of the second client.
+
+**After a night death a client woke in the first hideout.** Homes are each player's own oven.
+The host lit the second hideout's oven (moving home); a client who never talked to that oven
+kept the first hideout as home, and the dawn release sent them there while the others got up in
+the second. Now when a player moves home, every player who lived in the hideout it left moves
+with it (home and respawn point); a player living in another hideout keeps theirs. The old oven
+goes out once nobody lives there. Both ways: a client moving moves the host too. Only a move
+the player made counts (the effect sync's new `MovedHome` bit, set from vanilla
+`setExperienceMachine` away from a home it had): a home put back by a load, a join or a backup
+moves nobody. Log
+`[HideoutUpgrade] party moved home — following to …`. (`OvenHomes.FollowPeerMove`, called from
+`HandlePlayerEffectSync` when a peer's reported home changes.)
+
+**The bunker dream never ran.** The world was a new one started in save slot 3, which had held
+an older world. The slot's co-op sidecar kept the old world's played dreams, and a new world
+only got a new campaign id, so the bunker counted as played: the first level-2 dream rolled a
+random one (the grave meadow, "Level 2: the party played the bunker — a random dream instead").
+A newly generated world now starts with no played dreams (`MintNewCampaignId(newWorld: true)`,
+`DreamSession.ResetIncludingCompletions` at world gen), a client copy that receives another
+world drops the old list (`SetCampaignId`), and the old "host had its level-2 dream, so the
+bunker was played" guess applies only to worlds from before the list existed. This campaign's
+sidecar still lists the bunker; a new world plays it.
+
+**A dream's look was not seen by the others.** The home dream dresses the player
+(`special_changeClothes`), the Doctor dream plays you as the Doctor (`antagonistMode`). A client
+switches its look inside the host's dream start or a replayed dream event, and the library
+message was dropped there (the send was gated on `IsApplyingRemoteState`, which is always true
+while a host message is applied); the host log shows the host's own `PlayerEpilogueAnims` sent at
+the dream start and the clients' never. Also only the torso library travelled: the legs of the
+Doctor/naked looks stayed the normal ones, the bare-handed fallback swapped the proxy back to
+the normal sprite, and a player standing still kept the old look until they moved. Now:
+- the library always goes out (it is the local player's own look), and a dropped send is not
+  remembered as sent (`PlayerAnimLibraryPatch`, `WorldSendNetHandlers.SendPlayerAnimLibrary`);
+- the proxy takes the legs and bare-handed library of the same look and replays its running
+  clips from the new library at the same frame (`SecondPlayerAnimController.ApplyTorsoLibrary`).
+
+**A player woke from the home dream still in its clothes.** The clothes are a toggle (start
+event on, end event off). In the log a client's `PlayerEpilogueAnims` reached the host after the
+dream was over: a dream event replayed after that player had woken flipped them on again in the
+overworld. The toggle now does nothing outside a dream or the epilogue (`DreamClothesTogglePatch`,
+log `[Clothes] … outside a dream dropped`), and waking from a dream outside the epilogue gives
+the player their own clothes back (`DreamSyncManager.RestoreLookAfterDream`).
+
+**12 errors after the home dream (light path nodes).** Vanilla removes a dream's path graph when
+it ends and destroys the dream scene 4 s later; in between, its lights went through the
+overworld node lookup against the removed graph (`AstarPath.GetNodesAround`
+NullReferenceException with a stack trace, every light on every pass). A co-op host awake while
+the others dream keeps the scene longer. Lights of a dream scene the local player is not in are
+held out of the pass (`RemoteFlashlightNodesPatch`).
+
+**The grave dream's chompers kept biting a dreamer who was already dead.** The host log has p5
+"died in dream (1/2)" and then eight more chomper hits on p5; the client log has fifteen bites
+for 100 health. Everything that keeps creatures off a player who is down (targeting, sight,
+melee and explosion damage, the host's hit confirm, the client's own sensor hit, friendly fire)
+asked only "night-dead". It now asks "down": night-dead or dead in the running dream
+(`DeathStateTracker.IsRemoteDown` / `LocalDown`).
+
+**The host re-sent the dream's prop colliders at every story event.** 46 colliders went out at
+each of the home dream's GameEvents fires though none had changed. Only a change goes out now;
+the dream start still sends them all (`HostBroadcastDreamPropColliders`).
+
+**The host sent "trap triggered" for every sprung trap while loading.** Restoring the save's
+triggered traps went through the trap-triggered broadcast. A load is not a trap going off; peers
+load the same save and a joiner gets the trap bulk (`TrapSwitchPatch`, skipped while
+`Core.loadingGame`).
+
+Checked, not changed: the long frames in the host log are the world loads (3 to 4.6 s), the
+forced save at each late join (about 1.2 s, the sav/savs pair check), the morning saves (260 to
+310 ms, the collection fix above) and about 1 s frames while the host window was hidden
+(rendering held by the desktop, not the game). The voice underruns are one or two per 10 s per
+speaker, the ends of speech. `HandleContainerItem: no inventory` on a client is a corpse it
+never had loaded; it asks the host for the contents when it opens one.
+
+**One weapon for three chompers.** The grave meadow dream has three black chompers for three
+dreamers (one extra per extra player, as before) but only the one shovel vanilla leaves by the
+grave, and a pickup removed it for everyone. An item lying in a party dream's scene is now each
+dreamer's own: taking it removes it only from that dreamer's copy of the scene and nothing is
+sent. A player's own drop in a dream stays one shared item. The dream bag is thrown away on
+waking, so nothing is multiplied into the world. `DroppedItemSyncHelpers.IsDreamScenePickup`,
+`DroppedItemSyncPatches`.
+
+A scene prop built as a creature (that dream's corpse) was "woken" by the host on every entity
+tick while a player stood near; vanilla does nothing for such a dummy, so it is skipped now
+(`EntityStateBroadcastService`).
+
+Not found: the broken sound in that dream. The host log of that session records no sound fault;
+it shows the host dying to the chompers and watching the rest of the dream as a spectator.
+
+**A player who died at night could still talk.** Nothing tied voice chat to the night death:
+the spectating player's mic and radio went on sending, from the spot of whoever they watched.
+A player down until morning now sends no voice (push to talk, open mic and the radio), and
+the others drop a voice packet from a player they hold as night-dead (`VoiceChatService`).
+A dream death is unchanged.
+
+**A player who died at night often could not be looted.** The body is looted through the death
+bag hidden under it, and the bag was vanilla's day-death bag: dropped only when the backpack
+holds more than one item, with a random half of the backpack and nothing from the hotbar. A
+player carrying a handful of things, most of them on the hotbar, left a body with no bag (in
+the reported night the dead player's game sent none). A night body now always gets its bag
+and the bag holds the whole kit, backpack and hotbar; the player wakes in the morning with
+what the others handed back, or picks the rest up from the bag the body leaves. A day death
+is vanilla's bag as before. `NightBodyBagPatches` (after vanilla's `dropBody`, and at the next
+step of the death sequence when vanilla dropped nothing). The host logs whether a dying
+player reports a bag (`bag=` on the `[Death] Remote player died` line).
+
+The sound gap at a save is the `finishSaving` collection above, which this build no longer
+runs; the session it was heard in ran 0.8.258. `[SaveTiming]` now also says how many
+collections ran inside a save, so the next log shows whether any is left.
+
+**The host's game froze for good while the others could still join.** A host with nobody
+connected is in single player as far as pausing goes, so the pause menu the host invites from
+paused the game the vanilla way. In co-op the same menu pauses nothing and its close does not
+unpause (`PauseSuppression`). A friend connecting while the menu was open switched the rules
+between the two: the pause had been taken, the unpause on closing was blocked, and the game
+stayed at `timeScale` 0 with nothing left to lift it. The network still ran, so the others joined
+a stopped world. It showed in the 11 October logs: the world stopped from 22:08:34 until the host
+gave up and hosted again at 22:09:07 (no physics step in any `[Perf]` window, two players
+connected), and at 22:10:27 `[PauseMenu] ... world resumed` was logged over a world that stayed
+stopped. It only went right when the joining player happened to drop for its world load before
+the host closed the menu (19:34:28). The map, journal, a dialogue, a padlock, the skill menus,
+the level-up menu and an interactive item had the same fault.
+
+- The first player connecting lifts the pause of a menu the host opened alone; the co-op rule
+  decides from that tick (`PauseMenuSync.LiftSoloPause`, log `[PauseMenu] another player
+  connected: the pause of a menu opened alone is lifted`).
+- A menu that did take its own pause still unpauses on its close, whoever has connected since
+  (`PauseSuppression.UiPauseHeld`, set in the `Core.pause` prefix, read in the `Core.unpause`
+  prefix). This covers a join during a load and the level-up menu's delayed pause.
+- The other direction: when the last other player leaves (or the session ends) with the pause menu
+  open, the game pauses as in single player and the menu's close unpauses it
+  (`PauseMenuSync.PauseAlone`). Before, a pause everyone shared was dropped there and the world
+  ran on behind a lone player's menu. Stopping the host from the pause menu uses the same path and
+  keeps the menu music playing (`MultiplayerScreens.ConfirmDisconnect`).
+- The host's last "everyone is in the menu" verdict is forgotten when the first player connects or
+  the last one leaves; a stale one kept the world running with every player in the menu.
+
+Files: `Domains/Players/PauseMenuSync.cs`, `Patches/NoWorldPausePatch.cs`, `UI/MultiplayerScreens.cs`.
+
+**The sound hitched at daybreak.** Every morning runs a Save under the morning's sounds, and the
+frame it holds is in each log (`[SaveTiming] Save held the frame 260 ms` at 22:20:24, 286 ms at
+20:00:30, `co=262` in the `[PerfCliff]` line). Vanilla ends each Save with `GC.Collect()`
+(`SaveManager.finishSaving`): a full collection that stops every script thread until it is done.
+In single player the sound card's mixing thread is not one of them and the sound plays through
+the frozen frame. The mod's voice speakers and the radio's sound pickup taps (one on nearly every
+game sound, `VoiceRadioWorldSounds`) run script code on that thread, which makes it a script
+thread for the rest of the run, so the collection stopped the mixing too: a gap in the music and
+every sound at each save, on every player (each saves on the host's SaveSync). The save no longer
+forces the collection once the mod has code on the mixing thread; the runtime collects what the
+save allocated in its own slices (`gc-max-time-slice=3`). Without voice the vanilla call stays.
+(`SaveSyncPatches.SaveNoFullCollectPatch`, `VoiceChatService.MixerRunsScripts`)
+
+**Standing with the story traders is the party's.** The stock was shared, the standing spent on
+it was each player's own for the Wolf, Piotrek and the underground soldier. Now only the
+hideout's morning traders keep a standing per player (the Trader and the Three, `nightTrader` and
+`theThree`: it is earned by living through the night); every other NPC's is shared, as the
+Doctor's already was. The rule is by name (`DialogApplyPolicy.IsPerPlayerReputationNpcName`), no
+longer by `Character.isNightTrader`, which vanilla also sets on the underground soldier.
+
+- A client's trade no longer broadcasts its own number as the truth: two players trading in the
+  same moment each sent "what I had, plus mine" and the later one erased the other's (the
+  Doctor had this). The trade carries what it did to the standing, the host adds it to the
+  party's and sends the result to every player, the trading one included
+  (`TradeCommit.HostApply`, `TradeSyncAcceptPatch.Accepting`).
+- A trade that spends standing another player spent first is refused and undone like a purchase
+  the stock lacks (`DialogApplyPolicy.SharedStandingCovers`).
+- A refused trade gives the standing back with the goods. It did not: a refusal left the client
+  with its goods returned and the standing still changed (`TradeCommit.ClientUndo`).
+- A trade window open on the trader shows the new standing when another player's trade moves it
+  (`ReputationSyncUtil.RefreshOpenTrade`).
+- Join state, the dialogue state sent with a talk and quest rewards follow the same rule: the
+  Wolf's and Piotrek's standing comes from the host and a reward to it is given once, by the host.
+  A player's own backup no longer carries it.
+
+For a running campaign: the host's standing with the Wolf, Piotrek and the soldier becomes the
+party's; what the other players had with them is replaced by it when they join.
+
+**A talk another player listens in on read in the talking player's language.** The mirror sent
+the finished text of every line and button, so a listener with the game in another language got
+the talker's. The talking player's game now notes which language entry each text it shows came
+from (`Language.Get`, and what vanilla put into the entry: a location's direction through
+`Journal.convertToLocationText`, the day of a `currentDay` line; the row breaks of
+`WritingText.formattedText` are undone to find it), and each mirrored element carries that entry
+beside its text. The listener looks the entry up in its own language, breaks it into rows by its
+own rules and moves the lines below by what the line gained or lost in height. An entry the
+listener's language lacks, or a text whose entry is not known, shows as sent. Covers the board's
+lines and decisions, the options, the show-item list and the buttons. (`DialogTextKeys`,
+`DialogMirror.TryCapture` / `RenderPanel` / `RenderBoard`)
+
+Not measured yet: how much of the 260 ms was the collection. The next `[SaveTiming]` line is the
+save without it. Whatever is left still holds the game thread, and voice packets wait for it
+(received voice has 150 ms buffered, so a longer frame is still a short break in a voice).
+
+---
+
+## 0.8.258 — the talker's own game no longer drops frames while talking (voice encoded off the game thread)
+
+Built and deployed, not yet played. Protocol unchanged (62).
+
+**Host frame rate felt unsteady the whole session.** The 2 s averages hid it: 100 fps in 91% of
+the windows, but 332 of 1575 windows had a frame of 18 ms or longer (a dropped frame about every
+10 s) and 1008 frames ran over 15 ms. In the long frames that were the mod's, the voice step was
+the slowest part of the network update more often than anything else (3 to 8 ms in 137 windows,
+8 to 37 ms in 20). They line up with the host talking: the managed Opus encoder takes 1.1 to
+2.4 ms per 40 ms packet (`[Voice] 10s tx=.. enc=..`), and it ran in the game's Update, twice or
+more in one frame at the first word (the kept packet from before the key, then the new ones) and
+twice per packet on a keyed radio (voice, then the picked-up sounds). Encoding now runs on its own
+thread; the game thread queues the samples and sends the finished bytes on its next frame, one
+frame (10 ms) later than before (`VoiceChatService.Encode.cs`).
+
+Not touched, and still in those numbers: about half of the long frames are in rendering/present
+(172 of the 332 windows), which the mod does not time any finer, and the Steam packet poll was the
+slowest step in 9 windows (up to 39 ms in one frame).
+
+**Torch without a flame: not explained yet.** That night was a shadows night (`shadows_frost` at
+the hideout): the shadows put the host's torch out, as in vanilla, and for the next minute it was
+drawn three times with no flame, which vanilla also does while the wave is on. The host says it
+still had no flame the next day at more than half durability. The log has no torch draw between
+that dawn and the wedding (where it lit), only the torch being moved out of the hotbar early on
+day 3, so the failed draw itself is not in it. A light drawn without its flame now logs why
+(`[Light] <item> drawn without a flame: durability=.. shadowsFlag=.. shadowsLeft=.. day=..`).
+
+### Host launch script (no DLL change)
+
+- **Steam kept showing Darkwood as running after the game was quit**, until "Stop" was pressed.
+  The log console that `run_bepinex.sh` opens on a Steam launch ran `tail -F`, which never
+  ends, and Steam waits for every process the launch started. The tail now follows the game
+  process (`tail --pid`) and closes with it; if no game appears within two minutes it gives
+  up. The local `scripts/install-host-console-wrap.sh` writes the new form and upgrades an older wrap.
+  The mod itself was not involved: the game log ends with a normal shutdown.
+
+## 0.8.257 — a door that locks behind the party waits for the whole party; voice room effect quieter and faded; no ghost creature left behind
+
+From the same session's feedback. Built and deployed, not yet played. Protocol unchanged (62);
+every player needs this build.
+
+**Wedding: the host was locked in the groom's room for good.** The corridor trigger
+`area_trigger_removeCreazyVillager` closes and locks the "escape route" door, boards the windows
+and starts the bride. It is built for one player, who is past the door by the time he walks into
+it. The client walked into it while the host was still in the groom's room. Any walk-in trigger
+whose events lock a door (`modifyDoor` / `lockMe`: the wedding, the wolf's room, the cellar dream's
+exits, the acid dream's studio, the train wreck trap) now waits on the host until every living
+player in that location has walked into its volume, then fires once for the party
+(`LockBehindPartyGate`; log: `[PartyGate] ... held until N more player(s) here walk in`). A player
+who dies or leaves the location no longer holds it. Players elsewhere on the map never hold it.
+
+**Voice: the room effect was too strong, and snapped at a doorway.** The indoor reverb was Unity's
+stock `AudioReverbFilter`, as loud as the voice itself, switched on and off in one step: leaving a
+house cut the whole tail (and the level) inside one audio buffer. It is a quieter, shorter room
+now (9 dB under the stock level, 0.8 s) and fades in and out over 0.4 s, on a voice, on a radio and
+on the talker's key beep (`RoomReverb`). The wall muffle keeps more of the voice: 2600 Hz and 0.8
+volume instead of vanilla's 1500 Hz and 0.75, which is tuned for short sounds.
+
+**A rabbit that stood still on the client, could be hit and never died.** The host had that
+rabbit 1600 units away ("[Attack] too far dist=1666 > 200"). A creature that walks out of every
+player's range is simply not sent any more, and a client keeps an unsent creature where it last
+saw it (it cannot tell "left" from "resting"). Only fleeing creatures were hidden. The host now
+sends one last snapshot that says the creature left range (`Flag2LeftRange`) and the client puts
+its copy away; it is back with the first snapshot when someone comes near it again
+(`EntityStateBroadcastService`, `ClientEntityInterpolationService`).
+
+Looked for in the logs, nothing found:
+- **Host frame rate.** The probe counted 314,915 host frames: 100 fps in 91% of the 2 s windows,
+  99 in 7%, lower in about 2%. 0.3% of frames
+  ran over 10 ms, and in those the time is in rendering/present; the mod's own update averaged
+  1.2 ms. Nothing here explains a steady 97 to 98.
+- **Client map marks.** Four "Shelter" marks and several pings by the client reached the host and
+  were logged there; whether they were drawn is not in the log.
+- **Torch without a flame.** Every time the host drew the torch the log has it lit with its emitter.
+
+## 0.8.256 — host leaving to the menu hands the world over at once; saw with several log stacks; ex-host keeps its character
+
+From a long two-player Steam session (host log + the client's log). Built and deployed, not yet
+played. Protocol unchanged (62), but the saw counts differently now: every player needs this build.
+
+**Host pressed "exit to menu" with a client still in the world: the client's world went back to
+day 0.** The session stayed up with the host on the title screen. The title scene has its own
+`Controller` (day 0, 06:40) and the host sent that clock as the world's (`NightScenario.setMe` ran
+there, then the periodic sync): the client went from day 3 to day 0, took the host over a moment
+later when the host opened the MULTIPLAYER menu and disconnected, and saved day 0 into its copy.
+Two fixes:
+- `Core.returnToMainMenu` on a host with players in the world hands the host to one of them right
+  there, before the world unloads (`HostReturnToMenuPatch`; never to a player bound for the
+  credits). With nobody in the world the lobby stays up on the title as before.
+- The host sends no clock while it is out of a chapter (`SendTimeSyncTo` checks `HostInChapter`).
+
+The client copy that was saved at day 0 in that session is spoiled; the host's own profile (slot 3,
+day 3) is intact and is the one to continue from.
+
+**A host who handed the world over came back as a new character.** The host's character lives in
+the world save; the snapshot file a join restores from was only ever written by clients. The host
+now writes its own snapshot at every coordinated save (`SaveNetHandlers.TryFlushSaveSyncBroadcast`).
+And when the world lands in another profile slot than the one holding this player's character of
+that campaign, the join takes the character over from that slot
+(`ClientStateBackup.AdoptSelfBackupFromOtherProfile`, called from `PersonalPrologue.DecideFreshAtLoad`).
+
+**Saw: a client's conversions were refused and the stock drifted.** Logs stack to 2, so a loaded
+saw holds several stacks; the mod counted the first stack only. When a convert emptied it the count
+jumped to the next stack ("logs +1"): the host refused it ("stock moved the wrong way"), the planks
+the client saw were not the host's, takes were denied and refunded. Stock is the total of every
+stack now, and a difference is applied the way vanilla consumes and adds
+(`SawSyncHelpers.BuildMessage`, `InventorySyncUtil.SyncItemAmount`, `StationNetHandlers`).
+
+**Saw: an exception on the host at every log a client placed or took** ("[Container] story
+trigger:"). Vanilla `Saw.refresh` needs the convert button of the saw's open window; the host never
+opened it. Without the window only the fuel label is refreshed (`SawRefreshNoWindowPatch`).
+
+**Joining during the morning: no morning effect at the hideout**, and a warning a minute later
+("no GameEvents near ... efekt_konca_nocy"). The effect is a live spawn, not in the save; it is in
+the late-join state now (`SendMorningEffectTo`).
+
+**Less traffic.** A client picking up plain furniture to drag it no longer asks the host to "use"
+it (nothing to replay without event triggers; the host searched and warned "no activate target").
+Vanilla's light refresh (`Player.modifyLightDot`, at every bag and hotbar change) sends the
+player's light only when it changed; it went out reliable each time, twenty in a row.
+
+Seen in the logs and left as is: the desync check caught and repaired a generator's fuel on the
+client once (158 vs 187) and the night trader's stock once while both players traded with him.
+The promoted host refusing "Rebind to p1" for the returning ex-host is a correct refusal (it asks
+for the id it had as host).
+
+## 0.8.255 — MelonLoader: multiplayer runs again (the runtime object was lost at the first scene)
+
+Deployed to two MelonLoader 0.7.3 GOG copies and smoke-tested there (LAN host + join, both in the
+world, a host-spawned creature seen and killed by the client on both sides). Protocol unchanged (62).
+
+**Under MelonLoader nothing networked ever ticked.** The title screen and the MULTIPLAYER button
+came up, but hosting or joining did nothing per frame. MelonLoader starts the mod
+(`OnInitializeMelon`) before the game's first scene, and that first scene load destroyed the
+runtime GameObject (`LanNetworkManager`, chat, nameplates, spectator) even though it was marked
+`DontDestroyOnLoad`. `ModRuntime.EnsureRunning` only checked a "started" flag, so the later calls
+from `InputScript` never built it again. It now checks the object itself and rebuilds it when a
+scene load took it (logged once: "Runtime root was destroyed by a scene load"). BepInEx starts the
+mod after that scene and was not affected. (`ModRuntime.EnsureRunning`)
+
+Test copies on this machine: `MelonDarkwoodA` / `MelonDarkwoodB` under `~/Work/MyProjects`
+(GOG build, MelonLoader 0.7.3, Proton prefixes `compatdata/melondarkwooda|b`). Under Wine/Proton
+MelonLoader needs `WINEDLLOVERRIDES=version=n,b`; README now says so.
+
+**Packing a release deleted every older pack.** `scripts/pack-release.sh` (and `.ps1`) cleared the
+whole `artifacts/` folder first, so packing 0.8.255 removed the 0.8.197 to 0.8.253 packs. They
+now clear only their own stage folders and replace only the zips they are about to write.
+
+## 0.8.254 — a switched-off generator goes quiet; the desync check no longer spikes a frame; saves hash off the main thread
+
+Deployed; not playtested yet. Protocol unchanged (62).
+
+**A generator kept humming after it was turned off.** When another player switched a generator
+(a client using it, or the host's switch reaching a client), the receiving peer applied it with
+`Item.turnOn`, which already plays the start sound and the running loop, and then played the
+start sound and loop a second time. `ItemSounds` keeps only the newest loop, so turning off
+stopped that one and the first loop played on with the generator off. Each sound now plays once:
+the item path's own, or the apply's only where the item path did not run (no `Item`, or its
+no-fuel early out). Turning off also no longer depends on the item reading "on": `Item.turnOff`
+returns at once when it does not, and the generator stayed running.
+(`WorldPhysicsSyncService.ApplyGeneratorState`)
+
+**Every save hashed ~12 MB on the main thread.** After each Save (and every peer saves on every
+SaveSync) the permanent co-op copy re-fingerprinted `sav.dat` + `savs.dat` with SHA-1 in the
+frame, part of the ~320 ms save hitch on every peer. The hash now runs on a worker and is
+written when it lands (dropped if a newer save or a file change overtook it). The previous
+fingerprint stays until then, since a client state backup without one is refused. At quit it
+still hashes in place. New `[SaveTiming]` Event line when a Save holds the frame 50 ms or more.
+(`CoopWorldCopyMeta.RefreshAfterLocalSave`, `SaveSyncPatches.SaveDurationPatch`)
+
+**The small fps dips (100 → 97-99) are not the mod's tick.** In the host log about one 2 s window
+in four had one to seven frames of 17-45 ms; in each, the mod's network and sync tick held the
+frame about 0.1 ms, with no collection or log burst. The perf probe's `worst[...]` now also
+splits the longest frame into `work` (first physics step or Update to the end of rendering on
+the CPU), `wait` (present, vsync, GPU, compositor until the next frame) and `fixed` (physics
+steps it ran), split further into `phys`, `upd`, `co` (coroutines), `late` and `rend`, and each
+report adds the window's per-frame averages of the same split, `avg[... workOver=N]` (frames whose
+work alone ran over the budget). (`PerfFramePhases`, `CoopPerfProbe`)
+
+A box run at 100 Hz with vsync (host + one client idle at home, 3 to 4.5 min) shows the same dips:
+6 to 37 of 90-131 windows at 96-99 fps. Average frame work was 4.6 ms; the slow frames ran
+16-23 ms (one 44 ms) of CPU work, mostly rendering (6-12 ms against an average 1.9) and Update
+(3-10 ms against 0.9), once a 38 ms coroutine; the mod's network tick held them 0.1-6 ms. The mod's
+own tick costs about 0.2 ms a frame on average.
+
+**The desync check put a 3-3.5 ms frame on the host every 15 s, and 250 ms on its first run.**
+A script-level profile in the box (every game and plugin Update, LateUpdate, FixedUpdate, OnGUI
+and camera render timed per frame) named it: the network Update spiked from 0.15 ms to 3-3.5 ms
+on each check, and the probe's segments put all of it in `DesyncCheck`, which built all 15 world
+sections in one frame (the client compared them all in one frame too). Its first run after each
+load also scanned the whole scene for five object types: 250 ms on the host, 265 ms on the client
+in the playtest log. The check now builds (and the client compares) one section per network tick
+and sends at the end, at most ~1.4 ms in any frame; its object lists come from the scene registry,
+which is filled during the world load, so there is no scan in play any more (first client check
+265 ms → 28 ms in total, spread over frames). Box runs at 100 Hz: dip windows 6-37 per ~100
+before, 7-9 after. The rest are frames where every game script and camera ran 2-5x slower at
+once, which on one machine running two games is CPU contention, not one code path; your own
+host log will show whether they stay. (`DesyncCheck`, `DesyncRegistry`)
+
+The network Update's untimed tail (night village, peer items, desync check, effects, the player
+state send) and its poll part now have probe segments too. Setting `DWMP_FRAME_PROFILE=1` in the
+game's environment turns on the script profiler (`[FrameProf]` lines: the methods that took the
+most in each slow frame, a per-frame average each minute, desync section costs); it times every
+call, so it is for test runs only. (`FrameScriptProfiler`, `LanNetworkManager.Update`)
+
+**The perf probe went quiet when the host's last peer left.** 0.8.252 arms it for a host with no
+peers, but its 2 s report ran only at the end of the network LateUpdate, which returns early
+with nobody connected. It reports from there too now. (`LanNetworkManager.LateUpdate`)
+
+## 0.8.253 — another player's legs keep their own heading as in vanilla; their body turns on every frame
+
+Deployed; not playtested yet. Protocol unchanged (62).
+
+**Another player's legs turned with the body when they stood still.** Vanilla turns the legs
+on their own, apart from the body (`Player.Update`: the legs' world rotation eases towards the
+walking direction, `getLegsRotation`): a player who stops keeps the legs on the last direction
+walked while the body turns with the aim, and only a run holds the legs on the body. The copy
+of another player did it differently in three places:
+
+- standing still, at the walk clip's `FeetNeutral` frame it put the legs on the body's rotation
+  and then kept blending them to it every frame, so the legs followed the aim;
+- stopping a run, it put the legs on the body at once (vanilla eases them back to the walking
+  direction);
+- walking, it set the legs' heading straight from each state packet, 30 steps a second, with
+  nothing in between.
+
+Every `PlayerState` already carries the heading the player's own game shows for the legs
+(`LegFacingY`, read from the `PlayerLegs` transform), in every state. The copy now shows that
+heading always: it glides from the heading shown to the newest one over one send interval,
+each frame; while the player runs the legs are held on the body, as vanilla does.
+`SecondPlayerAnimController` (`SetLegHeading`, `TurnLegs`); `ResetLegsToStanding`,
+`AlignLegsToFacing` and the feet-neutral flag are gone.
+
+**Another player's body turned 50 times a second.** `RemotePlayerProxy` eased the body towards
+the player's facing in `FixedUpdate`, so on a 100 Hz screen the turn stepped every other frame.
+It now turns in `Update` at the same pace (`BodyTurnRate`), and still stands down during a
+vault and a shared drag.
+
+A player's own legs are the game's own code and were not touched.
+
+## 0.8.252 — a chat line when a player joins, is in the game or drops out; unfocused frame cap follows the screen; the perf probe runs for a lone host (protocol 62)
+
+Deployed; not playtested yet.
+
+**A player dropping out showed nowhere but the log.** In a Steam session the joiner's game
+closed its connection while it was still loading the world (the host log: `Steam SNS peer lost
+…: peer dropped`, then `Peer 2 detached during join pipeline`); the host kept playing the
+prologue without knowing it was alone. The mod had no join or leave message anywhere in play.
+
+- The chat now says when a player **is joining** (the host has its name), **is in the game**
+  (its first in-world state; once per connection, a world resend does not repeat it), **left
+  the game** (its side closed the connection) or **lost connection** (timeout, unreachable,
+  stalled). The host decides and tells every client with the new `PeerNotice` (173, host only);
+  each machine words the line in its own language. `Sync.PeerNotices`
+  (`Domains/Players/PeerNotices.cs`), called from `PlayerNames.HandleName`,
+  `MarkPeerGameplayReady` and `OnHostPeerDisconnectedGameplay`.
+- The host's disconnect path now carries whether the peer left or was lost: LiteNetLib's
+  disconnect reason on LAN, `ClosedByPeer` against `ProblemDetectedLocally` on Steam
+  (`OnSteamSessionFailed(remote, closedByPeer)`). The log line reads `SNS closed by peer` or
+  `SNS fail` accordingly.
+- The lines go through the chat, so `ChatEnabled = false` hides them too.
+- Why that joiner's game closed the connection is not known: it is in the joiner's own
+  `LogOutput.log`, which was not available.
+
+**Unfocused, the game ran at 60 fps on a 100 Hz screen.** `BackgroundFrameRate` turns vsync
+off with an fps cap while the window is unfocused in a session (a hidden vsynced window drops
+to one frame a second on this desktop). The cap was a fixed 60. With focus following the mouse
+and the cursor free, a window can lose focus while it is still on screen, and 60 fps without
+vsync on a 100 Hz screen shows as judder until focus is back. The cap is now the screen's
+refresh rate (60 when the screen reports none).
+
+**The perf probe said nothing for a host with no peers.** It armed only with a connected,
+handshaked peer, so the stretch after the last client dropped was unmeasured. It now runs for
+a host for the whole session. Each `[Perf]` line gains, after `maxMs`:
+
+- `over=N/B ms`: frames longer than one and a half times the frame budget `B` (the refresh
+  interval with vsync, else the fps cap);
+- `gc=N`: garbage collections in the window;
+- `worst[net=… log=… gc=…]`: for the longest frame of the window, the mod's network tick time
+  in it (ms), the log lines the mod wrote in it, and the collections that ran in it. A long
+  frame with all three near zero is the game or the display, not the mod's tick.
+
+`Logging/CoopPerfProbe.cs`, `Logging/ModLog.cs`, `Networking/LanNetworkManager.Tick.cs`.
+
+**Seen in the same log, not changed:** with vsync at 100 Hz the host averaged a steady 100 fps
+but every 2 s window held one frame of 13 to 23 ms, while the mod's measured work stayed under
+2 ms a step. The host ran `LogPreset = Trace` (every line written to disk at once). The new
+probe fields are there to tell these apart on the next run.
+
+## 0.8.251 — a transmission is heard as the voice and on the radio at once
+
+Asked for after 0.8.250, which played a close talker's transmission on the radio only.
+
+- **What changed.** A talker keying their walkie is now heard both ways wherever both
+  reach: their voice from where they stand, as far as it carries, and the transmission on
+  a radio (this player's own, or another player's playing out loud nearby) with its beep,
+  band, static and squelch tail. Before 0.8.250 the louder of the two played alone (close
+  by, always the plain voice); 0.8.250 gave this player's own radio the say.
+- **How.** Each talker has a second speaker for the radio (`Speaker.Radio`, made on their
+  first walkie packet). Every packet goes to the talker's own speaker as a plain voice;
+  a walkie packet also goes to the radio speaker, with the sounds the talker's radio
+  picked up. All radio state (which radio, signal, static, squelch tail and its hold) is
+  on the radio speaker; the voice speaker no longer changes between ways of being heard.
+  The last word after the key comes up plays as voice while the radio plays its tail
+  (it was dropped while the tail played).
+- **Level.** The two are one voice twice, peak on peak. When their volumes add up to more
+  than one voice may have, each is turned down by its share: next to the talker the pair
+  is about as loud as the voice alone was, half voice and half radio; far apart the
+  radio plays at its full level.
+- **Call beep.** 0.8.250 lowered the key-down beep by 45% (own radio, and heard from a
+  talker nearby); asked back to 30% lower than it was before 0.8.250: 0.35 to 0.245 and
+  0.3 to 0.21 (`KeyBeepShare` 0.7).
+- `HOW_COOP_WORKS.md` updated. The test pilot's voice line shows `radio=` and `radioVol=`
+  per talker in place of `mode=`.
+- Runtime: not playtested yet.
+
+## 0.8.250 — voice is louder; radio talk is heard on the radio close by too; quieter call beep
+
+From the 0.8.249 playtest (host on Steam, client on SecondDarkwood).
+
+- **Voice was too quiet.** Received voice is played louder, a plain voice and a radio alike.
+  The built-in gain under `VoiceGain` goes from 2.0 to 3.2, and a speaker now plays its
+  buffer at 1.3 (`VoiceOutLevel`): the limiter holds peaks to 0.7 of full scale, so they
+  now reach 0.9 where they stopped at 0.7. A quiet microphone (the playtest's speech was
+  sent at loudness 0.05 to 0.44, where 0.65 is the scale's "normal speech") comes out
+  about twice as loud; a loud one, already at the limiter, about 1.3 times and denser.
+  The settings keep their meaning and no config value changes. Volume settings pushed well
+  above 1 can now reach full scale sooner.
+- **Radio talk next to the listener was not on the radio.** A talker keying their walkie
+  while standing close to a player with a live radio was heard only as a plain voice: no
+  call beep, no radio band, no static, no squelch tail. The radio took over only from some
+  distance on. Cause: one talker is heard one way at a time, and the way was picked by
+  loudness alone; close by, the plain voice (full volume) always beat the listener's own
+  radio (0.9). Now a transmission this player's own radio receives is heard on it however
+  close the talker stands. A player with no live radio still hears the talker's voice, and
+  another player's radio playing out loud still competes with the voice by loudness
+  (`VoiceChatService.UpdateSpeaker`).
+- **First packet of a transmission.** The way a talker is heard was set once a frame, after
+  the packets of that frame were decoded, so the first 40 ms of every transmission went
+  into the buffer as a plain voice ahead of the beep. It is now set the moment the first
+  walkie packet arrives (`PlaceNow`), before that packet is written.
+- **Call beep.** The beep on pressing the radio's talk key is quieter: on the talker's own
+  radio 0.35 to 0.19, heard from a talker nearby 0.3 to 0.17, and inside a received
+  transmission about a fifth lower than before (`BeepGain` 0.5 to 0.3, under the new 1.3).
+  The squelch tail keeps its level (`TailGain` 0.6 to 0.46, under the new 1.3).
+- **Logs of that playtest.** No errors or exceptions from the mod on either box. The 5 s
+  frame spike of 0.8.249 is gone from `[Perf]`. While talking, `poll=` on the talker reads
+  about 100 ms per 2 s: the Opus encoding (1.3 to 1.6 ms a packet), as measured in 0.8.248.
+  The frames over 100 ms are world load, save, the world share and the window losing focus.
+- **Docs.** `HOW_COOP_WORKS.md`: the radio rule above; the shout range read 650, the
+  default is 1300 since the range was doubled.
+- Runtime: not playtested yet.
+
+## 0.8.249 — the stacked-light check no longer scans the scene
+
+Found in a look over frame cost and traffic (both `LogOutput.log` `[Perf]` lines).
+
+- **What broke.** Every 5 s, on host and client, one frame ran 20 ms (host) to 35-40 ms
+  (Wine client) longer: a dropped frame at 60 fps, for as long as a session was in the world.
+  In `[Perf]` it showed as `poll=` jumping from about 4 to 25-45 in every second or third
+  2 s window.
+- **Cause.** `StackedLightProbe` (the "lights look too bright" check from the light work)
+  called `FindObjectsOfType<Light2D>()` on each pass. Unity walks every behaviour in the
+  world for that (about 210 000 here), whatever the number of lights found. The check ran
+  under every log preset.
+- **Fix.** `Light2D` is now a `SceneRegistry` type (world seed, additive scenes, and
+  `Light2D.Awake` for lights made later); the check reads that list. Same lights checked,
+  same log lines, no scan.
+- **Looked at and left as is** (nothing out of proportion): `PlayerState` 30 a second at
+  about 90 bytes (2.7 kB/s a player); entity snapshots 20 a second, dirty entities only,
+  cut to the packet size; free-body physics 10 a second; voice about 30 kbit/s while
+  talking; `TimeSync` 2 a second; `PeerRoster` every 4 s. Host physics build costs about
+  1 ms a pass with nothing moving (1% of a frame).
+- Runtime: not playtested yet. Expect `poll=` to stay flat in `[Perf]` on both boxes.
+
+## 0.8.248 — voice is carried in Opus
+
+Asked for after 0.8.246 found the codec to be what was left of the voice quality.
+
+- **What changed.** Voice (direct and radio) was sent as ADPCM at 4 bits a sample: 64 kbit/s
+  with a noise floor 20 to 25 dB under the voice, heard as grain on every word, and a lost
+  packet was a 40 ms hole. It is now Opus at 16 kHz mono, about 30 kbit/s (it varies with
+  what is said): half the data, and the coding noise is no longer heard as grain.
+- **Lost packets.** Every voice packet carries a thin copy of the one before it. When one
+  packet is lost, the next one brings it back (`VoiceDecoder.Recover`); up to two more before
+  that are filled in by the decoder's own guess, inside one stretch of talk only. After more
+  than three lost in a row the stream starts afresh. The 10 s `[Voice]` log line shows
+  `filled=` per talker.
+- **Streams.** Opus carries state from packet to packet, so each player has one encoder for
+  their voice and one for the sounds their radio picks up, and each listener one decoder per
+  talker and stream (`Speaker.VoiceDec` / `WorldDec`). The host still relays packets as they
+  are. Packets stay 40 ms. With the radio's second block the data now starts with the voice
+  block's length, since blocks are no longer a fixed size.
+- **Where the codec comes from.** Concentus, the managed C# port of Opus, compiled into the
+  mod from source (`DarkwoodMP.Mod/ThirdParty/Concentus`, see its `SOURCES.md`; BSD licence,
+  embedded in the DLL). Not shipped as `Concentus.dll`: the package's DLLs need
+  `System.Runtime` facades the game does not have. No new file to install; the mod DLL grows
+  by about 0.4 MB.
+- **Cost.** Encoding one packet takes about 1.2 ms on the main thread every 40 ms while
+  talking (1.6 ms with the radio's second block), decoding under 0.1 ms a packet; measured
+  in game on the native host and the Wine client (`enc=` in the `[Voice]` log line).
+- **Tested.** `VoiceCodecTests` (stream close to the input at under 40 kbit/s, a lost packet
+  back from the next, concealment, garbage and reset, non-speech sounds, short frame). In a
+  sandboxed host + client run: a tone sent each way, direct and keyed as a walkie with the
+  pickup block, decoded with no errors. Not heard by ear, and the fill-in was not exercised in
+  game (no loss on one machine).
+- Files: `Audio/VoiceCodec.cs`, `Audio/VoiceChatService.cs`, `Audio/VoiceChatService.Speakers.cs`,
+  `ThirdParty/Concentus/`, both project files.
+
+Protocol 61: every install needs this build.
+
+## 0.8.247 — a player's own exit from a dream wakes that player alone (protocol 60)
+
+Playtest of 0.8.245: the host lay down in the bunker dream's bed and the dream ended for the
+client too. Rule change (see `HOW_COOP_WORKS.md`, Dreams): an exit a player sets off with its
+own body wakes that player alone, and the dream goes on for the others until each of them
+leaves.
+
+- **Which endings are a player's own.** Read from the dream's scene, the same on every machine:
+  the event has an end-dream step and is set off only by a player's body (an area it walks into,
+  a thing it uses: the bunker bed, the grave, the acid dream's exit). Everyone's, as before: an
+  ending nobody else could set off again (a creature killed, a scripted scene, a dialogue),
+  a dream that hands over to its next part (the doctor's), the epilogue, and "everyone in it is
+  dead". Dying in a dream still means spectating. `DreamExit.IsPersonalEnd`.
+- **The step runs for its player only** and the exit is armed again for the next one
+  (`GameEventDreamAuthorityPatch`, `DreamExit.Rearm`). The leaver tells the host
+  (new `DreamLeft` 172, relayed), plays its own exit and wake-up, and is out of the dream's
+  roster (`DreamSyncManager.IsRemoteInDream`, death tracking, spectator target).
+- **The host keeps the dream running after its own exit.** Vanilla's teardown of the pad waits
+  for the last dreamer (`DreamKeepPadPatch`, `DreamExit.KeepPad` / `ClearKeptPad`), the pad
+  stays entered like any location a remote is in (`HostLocationLeaveKeepRemotePatch`), and the
+  session ends from outside when the last player leaves or an everyone-ending fires
+  (`DreamExit.HostEndFromOutside`).
+- **The world runs from the first wake-up.** Creatures unfreeze, and the clock steps for whoever
+  is awake. While the host is still in the dream its own clock keeps the dream's hour; the
+  world's time is counted aside, sent to the awake players, and is where the host's clock goes
+  when it wakes (`DreamExit.HostWorldTime`, `HostSharedClockPatch`, `SendTimeSyncTo`). The
+  world is still not saved while a dream session runs.
+- **What the dream changed in the world is the first leaver's outcome**, run once on the host
+  (`HostFireOutcomeWorldFor`). Every later leaver gets its outcome's items and only the steps
+  on its own body (`DreamExit.PersonalOnlyOutcome`, `RunOutcomePersonalOnly`): the bunker
+  dream's "in the dream" flag is cleared for each player as it wakes.
+- **Players awake while a dream runs** can enter ordinary outside locations: the host creates
+  and resolves them (they were held back for the whole dream; `LocationEnterExitNetHandlers`,
+  `IsDreamPadName`), sends free bodies of both places, and sends its own location exit
+  (`IsLocalInPartyDream`).
+- **Found on the way:** after a shared ending asked for by a client, the host never played its
+  own wake-up when its own copy of the step had not fired (the session was already closed by
+  the fan-out, and the check required it open). `DreamNetHandlers.HandleDreamEnded`.
+- **Tested** with the pilot, host + one client: host out first then client; client out first
+  then host (flags, clock, session, pad); the host's own exit followed by an everyone-ending
+  from the client; shared endings started by either side.
+- **Known limits.** A night that falls while the host is still inside a dream others have left
+  starts only when the host wakes. Host migration while only some players are in the dream is
+  not handled beyond the existing dream carry-over. Not tested with three players or with a
+  dead spectator in the dream.
+
+## 0.8.246 — a finished talk closes for its listeners, the dream carousel is the host's, cleaner voice playback
+
+Playtest of 0.8.245 (host + one client, bunker dream). The dream door's talk was the dream one
+for both players (0.8.245 confirmed).
+
+- **A talk that ends itself ends for its listeners.** The client talked to the dream door, the
+  host listened in. When the client's last board closed the talk, the finished talk was handed
+  to the host, which got an Exit prompt, and the door opened only after the host closed it (the
+  client's outcomes wait while the host's window is in use). Now a close made by the talk itself
+  (an exit outcome, `DialogueWindow.close` inside `displayNextBoard`) closes every listener's
+  window and runs the NPC's close events at once. Leaving with Exit or Esc still hands the talk
+  to a listener. `DialogMirror.TalkEndedItself` / `OwnerClosed(ended)`, `KindClose.Flag`,
+  `NpcDialogueLockReleasePatch`, `DialogDisplayNextBoardPatch` (board depth).
+- **Dream carousel out of step between players.** Its spin is a repeating event: one degree,
+  then it fires itself again 0.07 s later. The wait ends on a frame, so the rate followed each
+  machine's frame rate (100 fps host, 60 fps client), every machine ran its own loop, and each
+  then sent the turning body to the other as a push of its own. Now the host's loop turns it; a
+  client leaves that step out and follows the host's poses, which the host sends while the loop
+  runs however far the players stand from it (`ScriptedSpin`, `GameEventPersonalActorPatch`,
+  extra scan centers in `WorldPhysicsSyncService.TryBuildWorldSnapshot`). Applies to any
+  repeating event that turns a free body.
+- **Voice playback (direct voice and radio), no change on the wire.** Two faults on the
+  listening side:
+  - The 16 kHz voice was brought to the sound card's rate with a straight line between
+    samples, which leaves copies of the voice above 8 kHz (about 25 dB down: a metallic edge on
+    "s" sounds) and dulls its top by 3 dB. It is now rebuilt through a low-pass
+    (`VoiceInterpolator`, 32-tap windowed sinc).
+  - Received voice is played 2.8 times louder than recorded, and the peaks of normal and loud
+    speech were bent back sample by sample (tanh), which buzzes on loud syllables. The level
+    is now read 4 ms ahead and turned down before the peak plays (`VoiceLimiter`); the soft
+    limit only catches what is left. Loud speech peaks about 1 dB lower than before.
+  - Tests: `VoicePlayoutTests`.
+- **Voice codec: found, not changed.** What remains is the codec itself: ADPCM at 4 bits a
+  sample has a noise floor about 20 to 25 dB under the voice, heard as grain on every word, and
+  a lost packet is skipped with nothing filled in. Fixing that means another codec (Opus,
+  through the managed Concentus library): a new dependency and a protocol bump, so it waited for
+  a decision (done in 0.8.248).
+
+No message changed; protocol stays 59.
+
+## 0.8.245 — the bunker dream's door talks as the dream door for every dreamer
+
+Playtest (host + one client, first dream): the door in the bunker dream offered the overworld
+bunker door's talk (handle, listen, keyhole, leave) and no way to open it, so the dream could not
+be finished. When the client left the talk, the host's screen jumped through boards.
+
+- **Wrong door talk.** The door's dialogue picks its dream opening from the flag
+  `player_inBunkerUndergroundDream`, set by the dream's on-enter event. That flag is per player.
+  A party dream's opening is meant to run its player steps for every dreamer (0.8.134), but the
+  later per-player flag gate (`PerPlayerFlagGate`, 5 Oct) still refused the write on a dreamer
+  that received the event from the host, so only the host had the flag. A step the party dream
+  rule lets through now also passes the flag gate (`PartyDreamScene.AsOwnStep` / `StepActive`,
+  `GameEventPersonalActorPatch` postfix).
+- **Host window jumping after a peer left a shared talk.** The host was listening in, so the
+  client's outcomes were queued. When the client left, the talk was handed to the host, and the
+  client's last board (`leave`) was applied straight into the host's own open window, ahead of
+  the five queued outcomes, which then ran in a burst. Now a peer's outcome waits while the host
+  is that NPC's speaker, and nothing passes the queue (`DialogOutcomeApplyNetHandlers`:
+  `QueuedAhead`, lock-owner check in `ApplyBusyFor`, the queue's head keeps its place).
+
+No message changed; protocol stays 59.
+
+## 0.8.244 — a followed door swing is smoother
+
+- **A door another player pushed moved in small steps.** The follower turned its door in a
+  straight line from one sent angle to the next, so its spin changed abruptly at every sample,
+  20 times a second. It now follows a curve through the same angles at the same times
+  (`DoorSwing.Playback`): the curve's spin through a sample is the turn between its neighbours,
+  or the spin the sender measured when the next sample has not arrived, and between two samples
+  the curve never leaves their range. The door still passes every sent angle and lands exactly
+  on the rest angle.
+- **A late sample made the door wait, then jump.** The follower put its door on the target in
+  one physics step. It now turns at the curve's own spin and closes any gap over 0.05 s.
+  Samples (and the host's relay of a client's) are also sent at once instead of waiting up to
+  15 ms for the transport's next wake, which was most of the unevenness in their arrival.
+- **A door pushed again after standing still drifted toward the new angle early.** The sender
+  skips samples while its door stands still, and the follower read the gap as one slow turn.
+  It now holds the last angle until one sample before the next.
+- **A followed door is drawn between physics steps** (rigidbody interpolation, as a player's
+  stand-in has), put back when the swing ends. Physics runs 100 times a second and a frame
+  showed one or two steps at a time. A door this machine runs is unchanged (vanilla).
+- The follower logs each followed swing's end: samples received, how many came late, the
+  worst lateness. A fresh follow no longer logs "both started it".
+- No message changed; protocol stays **59**. Every install still needs this DLL.
+
+Files: `Doors/DoorSwing.cs`, `Dispatch/LanNetworkManager.Dispatch.Players.cs`.
+
+## 0.8.243 — door swings run by one machine; a cancelled swing's arm on the stand-in
+
+- **A door hit while it swung ended at a different angle on each machine** and stayed so until
+  closed and opened again. Every game simulated each swing itself (the opener's push, a blow's
+  knock-back, a body walking into it), and the host sent its door's angle about 10 times a
+  second only while its own door moved. The others snapped to those late angles and kept
+  their own momentum, and nothing was sent once the host's door slowed, so each copy settled
+  wherever it was. A blow by the host also hit the client's door twice (the client re-applied
+  the knock-back on top of the host's swing), and a client's blow was knocked back on both
+  machines.
+- **Pushing a door hitched and its creak stuttered.** The snaps threw the door back to an older
+  angle while it was being pushed, and the creak (vanilla plays it from the door's spin)
+  stopped and restarted. A door a client pushed with its body never moved on the host.
+- Now one machine runs a swing (`DoorSwing`, new message 171): the one whose player set the
+  idle door moving (an open, a blow, the body), or on the host a creature or a blast. It sends
+  the door's angle about 20 a second, and once the door has stood still for a quarter second,
+  the angle it rests at. The other machines turn their door to those angles 0.1 s behind by
+  setting its spin each physics step, so it moves smoothly, its creak is the vanilla one, and
+  it lands exactly on the rest angle.
+  - A player walking into a door another machine runs sends its push there (scaled like the
+    two-player push: two pushing turn it 1.5 times as fast), and a blow on it is sent there as
+    a force.
+  - An open from another machine (`DoorOpen`, door states) opens the door without vanilla's
+    push; the opener's swing follows. The host's knock-back for a client's blow is left to the
+    striker's machine. Both are hooked where vanilla pushes (`Door.open` and the knock-back
+    delegate of `Door.getHit`, transpiled).
+  - Two machines starting the same swing at once: the lower player id keeps it, the other
+    follows. A swing whose machine goes quiet is left where it is after 1.5 s; one whose
+    player leaves stays where it is.
+  - On a client, a door nudged with no cause there (a creature copy brushing it) turns back to
+    the angle every machine has it at rest.
+  - The host's door scan sends open/closed changes only; a door state for a door already open
+    turns it about its hinge (it used to set the body's rotation about its centre).
+- **A swing let go at once snapped the other player's arm up.** Vanilla starts the arm's return
+  (`AimReturn`) from the frame the windup had reached; the stand-in started it from its first
+  frame, the arm fully raised. tk2d's `SetFrame`, used to follow the player's frame, shows a
+  frame for one update and leaves the clip time alone. The stand-in now starts a clip on the
+  player's frame and puts a running clip back on it only when it has drifted 2 frames.
+- **Protocol 59**. Every install needs this DLL.
+
+Files: `Doors/DoorSwing.cs`, `Doors/Patches/DoorSwingPatches.cs`, `DoorNetHandlers.cs`,
+`BarricadeNetHandlers.cs`, `BarricadeSyncPatches.cs`, `ClientWorldMeleePatches.cs`,
+`CombatFxImpactNetHandlers.cs`, `WorldPhysicsSyncService` (`SnapshotScan`, `Apply`,
+`TraverseHack`, `TrapsDoors`, `State`), `DreamDoorSyncPatches.cs`,
+`SecondPlayerAnimController.Apply.cs`, `WorldMessages.cs`, `BarricadeMessages.cs`.
 
 ## 0.8.242 — shared drag scrape; no journal popups for a joiner waking in the hideout
 

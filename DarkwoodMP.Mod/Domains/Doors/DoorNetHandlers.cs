@@ -29,7 +29,7 @@ namespace DWMPHorde.Networking
             // Mid-dream: ignore overworld DoorOpen (name "Wooden door" matched the wrong bunker door).
             Transform dreamRoot = DreamSyncManager.GetDreamLocationTransform();
             if (DreamSyncManager.IsDreamActive && dreamRoot != null
-                && Vector3.Distance(pos, dreamRoot.position) > 250f)
+                && !DreamSyncManager.IsAtDreamPad(pos))
             {
                 ModRuntime.LegacyInfo(
                     $"[DoorSync] drop non-dream DoorOpen '{msg.DoorName}' at {pos}");
@@ -50,7 +50,7 @@ namespace DWMPHorde.Networking
                     if (d == null) continue;
                     if (dreamRoot != null && DreamSyncManager.IsDreamActive
                         && !d.transform.IsChildOf(dreamRoot)
-                        && Vector3.Distance(d.transform.position, dreamRoot.position) > 200f)
+                        && !DreamSyncManager.IsAtDreamPad(d.transform.position))
                         continue;
                     float dist = Vector3.Distance(d.transform.position, pos);
                     // A name alone is weak (many "Wooden door"s share it): only a body offset
@@ -84,7 +84,7 @@ namespace DWMPHorde.Networking
 
             if (dreamRoot != null && DreamSyncManager.IsDreamActive
                 && !door.transform.IsChildOf(dreamRoot)
-                && Vector3.Distance(door.transform.position, dreamRoot.position) > 200f)
+                && !DreamSyncManager.IsAtDreamPad(door.transform.position))
             {
                 ModRuntime.LegacyInfo(
                     $"[DoorSync] reject door outside dream pad '{door.name}' for msg={msg.DoorName}");
@@ -148,7 +148,8 @@ namespace DWMPHorde.Networking
                 {
                     if (_net.Role == NetworkRole.Host)
                         DialogHostApplyGuard.BeginWorldOnly();
-                    door.open(openerPos, null, force);
+                    // The opener's machine pushed its door and runs the swing; this one follows it.
+                    DoorSwing.RunEchoOpen(() => door.open(openerPos, null, force));
                     // Vanilla alerts creatures only when the opener is a Player; here it is a peer
                     // whose open the host carries out, so creatures by the door heard nothing.
                     if (_net.Role == NetworkRole.Host && _net.CurrentReceivePlayerId > 0

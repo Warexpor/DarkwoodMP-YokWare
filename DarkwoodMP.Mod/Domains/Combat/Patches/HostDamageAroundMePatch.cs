@@ -75,7 +75,7 @@ namespace DWMPHorde.Patches
                 CharBase cb = proxy.CachedCharBase;
                 if (cb == null || !cb.alive)
                     continue;
-                if (DeathStateTracker.IsRemoteNightDead(proxy.PlayerId))
+                if (DeathStateTracker.IsRemoteDown(proxy.PlayerId))
                     continue;
 
                 float dist = Core.trueDistance(attacker.position, proxy.transform.position);

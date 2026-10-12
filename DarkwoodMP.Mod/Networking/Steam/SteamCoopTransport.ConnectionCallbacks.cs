@@ -87,7 +87,8 @@ namespace DWMPHorde.Networking.Steam
                     // A stale handle closing (the peer already reconnected on a new one, e.g. the old
                     // connection only now timed out) must not tear down the live player.
                     if (wasCurrentConn)
-                        _owner.OnSteamSessionFailed(steamId);
+                        _owner.OnSteamSessionFailed(steamId, closedByPeer: cb.m_info.m_eState
+                            == ESteamNetworkingConnectionState.k_ESteamNetworkingConnectionState_ClosedByPeer);
                     else
                         ModLog.Event(LogCat.Network,
                             "Steam SNS stale connection for " + steamId.m_SteamID + " closed — peer is on a newer one");

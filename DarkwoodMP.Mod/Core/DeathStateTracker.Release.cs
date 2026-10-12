@@ -135,6 +135,9 @@ namespace DWMPHorde
             RemoteNightDeathCount = 0;
             _nightParticipantIds.Clear();
             _nightParticipantsCaptured = false;
+            // The night is over: a player who died in it and rejoins later is not down any more
+            // (a stale mark put a next-night rejoiner straight into spectate).
+            _nightDeadByIdentity.Clear();
         }
 
         /// <summary>

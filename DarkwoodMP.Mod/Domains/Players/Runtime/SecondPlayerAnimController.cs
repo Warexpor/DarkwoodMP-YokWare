@@ -20,9 +20,6 @@ namespace DWMPHorde.Players
             Run = 2
         }
 
-        // Blend speed for slerping legs rotation back to body-aligned standing pose
-        private const float LegBlendSpeed = 15f;
-
         private tk2dSpriteAnimator _torsoAnimator;
         private tk2dSpriteAnimator _legsAnimator;
         private tk2dBaseSprite _torsoSprite;
@@ -33,13 +30,18 @@ namespace DWMPHorde.Players
         private LocomotionState _state = LocomotionState.Idle;
         private bool _deathClipPlayed;
         private bool _flipX;
-        private short _networkLegFacingY;
         private bool _networkReverseLegs;
         private bool _hasNetworkLegFacing;
 
-        // True after FeetNeutral has fired during idle; guards against rotating
-        // the legs while the walk animation is still cycling to its neutral frame.
-        private bool _feetNeutralReached;
+        // The legs' world heading is the player's own, in every state. Vanilla turns the legs
+        // towards the walking direction on their own, apart from the body: standing still they
+        // keep the last direction walked while the body turns with the aim. Each state carries
+        // the heading the player's game shows; the copy glides from the one shown to the newest
+        // over one send interval, so 30 values a second do not step on a faster screen.
+        private float _legFromY;
+        private float _legToY;
+        private float _legShownY;
+        private float _legGlide = 1f;
 
         // Desired LegsWalk rate for this proxy (vanilla setLegsFPS: 10 drag / 17 walk).
         // Applied via animator.ClipFps so we never mutate shared library assets.
@@ -87,25 +89,47 @@ namespace DWMPHorde.Players
                 return;
 
             if (clip.GetFrame(frameNum).eventInfo == "FeetNeutral")
-            {
                 _legsAnimator?.Stop();
-                _feetNeutralReached = true;
-                // Align to body at the neutral frame so the rotation is already
-                // correct when the blend in LateUpdate takes over.
-                if (_legsAnimator != null)
-                    _legsAnimator.transform.rotation = transform.rotation;
-            }
         }
 
-        // Continuously blend legs back to standing rotation when idling
         private void LateUpdate()
         {
-            if (_state == LocomotionState.Idle && _legsAnimator != null && _feetNeutralReached)
-            {
-                ResetLegsToStanding();
-            }
-
+            TurnLegs();
             UpdateEmitterPosition();
+        }
+
+        /// <summary>The newest leg heading from the player; the first one is taken as it is.</summary>
+        private void SetLegHeading(short legFacingY)
+        {
+            if (!_hasNetworkLegFacing)
+            {
+                _hasNetworkLegFacing = true;
+                _legFromY = _legToY = _legShownY = legFacingY;
+                _legGlide = 1f;
+                return;
+            }
+            _legFromY = _legShownY;
+            _legToY = legFacingY;
+            _legGlide = 0f;
+        }
+
+        /// <summary>
+        /// After the body's turn (Update). Running, vanilla holds the legs on the body's rotation;
+        /// otherwise they keep their own world heading while the body turns above them.
+        /// </summary>
+        private void TurnLegs()
+        {
+            if (_legsAnimator == null || !_hasNetworkLegFacing)
+                return;
+            if (_state == LocomotionState.Run)
+            {
+                _legsAnimator.transform.rotation = transform.rotation;
+                _legShownY = transform.eulerAngles.y;
+                return;
+            }
+            _legGlide = Mathf.Min(1f, _legGlide + Time.deltaTime / Networking.LanNetworkManager.SendInterval);
+            _legShownY = Mathf.LerpAngle(_legFromY, _legToY, _legGlide);
+            _legsAnimator.transform.rotation = Quaternion.Euler(90f, _legShownY, 0f);
         }
 
         /// <summary>Current torso clip name (for light/torch diagnostics).</summary>

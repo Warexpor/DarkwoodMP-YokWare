@@ -14,6 +14,13 @@ namespace DWMPHorde.Patches
     /// Now the client sends what it bought and sold; the host checks the purchases against its own
     /// stock, applies the trade and sends the stock to the others, or refuses and the client
     /// gives the purchases back and gets its goods back.
+    /// <para>
+    /// The standing goes the same way. With every trader but the morning ones it is the party's
+    /// (<see cref="ReputationSyncUtil"/>): the client sends what its trade did to it, the host adds
+    /// that to its own number and sends the result to every player, the trading one too. A trade
+    /// that spends more than the party has left (two players spending the same standing at once)
+    /// is refused like a purchase the stock lacks.
+    /// </para>
     /// </summary>
     internal static class TradeCommit
     {
@@ -44,7 +51,7 @@ namespace DWMPHorde.Patches
             return list.ToArray();
         }
 
-        internal static void SendFromClient(LanNetworkManager net, NPC npc, TradeEntry[] bought, TradeEntry[] sold)
+        internal static void SendFromClient(LanNetworkManager net, NPC npc, TradeEntry[] bought, TradeEntry[] sold, int repDelta)
         {
             Vector3 p = npc.transform.position;
             Transform pad = DreamSyncManager.GetDreamLocationTransform();
@@ -55,11 +62,12 @@ namespace DWMPHorde.Patches
                 PosY = p.y,
                 PosZ = p.z,
                 InDream = pad != null && npc.transform.IsChildOf(pad),
+                RepDelta = repDelta,
                 Bought = bought,
                 Sold = sold
             };
             net.Send(NetMessageType.TradeCommit, w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);
-            ModRuntime.LegacyInfo($"[TradeSync] trade → host '{npc.name}' bought={bought.Length} sold={sold.Length}");
+            ModRuntime.LegacyInfo($"[TradeSync] trade → host '{npc.name}' bought={bought.Length} sold={sold.Length} standing {repDelta:+0;-0;0}");
         }
 
         internal static void Handle(LanNetworkManager net, TradeCommitMessage msg)
@@ -95,6 +103,12 @@ namespace DWMPHorde.Patches
             else if (!StockHas(stock, msg.Bought))
                 why = "stock lacks the purchase";
 
+            bool sharedRep = !ReputationSyncUtil.IsPerPlayerReputationNpcName(msg.NpcName);
+            Flags flags = Singleton<Flags>.Instance;
+            Flags.NPCState standing = sharedRep && flags != null ? flags.getNPCState(msg.NpcName) : null;
+            if (why == null && standing != null && !DialogApplyPolicy.SharedStandingCovers(standing.reputation, msg.RepDelta))
+                why = "standing " + standing.reputation + " does not cover " + msg.RepDelta;
+
             if (why != null)
             {
                 ModRuntime.LegacyInfo($"[TradeSync] refused p{sender}'s trade with '{msg.NpcName}': {why}");
@@ -105,6 +119,12 @@ namespace DWMPHorde.Patches
                 {
                     var truth = TradeInventorySync.BuildMessage(npc);
                     net.SendToPlayer(sender, NetMessageType.TradeInventorySync, w => truth.Serialize(w), DeliveryMethod.ReliableOrdered);
+                }
+                // After the undo (the client takes its own change back first): the party's number.
+                if (standing != null)
+                {
+                    var rep = new ReputationSyncMessage { NpcName = msg.NpcName, Reputation = standing.reputation };
+                    net.SendToPlayer(sender, NetMessageType.ReputationSync, w => rep.Serialize(w), DeliveryMethod.ReliableOrdered);
                 }
                 return;
             }
@@ -117,6 +137,14 @@ namespace DWMPHorde.Patches
                 if (slot == null)
                     break;
                 Create(slot, msg.Sold[i]);
+            }
+            if (standing != null && msg.RepDelta != 0)
+            {
+                standing.reputation += msg.RepDelta;
+                // Everyone, the trading client too: its own number was a guess from its copy.
+                NpcAttackedIdSync.BroadcastFromHost(msg.NpcName, standing.reputation, standing.attackedID,
+                    hasDead: true, dead: standing.dead, deadId: standing.deadID);
+                ModRuntime.LegacyInfo($"[RepSync] p{sender}'s trade: shared rep '{msg.NpcName}' {msg.RepDelta:+0;-0;0} → {standing.reputation}");
             }
             try { stock.refreshReputation(); }
             catch { /* reputation UI not up */ }
@@ -217,6 +245,15 @@ namespace DWMPHorde.Patches
             }
             p.Inventory.refreshIcons();
             p.Hotbar.refreshIcons();
+            // The standing the trade moved here goes back with the goods. A shared one is then
+            // set to the party's by the host's next message.
+            Flags flags = Singleton<Flags>.Instance;
+            Flags.NPCState standing = flags != null ? flags.getNPCState(msg.NpcName) : null;
+            if (standing != null && msg.RepDelta != 0)
+            {
+                standing.reputation -= msg.RepDelta;
+                ReputationSyncUtil.RefreshOpenTrade(msg.NpcName);
+            }
             ModRuntime.LegacyInfo($"[TradeSync] host refused the trade with '{msg.NpcName}' — undone");
         }
     }

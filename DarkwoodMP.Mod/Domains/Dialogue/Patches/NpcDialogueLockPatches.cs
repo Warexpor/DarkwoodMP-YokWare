@@ -117,6 +117,11 @@ namespace DWMPHorde.Patches
             int localId = net.LocalPlayerId;
             NpcRef npcRef = NpcRef.Of(__state);
 
+            // The talk ended itself: its listeners are told before the release, which would
+            // otherwise hand the finished talk to one of them.
+            if (DialogMirror.TalkEndedItself)
+                DialogMirror.OwnerClosed(ended: true);
+
             if (net.Role == NetworkRole.Host)
             {
                 NpcDialogueLock.HostRelease(net, npcRef, localId);

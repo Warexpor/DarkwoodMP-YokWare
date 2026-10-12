@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using DWMPHorde.Logging;
 using DWMPHorde.Sync;
 using UnityEngine;
 
@@ -90,6 +91,56 @@ namespace DWMPHorde.Networking
             if (string.IsNullOrEmpty(campaign))
                 return GetProfileBackupDirectory() + "/client_backup_self.json";
             return GetProfileBackupDirectory() + "/client_backup_self_" + campaign + ".json";
+        }
+
+        /// <summary>
+        /// This campaign's own-character snapshot is missing in the current profile: take the
+        /// newest one another profile of this machine holds for the same campaign (with its
+        /// "has a character" marker). The file name carries the campaign id, so an unscoped
+        /// legacy file is never adopted.
+        /// </summary>
+        public static void AdoptSelfBackupFromOtherProfile(string selfPath, string markerSuffix)
+        {
+            try
+            {
+                if (string.IsNullOrEmpty(selfPath) || File.Exists(selfPath))
+                    return;
+                string name = Path.GetFileName(selfPath);
+                if (name == "client_backup_self.json")
+                    return;
+                string saveDir = Application.persistentDataPath + "/1_4Save";
+                if (!Directory.Exists(saveDir))
+                    return;
+                string own = Path.GetFullPath(Path.GetDirectoryName(selfPath));
+                string best = null;
+                DateTime bestAt = DateTime.MinValue;
+                foreach (string dir in Directory.GetDirectories(saveDir, "prof*"))
+                {
+                    if (string.Equals(Path.GetFullPath(dir), own, StringComparison.OrdinalIgnoreCase))
+                        continue;
+                    string candidate = Path.Combine(dir, name);
+                    if (!File.Exists(candidate))
+                        continue;
+                    DateTime at = File.GetLastWriteTimeUtc(candidate);
+                    if (best == null || at > bestAt)
+                    {
+                        best = candidate;
+                        bestAt = at;
+                    }
+                }
+                if (best == null)
+                    return;
+                File.Copy(best, selfPath, false);
+                if (!string.IsNullOrEmpty(markerSuffix) && File.Exists(best + markerSuffix)
+                    && !File.Exists(selfPath + markerSuffix))
+                    File.Copy(best + markerSuffix, selfPath + markerSuffix, false);
+                ModLog.Event(LogCat.Save,
+                    "[ClientBackup] this campaign's character taken over from " + best);
+            }
+            catch (Exception ex)
+            {
+                ModRuntime.Log?.LogWarning("[ClientBackup] adopting a character from another profile failed: " + ex.Message);
+            }
         }
 
         /// <summary>

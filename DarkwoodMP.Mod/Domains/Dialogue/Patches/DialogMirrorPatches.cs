@@ -259,6 +259,7 @@ namespace DWMPHorde.Patches
             // close events wait for the last player in it (DialogMirror hands it over).
             else if (__instance != null && __instance.npc != null && !__instance.tweening
                      && !DialogHostApplyGuard.DialogueApplyActive
+                     && !DialogMirror.TalkEndedItself
                      && NetGuard.ConnectedHost(out LanNetworkManager net)
                      && DialogMirror.HostHasListeners(net.LocalPlayerId))
                 DialogMirror.HandingOver = true;
@@ -276,7 +277,7 @@ namespace DWMPHorde.Patches
                 return;
             if (DialogHostApplyGuard.DialogueApplyActive)
                 return;
-            DialogMirror.OwnerClosed();
+            DialogMirror.OwnerClosed(DialogMirror.TalkEndedItself);
         }
 
         [HarmonyFinalizer]

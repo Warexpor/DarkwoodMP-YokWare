@@ -90,7 +90,7 @@ namespace DWMPHorde.Patches
                 return null;
             Transform best = null;
             float bestD = float.MaxValue;
-            if (player.alive && !DeathStateTracker.LocalNightDeath && player.isInSight(dest, canBeFarAway, radius))
+            if (player.alive && !DeathStateTracker.LocalDown && player.isInSight(dest, canBeFarAway, radius))
             {
                 best = player._transform;
                 bestD = (player._transform.position - dest.position).sqrMagnitude;
@@ -108,7 +108,7 @@ namespace DWMPHorde.Patches
                     if (proxy == null)
                         continue;
                     CharBase cb = proxy.CachedCharBase;
-                    if ((cb != null && !cb.alive) || DeathStateTracker.IsRemoteNightDead(proxy.PlayerId))
+                    if ((cb != null && !cb.alive) || DeathStateTracker.IsRemoteDown(proxy.PlayerId))
                         continue;
                     float d = (proxy.transform.position - dest.position).sqrMagnitude;
                     if (d >= bestD)

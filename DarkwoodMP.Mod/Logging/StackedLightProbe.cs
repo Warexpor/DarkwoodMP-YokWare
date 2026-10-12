@@ -56,7 +56,8 @@ namespace DWMPHorde.Logging
         {
             _byShape.Clear();
             _byMesh.Clear();
-            Light2D[] lights = Object.FindObjectsOfType<Light2D>();
+            // Registry-backed once the world is seeded: no scene scan (it cost 20-40 ms per pass).
+            Light2D[] lights = Sync.WorldQueryHelper.GetCachedSceneComponents<Light2D>();
             int drawn = 0;
             for (int i = 0; i < lights.Length; i++)
             {

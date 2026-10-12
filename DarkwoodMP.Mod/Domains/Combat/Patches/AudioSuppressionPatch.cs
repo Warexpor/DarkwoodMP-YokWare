@@ -38,6 +38,13 @@ namespace DWMPHorde.Patches
             if (IsNeverCullSound(audioID))
                 return true;
 
+            // The dream's own music. Vanilla starts it on the dream scene (Dreams.startDreaming,
+            // 5 s delay) before the player is moved there, so it was judged from the player's
+            // spot in the world, out of range, and refused: whoever loaded the dream the vanilla
+            // way (the host, a player starting a dream alone) dreamed without it.
+            if (IsDreamMusic(audioID))
+                return true;
+
             // Title / main menu — no distance culling at all.
             try
             {
@@ -123,6 +130,14 @@ namespace DWMPHorde.Patches
                 () => "[AudioCull] " + audioID + " on " + (c.name ?? "") + " d="
                     + LocalAudioService.DistanceToListenerXz(pos).ToString("F0")
                     + " range=" + range.ToString("F0"), 2f);
+        }
+
+        private static bool IsDreamMusic(string audioID)
+        {
+            Dreams d = Dreams.Instance;
+            return d != null && d.preset != null && (d.dreaming || d.dreamPrepared)
+                && !string.IsNullOrEmpty(d.preset.music)
+                && string.Equals(d.preset.music, audioID, System.StringComparison.Ordinal);
         }
 
         /// <summary>Menu BGM, UI, and playlist music must never be distance-culled in co-op.</summary>

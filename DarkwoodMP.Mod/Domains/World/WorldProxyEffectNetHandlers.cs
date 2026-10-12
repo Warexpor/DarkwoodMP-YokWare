@@ -128,6 +128,7 @@ namespace DWMPHorde.Networking
             msg.HomeY = homePos.y;
             msg.HomeZ = homePos.z;
             bool homeChanged = msg.HasHome != _lastHasHome || (homePos - _lastHome).sqrMagnitude > 0.01f;
+            msg.MovedHome = homeChanged && Patches.OvenHomes.ConsumeMovedHome();
             _lastHasHome = msg.HasHome;
             _lastHome = homePos;
             int flags = msg.Flags | (msg.Flags2 << 8) | (msg.HealthPct << 16) | (msg.DarknessPct << 24);
@@ -153,7 +154,12 @@ namespace DWMPHorde.Networking
             proxy.RemoteHasEnemyOfTheForest = msg.EnemyOfTheForest;
             proxy.RemotePoisoned = msg.Poisoned;
             proxy.RemoteBleeding = msg.Bleeding;
+            Vector3? prevHome = proxy.RemoteHomeOven;
             proxy.RemoteHomeOven = msg.HasHome ? new Vector3(msg.HomeX, msg.HomeY, msg.HomeZ) : (Vector3?)null;
+            if (msg.MovedHome && prevHome.HasValue && proxy.RemoteHomeOven.HasValue
+                && (prevHome.Value - proxy.RemoteHomeOven.Value).sqrMagnitude > 1f)
+                Patches.OvenHomes.FollowPeerMove(prevHome.Value, proxy.RemoteHomeOven.Value,
+                    msg.InPrologue || msg.InEpilogue);
             proxy.RemoteInEpilogue = msg.InEpilogue;
             proxy.RemoteInPrologue = msg.InPrologue;
             proxy.RemoteHealthPct = msg.HealthPct;

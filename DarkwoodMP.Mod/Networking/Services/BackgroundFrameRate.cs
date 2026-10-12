@@ -10,7 +10,9 @@ namespace DWMPHorde.Networking
     /// whenever the player was in the other window, and Unity's frame-time cap then slowed the
     /// game itself to a third of real time. On the host that is the whole world (creatures,
     /// night events, the shared clock) for every client. While unfocused in a session, vsync is
-    /// off with a 60 fps cap; focus back (or the session's end) restores the player's setting.
+    /// off with a cap at the screen's refresh rate; focus back (or the session's end) restores the
+    /// player's setting. The cap is the refresh rate because an unfocused window can still be on
+    /// screen (focus follows the mouse on this desktop): 60 fps on a 100 Hz screen shows as judder.
     /// <para>
     /// Focus alone is not enough: with the pause menu open, the Wine client takes focus back
     /// the moment it loses it and then reports "focused" for as long as the player is in the
@@ -22,7 +24,8 @@ namespace DWMPHorde.Networking
     /// </summary>
     internal static class BackgroundFrameRate
     {
-        private const int BackgroundFps = 60;
+        /// <summary>The cap when the screen does not report a refresh rate.</summary>
+        private const int FallbackFps = 60;
 
         private const float StallSec = 0.5f;
         private const int StallFrames = 3;
@@ -59,10 +62,12 @@ namespace DWMPHorde.Networking
             {
                 _vsync = QualitySettings.vSyncCount;
                 _target = Application.targetFrameRate;
+                int refresh = Screen.currentResolution.refreshRate;
+                int cap = refresh > 0 ? Mathf.Max(refresh, FallbackFps) : FallbackFps;
                 QualitySettings.vSyncCount = 0;
-                Application.targetFrameRate = BackgroundFps;
+                Application.targetFrameRate = cap;
                 _applied = true;
-                ModLog.Event(LogCat.Session, $"[Frame] {(focused ? "out of sight" : "unfocused")}: vsync off, {BackgroundFps} fps cap (was vsync={_vsync} target={_target})");
+                ModLog.Event(LogCat.Session, $"[Frame] {(focused ? "out of sight" : "unfocused")}: vsync off, {cap} fps cap (was vsync={_vsync} target={_target})");
             }
             else
                 Reset();

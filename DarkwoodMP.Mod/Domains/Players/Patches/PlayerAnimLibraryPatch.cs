@@ -36,12 +36,10 @@ namespace DWMPHorde.Patches
             // logs showed PlayerAnimLibrary:111 in a 2s window. Only send on change.
             if (string.Equals(libName, _lastSentLibrary, System.StringComparison.Ordinal))
                 return;
+            // Remembered only once sent: a dropped send must not hide the next one.
+            if (!net.SendPlayerAnimLibrary(new PlayerAnimLibraryMessage { LibraryName = libName }))
+                return;
             _lastSentLibrary = libName;
-
-            net.SendPlayerAnimLibrary(new PlayerAnimLibraryMessage
-            {
-                LibraryName = libName
-            });
 
             ModRuntime.Log?.LogDebug("[AnimLib] sent library: " + libName);
         }

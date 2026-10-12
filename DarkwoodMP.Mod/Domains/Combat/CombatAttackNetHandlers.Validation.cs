@@ -55,8 +55,8 @@ namespace DWMPHorde.Networking
         private bool AttackerCanFight(int playerId, RemotePlayerProxy proxy, out string why)
         {
             why = null;
-            if (DeathStateTracker.IsRemoteNightDead(playerId))
-                why = "night-dead";
+            if (DeathStateTracker.IsRemoteDown(playerId))
+                why = "down (night or dream death)";
             else if (proxy.CachedCharBase != null && !proxy.CachedCharBase.alive)
                 why = "dead";
             else if (_net.TryGetRemoteState(playerId, out var st) && st.IsDeadInDream)

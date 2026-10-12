@@ -59,6 +59,8 @@ namespace DWMPHorde.Networking
             // Release played-back copies while their remote-drag ids are still recorded.
             RemoteDragTimeline.Reset();
             Sync.SharedDrag.Reset();
+            Sync.DoorSwing.Reset();
+            Sync.ScriptedSpin.Reset();
             DragClaims.Clear();
             LastDragSyncPos.Clear();
             DragEndedAt.Clear();

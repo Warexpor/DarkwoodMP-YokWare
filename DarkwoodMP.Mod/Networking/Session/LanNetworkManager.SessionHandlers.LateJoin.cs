@@ -35,6 +35,35 @@ namespace DWMPHorde.Networking
             return false;
         }
 
+        /// <summary>
+        /// The morning's hideout effect (FX/efekt_konca_nocy, spawned at dawn and gone when the
+        /// morning ends) is a live spawn, not part of the save: a player joining during the
+        /// morning had none, and the host's end-of-morning event for it found nothing there.
+        /// </summary>
+        private void SendMorningEffectTo(int playerId)
+        {
+            Controller ctrl = Singleton<Controller>.Instance;
+            if (ctrl == null || !ctrl.isAfterNight)
+                return;
+            GameObject fx = GameObject.Find("efekt_konca_nocy");
+            if (fx == null)
+                return;
+            Vector3 pos = fx.transform.position;
+            Vector3 rot = fx.transform.rotation.eulerAngles;
+            SendToPlayer(playerId, NetMessageType.EntitySpawn,
+                w => new EntitySpawnMessage
+                {
+                    PrefabPath = "FX/efekt_konca_nocy",
+                    PosX = pos.x,
+                    PosY = pos.y,
+                    PosZ = pos.z,
+                    RotX = rot.x,
+                    RotY = rot.y,
+                    RotZ = rot.z
+                }.Serialize(w),
+                LiteNetLib.DeliveryMethod.ReliableOrdered);
+        }
+
         internal bool IsPeerInWorld(int playerId)
         {
             return playerId > 1
@@ -101,6 +130,7 @@ namespace DWMPHorde.Networking
             LateJoinStep(playerId, "workbenchLevel", () => BulkSyncHandlers.SendWorkbenchLevelSyncTo(playerId));
             LateJoinStep(playerId, "mapState", () => BulkSyncHandlers.SendMapStateSyncTo(playerId));
             LateJoinStep(playerId, "timeSync", () => SendTimeSyncTo(playerId));
+            LateJoinStep(playerId, "morningEffect", () => SendMorningEffectTo(playerId));
             LateJoinStep(playerId, "sawStates", () => StationHandlers.SendSawStatesTo(playerId));
             LateJoinStep(playerId, "feederStates", () => StationHandlers.SendFeederStatesTo(playerId));
             LateJoinStep(playerId, "lureStates", () => StationHandlers.SendLureStatesTo(playerId));
@@ -328,7 +358,7 @@ namespace DWMPHorde.Networking
         /// </summary>
         private static bool HostHasShareableWorld() => HostInChapter() && Sync.CosmeticRolls.Active;
 
-        private static bool HostInChapter()
+        internal static bool HostInChapter()
         {
             try
             {

@@ -143,7 +143,7 @@ namespace DWMPHorde.Networking
         ContainerStateRequest = 75,
         /// <summary>Host->Client: full container inventory state snapshot.</summary>
         [HostOnly] ContainerStateSync = 76,
-        /// <summary>Shared NPC reputation (not isNightTrader). Forwardable for client→host→peers.</summary>
+        /// <summary>Shared NPC reputation (not the morning traders). Forwardable for client→host→peers.</summary>
         [Forwardable] ReputationSync = 77,
         /// <summary>Either peer: the local player entered an OutsideLocation (basement, bunker, etc.).</summary>
         [Forwardable] LocationEnter = 78,
@@ -482,7 +482,23 @@ namespace DWMPHorde.Networking
         /// pushes (<c>Sync.SharedDrag</c>, <c>Sync.CoPush</c>). Protocol 58.
         /// </summary>
         [Forwardable] CoHold = 170,
+        /// <summary>
+        /// Either peer: a door's swing from the machine that runs it, and pushes and blows sent
+        /// to that machine (<c>Sync.DoorSwing</c>). Protocol 59.
+        /// </summary>
+        [Forwardable] DoorSwing = 171,
+        /// <summary>
+        /// A player left a party dream by its own exit while the dream goes on for the others:
+        /// client to host (its own leave), host to clients (who left). <c>Sync.DreamExit</c>.
+        /// Protocol 60.
+        /// </summary>
+        DreamLeft = 172,
+        /// <summary>
+        /// Host→clients: a player is joining, is in the game, left, or lost its connection, for a
+        /// line in the chat (<c>Sync.PeerNotices</c>). Protocol 62.
+        /// </summary>
+        [HostOnly] PeerNotice = 173,
         /// <summary>Highest used message type ID.</summary>
-        _Highest = 170
+        _Highest = 173
     }
 }

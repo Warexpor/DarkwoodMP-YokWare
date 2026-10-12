@@ -284,17 +284,6 @@ namespace DWMPHorde.Sync
         }
 
         /// <summary>Finds a Door by position using the tracker and a scene-wide fallback.</summary>
-        /// <summary>How long after another player's swing state this game's own sight of the swing stays theirs.</summary>
-        private const float DoorRemoteDriveSeconds = 0.6f;
-
-        /// <summary>This door is swinging on another player's DoorState: its motion here is not sent back.</summary>
-        private static void NoteDoorRemoteDrive(Door door)
-        {
-            Vector3 dp = door.transform.position;
-            Vector3 key = new Vector3((float)Math.Round(dp.x, 1), (float)Math.Round(dp.y, 1), (float)Math.Round(dp.z, 1));
-            _s.DoorRemoteDriveUntil[key] = Time.time + DoorRemoteDriveSeconds;
-        }
-
         private static Door FindDoorByPos(Vector3 pos)
         {
             Door door = ListTracker<Door>.FindByPosition(pos);

@@ -19,14 +19,17 @@ namespace DWMPHorde.Networking
         private void Update()
         {
             Players.LocalGetUpHold.Tick(this);
-            bool perf = IsConnected && _session.Link.HandshakeComplete
-                && (_role == NetworkRole.Client || _role == NetworkRole.Host);
+            // A host is probed with no peers too: a session that lost its last client still runs
+            // the host paths, and its frame trouble must show in the log.
+            bool perf = _role == NetworkRole.Host
+                || (_role == NetworkRole.Client && IsConnected && _session.Link.HandshakeComplete);
             ClientPerfProbe.SetActive(perf, _role);
             if (perf) ClientPerfProbe.FrameBegin();
 
             // Message handlers are isolated in ProcessInboundMessage; this catches what is left (a
             // peer connect/disconnect callback). LiteNetLib drops the remaining queued events of the
             // poll when one throws, but the rest of this frame (sends, Steam poll) must still run.
+            if (perf) ClientPerfProbe.BeginUpdateSegment("pollEvents");
             try { _net?.PollEvents(); }
             catch (Exception ex)
             {
@@ -34,15 +37,21 @@ namespace DWMPHorde.Networking
                     ModLog.Error(LogCat.Network,
                         "LiteNetLib PollEvents threw" + NetLogThrottle.SuppressedSuffix(dropped), ex);
             }
+            if (perf) ClientPerfProbe.BeginUpdateSegment("steamPoll");
             PollSteamBackend();
+            if (perf) ClientPerfProbe.BeginUpdateSegment("pilotMenuNames");
             Sync.TestPilot.Tick(this);
             Sync.PauseMenuSync.Tick(this);
             Sync.PlayerNames.Tick(this);
+            if (perf) ClientPerfProbe.BeginUpdateSegment("lightProbe");
             StackedLightProbe.Tick(this);
+            if (perf) ClientPerfProbe.BeginUpdateSegment("dialogFrameRate");
             Sync.DialogMirror.TickListener();
             BackgroundFrameRate.Tick(this);
             Sync.DialogHandInArbiter.TickClient(this);
+            if (perf) ClientPerfProbe.BeginUpdateSegment("voice");
             Audio.VoiceChatService.Tick();
+            if (perf) ClientPerfProbe.EndUpdateSegment();
             if (perf) ClientPerfProbe.MarkPoll();
 
             if (perf) ClientPerfProbe.BeginUpdateSegment("walkie");
@@ -141,6 +150,7 @@ namespace DWMPHorde.Networking
                 if (perf) ClientPerfProbe.BeginUpdateSegment("entityBroadcast");
                 EntityStateBroadcastService.Tick();
                 Patches.HostLocationLeaveKeepRemotePatch.TickHost();
+                Patches.LockBehindPartyGate.TickHost();
                 if (perf) ClientPerfProbe.EndUpdateSegment();
 
                 _proxyMaintenanceTimer += Time.deltaTime;
@@ -241,15 +251,21 @@ namespace DWMPHorde.Networking
             // Host + clients: periodically sync wards / poison / bleed / skill flags to peers.
             // Include host effect flags so clients can present shadow and forest
             // spirit wards.
+            if (perf) ClientPerfProbe.BeginUpdateSegment("nightVillage");
             Sync.NightVillage.Tick(this);
+            if (perf) ClientPerfProbe.BeginUpdateSegment("peerItems");
             Sync.PeerItemPresence.Tick(this);
+            if (perf) ClientPerfProbe.BeginUpdateSegment("oxygenQuest");
             Sync.OxygenTankParty.Tick(this);
             Sync.QuestItemHandoff.TickClient(this);
             Sync.DreamRetry.Tick(this);
             Sync.MenuShield.Tick(this);
+            if (perf) ClientPerfProbe.BeginUpdateSegment("desyncCheck");
             Sync.DesyncCheck.Tick(this);
+            if (perf) ClientPerfProbe.BeginUpdateSegment("prologueWolf");
             Sync.PersonalPrologue.TickClient(this);
             Patches.WolfVisitorGhostSweep.TickClient(this);
+            if (perf) ClientPerfProbe.BeginUpdateSegment("hostTicks");
             if (_role == NetworkRole.Host)
             {
                 Patches.TraderRestockDefer.Tick();
@@ -261,11 +277,13 @@ namespace DWMPHorde.Networking
             else
                 WorldFxHandlers?.TickEarlySounds();
 
+            if (perf) ClientPerfProbe.BeginUpdateSegment("effects");
             _effectSyncTimer += Time.deltaTime;
             bool effectKeepalive = _effectSyncTimer >= 2f;
             if (effectKeepalive)
                 _effectSyncTimer = 0f;
             WorldProxyEffectHandlers.SendPlayerEffects(effectKeepalive);
+            if (perf) ClientPerfProbe.BeginUpdateSegment("playerState");
 
             // Both sides: send own position to the other side at ~30 Hz
             string torsoClip = PlayerAnimationSnapshot.ReadTorsoClip(local);
@@ -333,7 +351,7 @@ namespace DWMPHorde.Networking
                 // receiver can retry after an async location spawn completes.
                 // Dreams: send once on enter or rename instead of every tick.
                 _locationSyncCounter++;
-                bool dreamLocActive = Sync.DreamSyncManager.IsDreamActive;
+                bool dreamLocActive = Sync.DreamSyncManager.IsLocalInPartyDream;
                 bool locChanged = !_previousInOutsideLocation || locName != _previousLocationName;
                 bool heartbeatRetry = !dreamLocActive && _locationSyncCounter >= 30;
                 if (inOutsideLoc && (locChanged || heartbeatRetry))
@@ -365,7 +383,7 @@ namespace DWMPHorde.Networking
                     // Dream transport (dreamPrepared branch) never sets playerInOutsideLocation=true,
                     // so settle hooks set previous=true while live flag stays false → false Exit.
                     // While dreaming / EnteringDream, stay "inside" the dream pad.
-                    bool stayInDreamPad = Sync.DreamSyncManager.IsDreamActive
+                    bool stayInDreamPad = Sync.DreamSyncManager.IsLocalInPartyDream
                         || (Dreams.Instance != null && (Dreams.Instance.dreaming || Dreams.Instance.dreamPrepared))
                         || Core.EnteringDream;
                     // Soft-reconnect / mid OutsideLocations load: playerInOutsideLocation briefly
@@ -481,6 +499,7 @@ namespace DWMPHorde.Networking
                 // Backup if stopDragging never ran (edge cases). Prefer NotifyLocalDragEnded.
                 NotifyLocalDragEnded(_lastDraggedItemName);
             }
+            if (perf) ClientPerfProbe.EndUpdateSegment();
         }
     }
 }
