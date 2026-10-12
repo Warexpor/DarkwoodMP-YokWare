@@ -172,6 +172,9 @@ namespace DWMPHorde.Networking
             SaveManager save = Singleton<SaveManager>.Instance;
             if (save == null)
                 return;
+            // Not inside the host's dream (it would strand the host on the pad): waking saves.
+            if (DWMPHorde.Sync.DreamSyncManager.IsLocalMidDream)
+                return;
             _lastRemoteDeathSaveAt = Time.unscaledTime;
             save.Save(doJson: true);
         }

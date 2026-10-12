@@ -287,14 +287,13 @@ namespace DWMPHorde.Networking
 
         private static bool SamePresentationWorld(Vector3 bodyPos, Vector3 hostPos)
         {
-            const float dreamRadiusSq = 5000f * 5000f;
             Transform dreamTf = DreamSyncManager.GetDreamLocationTransform();
             if ((DreamSyncManager.IsLocalDreamActive || DreamSession.IsActive) && dreamTf == null)
                 return false;
             if (dreamTf == null)
                 return true;
-            bool bodyInDream = (bodyPos - dreamTf.position).sqrMagnitude <= dreamRadiusSq;
-            bool hostInDream = (hostPos - dreamTf.position).sqrMagnitude <= dreamRadiusSq;
+            bool bodyInDream = DreamSyncManager.IsInPadSlot(dreamTf, bodyPos);
+            bool hostInDream = DreamSyncManager.IsInPadSlot(dreamTf, hostPos);
             return bodyInDream == hostInDream;
         }
     }

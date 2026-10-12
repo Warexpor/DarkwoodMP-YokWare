@@ -240,6 +240,13 @@ namespace DWMPHorde.Sync
         public static bool IsLocalDreamActive => _localDreamActive;
 
         /// <summary>
+        /// This game is inside a dream (vanilla <c>Dreams.dreaming</c>). Vanilla never saves then
+        /// (it saves before the dream and after waking): a save now stores the body on the pad
+        /// without the dream, and the next load leaves the player stranded there.
+        /// </summary>
+        public static bool IsLocalMidDream => Dreams.Instance != null && Dreams.Instance.dreaming;
+
+        /// <summary>
         /// A party dream is on and this player is part of it (in it, or on its way in or out):
         /// false for a host that left by its own exit while the dream runs on for others
         /// (<see cref="DreamExit"/>). For what describes where the local player is.
@@ -349,9 +356,14 @@ namespace DWMPHorde.Sync
         /// a position within half of that from the loaded dream pad is on that pad. Other slots
         /// hold ordinary outside locations (a cellar, a bunker) whose events are not the dream's.
         /// </summary>
-        public static bool IsAtDreamPad(Vector3 pos)
+        public static bool IsAtDreamPad(Vector3 pos) => IsInPadSlot(GetLoadedDreamPad(), pos);
+
+        /// <summary>
+        /// <paramref name="pos"/> is in the slot of the pad at <paramref name="pad"/>. A dream's
+        /// scene does not sit around its origin: the grave meadow's chomper glade is ~5050 out.
+        /// </summary>
+        public static bool IsInPadSlot(Transform pad, Vector3 pos)
         {
-            Transform pad = GetLoadedDreamPad();
             if (pad == null) return false;
             Vector3 d = pos - pad.position;
             return Mathf.Abs(d.x) < DreamPadHalfSlot && Mathf.Abs(d.z) < DreamPadHalfSlot;

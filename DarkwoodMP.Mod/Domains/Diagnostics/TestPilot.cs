@@ -741,8 +741,41 @@ namespace DWMPHorde.Sync
                     Out("  isInLight=" + p.isInLight + " node=" + Core.isInLight(p.transform.position, mustBeWalkable: true)
                         + " hp=" + Mathf.RoundToInt(p.health) + " pos=" + Pos(p.transform.position));
                     return;
+                case "sight":
+                {
+                    // "sight <name>": sight-triggered EventTriggers named like that, and whether each
+                    // body (this player, then every stand-in) sees it the way the host's check does.
+                    var fov = AccessTools.FieldRefAccess<Player, float>("currentFOV");
+                    Out("  fov=" + fov(p).ToString("0", CultureInfo.InvariantCulture)
+                        + " dot=" + (p.FOVDot != null ? p.FOVDot.LightRadius.ToString("0", CultureInfo.InvariantCulture) : "-"));
+                    foreach (EventTriggers et in UnityEngine.Object.FindObjectsOfType<EventTriggers>(true))
+                    {
+                        if (et == null || et.name.IndexOf(a[1], StringComparison.OrdinalIgnoreCase) < 0)
+                            continue;
+                        int r = (int)et.inSightOfPlayerRadius;
+                        var line = new StringBuilder("  " + et.name + " active=" + et.gameObject.activeInHierarchy
+                            + " seen=" + et.inSightOfPlayer + " r=" + r + " |");
+                        var bodies = new List<KeyValuePair<string, Transform>> { new KeyValuePair<string, Transform>("me", p.transform) };
+                        if (ModRuntime.Network != null)
+                            foreach (var proxy in ModRuntime.Network.GetAllProxies())
+                                if (proxy != null)
+                                    bodies.Add(new KeyValuePair<string, Transform>("p" + proxy.PlayerId, proxy.transform));
+                        foreach (var b in bodies)
+                        {
+                            Vector3 to = et.transform.position - b.Value.position;
+                            line.Append(' ').Append(b.Key)
+                                .Append(" sees=").Append(DWMPHorde.Patches.HostPlayerIdentity.BodySees(b.Value, b.Key == "me", et.transform, false, r))
+                                .Append(" d=").Append(Flat(b.Value.position, et.transform.position).ToString("0", CultureInfo.InvariantCulture))
+                                .Append(" ang=").Append(Vector3.Angle(to, b.Value.up).ToString("0", CultureInfo.InvariantCulture));
+                        }
+                        Out(line.ToString());
+                    }
+                    return;
+                }
                 case "pending":
-                    Out("  pending:" + ClientEntityInterpolationService.DebugPending());
+                    Out("  pending:" + ClientEntityInterpolationService.DebugPending()
+                        + " | loadingGame=" + Core.loadingGame + " genDone=" + Core.worldGenFinished()
+                        + " olLoading=" + (Singleton<OutsideLocations>.Instance != null && Singleton<OutsideLocations>.Instance.loading));
                     return;
                 case "dstate":
                 {

@@ -79,6 +79,14 @@ namespace DWMPHorde.Networking
                 return;
             }
 
+            // Inside a dream a save strands this player on the pad at the next load; vanilla
+            // saves again on waking.
+            if (Sync.DreamSyncManager.IsLocalMidDream)
+            {
+                ModLog.Event(LogCat.Save, "SaveSync ignored — in a dream (saved on waking)");
+                return;
+            }
+
             LanNetworkManager.RemoteSaveInProgress = true;
             try
             {

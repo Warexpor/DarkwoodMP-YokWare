@@ -210,6 +210,7 @@ namespace DWMPHorde.Sync
             _earlyEntryTransitionDoneAt = 0f;
             _remoteEntryTransitionPlaying = false;
             _remoteEntryAudioId = null;
+            _entryVideoFadeOut = 0f;
             _entryTransitionSeen = false;
             _remoteEntryHasVideo = true;
             _chainPocketLoading = null;

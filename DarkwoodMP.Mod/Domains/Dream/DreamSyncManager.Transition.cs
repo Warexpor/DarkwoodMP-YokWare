@@ -60,6 +60,7 @@ namespace DWMPHorde.Sync
                     else if (obj.type == DreamTransition.TransitionObject.Type.Video)
                     {
                         hasVideo = true;
+                        _entryVideoFadeOut = obj.fadeOut;
                         Renderer renderer = Singleton<UI>.Instance.videoOverlay.GetComponent<Renderer>();
                         if (renderer == null) continue;
 

@@ -3,12 +3,12 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.262**. The current Horde wire protocol is **63**. Every install in a session
+**0.8.263**. The current Horde wire protocol is **63**. Every install in a session
 needs the same DLL; the protocol is checked on join.
 
 Protocol history (newest first):
 
-- **63**, 0.8.259 to 0.8.262: `TradeCommit` gains the trade's change to the trader's standing; a
+- **63**, 0.8.259 to 0.8.263: `TradeCommit` gains the trade's change to the trader's standing; a
   `DialogMirror` element gains the language entry its text came from; `PlayerEffectSync` uses
   a spare bit (`MovedHome`, Flags2 64).
 - **62**, 0.8.252 to 0.8.258: new `PeerNotice` (173). 0.8.257 uses a spare bit of the entity
@@ -76,6 +76,46 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.263 — the grave meadow's black chompers on every screen; a join during the host's dream no longer breaks the save; the dream fades in at the same pace for everyone
+
+- **Clients did not see the grave meadow dream's extra black chomper** until it came near the
+  dream's centre (35 seconds in a test). A client only made a copy of a creature within 5000 of
+  the dream's origin, and that dream's chomper glade lies about 5050 out, so the host's extra
+  chomper stayed missing on the client. The client now accepts anything in the dream's own
+  slot. The same radius mistake is fixed in two other places. Object matching on the pad
+  counted only 250 from the origin as "on the pad". The bunker dream's forest spirit fallback
+  looked for a client's trigger within 2000 of the origin. (`DreamSyncManager.IsInPadSlot`,
+  `ClientEntityInterpolationService.SpawnEntityLocally` / `SamePresentationWorld`,
+  `WorldPhysicsSyncService.IsSameWorldAsTarget`, `ThreatTriggerContext.TryGetRecentProxyOnPad`)
+- **Why the chompers came so late in the playtest:** the corpse only vanishes, and only then
+  are the chompers let out, once nobody sees it. Vanilla counts seeing as looking at the spot or
+  standing within about 180 of it, and the grave is 164 away. The client stood near the corpse
+  and then dug at the grave, so it "saw" the spot the whole time. The corpse vanished only
+  after the client left, and the chompers came out as the host climbed into the grave. A solo
+  player at the grave holds it the same way. Checked in a run: with everyone away the corpse
+  vanishes, and coming back lets the chompers out. Unchanged.
+- **A join during the host's dream wrote a broken save.** When the host's game reloaded into a
+  dream (it quit or dropped mid-dream) and a friend joined, the world share force-saved the
+  world mid-dream. That save loads with the host standing on the dream's pad, no dream resumed
+  and the dream's inventory in the bags, and the next dream start threw (`Dreams.startDreaming`).
+  The share now sends the save taken going into the dream, without a new save. The joiner is
+  pulled into the host's dream, which becomes the party's. Two other co-op saves stand down
+  inside a dream: the host's save after a client's day death, and a client's local save on the
+  host's save broadcast. Vanilla saves again on waking. Tested: quit both games mid-dream,
+  relaunched, the client joined into the host's dream, the dream resumed again after a second
+  quit, and both woke at home. (`DreamSyncManager.IsLocalMidDream`,
+  `WorldSaveShareService.HostShare`, `CombatDeathStateNetHandlers.SaveAfterRemoteDeath`,
+  `SaveNetHandlers.ApplySaveSyncLocalSave`)
+- **A save already broken that way is repaired on load.** The player is woken the way vanilla
+  ends a dream: the pre-dream inventory, effects and time come back, at the spot where the
+  dream started. (`StrandedDreamSaveRepair`)
+- **The client came out of the dream's black screen seconds before the host.** After the entry
+  movie, vanilla waits 0.3 s once the dream is loaded, then fades the movie's black last frame
+  out over the movie's own fade (3 s for the usual entry). The co-op entry path cut the movie
+  and lifted the black in 0.5 s. It now uses the vanilla pace. (`DreamSyncManager.DoFadeInDreamBlackScreen`)
+- Test pilot: `sight <name>` prints whether each player sees a sight-triggered object, as the
+  host's check does. `pending` also prints the client's loading flags.
 
 ## 0.8.262 — no stutter while a dead player's body looks for its bag; save time broken down
 

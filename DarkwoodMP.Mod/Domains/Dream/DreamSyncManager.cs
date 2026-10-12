@@ -35,6 +35,8 @@ namespace DWMPHorde.Sync
         /// <summary>Client: the DreamStarted being entered said the host's entry played the video.</summary>
         private static bool _remoteEntryHasVideo = true; // reset-in: OnDisconnectedCleanup
         private static string _remoteEntryAudioId; // reset-in: OnDisconnectedCleanup
+        /// <summary>The entry movie's own fade-out (DreamTransition video fadeOut): the dream comes out of black at that pace.</summary>
+        private static float _entryVideoFadeOut; // reset-in: OnDisconnectedCleanup
 
         /// <summary>Client story-end defer awaiting host acceptance or rejection.</summary>
         private static bool _storyEndDeferPending; // reset-in: ClearStoryEndDefer

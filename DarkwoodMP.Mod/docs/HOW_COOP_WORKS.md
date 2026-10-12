@@ -285,8 +285,11 @@ ready.
 5. A player new to this world then plays their own prologue
    ([section 14](#14-prologue-tutorial-and-ending)).
 
-Joining is refused while a dream is running (and from the start of a dream's entry
-movie), unless the host sets `AllowJoinDuringDream`.
+Joining is refused while a party dream is running (and from the start of a dream's entry
+movie), unless the host sets `AllowJoinDuringDream`. A dream the host's game reloaded into
+(it quit or dropped mid-dream) is not one yet: the first joiner gets the save taken going into
+it, and the dream becomes the party's with the joiner pulled onto its pad. No co-op save is
+ever written inside a dream: such a save strands the player on the pad at the next load.
 
 ### Saving
 

@@ -432,6 +432,7 @@ namespace DWMPHorde.Sync
         internal static void AbortEntryVisuals()
         {
             FadeOutDreamTransition();
+            _entryVideoFadeOut = 0f;
             DoFadeInDreamBlackScreen();
             try
             {
