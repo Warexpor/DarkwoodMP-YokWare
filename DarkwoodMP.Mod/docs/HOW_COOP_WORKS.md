@@ -930,6 +930,7 @@ party events.
 - **Text chat** (Ctrl+C): relayed by the host, which stamps the sender, so a
   name cannot be faked. What is said stays in the chat; nothing shows over the players.
   The chat also says when a player is joining, is in the game, left, or lost connection.
+  A join says so once: the joiner's short drop to load the world is not a leave.
 - **Player names**: each player tells the host their name and the host hands every
   name out with the player roster. A name shows over a player only while you can
   see them (vanilla's enemy sight test), so it never reveals someone behind a wall.
@@ -1043,6 +1044,8 @@ By design:
 - **Joining during a dream** is refused unless the host allows it.
 - **A Steam host cannot be joined from a GOG copy** over Steam; use LAN.
 - **A client cannot join a host that is still on the title screen.**
+- **Nobody stays in a session from the title screen.** Going back to the main menu after
+  playing disconnects; a host first hands the world to a player still in it.
 
 ---
 

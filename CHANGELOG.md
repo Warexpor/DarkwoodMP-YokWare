@@ -3,12 +3,12 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.260**. The current Horde wire protocol is **63**. Every install in a session
+**0.8.261**. The current Horde wire protocol is **63**. Every install in a session
 needs the same DLL; the protocol is checked on join.
 
 Protocol history (newest first):
 
-- **63**, 0.8.259 to 0.8.260: `TradeCommit` gains the trade's change to the trader's standing; a
+- **63**, 0.8.259 to 0.8.261: `TradeCommit` gains the trade's change to the trader's standing; a
   `DialogMirror` element gains the language entry its text came from; `PlayerEffectSync` uses
   a spare bit (`MovedHome`, Flags2 64).
 - **62**, 0.8.252 to 0.8.258: new `PeerNotice` (173). 0.8.257 uses a spare bit of the entity
@@ -76,6 +76,24 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.261 — leaving to the main menu ends the session; one join line per join
+
+- **Going to the main menu leaves the session.** A client that played and then went back to
+  the title (exit to menu, the permadeath box, the end of the credits) stayed connected: the
+  host still counted it as a player, and the next save it opened played on inside the old
+  session. `Core.returnToMainMenu` now disconnects any player, as the multiplayer menu's
+  Disconnect does. A host still hands the world to a player who is in it first; with nobody to
+  take it, it now stops hosting instead of hosting from the title with no world.
+  (`ReturnToMenuPatch`, formerly `HostReturnToMenuPatch`; `MainMenuMultiplayerInject.Disconnect`
+  takes who may become host.)
+- **No "left" line while a player joins.** Joining drops the link once on purpose: the joiner
+  loads the shared world on its own, then connects again under a new id. The host's chat read
+  "X is joining, X left the game, X is joining" for one join. That drop is now part of the join:
+  no "left" line, no second "is joining", just "X is in the game" once it is in. A joiner that
+  never comes back within 3 minutes is reported as having left. A real connection loss
+  during the join is still reported as one. (`PeerNotices.HostLoadingDetach` / `HostTick`,
+  `LanNetworkManager.OnHostPeerDisconnectedGameplay`.)
 
 ## 0.8.260 — the morning clock runs once anyone walks out; the bunker dream comes with the next level-up; dreams played through by three players: the chained Doctor dream in one place for all, dream residents and the dream's music on every game, dream doors and events far from the scene's centre synced, no repeated door creak
 

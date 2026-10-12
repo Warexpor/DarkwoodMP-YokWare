@@ -406,7 +406,7 @@ namespace DWMPHorde
             else
             {
                 if (role == NetworkRole.Offline || !Net.IsHandshakeComplete)
-                    b.Item("Cancel", Vm.ItemTopZ - Vm.ItemStep, MainMenuMultiplayerInject.Disconnect);
+                    b.Item("Cancel", Vm.ItemTopZ - Vm.ItemStep, () => MainMenuMultiplayerInject.Disconnect());
                 else
                     b.Item("Disconnect", Vm.ItemTopZ - Vm.ItemStep, ConfirmDisconnect);
             }
@@ -430,7 +430,7 @@ namespace DWMPHorde
             if (Role != NetworkRole.Offline || MainMenuMultiplayerInject.JoinPending)
             {
                 // The join is under way: its progress and buttons are the Join screen's.
-                b.Item("Cancel", Vm.ItemTopZ - Vm.ItemStep, MainMenuMultiplayerInject.Disconnect);
+                b.Item("Cancel", Vm.ItemTopZ - Vm.ItemStep, () => MainMenuMultiplayerInject.Disconnect());
                 b.Back();
                 return;
             }

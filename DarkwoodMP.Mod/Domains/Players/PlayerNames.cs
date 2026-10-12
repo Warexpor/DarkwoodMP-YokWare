@@ -144,6 +144,10 @@ namespace DWMPHorde.Sync
         /// <summary>Host: a peer left.</summary>
         internal static void HostPeerLeft(int playerId) => _reported.Remove(playerId);
 
+        /// <summary>Host: the name <paramref name="playerId"/> sent, or null before it sent one.</summary>
+        internal static string ReportedName(int playerId)
+            => _reported.TryGetValue(playerId, out string name) ? name : null;
+
         /// <summary>Host: the name to put in the roster for <paramref name="playerId"/>.</summary>
         internal static string ForRoster(LanNetworkManager net, int playerId)
         {

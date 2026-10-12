@@ -172,15 +172,18 @@ namespace DWMPHorde
             ModLog.Event(LogCat.Session, "Connecting to " + ip + ":" + port + " …");
         }
 
-        /// <summary>Leave the session (a host hands it to a client when one can take over).</summary>
-        internal static void Disconnect()
+        /// <summary>
+        /// Leave the session (a host hands it to a client when one can take over;
+        /// <paramref name="eligible"/> narrows who may).
+        /// </summary>
+        internal static void Disconnect(System.Func<int, bool> eligible = null)
         {
             var net = ModRuntime.Network;
             if (net == null)
                 return;
             _joinPending = false;
             _hostingHint = false;
-            if (net.Role == NetworkRole.Host && net.TryGracefulHostLeave())
+            if (net.Role == NetworkRole.Host && net.TryGracefulHostLeave(eligible))
             {
                 ModLog.Event(LogCat.Session, "Host disconnect — handing off to elect…");
                 return;
