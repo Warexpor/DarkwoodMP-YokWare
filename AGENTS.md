@@ -26,6 +26,8 @@ Keep **machine paths** here so post-compact agents do not re-ask.
 
 **Dual-box cursor (machine note):** `FreeCursorForDualBox` defaults to **false** (vanilla confine). On this Linux box (Hyprland/Wayland + Wine/Proton client) both installs' `BepInEx/config/com.yokware.branch.cfg` must set `FreeCursorForDualBox = true`, or the Confined cursor traps the mouse and the Wine window can freeze on blur. Existing cfg files keep their old value; only fresh files get the new default.
 
+**Hidden game windows (machine note):** `~/.config/hypr/hyprland.lua` has a `render_unfocused` window rule for `Darkwood.x86_64` and `steam_proton` (title `Darkwood`) with `misc.render_unfocused_fps = 100`. Without it a hidden Darkwood window waits ~1 s per frame (vsync off does not help), and a hidden host freezes the world for every client (0.8.262 changelog).
+
 Dual-box saves: SecondDarkwood auto-isolates to a sibling `Darkwood_Second` product folder under Unity’s persistent root (do not share the host Steam save tree). Under Proton/Wine (verified): `…/steamapps/compatdata/seconddarkwood/pfx/drive_c/users/steamuser/AppData/LocalLow/Acid Wizard Studio/Darkwood_Second`.
 
 **Steamworks co-op:** SecondDarkwood is **GOG** (`Galaxy64.dll` / `goggame-1578751181.*`) — `SteamManager` never inits there. Dual-box Steam host/join is impossible; use **LAN** for Steam+SecondDarkwood, or two real Steam installs/accounts for SNS. **0.7.47:** Steam↔Steam UI timeout 35s, early invite callbacks, host SNS accept without lobby-member race, relay warm retry. **0.7.48:** host rejects forwarded messages from non-owners and non-lobby Steam SNS connections; FF-off spares host player; LiteNetLib via NuGet. **0.7.77:** `archive/`, `research/`, and local scratch trees deleted from repo.
