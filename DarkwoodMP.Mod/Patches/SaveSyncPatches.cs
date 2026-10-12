@@ -79,7 +79,7 @@ namespace DWMPHorde.Patches
         private static readonly double[] _ms = new double[(int)Stage.Count]; // reset-in: Begin
         private static readonly long[] _start = new long[(int)Stage.Count]; // reset-in: Begin
         private static readonly int[] _depth = new int[(int)Stage.Count]; // reset-in: Begin
-        private static bool _on; // reset-in: End
+        private static bool _on; // process-scoped: set and cleared around each Save
 
         internal static void Begin()
         {
