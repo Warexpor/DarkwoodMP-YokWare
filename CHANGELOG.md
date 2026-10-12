@@ -3,12 +3,12 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.269**. The current Horde wire protocol is **64**. Every install in a session
+**0.8.270**. The current Horde wire protocol is **64**. Every install in a session
 needs the same DLL; the protocol is checked on join.
 
 Protocol history (newest first):
 
-- **64**, 0.8.265 to 0.8.269: `SessionSettings` gains the host's `SoloHomeDream`.
+- **64**, 0.8.265 to 0.8.270: `SessionSettings` gains the host's `SoloHomeDream`.
 - **63**, 0.8.259 to 0.8.264: `TradeCommit` gains the trade's change to the trader's standing; a
   `DialogMirror` element gains the language entry its text came from; `PlayerEffectSync` uses
   a spare bit (`MovedHome`, Flags2 64).
@@ -78,6 +78,18 @@ tested in the game.
 
 ---
 
+## 0.8.270 — voice chat no longer silences the game in the church ruins dream
+
+- **The whole game went silent for a client in the church ruins dream.** The sound was fine until
+  the host spoke over voice chat; from then on the client heard nothing at all. A talker's
+  speaker is created on their first voice packet. It plays a looping clip of ones (a carrier) and
+  its script filter multiplies the decoded voice into it. A scene's `AudioReverbZone` takes its
+  send from the source ahead of that filter, so it got a constant full-scale signal instead of the
+  voice. The church ruins dream is the one place with such a zone (custom room, 8.4 s decay, 5000
+  radius over the whole pad). Its reverb piled the carrier up until it drowned the mix. Voice
+  speakers now bypass reverb zones; the voice keeps its own room through `RoomReverb`, as
+  everywhere else. (`VoiceChatService.Speakers`)
+
 ## 0.8.269 — the client sees the "Saving" indicator too
 
 - **No "Saving" indicator on a client.** At a dream's entry the host showed the bottom-right
@@ -111,10 +123,8 @@ then the church ruins).
   home dream's wardrobe sets a flag that is not in the game's flag list. The DOTween safe-mode
   count at quit, the BoxCollider negative-scale warnings and the early "Dropping PlayerAudio
   (no handshake yet)" are vanilla or harmless join-order noise.
-- **The client's sound in the church ruins dream (reported, not yet found).** The logs show
-  nothing out of order on that entry. It ran the same path as the home dream before it, which
-  sounded fine. That dream has its own vanilla reverb zone (custom room, 8.4 s decay, 5000 radius).
-  Waiting on a description of what the sound did.
+- **The client's sound in the church ruins dream:** found and fixed in 0.8.270 (voice chat and
+  the dream's reverb zone).
 
 ## 0.8.267 — the bunker dream's forest spirit leaves a warded client alone; woken players are out of the dream
 

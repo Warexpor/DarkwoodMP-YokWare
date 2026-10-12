@@ -106,6 +106,13 @@ namespace DWMPHorde.Audio
             s.Src.maxDistance = 100000f;
             s.Src.dopplerLevel = 0f;
             s.Src.spread = 60f;
+            // A scene's reverb zone takes its send from the source before the source's own filters,
+            // so it got the carrier (a constant 1.0), not the voice. The church ruins dream's zone
+            // (8.4 s decay over the whole pad) piled that up until it drowned the mix: the first
+            // time another player spoke there, the whole game went silent for good. The voice
+            // gets its room from RoomReverb below, as everywhere else.
+            s.Src.bypassReverbZones = true;
+            s.Src.reverbZoneMix = 0f;
             // The indoor reverb vanilla puts on a sound made inside, quieter and faded (RoomReverb).
             s.Reverb = s.Go.AddComponent<AudioReverbFilter>();
             RoomReverb.Setup(s.Reverb);
