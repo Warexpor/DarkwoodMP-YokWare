@@ -3,12 +3,12 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.263**. The current Horde wire protocol is **63**. Every install in a session
+**0.8.264**. The current Horde wire protocol is **63**. Every install in a session
 needs the same DLL; the protocol is checked on join.
 
 Protocol history (newest first):
 
-- **63**, 0.8.259 to 0.8.263: `TradeCommit` gains the trade's change to the trader's standing; a
+- **63**, 0.8.259 to 0.8.264: `TradeCommit` gains the trade's change to the trader's standing; a
   `DialogMirror` element gains the language entry its text came from; `PlayerEffectSync` uses
   a spare bit (`MovedHome`, Flags2 64).
 - **62**, 0.8.252 to 0.8.258: new `PeerNotice` (173). 0.8.257 uses a spare bit of the entity
@@ -76,6 +76,19 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.264 — a dropped player rejoins straight into the dream
+
+- **Joining during a dream is allowed by default.** A player who joins, or rejoins after a
+  drop, while a party dream runs gets the save taken going in, and the session bulk pulls them
+  onto the dream's pad (the same path 0.8.263 opened for a dream the host's game reloaded into).
+  Before, a dropped player stayed locked out until the dream ended. `AllowJoinDuringDream` is
+  now `true`. A cfg written before keeps its old `false` otherwise, so it is switched on once
+  (`AllowJoinDuringDreamDefaultApplied`); after that the player's own value stays.
+- **Joins during a dream's entry are still refused, whatever the setting says.** That covers
+  the entry movie, the prepare and the pad spawn: the joiner would land between the overworld
+  and a pad that does not exist yet. (`DreamSyncManager.IsDreamEntryWindow`, both the LAN and
+  the Steam accept gates)
 
 ## 0.8.263 — the grave meadow's black chompers on every screen; a join during the host's dream no longer breaks the save; the dream fades in at the same pace for everyone
 

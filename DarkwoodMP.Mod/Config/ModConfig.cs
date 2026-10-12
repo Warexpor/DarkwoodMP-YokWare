@@ -212,7 +212,8 @@ namespace DWMPHorde.Config
             ShowPlayerNames = config.Bind("Network", "ShowPlayerNames", "pointed",
                 "When other players' names show over them: pointed (cursor on them, default) | always (while you can see them) | off.");
             MaxPlayers = config.Bind("Network", "MaxPlayers", 8, "Maximum players including host.");
-            AllowJoinDuringDream = config.Bind("Network", "AllowJoinDuringDream", false, "If false, reject joins during dream session.");
+            AllowJoinDuringDream = config.Bind("Network", "AllowJoinDuringDream", true,
+                "A player joining (or rejoining after a drop) while a dream runs is pulled into it. If false, joins wait until the dream ends. Joins during a dream's entry are always refused.");
             FriendlyFireEnabled = config.Bind("Gameplay", "FriendlyFireEnabled", true, "Players can damage each other.");
             DoubleItemsEnabled = config.Bind("Gameplay", "DoubleItemsEnabled", true,
                 "Master switch for loot sharing (hideout furnace fuels / isExpItem).");
@@ -325,6 +326,16 @@ namespace DWMPHorde.Config
                 + "line (both logs). Needs the host's setting on; a client with it off ignores digests.");
             DesyncCheckIntervalSec = config.Bind("Debug", "DesyncCheckIntervalSec", 15,
                 "Seconds between desync checks (clamped 5..300).");
+
+            // AllowJoinDuringDream became true by default. A cfg written before keeps the old
+            // false; turn it on once, then leave the player's choice alone.
+            var dreamJoinDefaulted = config.Bind("Network", "AllowJoinDuringDreamDefaultApplied", false,
+                "Internal: AllowJoinDuringDream was switched to its new default (true) once.");
+            if (!dreamJoinDefaulted.Value)
+            {
+                AllowJoinDuringDream.Value = true;
+                dreamJoinDefaulted.Value = true;
+            }
 
             // A read-only or locked cfg must not abort startup: every setting is already bound
             // with its in-memory value, the file is only a convenience.

@@ -285,10 +285,11 @@ ready.
 5. A player new to this world then plays their own prologue
    ([section 14](#14-prologue-tutorial-and-ending)).
 
-Joining is refused while a party dream is running (and from the start of a dream's entry
-movie), unless the host sets `AllowJoinDuringDream`. A dream the host's game reloaded into
-(it quit or dropped mid-dream) is not one yet: the first joiner gets the save taken going into
-it, and the dream becomes the party's with the joiner pulled onto its pad. No co-op save is
+A player joining (or rejoining after a drop) while a dream runs gets the save taken going into
+it and is pulled onto its pad; a dream the host's game reloaded into (it quit or dropped
+mid-dream) becomes the party's with the first joiner. `AllowJoinDuringDream = false` makes
+joins wait until the dream ends. Joins during a dream's entry (movie, prepare, pad spawn) are
+always refused. No co-op save is
 ever written inside a dream: such a save strands the player on the pad at the next load.
 
 ### Saving
@@ -1044,7 +1045,7 @@ By design:
 - **A shared story item cannot be handed over twice.**
 - **A night-dead player cannot respawn before morning,** and F4 cannot release them.
 - **Peers cannot mix mod versions.** The protocol must match.
-- **Joining during a dream** is refused unless the host allows it.
+- **Joining during a dream's entry** (movie, prepare) is refused; once the dream runs, a joiner is pulled into it.
 - **A Steam host cannot be joined from a GOG copy** over Steam; use LAN.
 - **A client cannot join a host that is still on the title screen.**
 - **Nobody stays in a session from the title screen.** Going back to the main menu after

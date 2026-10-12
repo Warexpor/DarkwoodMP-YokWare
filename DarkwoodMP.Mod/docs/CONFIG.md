@@ -50,7 +50,8 @@ changes are kept without asking.
 | `ChatEnabled` | `true` | Co-op text chat. Ctrl+C opens the input, Enter sends, Esc closes. Gameplay input (movement, hotbar, walkie) is held while typing. |
 | `ShowPlayerNames` | `pointed` | When other players' names show over them: `pointed` (when the cursor is on them), `always` (while you can see them) or `off`. |
 | `MaxPlayers` | `8` | Maximum players including the host. |
-| `AllowJoinDuringDream` | `false` | When false, joins are rejected while a dream session is running. |
+| `AllowJoinDuringDream` | `true` | A player joining (or rejoining after a drop) while a dream runs is pulled onto its pad. When false, joins are rejected until the dream ends. Joins during a dream's entry (movie, prepare) are always rejected. |
+| `AllowJoinDuringDreamDefaultApplied` | `false` | Internal. Set once when `AllowJoinDuringDream` is switched to its new default (true) in a cfg written while the default was false; after that the player's own value is kept. |
 | `HostMigrationEnabled` | `true` | When the host crashes or times out, the survivors elect the lowest remaining player id as the new host (LAN and Steam) and reconnect to it. |
 
 ## Saves

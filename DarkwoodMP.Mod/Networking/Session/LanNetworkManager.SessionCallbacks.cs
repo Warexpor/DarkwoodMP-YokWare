@@ -44,10 +44,10 @@ namespace DWMPHorde.Networking
                 if (reqIp != null && reqIp.IsIPv4MappedToIPv6)
                     reqIp = reqIp.MapToIPv4();
                 bool survivor = reqIp != null && IsMigrationSurvivorAddress(reqIp.ToString());
-                if (!allowDreamJoin && !survivor && !DreamSession.IsEnding
-                    && (DreamSession.ShouldRejectNewConnections
-                        || DreamSyncManager.IsDreamActive
-                        || DreamSyncManager.IsHostDreamEntryPending))
+                if (!survivor && !DreamSession.IsEnding
+                    && (DreamSyncManager.IsDreamEntryWindow
+                        || (!allowDreamJoin
+                            && (DreamSession.ShouldRejectNewConnections || DreamSyncManager.IsDreamActive))))
                 {
                     ModLog.Event(LogCat.Network, "Rejecting connection — dream session active");
                     request.Reject();

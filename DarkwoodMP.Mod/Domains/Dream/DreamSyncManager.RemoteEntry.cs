@@ -327,6 +327,15 @@ namespace DWMPHorde.Sync
         /// in here loaded into a world about to freeze and missed the DreamStarted roster.
         /// </summary>
         internal static bool IsHostDreamEntryPending => _hostEntryFreeze;
+
+        /// <summary>
+        /// Host: a dream is on its way in but not started (entry movie, prepare, pad spawn). A join
+        /// here is always refused, whatever <c>AllowJoinDuringDream</c> says: the joiner would land
+        /// between the overworld and a pad that does not exist yet. Once the dream runs, the
+        /// session bulk pulls a joiner onto its pad.
+        /// </summary>
+        internal static bool IsDreamEntryWindow =>
+            !_localDreamActive && (_hostEntryFreeze || DreamSession.IsStarting || _earlyEntryTransitionPlayed);
         private static int _hostEntryWatch;   // process-scoped: generation of the host entry poll, bumped per start
 
         /// <summary>
