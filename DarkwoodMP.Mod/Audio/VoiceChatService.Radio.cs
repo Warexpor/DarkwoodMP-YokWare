@@ -18,6 +18,12 @@ namespace DWMPHorde.Audio
         private const float RadioHighHz = 2900f;
         private const float RadioDrive = 2.4f;
 
+        /// <summary>Voice volume as set (0 muted, 1 as recorded, up to <see cref="VolumeScale.MaxGain"/>).</summary>
+        private static float UserVoiceVolume => VolumeScale.Clamp(ModConfig.VoiceVolume?.Value ?? 1f);
+
+        /// <summary>How loud the walkies are: Voice volume and Radio volume together. A one-shot's volume scale over 1 plays it louder.</summary>
+        private static float UserRadioVolume => UserVoiceVolume * VolumeScale.Clamp(ModConfig.VoiceRadioVolume?.Value ?? 1f);
+
         private static AudioSource _localRadio; // process-scoped: 2D source for this player's own radio clicks
         private static AudioClip _keyClip; // process-scoped: recorded asset (RadioSamples)
         private static AudioClip _releaseClip; // process-scoped: recorded asset (RadioSamples)
@@ -198,6 +204,7 @@ namespace DWMPHorde.Audio
             float[] tail = _releaseTail;
             // As loud as the signal was: at the end of the range the tail is lost in the static too.
             float gain = TailGain * Mathf.Lerp(0.2f, 1f, speaker.VoiceShare);
+            float boost = speaker.Boost;
             lock (speaker.Lock)
             {
                 // The listener's radio keeps playing until the tail is out (Speaker.RadioHoldUntil).
@@ -212,7 +219,7 @@ namespace DWMPHorde.Audio
                         break;
                     float fade = i < fadeLen ? 0.5f + 0.5f * Mathf.Cos(Mathf.PI * i / fadeLen) : 0f;
                     float v = (i < tailLen ? tail[i] * gain : 0f) + (fade > 0f ? StaticSample(speaker) * fade : 0f);
-                    speaker.Ring[speaker.WritePos] = SoftLimit(v);
+                    speaker.Ring[speaker.WritePos] = SoftLimit(v * boost);
                     speaker.WritePos = (speaker.WritePos + 1) % speaker.Ring.Length;
                     speaker.Buffered++;
                 }
@@ -238,7 +245,7 @@ namespace DWMPHorde.Audio
                 if (s.Click == null || ModRuntime.Network?.GetProxy(s.Id) == null)
                     return;
                 EnsureSquelchClips();
-                float vol = Mathf.Clamp01((ModConfig.VoiceVolume?.Value ?? 1f) * (keyDown ? KeyBeepShare * 0.3f : 0.3f));
+                float vol = VolumeScale.Clamp(UserRadioVolume * (keyDown ? KeyBeepShare * 0.3f : 0.3f));
                 AudioClip clip = keyDown ? _keyClip : _releaseClip;
                 if (clip != null)
                     s.Click.PlayOneShot(clip, vol);
@@ -263,7 +270,7 @@ namespace DWMPHorde.Audio
                 AudioClip knob = KnobTake();
                 if (knob == null)
                     return;
-                float vol = Mathf.Clamp01((ModConfig.VoiceVolume?.Value ?? 1f) * (HoldingWalkie() ? 0.4f : 0.22f) * KnobLevel);
+                float vol = VolumeScale.Clamp(UserRadioVolume * (HoldingWalkie() ? 0.4f : 0.22f) * KnobLevel);
                 PlayLocal(knob, vol);
             }
             catch { /* audio not ready */ }
@@ -340,7 +347,7 @@ namespace DWMPHorde.Audio
             {
                 EnsureLocalRadioSource();
                 EnsureSquelchClips();
-                float vol = Mathf.Clamp01((ModConfig.VoiceVolume?.Value ?? 1f) * (keyDown ? KeyBeepShare * 0.35f : 0.35f));
+                float vol = VolumeScale.Clamp(UserRadioVolume * (keyDown ? KeyBeepShare * 0.35f : 0.35f));
                 PlayLocal(keyDown ? _keyClip : _releaseClip, vol);
             }
             catch { /* audio not ready */ }

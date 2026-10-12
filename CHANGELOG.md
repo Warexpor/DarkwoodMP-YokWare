@@ -3,12 +3,12 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.274**. The current Horde wire protocol is **66**. Every install in a session
+**0.8.275**. The current Horde wire protocol is **66**. Every install in a session
 needs the same DLL; the protocol is checked on join.
 
 Protocol history (newest first):
 
-- **66**, 0.8.274: `PlayerAttack` gains `CanInterrupt` and `NormalHit`; `FriendlyFire` gains
+- **66**, 0.8.274 to 0.8.275: `PlayerAttack` gains `CanInterrupt` and `NormalHit`; `FriendlyFire` gains
   `CanInterrupt` and `NormalHit`.
 - **65**, 0.8.272 to 0.8.273: `DreamEnded` gains `WorldOutcome` (the outcome whose world events the dream's end runs).
 - **64**, 0.8.265 to 0.8.271: `SessionSettings` gains the host's `SoloHomeDream`.
@@ -80,6 +80,31 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.275 — voice volume sliders in dB up to +24 dB; new Radio volume
+
+The voice sliders did too little: Voice volume and each player's went to x2 (+6 dB), the
+microphone's to x2 on screen, and a voice turned past about x1.5 only hit the speaker's clamp.
+
+- **Voice volume, Microphone volume and each player's volume (Voice > Players) are in dB.**
+  Left end muted, middle as recorded (0 dB), right end +24 dB (about x16), 1 dB steps
+  (`Audio/VolumeScale.cs`). The config still keeps a multiplier (`VoiceVolume`,
+  `VoiceMicVolume`, `VoicePlayerVolumes`, now 0 to about 16); old values keep their level,
+  and the old right end (2) sits at +6 dB.
+- **Turned up, a voice really gets louder.** Up to as recorded the volume stays on the
+  speaker; the part above goes in ahead of the voice limiter (`Speaker.Boost`, applied in
+  `WriteVoice` after the radio filter), so quiet speech comes up and peaks are still held
+  under full scale instead of clipping at the speaker's volume clamp. Far up it is heavily
+  compressed and the background comes up with it, which is the point of the range.
+- **New Radio volume** (`VoiceRadioVolume`, Voice screen, same dB slider), on top of Voice
+  volume: talk heard on a walkie (own or another player's, and this player's own voice on a
+  nearby walkie), its static, call beep and squelch tail, the talk key's beep and release, and
+  the knob clicks. The one-shot radio sounds were clamped to 1 and now take the same range.
+- **Microphone up to +24 dB** (was 0 to 4 in the config, 0 to 2 on screen). Peaks past the soft
+  ceiling are bent under it, so far up it sounds harsher. The mic level still sets how far the
+  voice carries, so a louder mic carries farther.
+- The Voice screen has fourteen rows now; its row spacing is 3 units tighter to stay above Return.
+- Other players' steps keep their slider. Local only, no protocol change.
 
 ## 0.8.274 — client hits stagger creatures exactly as vanilla does (knife and sickle never do); host swing roll checked in a run
 

@@ -169,7 +169,7 @@ namespace DWMPHorde.Audio
             _clip.GetData(read, _readPos);
             _readPos = pos;
 
-            float gain = Mathf.Clamp(ModConfig.VoiceMicVolume?.Value ?? 1f, 0f, 4f);
+            float gain = VolumeScale.Clamp(ModConfig.VoiceMicVolume?.Value ?? 1f);
             bool suppress = ModConfig.VoiceNoiseSuppression == null || ModConfig.VoiceNoiseSuppression.Value;
             float strength = ModConfig.VoiceNoiseSuppressionStrength?.Value ?? ModConfig.DefaultNoiseSuppressionStrength;
             _worker.Push(read, gain, suppress, strength);

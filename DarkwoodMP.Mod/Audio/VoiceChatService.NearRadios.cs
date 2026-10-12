@@ -86,7 +86,11 @@ namespace DWMPHorde.Audio
                 return;
             }
 
-            float vol = ModConfig.VoiceVolume?.Value ?? 1f;
+            // This player's own voice on another player's radio: Voice and Radio volume, the part
+            // above as recorded ahead of the limiter.
+            float radioUser = UserRadioVolume;
+            s.Boost = Mathf.Max(radioUser, 1f);
+            float vol = Mathf.Min(radioUser, 1f);
             Vector3 listen = LocalAudioService.GetListenPosition();
             float outVol = 0f;
             float outCutoff = 22000f;
@@ -224,7 +228,7 @@ namespace DWMPHorde.Audio
                 _knobSrc.transform.position = at;
                 _knobMuffle.cutoffFrequency = walled ? WallCutoff : 22000f;
                 RoomReverb.Set(_knobReverb, IsInside(net, proxy.PlayerId));
-                float vol = Mathf.Clamp01((ModConfig.VoiceVolume?.Value ?? 1f) * 0.3f * KnobLevel * (walled ? WallVolume : 1f));
+                float vol = VolumeScale.Clamp(UserRadioVolume * 0.3f * KnobLevel * (walled ? WallVolume : 1f));
                 _knobSrc.PlayOneShot(clip, vol);
             }
             catch { /* audio not ready */ }

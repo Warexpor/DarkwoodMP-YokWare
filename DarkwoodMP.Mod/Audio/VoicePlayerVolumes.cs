@@ -9,7 +9,7 @@ namespace DWMPHorde.Audio
 {
     /// <summary>
     /// How loud this player hears each other player (Multiplayer > Settings > Voice > Players),
-    /// 0 (muted) to 2, kept by the name they go by so it holds across sessions and rejoins.
+    /// 0 (muted) to <see cref="VolumeScale.MaxGain"/>, kept by the name they go by so it holds across sessions and rejoins.
     /// Config <c>[Voice] VoicePlayerVolumes</c>: <c>name=volume</c> entries separated by <c>|</c>.
     /// </summary>
     internal static class VoicePlayerVolumes
@@ -29,7 +29,7 @@ namespace DWMPHorde.Audio
         {
             Load();
             string key = Key(PlayerNames.Shown(playerId));
-            volume = Math.Max(0f, Math.Min(2f, volume));
+            volume = VolumeScale.Clamp(volume);
             if (Math.Abs(volume - 1f) < 0.001f)
                 _byName.Remove(key);
             else
@@ -53,7 +53,7 @@ namespace DWMPHorde.Audio
                 if (eq <= 0)
                     continue;
                 if (float.TryParse(entry.Substring(eq + 1), NumberStyles.Float, CultureInfo.InvariantCulture, out float v))
-                    _byName[entry.Substring(0, eq).Trim()] = Math.Max(0f, Math.Min(2f, v));
+                    _byName[entry.Substring(0, eq).Trim()] = VolumeScale.Clamp(v);
             }
         }
 

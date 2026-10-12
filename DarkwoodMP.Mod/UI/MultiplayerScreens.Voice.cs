@@ -50,6 +50,7 @@ namespace DWMPHorde
             yield return Setting(ModConfig.VoiceNoiseSuppressionStrength);
             yield return Setting(ModConfig.VoiceRadioWorldSounds);
             yield return Setting(ModConfig.VoiceVolume);
+            yield return Setting(ModConfig.VoiceRadioVolume);
         }
 
         /// <summary>The players listed now, by the name their volume is kept under; default 1.</summary>
@@ -77,7 +78,8 @@ namespace DWMPHorde
         {
             b.Header("Voice", 178f + 140f);
             float z = 100f + 120f;
-            const float step = Vm.RowStep;
+            // Fourteen rows: a little closer than vanilla's, to stay above Return.
+            const float step = Vm.RowStep - 3f;
 
             b.Choice("Voice chat", z, VoiceChoices, VoiceIndex, SetVoice);
             z -= step;
@@ -106,8 +108,9 @@ namespace DWMPHorde
                 Vm.SetText(mic.textMesh, MicText());
             }, enabled: VoiceIndex() != 0);
             z -= step;
-            b.Slider("Microphone volume", z, () => (ModConfig.VoiceMicVolume?.Value ?? 1f) / 2f,
-                t => { if (ModConfig.VoiceMicVolume != null) ModConfig.VoiceMicVolume.Value = Mathf.Round(t * 2f * 20f) / 20f; });
+            // Volumes in dB: left end muted, middle as recorded, right end +24 dB (VolumeScale).
+            b.Slider("Microphone volume", z, () => VolumeScale.ToSlider(ModConfig.VoiceMicVolume?.Value ?? 1f),
+                t => { if (ModConfig.VoiceMicVolume != null) ModConfig.VoiceMicVolume.Value = VolumeScale.FromSlider(t); });
             z -= step;
             b.Choice("Noise suppression", z, OffOn,
                 () => ModConfig.VoiceNoiseSuppression == null || ModConfig.VoiceNoiseSuppression.Value ? 1 : 0,
@@ -129,8 +132,11 @@ namespace DWMPHorde
             _meter = meter != null ? meter.textMesh : null;
             _meterShown = null;
             z -= step;
-            b.Slider("Voice volume", z, () => (ModConfig.VoiceVolume?.Value ?? 1f) / 2f,
-                t => { if (ModConfig.VoiceVolume != null) ModConfig.VoiceVolume.Value = Mathf.Round(t * 2f * 20f) / 20f; });
+            b.Slider("Voice volume", z, () => VolumeScale.ToSlider(ModConfig.VoiceVolume?.Value ?? 1f),
+                t => { if (ModConfig.VoiceVolume != null) ModConfig.VoiceVolume.Value = VolumeScale.FromSlider(t); });
+            z -= step;
+            b.Slider("Radio volume", z, () => VolumeScale.ToSlider(ModConfig.VoiceRadioVolume?.Value ?? 1f),
+                t => { if (ModConfig.VoiceRadioVolume != null) ModConfig.VoiceRadioVolume.Value = VolumeScale.FromSlider(t); });
             z -= step;
             b.Name("Players", z);
             int others = OtherPlayerIds().Count;
@@ -228,8 +234,8 @@ namespace DWMPHorde
             for (int i = 0; i < ids.Count && i < 7; i++)
             {
                 int id = ids[i];
-                b.Slider(Sync.PlayerNames.Shown(id), z, () => VoicePlayerVolumes.Get(id) / 2f,
-                    t => VoicePlayerVolumes.Set(id, Mathf.Round(t * 2f * 20f) / 20f));
+                b.Slider(Sync.PlayerNames.Shown(id), z, () => VolumeScale.ToSlider(VoicePlayerVolumes.Get(id)),
+                    t => VoicePlayerVolumes.Set(id, VolumeScale.FromSlider(t)));
                 z -= step;
             }
             b.Return();

@@ -78,6 +78,7 @@ namespace DWMPHorde
             { "Voice chat", "Голосовой чат" },
             { "Push to talk key", "Клавиша рации" },
             { "Voice volume", "Громкость голоса" },
+            { "Radio volume", "Громкость рации" },
             { "Other players' steps", "Шаги других игроков" },
             { "Friendly fire", "Огонь по своим" },
             { "Extra loot", "Больше добычи" },
