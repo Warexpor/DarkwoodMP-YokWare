@@ -3,12 +3,12 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.268**. The current Horde wire protocol is **64**. Every install in a session
+**0.8.269**. The current Horde wire protocol is **64**. Every install in a session
 needs the same DLL; the protocol is checked on join.
 
 Protocol history (newest first):
 
-- **64**, 0.8.265 to 0.8.268: `SessionSettings` gains the host's `SoloHomeDream`.
+- **64**, 0.8.265 to 0.8.269: `SessionSettings` gains the host's `SoloHomeDream`.
 - **63**, 0.8.259 to 0.8.264: `TradeCommit` gains the trade's change to the trader's standing; a
   `DialogMirror` element gains the language entry its text came from; `PlayerEffectSync` uses
   a spare bit (`MovedHome`, Flags2 64).
@@ -77,6 +77,15 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.269 — the client sees the "Saving" indicator too
+
+- **No "Saving" indicator on a client.** At a dream's entry the host showed the bottom-right
+  "Saving" indicator and the client did not. A connected client's own world saves are blocked
+  (the host owns the world save; the client keeps a backup and gets the host's SaveSync), and
+  vanilla shows the indicator only at the end of a save that ran (`SaveManager.finishSaving`).
+  A blocked save that asked for the indicator now shows it, so the client sees it wherever the
+  host does: dream entry, level-up, sleep. (`ClientConnectedWorldSaveBlockPatch`)
 
 ## 0.8.268 — the other player's entry movie shows; dream containers filled on a client that loads late
 
