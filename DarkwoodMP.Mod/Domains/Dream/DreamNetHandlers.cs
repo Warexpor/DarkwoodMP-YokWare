@@ -103,6 +103,14 @@ namespace DWMPHorde.Networking
             if (_net.TryGetRemoteState(playerId, out var peerState))
                 wasDeadInDream = peerState.IsDeadInDream;
 
+            // The world changes with the furthest ending any player reached: this peer's wake-up
+            // applies it, and a peer that left before the end gets the world's part now.
+            if (_net.Role == NetworkRole.Client && !DreamSession.IsRejectedOutcome(msg.OutcomeName))
+            {
+                DreamExit.NoteReceivedWorldOutcome(msg.WorldOutcome);
+                DreamExit.TakeAwaitedWorld(msg);
+            }
+
             // This player is on its own way out (DreamExit) and was the last one in the dream.
             if (_net.Role == NetworkRole.Client && !DreamSession.IsRejectedOutcome(msg.OutcomeName)
                 && DreamExit.AbsorbSessionEnd())
@@ -152,7 +160,7 @@ namespace DWMPHorde.Networking
                 && (msg.SessionId == 0 || msg.SessionId == DreamSession.SessionId)
                 && DreamSyncManager.IsRemoteInDream(playerId) && !wasDeadInDream)
             {
-                DreamExit.HostEndFromOutside(_net, msg.OutcomeName, runWorld: true, actor: playerId);
+                DreamExit.HostEndFromOutside(_net, msg.OutcomeName, partyEnding: true, actor: playerId);
                 return;
             }
 

@@ -3,11 +3,12 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.271**. The current Horde wire protocol is **64**. Every install in a session
+**0.8.272**. The current Horde wire protocol is **65**. Every install in a session
 needs the same DLL; the protocol is checked on join.
 
 Protocol history (newest first):
 
+- **65**, 0.8.272: `DreamEnded` gains `WorldOutcome` (the outcome whose world events the dream's end runs).
 - **64**, 0.8.265 to 0.8.271: `SessionSettings` gains the host's `SoloHomeDream`.
 - **63**, 0.8.259 to 0.8.264: `TradeCommit` gains the trade's change to the trader's standing; a
   `DialogMirror` element gains the language entry its text came from; `PlayerEffectSync` uses
@@ -77,6 +78,34 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.272 — the furthest ending a dreamer reached is what the dream changes in the world; no lock-out in the apartment dream
+
+- **The host was locked out of the apartment dream's studio.** The client walked into the studio
+  first; its area trigger locks the wooden door behind the player, and the host, still in the
+  corridor, could not get in. Walk-in triggers that lock a door already wait on the host until
+  every living player in that location has walked in (`LockBehindPartyGate`), but "in that
+  location" was the Location under the trigger, and on a dream's pad the host in the corridor
+  was not under the same one, so it never counted. On a dream's pad the gate now waits for every
+  player still playing the dream (in it, alive, not gone by their own exit). The same holds for
+  every dream with a lock-behind trigger. (`LockBehindPartyGate.PartyThrough`,
+  `FinalDreamsceneManager.LocalIsLiveDreamer` / `IsLiveRemoteDreamer`)
+- **A player who stayed in the dream and went further now sets the real world's outcome.** The
+  first player out of a dream used to decide what it changed in the world: a host who lay down
+  in the grave (its own way out) fixed the world's outcome, whatever the client still in the
+  dream then did. Rewards stay each player's own outcome's. The world's part is now decided when
+  the dream is over for everyone: the furthest ending anyone reached wins (an ending that is
+  everyone's, such as a creature killed or the won sluice, over a player's own way out, over a
+  death or failure; the earliest of equals). Every leaver's wake-up runs only its own part of its
+  outcome (its body's steps, its items); the world events run once at the end. The host, also
+  from outside the dream, fires them; a player still dreaming wakes with them in place of its own
+  outcome's; a player who left early replays them when the end is announced. This covers the
+  all-dead end too: a dream whose last players died after another player got out by an exit
+  takes that exit's world outcome, not the death's. A dead dreamer's world events now come from
+  the death outcome when the party's end was "allDead" (they used to fall back to the dream's
+  default, its reward outcome). (`DreamExit.WorldOutcomeFor`, `OfferWorld`, `HostEndFromOutside`,
+  `TakeAwaitedWorld`; `DreamEndPatch`; `DreamSyncManager.WithPartyWorldEvents`,
+  `HostFireOutcomeWorldFor`, `ReplayDeferredWorld`; protocol 65: `DreamEnded.WorldOutcome`)
 
 ## 0.8.271 — a dream's extra creatures match the players still in it
 

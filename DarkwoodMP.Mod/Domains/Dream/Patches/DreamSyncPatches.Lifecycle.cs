@@ -1,4 +1,5 @@
 using DWMPHorde.Networking;
+using DWMPHorde.Logging;
 using DWMPHorde.Sync;
 using HarmonyLib;
 using LiteNetLib;
@@ -169,6 +170,9 @@ namespace DWMPHorde.Patches
 
             // The party's outcome, before a dead peer's rewards are downgraded below.
             string partyOutcome = __instance.outcome ?? "";
+            // What the dream changes in the world: the furthest ending any player reached, which
+            // can be another player's than the one this wake-up comes from.
+            string worldOutcome = DreamExit.WorldOutcomeFor(partyOutcome);
 
             // Vanilla puts the clock back to where the dream began. Someone woke earlier and the
             // world's clock ran since: the host wakes at the world's time.
@@ -190,7 +194,7 @@ namespace DWMPHorde.Patches
 
             // Reads WasLocalDeadThisDream (DreamEnded receipt already cleared IsLocalDead). Exit video already played
             // from the story outcome; only effect grants are downgraded. Inventory restore stays.
-            DowngradeSuccessRewardsIfDeadInDream(__instance, partyOutcome);
+            DowngradeSuccessRewardsIfDeadInDream(__instance, worldOutcome);
 
             // This player's own exit: it leaves; the session, the roster and (on the host) the
             // dream's place stay for the players still in it.
@@ -215,6 +219,18 @@ namespace DWMPHorde.Patches
                 ModRuntime.LegacyInfo(
                     "[DreamSync] endDreaming with chain — session stays active; ChainStart via prepare");
                 return;
+            }
+
+            // The rewards stay this player's own outcome's; the world events are the world outcome's.
+            if (!string.IsNullOrEmpty(worldOutcome) && worldOutcome != partyOutcome)
+            {
+                var own = Traverse.Create(__instance).Field("outcomePreset").GetValue<DreamPreset.Outcome>();
+                if (own != null)
+                {
+                    Traverse.Create(__instance).Field("outcomePreset").SetValue(
+                        DreamSyncManager.WithPartyWorldEvents(own, __instance, worldOutcome));
+                    ModLog.Event(LogCat.Dream, $"[DreamExit] wakes from '{partyOutcome}'; the world takes '{worldOutcome}'");
+                }
             }
 
             string outcome = __instance.outcome ?? "";
@@ -273,6 +289,7 @@ namespace DWMPHorde.Patches
             if (__state != null && __state.ReplayWorld)
                 DreamSyncManager.ClearOutcomeWorldReplay();
             DreamExit.OnLocalLeaveDone();
+            DreamExit.ClearReceivedWorldOutcome();
         }
 
         private static void SnapOffPadIfStranded(Dreams __instance)
@@ -414,7 +431,7 @@ namespace DWMPHorde.Patches
         [HarmonyPriority(Priority.First)]
         private static bool Prefix(string type)
         {
-            // A later leaver: the world's part of the outcome was the first leaver's.
+            // A leaver while the dream goes on: the world's part of the outcome comes at its end.
             if (DreamExit.PersonalOnlyOutcome)
             {
                 DreamSyncManager.RunOutcomePersonalOnly(type);
@@ -439,7 +456,7 @@ namespace DWMPHorde.Patches
 
     /// <summary>
     /// An outcome's own event (vanilla's fireGameEvent effect fires it directly) of a leaver whose
-    /// world part was another's runs for its own part only (<see cref="DreamExit.PersonalOnlyFire"/>).
+    /// world part comes at the dream's end runs for its own part only (<see cref="DreamExit.PersonalOnlyFire"/>).
     /// </summary>
     [HarmonyPatch(typeof(GameEvents), "fire")]
     public static class DreamOwnPartOutcomePatch

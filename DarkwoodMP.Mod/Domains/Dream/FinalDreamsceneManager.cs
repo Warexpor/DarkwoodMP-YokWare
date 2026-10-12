@@ -97,12 +97,7 @@ namespace DWMPHorde.Sync
         internal static int LiveDreamers()
         {
             var net = ModRuntime.Network;
-            int n = 0;
-            Dreams dreams = Singleton<Dreams>.Instance;
-            bool localIn = DreamSyncManager.IsLocalDreamActive || (dreams != null && dreams.dreaming);
-            if (localIn && !_localDeadInDream && !DreamExit.LocalLeaving && !DreamExit.HostHostsFromOutside
-                && (net == null || !DreamExit.HasLeft(net.LocalPlayerId)))
-                n++;
+            int n = LocalIsLiveDreamer() ? 1 : 0;
             if (net == null)
                 return n;
             var seen = new HashSet<int>();
@@ -120,9 +115,27 @@ namespace DWMPHorde.Sync
 
         private static int LiveRemote(LanNetworkManager net, int id, HashSet<int> seen)
         {
-            if (id <= 0 || id == net.LocalPlayerId || !seen.Add(id) || !DreamSyncManager.IsRemoteInDream(id))
+            if (id <= 0 || id == net.LocalPlayerId || !seen.Add(id))
                 return 0;
-            return _deadPlayerIds.Contains(id) || DeathStateTracker.IsRemoteNightDead(id) ? 0 : 1;
+            return IsLiveRemoteDreamer(id) ? 1 : 0;
+        }
+
+        /// <summary>The local player is still playing the dream (<see cref="LiveDreamers"/>).</summary>
+        internal static bool LocalIsLiveDreamer()
+        {
+            var net = ModRuntime.Network;
+            Dreams dreams = Singleton<Dreams>.Instance;
+            bool localIn = DreamSyncManager.IsLocalDreamActive || (dreams != null && dreams.dreaming);
+            return localIn && !_localDeadInDream && !DreamExit.LocalLeaving && !DreamExit.HostHostsFromOutside
+                && (net == null || !DreamExit.HasLeft(net.LocalPlayerId));
+        }
+
+        /// <summary>A remote player is still playing the dream: in it, alive in it, not gone by its own exit.</summary>
+        internal static bool IsLiveRemoteDreamer(int id)
+        {
+            if (id <= 0 || !DreamSyncManager.IsRemoteInDream(id))
+                return false;
+            return !_deadPlayerIds.Contains(id) && !DeathStateTracker.IsRemoteNightDead(id);
         }
 
         /// <summary>Refresh roster and report whether any remote participants are tracked.</summary>
@@ -509,7 +522,13 @@ namespace DWMPHorde.Sync
                     "[FinalDreamscene] Dreams.Instance not dreaming — cleaning up directly");
                 var cam = Singleton<CamMain>.Instance;
                 if (cam != null) cam.followTarget = player != null ? player.transform : null;
-                if (net != null && net.IsConnected && DreamSession.IsActive)
+                if (net != null && net.IsConnected && net.Role == NetworkRole.Host && DreamExit.HostHostsFromOutside
+                    && DreamSession.IsActive)
+                {
+                    // The host left before them: the world takes the furthest ending reached.
+                    DreamExit.HostEndFromOutside(net, "allDead", partyEnding: true, actor: 0);
+                }
+                else if (net != null && net.IsConnected && DreamSession.IsActive)
                 {
                     net.Broadcast(NetMessageType.DreamEnded,
                         w => DreamEndedMessage.Build(DreamSession.PresetName ?? "", "allDead")

@@ -15,6 +15,9 @@ namespace DWMPHorde.Patches
     /// out, or in a dead-end room, for good. On the host such a trigger waits until every living
     /// player in that location has walked into its volume, then fires once for the party.
     /// Clients never fire one-shots themselves, so the host's wait is everyone's.
+    /// On a dream's pad "in that location" is "still playing the dream": the pad's ground does not
+    /// always have one Location under every part of it, and a dreamer in the corridor outside the
+    /// apartment dream's studio did not count, so a client walking in locked the host out for good.
     /// </summary>
     internal static class LockBehindPartyGate
     {
@@ -101,28 +104,32 @@ namespace DWMPHorde.Patches
                 return true;
             _passed.TryGetValue(et.GetInstanceID(), out HashSet<int> passed);
             Vector3 at = et.transform.position;
-            Location here = Location.getAtPos(at);
+            bool dream = DreamSyncManager.IsDreamActive && DreamSyncManager.IsOnDreamPad(et.transform);
+            Location here = dream ? null : Location.getAtPos(at);
             int mask = 1 << et.gameObject.layer;
 
             Player local = Player.Instance;
-            if (local != null && local.health > 0f)
-                Check(net.LocalPlayerId, local._transform.position, et, here, at, mask, passed, ref inside, ref missing);
+            if (local != null && local.health > 0f && (!dream || FinalDreamsceneManager.LocalIsLiveDreamer()))
+                Check(net.LocalPlayerId, local._transform.position, et, dream, here, at, mask, passed, ref inside, ref missing);
             foreach (RemotePlayerProxy proxy in net.GetAllProxies())
             {
                 if (proxy == null || proxy.PlayerId <= 0 || proxy.RemoteHealthPct <= 0f
                     || proxy.RemoteInPrologue || proxy.RemoteInEpilogue)
                     continue;
-                Check(proxy.PlayerId, proxy.transform.position, et, here, at, mask, passed, ref inside, ref missing);
+                if (dream && !FinalDreamsceneManager.IsLiveRemoteDreamer(proxy.PlayerId))
+                    continue;
+                Check(proxy.PlayerId, proxy.transform.position, et, dream, here, at, mask, passed, ref inside, ref missing);
             }
             return missing == 0;
         }
 
-        private static void Check(int playerId, Vector3 pos, EventTriggers et, Location here, Vector3 at, int mask,
+        private static void Check(int playerId, Vector3 pos, EventTriggers et, bool dream, Location here, Vector3 at, int mask,
             HashSet<int> passed, ref int inside, ref int missing)
         {
-            bool present = here != null
-                ? Location.getAtPos(pos) == here
-                : (pos - at).sqrMagnitude < NoLocationRadius * NoLocationRadius;
+            bool present = dream
+                || (here != null
+                    ? Location.getAtPos(pos) == here
+                    : (pos - at).sqrMagnitude < NoLocationRadius * NoLocationRadius);
             if (!present)
                 return;
             if (passed == null || !passed.Contains(playerId))

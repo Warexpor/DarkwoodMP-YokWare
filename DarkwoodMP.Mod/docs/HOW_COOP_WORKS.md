@@ -799,8 +799,12 @@ party events.
   bed in the bunker dream, an exit area, the grave) wakes that player alone; the
   others stay in the dream until each of them leaves, and the host keeps it running
   after its own exit. From the first wake-up the world runs again for whoever is
-  awake (creatures, clock). What the dream changed in the world is decided by the
-  first player out; everyone gets their own outcome's items. Endings nobody else
+  awake (creatures, clock). Everyone gets their own outcome's items. What the dream
+  changes in the real world is decided when it is over for everyone: the furthest
+  ending anyone reached wins (an ending that is everyone's, such as a creature killed,
+  over a player's own way out, over a death). A player who stayed and went further
+  sets the world for the whole party; until the dream ends, a player who left early
+  has only their own part of their outcome. Endings nobody else
   could trigger again (a creature killed, a scripted scene, a dialogue), a dream that
   hands over to its next part and the ending still finish it for everyone. A player
   who has left is gone from the dream for those still in it, also while their
@@ -826,8 +830,8 @@ party events.
 - **A dream's look is seen by all.** A dream that changes how a player looks (the
   Doctor in his dream, the home dream's clothes) shows it to every other player, and
   each player wakes in their own clothes.
-- **Rewards:** dream outcome items are given to each dreamer. The outcome's world
-  events reach every player, including one who died in the dream. A failed or
+- **Rewards:** dream outcome items are given to each dreamer. The world outcome's
+  events (above) reach every player, including one who died in the dream or left it early. A failed or
   abandoned dream gives nothing and is not marked done.
 - **One scene, in one place.** Every player loads the dream's scene at the spot
   the host's game put it, a dream's next part too, so everything in it lines up.

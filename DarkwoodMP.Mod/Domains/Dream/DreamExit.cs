@@ -22,8 +22,11 @@ namespace DWMPHorde.Sync
     /// The host runs the dream's place for as long as anyone is in it, also after its own exit
     /// (vanilla's teardown of the pad waits, <see cref="KeepPad"/>). The world runs again from the
     /// first wake-up: creatures unfreeze and the clock steps for whoever is awake.
-    /// The first exit decides what the dream changed in the world (its outcome's world events run
-    /// once, on the host); every later leaver gets only its own part of its outcome.
+    /// Rewards stay each player's own. What the dream changes in the real world is decided when it
+    /// is over for everyone: the furthest ending anyone reached (an ending that is everyone's, such
+    /// as a creature killed, over a player's own way out, over a death), so a player who stayed and
+    /// went further sets the world for the whole party. Every leaver's wake-up runs only its own
+    /// part of its outcome; the world's part runs once, at the end (<see cref="WorldOutcomeFor"/>).
     /// </summary>
     internal static class DreamExit
     {
@@ -43,9 +46,7 @@ namespace DWMPHorde.Sync
         private static bool _hostKeepsSession; // reset-in: ResetSession
         /// <summary>Host: awake, and the dream still runs here for the players in it.</summary>
         internal static bool HostHostsFromOutside { get; private set; } // reset-in: ResetSession
-        /// <summary>Someone has left: what the dream changed in the world is decided.</summary>
-        internal static bool WorldOutcomeDecided { get; private set; } // reset-in: ResetSession
-        /// <summary>This leaver's outcome events run for its own part only (the world's part was another's).</summary>
+        /// <summary>This leaver's outcome events run for its own part only (the world's part comes at the dream's end).</summary>
         internal static bool PersonalOnlyOutcome { get; private set; } // reset-in: ResetForNewSession
         /// <summary>An outcome event is firing for the leaver's own part only (call-scoped).</summary>
         internal static bool PersonalOnlyFire { get; private set; } // process-scoped: call-scoped, unwound by EndOwnPartFire
@@ -67,6 +68,21 @@ namespace DWMPHorde.Sync
             if (HostWorldTime >= 0)
                 HostWorldTime++;
         }
+
+        /// <summary>Host: an ending a player reached, a candidate for what the dream changes in the world.</summary>
+        private struct WorldCandidate
+        {
+            public string Outcome;
+            public int Actor;
+            public int Rank;
+        }
+
+        /// <summary>Host: the endings reached so far in this session, in the order they were reached.</summary>
+        private static readonly List<WorldCandidate> _worldCandidates = new List<WorldCandidate>(); // reset-in: ResetSession
+        /// <summary>This player left a dream before its end: the preset whose world outcome it still waits for.</summary>
+        private static string _awaitWorldPreset; // reset-in: ResetForNewSession
+        /// <summary>Client: the world outcome of the dream end the host announced (DreamEnded).</summary>
+        internal static string ReceivedWorldOutcome { get; private set; } // reset-in: ResetForNewSession
 
         /// <summary>Client: the host closed the session while this player's own exit was still playing.</summary>
         private static bool _overWhileLeaving; // reset-in: ResetSession
@@ -91,6 +107,8 @@ namespace DWMPHorde.Sync
             ResetSession();
             PersonalOnlyOutcome = false;
             HostWorldTime = -1;
+            _awaitWorldPreset = null;
+            ReceivedWorldOutcome = null;
         }
 
         /// <summary>
@@ -104,7 +122,7 @@ namespace DWMPHorde.Sync
             LocalLeaving = false;
             _hostKeepsSession = false;
             HostHostsFromOutside = false;
-            WorldOutcomeDecided = false;
+            _worldCandidates.Clear();
             _overWhileLeaving = false;
         }
 
@@ -348,20 +366,22 @@ namespace DWMPHorde.Sync
                 PresetName = preset ?? "",
                 OutcomeName = outcome
             };
-            // Its world part was someone else's exit: only its own part of the outcome is left.
-            PersonalOnlyOutcome = WorldOutcomeDecided;
             if (net.Role == NetworkRole.Host)
             {
+                OfferWorld(net.LocalPlayerId, outcome, personalExit: true);
                 if (!AnyRemoteDreamer(net))
                 {
-                    // The last one in it: its end is the session's, but what the dream changed
-                    // in the world was still the first leaver's.
+                    // The last one in it: its end is the session's, and the world's outcome the
+                    // furthest one reached (WorldOutcomeFor).
                     LocalLeaving = false;
+                    PersonalOnlyOutcome = false;
                     return false;
                 }
+                // The dream goes on: the world's part of the outcome waits for its end.
+                PersonalOnlyOutcome = true;
+                _awaitWorldPreset = preset;
                 _hostKeepsSession = true;
                 _left.Add(net.LocalPlayerId);
-                WorldOutcomeDecided = true;
                 if (DreamOutcomePolicy.ShouldMarkCompletedOnEnd(outcome))
                     DreamSession.MarkCompleted(DreamSession.PresetName);
                 net.Broadcast(NetMessageType.DreamLeft, w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);
@@ -369,7 +389,9 @@ namespace DWMPHorde.Sync
             }
             else
             {
-                WorldOutcomeDecided = true;
+                // The world's part of the outcome comes with the dream's end (TakeAwaitedWorld).
+                PersonalOnlyOutcome = true;
+                _awaitWorldPreset = preset;
                 net.Send(NetMessageType.DreamLeft, w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);
             }
             ModLog.Event(LogCat.Dream, $"[DreamExit] this player leaves {preset} by '{outcome}'"
@@ -501,7 +523,6 @@ namespace DWMPHorde.Sync
                 && msg.SessionId != DreamSession.SessionId)
                 return;
             _left.Add(msg.PlayerId);
-            WorldOutcomeDecided = true;
             if (net.TryGetRemoteState(msg.PlayerId, out var st) && st != null)
                 st.IsDeadInDream = false;
             FinalDreamsceneManager.OnPlayerLeftDream(msg.PlayerId);
@@ -519,16 +540,15 @@ namespace DWMPHorde.Sync
             }
             string preset = DreamSession.PresetName;
             string outcome = msg.OutcomeName ?? "";
-            bool first = !WorldOutcomeDecided;
             _left.Add(playerId);
-            WorldOutcomeDecided = true;
+            OfferWorld(playerId, outcome, personalExit: true);
             if (net.TryGetRemoteState(playerId, out var st) && st != null)
                 st.IsDeadInDream = false;
             FinalDreamsceneManager.OnPlayerLeftDream(playerId);
             if (DreamOutcomePolicy.ShouldMarkCompletedOnEnd(outcome))
                 DreamSession.MarkCompleted(preset);
             ModLog.Event(LogCat.Dream, $"[DreamExit] p{playerId} left {preset} by '{outcome}'"
-                + (first ? " (first out: its outcome is the world's)" : ""));
+                + " (the world's outcome so far: '" + WorldOutcomeFor("") + "')");
 
             var relay = new DreamLeftMessage
             {
@@ -545,8 +565,6 @@ namespace DWMPHorde.Sync
             if (dreams != null && dreams.dreaming && HostWorldTime < 0)
                 HostWorldTime = (int)dreams.timeCopy;
             DreamSyncManager.UnfreezeWorld(restoreTime: false);
-            if (first)
-                DreamSyncManager.HostFireOutcomeWorldFor(playerId, preset, outcome);
             HostAfterRosterChange(net, outcome);
             if (DreamSession.IsActive)
                 DWMPHorde.Patches.NamedNpcScalePatch.HostTrimExtras("p" + playerId + " left");
@@ -559,7 +577,7 @@ namespace DWMPHorde.Sync
                 return;
             if (!DreamSyncManager.IsLocalDreamActive && !AnyRemoteDreamer(net))
             {
-                HostEndFromOutside(net, outcome, runWorld: false, actor: 0);
+                HostEndFromOutside(net, outcome, partyEnding: false, actor: 0);
                 return;
             }
             FinalDreamsceneManager.HostRecheckAllDead("a dreamer left");
@@ -567,23 +585,127 @@ namespace DWMPHorde.Sync
 
         /// <summary>
         /// Host, awake: the dream ends for whoever is still in it (the last one left, or an ending
-        /// that is everyone's fired here), with nobody on this machine to wake.
+        /// that is everyone's fired here: <paramref name="partyEnding"/>, reached by
+        /// <paramref name="actor"/>), with nobody on this machine to wake. The world's outcome,
+        /// the furthest ending reached, runs here.
         /// </summary>
-        internal static void HostEndFromOutside(LanNetworkManager net, string outcome, bool runWorld, int actor)
+        internal static void HostEndFromOutside(LanNetworkManager net, string outcome, bool partyEnding, int actor)
         {
             if (net == null || net.Role != NetworkRole.Host || !DreamSession.IsActive)
                 return;
             string preset = DreamSession.PresetName;
-            ModLog.Event(LogCat.Dream, $"[DreamExit] {preset} is over (outcome '{outcome}'), ended from outside it");
+            if (partyEnding)
+                OfferWorld(actor, outcome, personalExit: false);
+            WorldCandidate world = BestWorld(null, 0);
+            ModLog.Event(LogCat.Dream, $"[DreamExit] {preset} is over (outcome '{outcome}'), ended from outside it;"
+                + $" the world's outcome is '{world.Outcome}'" + (world.Actor > 0 ? " (p" + world.Actor + ")" : ""));
             var ended = DreamEndedMessage.Build(preset ?? "", outcome ?? "");
             net.Broadcast(NetMessageType.DreamEnded, w => ended.Serialize(w), DeliveryMethod.ReliableOrdered);
-            if (runWorld && !WorldOutcomeDecided)
+            if (!string.IsNullOrEmpty(world.Outcome))
             {
-                WorldOutcomeDecided = true;
-                DreamSyncManager.HostFireOutcomeWorldFor(actor, preset, outcome);
+                // Every player's own part ran at its own wake-up: the host's body gets none here.
+                int actorId = world.Actor == net.LocalPlayerId ? 0 : world.Actor;
+                DreamSyncManager.HostFireOutcomeWorldFor(actorId, preset, world.Outcome, suppressLocalPersonal: actorId == 0);
             }
             DreamSession.End(outcome);
             DreamSyncManager.OnHostedDreamOver();
+        }
+
+        // ---- what the dream changes in the world -----------------------------------------------
+
+        /// <summary>
+        /// How far an ending went: a death, a failure or no ending at all 0; a player's own way out
+        /// 1; an ending that is everyone's (a creature killed, a scene, a dialogue) 2.
+        /// </summary>
+        private static int WorldRank(string outcome, bool personalExit)
+        {
+            if (DreamSession.IsNonRewardOutcome(outcome))
+                return 0;
+            return personalExit ? 1 : 2;
+        }
+
+        /// <summary>Host: a player reached <paramref name="outcome"/>.</summary>
+        private static void OfferWorld(int actor, string outcome, bool personalExit)
+        {
+            var net = ModRuntime.Network;
+            if (net == null || net.Role != NetworkRole.Host || string.IsNullOrEmpty(outcome))
+                return;
+            _worldCandidates.Add(new WorldCandidate
+            {
+                Outcome = outcome,
+                Actor = actor,
+                Rank = WorldRank(outcome, personalExit)
+            });
+        }
+
+        /// <summary>
+        /// The furthest ending reached (the earliest of equals), counting <paramref name="ending"/>
+        /// (null: none) as one more. An ending with the name of a player's own way out already
+        /// reached is that way out.
+        /// </summary>
+        private static WorldCandidate BestWorld(string ending, int endingActor)
+        {
+            var best = new WorldCandidate { Outcome = "", Rank = -1 };
+            for (int i = 0; i < _worldCandidates.Count; i++)
+            {
+                if (_worldCandidates[i].Rank > best.Rank)
+                    best = _worldCandidates[i];
+            }
+            if (!string.IsNullOrEmpty(ending))
+            {
+                int rank = -1;
+                for (int i = 0; i < _worldCandidates.Count; i++)
+                {
+                    if (_worldCandidates[i].Outcome == ending)
+                        rank = Math.Max(rank, _worldCandidates[i].Rank);
+                }
+                if (rank < 0)
+                    rank = WorldRank(ending, personalExit: false);
+                if (rank > best.Rank)
+                    best = new WorldCandidate { Outcome = ending, Actor = endingActor, Rank = rank };
+            }
+            return best;
+        }
+
+        /// <summary>
+        /// The outcome whose world events the dream's end runs, when it ends with
+        /// <paramref name="ending"/>. Host: the furthest ending any player reached. Client: the one
+        /// the host announced, else the ending itself.
+        /// </summary>
+        internal static string WorldOutcomeFor(string ending)
+        {
+            var net = ModRuntime.Network;
+            if (net != null && net.Role == NetworkRole.Host)
+            {
+                string best = BestWorld(ending, net.LocalPlayerId).Outcome;
+                return string.IsNullOrEmpty(best) ? ending ?? "" : best;
+            }
+            return string.IsNullOrEmpty(ReceivedWorldOutcome) ? ending ?? "" : ReceivedWorldOutcome;
+        }
+
+        /// <summary>Client, on the host's DreamEnded: the world outcome its wake-up applies.</summary>
+        internal static void NoteReceivedWorldOutcome(string worldOutcome) => ReceivedWorldOutcome = worldOutcome;
+
+        /// <summary>Client: this dream's wake-up is done with the announced world outcome.</summary>
+        internal static void ClearReceivedWorldOutcome() => ReceivedWorldOutcome = null;
+
+        /// <summary>
+        /// Client, on the host's DreamEnded: this player left the dream before its end (it is awake,
+        /// or its own exit still plays), so its wake-up ran only its own part. The world's part of
+        /// the outcome the party ended with runs now.
+        /// </summary>
+        internal static void TakeAwaitedWorld(DreamEndedMessage msg)
+        {
+            string preset = _awaitWorldPreset;
+            if (string.IsNullOrEmpty(preset) || DreamSession.IsFailureCleanup(msg.OutcomeName))
+                return;
+            if (!string.IsNullOrEmpty(msg.PresetName)
+                && Core.getTrueLocationName(msg.PresetName) != Core.getTrueLocationName(preset))
+                return;
+            _awaitWorldPreset = null;
+            string world = string.IsNullOrEmpty(msg.WorldOutcome) ? msg.OutcomeName : msg.WorldOutcome;
+            ModLog.Event(LogCat.Dream, $"[DreamExit] {preset} is over: the world takes '{world}'");
+            DreamSyncManager.ReplayDeferredWorld(preset, world);
         }
 
         internal static bool AnyRemoteDreamer(LanNetworkManager net)

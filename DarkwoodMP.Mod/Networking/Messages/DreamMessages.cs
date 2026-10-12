@@ -108,6 +108,11 @@ namespace DWMPHorde.Networking
         public int SessionId;
         public byte LvlFlags;
         public string[] CompletedPresets;
+        /// <summary>
+        /// The outcome whose world events the dream's end runs: the furthest ending any player
+        /// reached (DreamExit.WorldOutcomeFor), which can be another than the one it ended with.
+        /// </summary>
+        public string WorldOutcome;
 
         public void Serialize(NetWriter w)
         {
@@ -119,6 +124,7 @@ namespace DWMPHorde.Networking
             w.Put(done.Length);
             for (int i = 0; i < done.Length; i++)
                 w.Put(done[i] ?? "");
+            w.Put(WorldOutcome ?? "");
         }
 
         public static DreamEndedMessage Deserialize(NetReader r)
@@ -132,6 +138,7 @@ namespace DWMPHorde.Networking
             msg.SessionId = r.GetInt();
             msg.LvlFlags = r.GetByte();
             msg.CompletedPresets = DreamWire.ReadPresets(r);
+            msg.WorldOutcome = r.GetString();
             return msg;
         }
 
@@ -141,7 +148,8 @@ namespace DWMPHorde.Networking
             OutcomeName = outcome ?? "",
             SessionId = DreamSession.SessionId,
             LvlFlags = DreamSession.LevelBits,
-            CompletedPresets = DreamSession.GetCompletedPresets()
+            CompletedPresets = DreamSession.GetCompletedPresets(),
+            WorldOutcome = DreamExit.WorldOutcomeFor(outcome)
         };
     }
 

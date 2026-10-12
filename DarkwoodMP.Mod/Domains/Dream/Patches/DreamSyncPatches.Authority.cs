@@ -74,7 +74,7 @@ namespace DWMPHorde.Patches
                 && !__instance.dreaming && DreamSession.IsActive)
             {
                 DreamExit.HostEndFromOutside(ModRuntime.Network, __instance.outcome ?? "",
-                    runWorld: true, actor: GeFireActorContext.PeekOr(0));
+                    partyEnding: true, actor: GeFireActorContext.PeekOr(0));
                 return false;
             }
 

@@ -234,11 +234,14 @@ namespace DWMPHorde.Sync
         }
 
         /// <summary>
-        /// Host: a client left the dream first, so its outcome is what the dream changed in the
-        /// world. Its world events fire here as that player's (the personal steps are its own
-        /// machine's, <see cref="ReplayOutcomeWorldEvent"/>).
+        /// Host, awake: the dream is over for everyone and <paramref name="outcomeName"/> (the
+        /// furthest ending reached, <see cref="DreamExit.WorldOutcomeFor"/>) is what it changed in
+        /// the world. Its world events fire here as that player's (the personal steps are its own
+        /// machine's). <paramref name="suppressLocalPersonal"/>: nobody's body here takes them (the
+        /// host reached it itself and its wake-up already ran them).
         /// </summary>
-        internal static void HostFireOutcomeWorldFor(int actorPlayerId, string presetName, string outcomeName)
+        internal static void HostFireOutcomeWorldFor(int actorPlayerId, string presetName, string outcomeName,
+            bool suppressLocalPersonal = false)
         {
             if (DreamSession.IsFailureCleanup(outcomeName))
                 return;
@@ -246,6 +249,9 @@ namespace DWMPHorde.Sync
             bool pushed = actorPlayerId > 0;
             if (pushed)
                 GeFireActorContext.Push(actorPlayerId);
+            bool prevSuppress = GameEventPersonalActorPatch.SuppressPersonalForLocalPlayer;
+            if (suppressLocalPersonal)
+                GameEventPersonalActorPatch.SuppressPersonalForLocalPlayer = true;
             try
             {
                 RunOutcomeWorldEffects(outcome, personal: false);
@@ -256,14 +262,25 @@ namespace DWMPHorde.Sync
             }
             finally
             {
+                GameEventPersonalActorPatch.SuppressPersonalForLocalPlayer = prevSuppress;
                 if (pushed)
                     GeFireActorContext.Pop();
             }
         }
 
         /// <summary>
-        /// A later leaver's outcome world event: the world's part was the first leaver's, so only
-        /// the steps on this player's own body run (<see cref="DreamExit.PersonalOnlyFire"/>),
+        /// Client that left the dream before its end: the world's part of the outcome the party
+        /// ended with, now that it is over (<see cref="DreamExit.TakeAwaitedWorld"/>).
+        /// </summary>
+        internal static void ReplayDeferredWorld(string presetName, string outcomeName)
+        {
+            NoteOutcomeWorldEventLatches(presetName);
+            ReplayOutcomeWorldOnly(presetName, outcomeName);
+        }
+
+        /// <summary>
+        /// A leaver's outcome world event while the dream goes on: the world's part comes at the
+        /// dream's end, so only the steps on this player's own body run (<see cref="DreamExit.PersonalOnlyFire"/>),
         /// whether or not the event is latched here.
         /// </summary>
         internal static void RunOutcomePersonalOnly(string type)
@@ -335,15 +352,16 @@ namespace DWMPHorde.Sync
         }
 
         /// <summary>
-        /// A peer that died in the dream wakes with the death outcome's personal effects
-        /// (DreamEndPatch), but the world changed with the party's outcome: its world events stay
-        /// the party's, as on every other peer.
+        /// A peer wakes with its own outcome's personal effects (a dead peer: the death outcome's,
+        /// DreamEndPatch), but the world changed with the party's world outcome (the furthest
+        /// ending reached, <see cref="DreamExit.WorldOutcomeFor"/>): its world events are that
+        /// one's, as on every other peer.
         /// </summary>
         internal static DreamPreset.Outcome WithPartyWorldEvents(DreamPreset.Outcome own, Dreams dreams, string partyOutcome)
         {
             if (own == null)
                 return null;
-            DreamPreset.Outcome party = ResolveOutcome(dreams, partyOutcome);
+            DreamPreset.Outcome party = ResolveEffectOutcome(dreams != null ? dreams.preset : null, partyOutcome);
             if (party == null || ReferenceEquals(party, own))
                 return own;
             var effects = new List<DreamPreset.Outcome.Effect>();

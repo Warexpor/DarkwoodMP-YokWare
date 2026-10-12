@@ -32,6 +32,11 @@ namespace DWMPHorde.Sync
         public static byte LevelBits => 0;
         public static string[] GetCompletedPresets() => System.Array.Empty<string>();
     }
+
+    public static class DreamExit
+    {
+        public static string WorldOutcomeFor(string ending) => ending ?? "";
+    }
 }
 
 // Game classes live in the global namespace.
