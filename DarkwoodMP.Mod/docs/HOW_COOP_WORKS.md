@@ -802,11 +802,14 @@ party events.
   awake (creatures, clock). What the dream changed in the world is decided by the
   first player out; everyone gets their own outcome's items. Endings nobody else
   could trigger again (a creature killed, a scripted scene, a dialogue), a dream that
-  hands over to its next part and the ending still finish it for everyone.
+  hands over to its next part and the ending still finish it for everyone. A player
+  who has left is gone from the dream for those still in it, also while their
+  wake-up plays: nothing there sees, triggers on or hurts them.
 - **Anyone can drive the story.** A client's talk, lamp, area step or blow on a story
   object moves the dream on for everyone; a dream that hands over to the next one
   (doctor 1 to 2) takes everyone along. Creatures the story sends (the forest spirit,
-  chompers) go after the player who set them off.
+  chompers) go after the player who set them off, and run from that player's ward
+  (the bunker dream's escape path) as they do from the host's.
 - **Level-up dreams.** The first player to reach level 2, 3, 5, 6 or 7 brings that
   level's dream to everyone present, and that level's dream is then played for the
   whole party, however it ended: a player who reaches the level later just levels

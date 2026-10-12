@@ -33,24 +33,13 @@ namespace DWMPHorde.Patches
             Player host = Player.Instance;
             if (host == null)
                 return;
-            if (__instance.afraidOfHideout || __instance.afraidOfForestSpiritWard)
-                FleePeerWard(__instance, host);
-            bool hostWard = host.effects != null
-                && (__instance.afraidOfHideout && host.effects.hasEffectType(CharacterEffectType.shadowWard)
-                    || __instance.afraidOfForestSpiritWard && host.effects.hasEffectType(CharacterEffectType.forestSpiritWard));
-            if (!hostWard && !__instance.constantlyAttackPlayer)
+            bool afraid = __instance.afraidOfHideout || __instance.afraidOfForestSpiritWard;
+            if (!afraid && !__instance.constantlyAttackPlayer)
                 return;
 
             Transform body = PlayerTargetArbiter.ScriptedPick(__instance);
-            if (body == null || body == host.transform)
-                return;
-
-            if (hostWard)
-            {
-                HostWardMask.Active = true;
-                __state.MaskedWard = true;
-            }
-            if (__instance.constantlyAttackPlayer)
+            bool peer = body != null && body != host.transform;
+            if (peer && __instance.constantlyAttackPlayer)
             {
                 // Same as vanilla's first block, aimed at the peer; vanilla's is skipped this call.
                 if (__instance.AIpath != null)
@@ -58,6 +47,20 @@ namespace DWMPHorde.Patches
                 __instance.lastKnownTargetPosition = body.position;
                 __instance.constantlyAttackPlayer = false;
                 __state.RestoreConstant = true;
+            }
+            // After the chase step, as in vanilla: a ward's run-away is the last word on the path.
+            // Run first, the chase step set the path straight back to the warded peer (the bunker
+            // dream's forest spirit reached a client on the warded escape path and kept hitting it).
+            if (peer && afraid)
+                FleePeerWard(__instance, body);
+
+            bool hostWard = host.effects != null
+                && (__instance.afraidOfHideout && host.effects.hasEffectType(CharacterEffectType.shadowWard)
+                    || __instance.afraidOfForestSpiritWard && host.effects.hasEffectType(CharacterEffectType.forestSpiritWard));
+            if (peer && hostWard)
+            {
+                HostWardMask.Active = true;
+                __state.MaskedWard = true;
             }
         }
 
@@ -70,15 +73,12 @@ namespace DWMPHorde.Patches
         }
 
         /// <summary>
-        /// Vanilla's ward branch for a peer: the character after a warded peer runs from it (and
-        /// despawns; from a forest-spirit ward it also goes blind and despawns 10 s later),
-        /// whether or not it has seen that peer this tick.
+        /// Vanilla's ward branch for a peer: the character after a warded peer runs from it, on every
+        /// check while the ward lasts, and despawns; from a forest-spirit ward it also goes blind and
+        /// despawns 10 s after the first.
         /// </summary>
-        private static void FleePeerWard(Character c, Player host)
+        private static void FleePeerWard(Character c, Transform body)
         {
-            Transform body = PlayerTargetArbiter.ScriptedPick(c);
-            if (body == null || body == host.transform)
-                return;
             RemotePlayerProxy proxy = body.GetComponent<RemotePlayerProxy>();
             if (proxy == null)
                 return;
@@ -87,16 +87,19 @@ namespace DWMPHorde.Patches
                 c.runAway(body.position);
                 c.wantToDespawn = true;
             }
-            if (c.afraidOfForestSpiritWard && proxy.RemoteHasForestSpiritWard && !c.blind)
+            if (c.afraidOfForestSpiritWard && proxy.RemoteHasForestSpiritWard)
             {
                 c.runAway(body.position);
-                c.blind = true;
-                Character fleeing = c;
-                Singleton<Controller>.Instance.Invoke(delegate
+                if (!c.blind)
                 {
-                    if (fleeing != null)
-                        fleeing.wantToDespawn = true;
-                }, 10f, timeScaleDependent: true);
+                    c.blind = true;
+                    Character fleeing = c;
+                    Singleton<Controller>.Instance.Invoke(delegate
+                    {
+                        if (fleeing != null)
+                            fleeing.wantToDespawn = true;
+                    }, 10f, timeScaleDependent: true);
+                }
             }
         }
     }

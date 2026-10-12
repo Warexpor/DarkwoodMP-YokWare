@@ -76,6 +76,15 @@ namespace DWMPHorde.Sync
 
         internal static bool HasLeft(int playerId) => _left.Contains(playerId);
 
+        /// <summary>
+        /// <paramref name="playerId"/> left the running dream by its own exit and its body is still
+        /// reported on the pad (lying in the exit's bed through its wake-up). It is awake: it waits
+        /// out of sight, every trigger and every creature's reach until it is back in the world.
+        /// The dream's creatures went on hitting it there (the bunker dream's forest spirit).
+        /// </summary>
+        internal static bool HidesLeaverBody(int playerId, Vector3 pos)
+            => _left.Count > 0 && _left.Contains(playerId) && DreamSyncManager.IsAtDreamPad(pos);
+
         /// <summary>A session begins: nothing of the last one is left.</summary>
         internal static void ResetForNewSession()
         {

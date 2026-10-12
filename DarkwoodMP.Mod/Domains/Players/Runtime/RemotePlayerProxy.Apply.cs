@@ -18,7 +18,9 @@ namespace DWMPHorde.Players
             // In a solo dream each player is in its own copy: a body in this player's copy is
             // not there. It waits below the world, as before its first state, out of sight,
             // out of every trigger and every creature's reach, until it is somewhere else.
-            if (Sync.SeparateDream.HidesBody(state.Position))
+            // So does a player that woke up by its own exit while its wake-up still reports the pad.
+            if (Sync.SeparateDream.HidesBody(state.Position)
+                || Sync.DreamExit.HidesLeaverBody(PlayerId, state.Position))
                 state.Position = AbsentPosition;
             _targetRotationY = state.TorsoFacingY;
             _hasState = true;

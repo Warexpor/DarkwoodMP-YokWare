@@ -3,12 +3,12 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.266**. The current Horde wire protocol is **64**. Every install in a session
+**0.8.267**. The current Horde wire protocol is **64**. Every install in a session
 needs the same DLL; the protocol is checked on join.
 
 Protocol history (newest first):
 
-- **64**, 0.8.265 to 0.8.266: `SessionSettings` gains the host's `SoloHomeDream`.
+- **64**, 0.8.265 to 0.8.267: `SessionSettings` gains the host's `SoloHomeDream`.
 - **63**, 0.8.259 to 0.8.264: `TradeCommit` gains the trade's change to the trader's standing; a
   `DialogMirror` element gains the language entry its text came from; `PlayerEffectSync` uses
   a spare bit (`MovedHome`, Flags2 64).
@@ -77,6 +77,32 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.267 — the bunker dream's forest spirit leaves a warded client alone; woken players are out of the dream
+
+- **The forest spirit chased a client on the escape path.** The path to the bed carries
+  the forest-spirit ward; vanilla's spirit runs from a warded player on every check. On
+  the host, the spirit after a client is aimed at that client first (it attacks
+  constantly), and the mod ran the ward's run-away before that aim, so the aim won and
+  the spirit kept coming. It also ran away only once, then went straight back. Now the
+  aim comes first and the run-away last, on every check while the ward lasts, as in
+  vanilla (`HostWardScopePatch`). The same order fixes the shadow ward for constant
+  attackers.
+- **A player who woke up by the bed still took hits.** Their body stays on the pad
+  through the wake-up, and the spirit's area damage hit it four more times (16 each)
+  while the client was already waking up. A player who has left the running dream
+  by their own exit is now out of sight, out of every trigger and out of every
+  creature's reach on the pad, as in the solo dream (`DreamExit.HidesLeaverBody`,
+  `RemotePlayerProxy.ApplyNetworkState`, `TeleportRemoteProxyTo`).
+- **Errors after waking first.** A client that woke while the host was still in the
+  dream logged a `NullReferenceException` (AstarPath.GetNodesAround) every pass: the
+  host's flashlight on the pad was looked up against the pad's path graph, which is
+  gone once you are out. Its beam is no longer lit while it is on a pad this player
+  woke up from (`RemoteFlashlightNodesPatch`).
+- **Level-up with no dream (checked, no change).** Confirming a level-up whose dream
+  the party already played returns to the essence screen, which needs one more press
+  to close, then saves (vanilla's own save, ~170 ms). With a dream, vanilla goes
+  straight into it, so the extra step only shows now.
 
 ## 0.8.266 — level-up dreams once per party
 
