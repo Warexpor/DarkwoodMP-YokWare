@@ -1,6 +1,6 @@
 # Architecture
 
-How the Path B mod is put together, and the rules a change has to follow. For
+How the mod is put together, and the rules a change has to follow. For
 what each domain covers at runtime, see [COOP_COVERAGE.md](COOP_COVERAGE.md). For
 the co-op design rules themselves (who owns what, and how each gameplay area
 behaves), see [HOW_COOP_WORKS.md](HOW_COOP_WORKS.md).
@@ -20,7 +20,7 @@ behaves), see [HOW_COOP_WORKS.md](HOW_COOP_WORKS.md).
 | `Networking/Messages/` | Wire message structs and `NetMessageType`. |
 | `Networking/Session/` | Handshake, late join, save sync, world identity, `SessionState` / `LinkState`. |
 | `Networking/Services/` | World save share, client backups, host migration, entity broadcast/interpolation, reset registry. |
-| `Domains/<Area>/` | Net handlers and sync services per gameplay area (Combat, Dialogue, Doors, Dream, Inventory, Map, Night, Players, World). |
+| `Domains/<Area>/` | Net handlers and sync services per gameplay area (Combat, Dialogue, Doors, Dream, Inventory, Map, Night, Players, World), plus `Diagnostics` (the desync check, the test pilot). |
 | `Domains/<Area>/Patches/` | Harmony patches for that area. |
 | `Core/` | Pure policy helpers (unit-tested), death state, guards, gameplay constants. |
 | `Audio/` | Peer and world sound routing, voice chat (`VoiceMic` capture, `VoiceCodec` over the Opus port in `ThirdParty/Concentus`, `VoiceChatService` proximity, walkie and radio), per-player voice volumes. |

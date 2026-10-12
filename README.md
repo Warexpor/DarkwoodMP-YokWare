@@ -199,7 +199,8 @@ The full list, including what was left as is on purpose, is in
 
 Create `DarkwoodMP.Mod/GamePath.local.props` (gitignored). It is required on
 Linux, where the built-in default (a Windows path) does not exist. `SecondPlugins`
-is optional; it is the plugins folder of a second install for dual-box testing.
+and `ThirdPlugins` are optional: the plugins folders of a second and third install
+for two- and three-player testing on one machine.
 
 ```xml
 <Project>
@@ -232,7 +233,7 @@ dotnet build DarkwoodMP.Mod -c Release -p:Loader=MelonLoader
 ```
 
 The output is in `DarkwoodMP.Mod/bin/Release/<Loader>/`. A BepInEx build also
-copies the DLLs into `GameDir` and `SecondPlugins` as a development convenience;
+copies the DLLs into `GameDir`, `SecondPlugins` and `ThirdPlugins` as a development convenience;
 add `-p:SkipDeploy=true` to build without copying. Release zips for both loaders:
 
 ```bash

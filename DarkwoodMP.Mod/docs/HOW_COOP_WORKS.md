@@ -808,7 +808,8 @@ party events.
   dream done. A player who missed it (late, or dead) still gets an unplayed dream
   for that level later, or just levels up if none is left. A played dream is never
   repeated for the party. The bunker dream (level 2) is played once per world (a
-  new world started in a save slot does not inherit the old world's played dreams).
+  new world started in a save slot does not inherit the old world's played dreams);
+  in chapter 1 a world that has not played it gets it with its next level-up dream.
 - **Dying in a dream:** you spectate until it ends. When every dreamer is dead, the
   dream ends as a death outcome, also when the host is not one of the dreamers.
 - **Items in the scene:** an item the dream's scene has lying around (a weapon against
@@ -820,9 +821,17 @@ party events.
 - **Rewards:** dream outcome items are given to each dreamer. The outcome's world
   events reach every player, including one who died in the dream. A failed or
   abandoned dream gives nothing and is not marked done.
+- **One scene, in one place.** Every player loads the dream's scene at the spot
+  the host's game put it, a dream's next part too, so everything in it lines up.
+  The scene's own characters (its corpses, birds, talking door, chickens) and its
+  music are there on every game.
+- **What is each player's own in a dream:** a sound area or a repeatable trigger
+  plays for the player standing in it, and a cue tied to seeing something plays
+  for whoever sees it, as in vanilla. Story steps are shared.
 - **Same names, two worlds.** Dream scenes reuse object names from the overworld
-  (the bunker door, for one). Every dream lookup is scoped to the dream pad so a
-  player in the overworld is never affected.
+  (the bunker door, for one). Every dream lookup is scoped to the dream's own map
+  slot (the whole scene, not only near its centre), so a player in the overworld is
+  never affected.
 - **Host migration during a dream** carries the dream over to the new host (done in
   code, not yet playtested).
 

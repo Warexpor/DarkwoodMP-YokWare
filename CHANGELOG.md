@@ -3,7 +3,7 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.259**. The current Horde wire protocol is **63**. Every install in a session
+**0.8.260**. The current Horde wire protocol is **63**. Every install in a session
 needs the same DLL; the protocol is checked on join.
 
 Protocol history (newest first):
@@ -80,6 +80,8 @@ tested in the game.
 ## 0.8.260 — the morning clock runs once anyone walks out; the bunker dream comes with the next level-up; dreams played through by three players: the chained Doctor dream in one place for all, dream residents and the dream's music on every game, dream doors and events far from the scene's centre synced, no repeated door creak
 
 Deployed to the Steam, second and third installs (md5 6865c0db), played by the test pilot in the box (three players, every dream), not by people. Protocol 63, no change.
+
+Docs: How co-op works (dreams: one scene in one place, what is each player's own in a dream, the bunker with the next level-up), LOGGING.md (a step-by-step for a detailed bug log, every log tag, install-neutral paths), the coverage table's dream row, the README's third test install.
 
 **The clock stayed stopped all morning while anyone stood in the hideout.** The morning freeze
 held the clock for everyone until the last player walked out, so the players outside lived in a
