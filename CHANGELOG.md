@@ -8,7 +8,7 @@ needs the same DLL; the protocol is checked on join.
 
 Protocol history (newest first):
 
-- **63**, 0.8.259: `TradeCommit` gains the trade's change to the trader's standing; a
+- **63**, 0.8.259 to 0.8.260: `TradeCommit` gains the trade's change to the trader's standing; a
   `DialogMirror` element gains the language entry its text came from; `PlayerEffectSync` uses
   a spare bit (`MovedHome`, Flags2 64).
 - **62**, 0.8.252 to 0.8.258: new `PeerNotice` (173). 0.8.257 uses a spare bit of the entity
