@@ -1,0 +1,45 @@
+YokWare Branch {VERSION} - co-op multiplayer for Darkwood (MelonLoader build)
+Wire protocol {PROTOCOL}. Every player in a session needs this same version.
+
+WHAT IS IN THIS ZIP
+  Mods/DarkwoodMP.Mod.dll     the mod
+  UserLibs/LiteNetLib.dll     its network library (required)
+  LICENSE                     GPLv3
+
+INSTALL
+1. Install MelonLoader 0.7.x into your Darkwood folder (the Windows game):
+   https://github.com/LavaGang/MelonLoader/releases
+   Launch the game once so MelonLoader creates its folders, then quit.
+2. Extract this zip into the Darkwood folder (the one with Darkwood.exe), so you get
+   Darkwood/Mods/DarkwoodMP.Mod.dll and Darkwood/UserLibs/LiteNetLib.dll.
+3. Launch Darkwood.
+   - Under Proton/Wine (Linux, Steam Deck): set the Steam launch options to
+       WINEDLLOVERRIDES="version=n,b" %command%
+     or MelonLoader is skipped.
+4. Check: MULTIPLAYER under PLAY on the title screen shows "YokWare Branch {VERSION}"
+   at the bottom.
+
+Use one loader per game install. Do not also install the BepInEx build.
+To update, replace both DLLs. To uninstall, delete them.
+
+PLAYING
+- Host: MULTIPLAYER > Host > Local network or Steam, then pick a profile.
+  Friends can join once you are in the world.
+- Join over Steam: MULTIPLAYER > Join > Steam friends, or accept the host's invite.
+- Join over LAN/VPN: MULTIPLAYER > Join, type the host's address (port 7788).
+  GOG copies have no Steam and join over LAN.
+- Keys: Esc pause menu (MULTIPLAYER inside), F4 spectate, Ctrl+C text chat,
+  V push-to-talk.
+- Only the host saves. Your character comes back when you rejoin the same host.
+
+SETTINGS
+  Darkwood/UserData/YokWare/com.yokware.branch.cfg (created on first launch;
+  most options are also in MULTIPLAYER > Settings)
+
+REPORTING A BUG
+Send Darkwood/MelonLoader/Latest.log from every player, right after the problem and
+before starting the game again (it is overwritten on each launch). Say who hosted
+and what each player did.
+
+Source, full docs and changelog: https://github.com/Warexpor/DarkwoodMP-YokWare
+Unofficial fan mod; needs a legal copy of Darkwood (Acid Wizard Studio).

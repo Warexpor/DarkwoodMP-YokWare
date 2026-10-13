@@ -131,6 +131,24 @@ The host runs the world. A client should barely notice they are not the host: en
 - If the user asks to deploy/test without committing: still write CHANGELOG before saying done.
 - Skip only pure no-op chores (typo-only doc polish with no behavior change, path-only AGENTS edits that already describe themselves).
 
+## Release zips (public share on Discord)
+
+The public build is two zips, one per loader. Pack them only with the script, never by hand:
+
+```bash
+export DOTNET_ROOT=/home/warexpor/Unity/Hub/Editor/6000.6.0f1/Editor/Data/DotNetSdk
+export PATH="$DOTNET_ROOT:$PATH"
+scripts/pack-release.sh            # builds both loaders (SkipDeploy), runs the tests, packs
+```
+
+- Output: `artifacts/DarkwoodMP-YokWare-<version>-BepInEx.zip` and `…-MelonLoader.zip` (`artifacts/` is gitignored; zips are never committed).
+- Contents, exactly: BepInEx zip is flat: `DarkwoodMP.Mod.dll`, `LiteNetLib.dll`, `LICENSE`, `INSTALL.txt` (all go to `BepInEx/plugins/`). MelonLoader zip mirrors the game folder: `Mods/DarkwoodMP.Mod.dll`, `UserLibs/LiteNetLib.dll`, `LICENSE`, `INSTALL.txt`. No pdb, no add-ons, no config, no other DLLs.
+- `INSTALL.txt` comes from `scripts/release/INSTALL-BepInEx.txt` / `INSTALL-MelonLoader.txt` (`{VERSION}`, `{PROTOCOL}` filled from `PluginInfo.cs`, CRLF). Change the install steps there, not in the scripts; `pack-release.ps1` (Windows) reads the same files. When README's Install or Playing section changes, update both templates in the same commit.
+- Pack from a clean, committed tree on `main` after the merge, so the zip matches a pushed commit. The version in the zip names must equal README/`PluginInfo`/CHANGELOG.
+- Check the output the script prints: both listings as above, and each `DarkwoodMP.Mod.dll` md5 in the zip matching `DarkwoodMP.Mod/bin/Release/<loader>/`.
+- The manual-saves add-on is not part of the public share unless the user asks: `--addons` packs `YokWare-ManualSaves-<v>-<loader>.zip` too. `--no-build` packs DLLs already built.
+- The entity spawner (debug) is never packed.
+
 ## Studio rules (shared with SyncRADation)
 
 - **Reverse-check both arrows.** A playtest report ("A did X, B saw Y") is one direction. Before calling a sync fix done, swap initiator/observer (host↔client) and presence (in-room vs late-join) and trace the real send/apply/authority path for each.

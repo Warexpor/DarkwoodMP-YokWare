@@ -3,12 +3,12 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.278**. The current Horde wire protocol is **68**. Every install in a session
+**0.8.279**. The current Horde wire protocol is **68**. Every install in a session
 needs the same DLL; the protocol is checked on join.
 
 Protocol history (newest first):
 
-- **68**, 0.8.278: new `ObjectSpawnerFired` (175) and `OxygenTankRecords` (176); `PeerRoster`
+- **68**, 0.8.278 to 0.8.279: new `ObjectSpawnerFired` (175) and `OxygenTankRecords` (176); `PeerRoster`
   gains the host's `NextCreatureId`.
 - **67**, 0.8.276 to 0.8.277: new `OxygenTankSet` (174); `OxygenTankTier` (157) retired.
 - **66**, 0.8.274 to 0.8.275: `PlayerAttack` gains `CanInterrupt` and `NormalHit`; `FriendlyFire` gains
@@ -81,6 +81,24 @@ Protocol history (newest first):
 This file is a public ship log. Code-only status and runtime status are called
 out separately. A runtime item is not considered verified until it has been
 tested in the game.
+
+---
+
+## 0.8.279 — manual save slots stay after permadeath; release zips
+
+**Protocol 68** (unchanged). Built (BepInEx and MelonLoader, both add-ons) and unit-tested;
+**runtime is not playtested**.
+
+- Manual saves: a profile's slots are kept when the game deletes its save (permadeath, a deleted
+  profile, a new game over it), as before 0.8.278. A permadeath run can be loaded back from F3 on
+  purpose. `AddOnApi.ProfileSaveDeleted` (added in 0.8.278 only for this) is removed again. The
+  0.8.278 fix for a slot without a chapter in its meta stays.
+- Release packing: `scripts/pack-release.sh` builds the two public zips (BepInEx, MelonLoader),
+  each with `DarkwoodMP.Mod.dll`, `LiteNetLib.dll`, `LICENSE` and a fuller `INSTALL.txt` (loader
+  links, Proton launch options, host and join, where the logs are). The add-on zips are opt-in
+  (`--addons`). The packing rule is in `AGENTS.md`.
+- Docs: README's install section names the two release zips and where they are shared; the
+  build section lists the packing options.
 
 ---
 

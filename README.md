@@ -5,7 +5,7 @@ join it: the same forest, the same nights, the same story, played together.
 
 | | |
 |--|--|
-| Product | YokWare Branch **0.8.278** |
+| Product | YokWare Branch **0.8.279** |
 | Wire | Horde protocol **68** |
 | Players | Up to 8 by default (`MaxPlayers`, host included) |
 | Transport | LAN (LiteNetLib) or Steam lobby (SteamNetworkingSockets) |
@@ -61,9 +61,12 @@ Expect bugs, and send logs (see [Reporting a bug](#reporting-a-bug)).
 Use one loader per game installation. Never put both loader builds in the same
 game folder.
 
-Prebuilt zips are attached to a [GitHub release](https://github.com/Warexpor/DarkwoodMP-YokWare/releases)
-when one is published (each zip has an `INSTALL.txt`). Otherwise build the DLLs
-yourself (see [Building from source](#building-from-source)).
+Prebuilt zips come in two flavours, `DarkwoodMP-YokWare-<version>-BepInEx.zip` and
+`DarkwoodMP-YokWare-<version>-MelonLoader.zip`. Each holds the mod, its LiteNetLib
+dependency and an `INSTALL.txt` with these steps. They are shared on our
+Discord server and attached to a [GitHub release](https://github.com/Warexpor/DarkwoodMP-YokWare/releases)
+when one is published. Otherwise build the DLLs yourself (see
+[Building from source](#building-from-source)).
 
 ### BepInEx (default)
 
@@ -234,7 +237,9 @@ dotnet build DarkwoodMP.Mod -c Release -p:Loader=MelonLoader
 
 The output is in `DarkwoodMP.Mod/bin/Release/<Loader>/`. A BepInEx build also
 copies the DLLs into `GameDir`, `SecondPlugins` and `ThirdPlugins` as a development convenience;
-add `-p:SkipDeploy=true` to build without copying. Release zips for both loaders:
+add `-p:SkipDeploy=true` to build without copying. Release zips for both loaders
+(into `artifacts/`; `--addons` also packs the manual-saves add-on, `--no-build` packs
+the DLLs already built):
 
 ```bash
 ./scripts/pack-release.sh
@@ -269,7 +274,7 @@ extra save slots per profile, opened with **F3** in the world (a Saves screen in
 pause menu). It needs the co-op mod next to it. In co-op only the host saves (every
 player's copy is saved with it), and loading a slot needs the session left first.
 Build it with `dotnet build DarkwoodMP.ManualSaves -c Release` (it deploys like the
-mod); the release ships it as its own zip.
+mod); `./scripts/pack-release.sh --addons` packs it as its own zip.
 
 ### Entity spawner (optional)
 

@@ -30,7 +30,6 @@ namespace YokWare.ManualSaves
             var go = new GameObject("YokWare_ManualSaves");
             Object.DontDestroyOnLoad(go);
             go.AddComponent<SavesScreen>();
-            DWMPHorde.AddOnApi.ProfileSaveDeleted += SaveSlots.DeleteProfileSlots;
         }
     }
 #endif
@@ -44,7 +43,6 @@ namespace YokWare.ManualSaves
             var go = new GameObject("YokWare_ManualSaves");
             Object.DontDestroyOnLoad(go);
             go.AddComponent<SavesScreen>();
-            DWMPHorde.AddOnApi.ProfileSaveDeleted += SaveSlots.DeleteProfileSlots;
         }
     }
 #endif
