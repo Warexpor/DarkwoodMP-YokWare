@@ -3,12 +3,12 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.279**. The current Horde wire protocol is **68**. Every install in a session
+**0.8.280**. The current Horde wire protocol is **68**. Every install in a session
 needs the same DLL; the protocol is checked on join.
 
 Protocol history (newest first):
 
-- **68**, 0.8.278 to 0.8.279: new `ObjectSpawnerFired` (175) and `OxygenTankRecords` (176); `PeerRoster`
+- **68**, 0.8.278 to 0.8.280: new `ObjectSpawnerFired` (175) and `OxygenTankRecords` (176); `PeerRoster`
   gains the host's `NextCreatureId`.
 - **67**, 0.8.276 to 0.8.277: new `OxygenTankSet` (174); `OxygenTankTier` (157) retired.
 - **66**, 0.8.274 to 0.8.275: `PlayerAttack` gains `CanInterrupt` and `NormalHit`; `FriendlyFire` gains
@@ -83,6 +83,44 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.280 — playtest fixes: wedding lock-in, the underground door, joining from your own save or prologue
+
+**Protocol 68** (unchanged). Built and unit-tested; **runtime is not playtested**. These come from
+a two-player Steam playtest of 0.8.273 (MelonLoader, host + one client, about three hours).
+
+- **The wedding locked a player in the yard.** In the groom room a second walk-in trigger
+  (`area_switch_final`) plugs the yard's doorway and arms the bride attack, which shuts and locks
+  the yard door. The first player back in the groom room set it off and shut the others in the
+  yard with the dancing brides. The party gate held only triggers that lock a door themselves.
+  It now also holds a trigger whose world flag lets another trigger in its location lock a door,
+  until every living player there has walked in (`LockBehindPartyGate`).
+- **The overworld underground door opened for the host when a client only looked through the
+  keyhole.** Closing a talk with `door_underground` ran the dream bunker's door replay (fire the
+  leave-door events, else force the nearest door open) on the overworld twin too, past its key.
+  That replay now runs only for a talk in the dream, and the force-open needs the dream pad
+  (`DialogOutcomeCloseNetHandlers`, `DialogueDoorAftermath`).
+- **Joining from inside your own save while the host was still on the title.** The client said it
+  was already in the world, the host had no world to compare it with and believed it: no world
+  download, and the client played on in its own save. The host now holds that claim, checks it
+  once it is in its world, and then refuses it (other campaign), re-sends its world (other
+  chapter) or takes the player in (`VerifyDeferredWorldClaims`).
+- **Joining by hand during your own prologue.** A Steam invite or the Connect button, accepted
+  while the joiner's own prologue still ran offline, reconnected it into the session from inside
+  the prologue (the host counted it as arrived and day 1 began). It is refused now with a line
+  saying the prologue joins by itself at the wake (`PersonalPrologue.BlocksManualJoin`).
+- A client using a door whose only trigger is its locked-door line (the wedding's code door) no
+  longer asks the host to replay its use; the host found nothing and warned each time.
+- Logging: a client says where each night scene the host started plays (here or elsewhere), and a
+  dropped event names the nearest one of that name on the machine, or none. Several night-scene
+  events (`NightEvent_weird_bansheeIntro_01B`, `FLARE`, `NightEvent_new_lights`, `vortex_wiggle`)
+  were dropped on the client with both players in the hideout, and the logs did not show why.
+
+Checked in these logs, not changed: corpse loot taken by the host while the client had no body
+there (the client reads the container fresh on open); a refused place into a slot the host had
+filled (refunded with the host's container state); short desyncs of a night trader mid-trade, a
+generator's fuel, a saw's wood and a burned wardrobe's spot that cleared themselves; the
+graceful host handoff to the client at the end.
 
 ## 0.8.279 — manual save slots stay after permadeath; release zips
 

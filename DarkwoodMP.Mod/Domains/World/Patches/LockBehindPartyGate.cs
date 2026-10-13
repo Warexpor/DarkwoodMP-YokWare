@@ -54,17 +54,7 @@ namespace DWMPHorde.Patches
                     EventTrigger t = et.eventTriggers[i];
                     if (t == null || t.type != EventTrigger.Type.area || t.gameEvents == null || t.gameEvents.events == null)
                         continue;
-                    List<GameEvent> events = t.gameEvents.events;
-                    for (int j = 0; j < events.Count; j++)
-                    {
-                        GameEvent e = events[j];
-                        if (e != null && !e.disabled && e.type == GameEvent.Type.modifyDoor
-                            && e.doorModifyType == GameEvent.DoorModify.lockMe)
-                        {
-                            locks = true;
-                            break;
-                        }
-                    }
+                    locks = LocksDoor(t.gameEvents) || SetsFlagThatLocks(et, t.gameEvents);
                 }
                 _locksDoor[key] = locks;
             }
@@ -76,6 +66,77 @@ namespace DWMPHorde.Patches
                 if (t == null || t.disabled || t.type != EventTrigger.Type.area || t.gameEvents == null)
                     continue;
                 if (t.gameEvents.multipleFire || !t.gameEvents.fired)
+                    return true;
+            }
+            return false;
+        }
+
+        private static bool LocksDoor(GameEvents ge)
+        {
+            if (ge == null || ge.events == null)
+                return false;
+            for (int j = 0; j < ge.events.Count; j++)
+            {
+                GameEvent e = ge.events[j];
+                if (e != null && !e.disabled && e.type == GameEvent.Type.modifyDoor
+                    && e.doorModifyType == GameEvent.DoorModify.lockMe)
+                    return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// The trigger sets a world flag that another trigger of its location waits for, and that
+        /// one locks a door. The wedding's switch in the groom room: its flag lets the groom's beat
+        /// fire the bride attack, which shuts and locks the yard door, and the switch itself plugs
+        /// the doorway. The first player back in the groom room shut the others in the yard.
+        /// </summary>
+        private static bool SetsFlagThatLocks(EventTriggers et, GameEvents ge)
+        {
+            if (ge == null || ge.events == null)
+                return false;
+            HashSet<string> flags = null;
+            for (int j = 0; j < ge.events.Count; j++)
+            {
+                GameEvent e = ge.events[j];
+                if (e != null && !e.disabled && e.type == GameEvent.Type.worldFlag && !string.IsNullOrEmpty(e.Value))
+                    (flags ?? (flags = new HashSet<string>())).Add(e.Value);
+            }
+            if (flags == null)
+                return false;
+            Location here = Location.getAtPos(et.transform.position);
+            if (here == null)
+                return false;
+            EventTriggers[] all = WorldQueryHelper.GetCachedSceneComponents<EventTriggers>();
+            for (int i = 0; i < all.Length; i++)
+            {
+                EventTriggers other = all[i];
+                if (other == null || other == et || other.eventTriggers == null)
+                    continue;
+                if (Location.getAtPos(other.transform.position) != here)
+                    continue;
+                bool waitsForFlag = RequiresFlag(other.eventRequirements, flags);
+                for (int k = 0; k < other.eventTriggers.Count; k++)
+                {
+                    EventTrigger t = other.eventTriggers[k];
+                    if (t == null || t.disabled)
+                        continue;
+                    if ((waitsForFlag || RequiresFlag(t.eventRequirements, flags)) && LocksDoor(t.gameEvents))
+                        return true;
+                }
+            }
+            return false;
+        }
+
+        private static bool RequiresFlag(List<EventTriggerRequirement> reqs, HashSet<string> flags)
+        {
+            if (reqs == null)
+                return false;
+            for (int i = 0; i < reqs.Count; i++)
+            {
+                EventTriggerRequirement r = reqs[i];
+                if (r != null && r.type == EventTriggerRequirement.Type.worldFlag
+                    && !string.IsNullOrEmpty(r.keyType) && flags.Contains(r.keyType))
                     return true;
             }
             return false;

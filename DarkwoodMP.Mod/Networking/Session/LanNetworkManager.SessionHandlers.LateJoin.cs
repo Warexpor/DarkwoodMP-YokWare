@@ -467,6 +467,7 @@ namespace DWMPHorde.Networking
         {
             if (_role != NetworkRole.Host || !HostHasShareableWorld())
                 return;
+            VerifyDeferredWorldClaims();
             if (_session.HostWorldReadyEmitted)
                 return;
             _session.HostWorldReadyEmitted = true;

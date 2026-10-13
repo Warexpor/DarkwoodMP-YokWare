@@ -210,6 +210,9 @@ namespace DWMPHorde.Networking
             // A location event plays only where the host played it: the location this client
             // stands in. Elsewhere its scene (and the host's creatures) is somewhere else.
             bool here = locationEvent && Patches.NightEventAnchor.LocalIn(msg.Anchors);
+            if (locationEvent)
+                ModLog.Event(LogCat.World, "[ScenarioEventFired] night scene '" + msg.ScenarioName + "' #" + msg.EventIndex
+                    + (here ? " plays here" : " is elsewhere") + " (host anchors: " + msg.Anchors + ")");
             if (here)
                 Patches.ClientRandomEventGate.Arm(20f);
             try

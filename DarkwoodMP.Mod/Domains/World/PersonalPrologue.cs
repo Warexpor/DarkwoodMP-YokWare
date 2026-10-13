@@ -370,6 +370,25 @@ namespace DWMPHorde.Sync
 
         internal static bool JoinerActive => _joinerStage != JoinerStage.None && _joinerStage != JoinerStage.Arrived;
 
+        /// <summary>
+        /// A join started by hand (Steam invite, the Connect button) while this player's own
+        /// prologue still runs offline. It reconnected into the session from inside the prologue
+        /// (the host counted it as arrived and day 1 began), and the prologue's own reconnect at
+        /// the wake ran a second time. The prologue joins by itself when it ends.
+        /// </summary>
+        internal static bool BlocksManualJoin(out string why)
+        {
+            why = null;
+            if (!JoinerActive)
+                return false;
+            why = Loc.Russian
+                ? "Сначала пройдите пролог: вы присоединитесь сами, когда проснётесь в убежище"
+                : "Finish your prologue first: you join the session by yourself when you wake in the hideout";
+            ModLog.Event(LogCat.Session, "[Prologue] join by hand refused: own prologue still running");
+            DWMPHorde.ChatHud.AddSystemLine(why);
+            return true;
+        }
+
         /// <summary>The joiner's opening is on screen or about to be: the pad arriving, or the title and movie.</summary>
         internal static bool JoinerBeforeWake => _joinerStage == JoinerStage.Preparing || _joinerStage == JoinerStage.Intro;
         internal static bool JoinerArrived => _joinerStage == JoinerStage.Arrived;

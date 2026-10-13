@@ -183,7 +183,15 @@ namespace DWMPHorde.Networking
                 // AlreadyInWorld is only a claim: compare campaign + chapter before skipping the
                 // share. Refused peers never join the handshaked set.
                 bool trustedInWorld = handshake.AlreadyInWorld;
-                if (playerId > 0 && trustedInWorld)
+                bool deferredClaim = false;
+                if (playerId > 0 && trustedInWorld && !HostHasWorldIdentity())
+                {
+                    // Host still on the title: nothing to compare the claim against yet. A client in
+                    // its own unrelated save was trusted here and never got the host's world.
+                    deferredClaim = true;
+                    trustedInWorld = false;
+                }
+                else if (playerId > 0 && trustedInWorld)
                 {
                     PeerWorldVerdict verdict = VerifyPeerWorldIdentity(
                         playerId, handshake, out string verdictReason, out int verdictHostChapter);
@@ -223,48 +231,65 @@ namespace DWMPHorde.Networking
                 // any gameplay message can depend on them.
                 SendSessionSettingsTo(playerId);
 
-                // Join pipeline:
-                //   phase 1 title join  → share world (client offline-loads, disconnects)
-                //   phase 3 reconnect   → AlreadyInWorld: skip share, late-join bulk only
                 if (playerId > 0)
                 {
-                    if (trustedInWorld)
+                    if (deferredClaim)
                     {
+                        _session.Link.UnverifiedInWorldClaims[playerId] = handshake;
                         ModLog.Event(LogCat.Session,
                             "Join pipeline phase 3: peer " + playerId
-                            + " already in world — skip world share, queue late-join bulk");
-                        // Do NOT MarkPeerLoadingWorld: soft-reconnect peers already have a
-                        // playable body. Muting PlayerState prevented host proxy on client
-                        // (log: Light RX drop p1 proxy=null, no Created proxy for player 1).
-                        // Entity/physics still gate on first ready via IsPeerReadyForGameplay
-                        // only after explicit loading mark; leave them open for phase 3.
-                        _session.Link.CoopReconnect.Add(playerId);
-                        _session.Link.AwaitingLateJoinBulk[playerId] = 0f;
-                        // Immediate bulk settle path (shorter for reconnect).
-                        MarkPeerGameplayReady(playerId);
-                        // Back from a prologue played offline (or any phase-3 return): day 1 stops waiting for it.
-                        PersonalPrologue.HostNoteArrived(ClientStateBackup.SanitizeStableClientKey(handshake.StableClientKey));
-                    }
-                    else if (HostHasShareableWorld())
-                    {
-                        ModLog.Event(LogCat.Save,
-                            "Join pipeline phase 1: client " + playerId
-                            + " handshaked while host fully in-world — HostWorldReady + scheduling world share");
-                        SendHostWorldReadyTo(playerId);
-                        MarkPeerLoadingWorld(playerId);
-                        StartCoroutine(DelayedWorldShareTo(playerId, 0.75f));
+                            + " says it is in the world, host has none loaded yet — checked when the host is in-world");
                     }
                     else
                     {
-                        ModLog.Warn(LogCat.Save,
-                            "Client " + playerId + " joined but host is NOT fully in-world yet (mainMenu="
-                            + Core.mainMenu + " profile=" + (Core.currentProfile != null)
-                            + " player=" + (Player.Instance != null)
-                            + " loaded=" + Core.loadedGame
-                            + " loading=" + Core.loadingGame
-                            + ") — no world download until host ready. Will emit HostWorldReady + share when host enters chapter.");
+                        RouteJoinedPeer(playerId, handshake.StableClientKey, trustedInWorld);
                     }
                 }
+            }
+        }
+
+        /// <summary>
+        /// Host: start a handshaked peer's join pipeline:
+        ///   phase 1 title join  → share world (client offline-loads, disconnects)
+        ///   phase 3 reconnect   → AlreadyInWorld: skip share, late-join bulk only
+        /// </summary>
+        private void RouteJoinedPeer(int playerId, string stableClientKey, bool trustedInWorld)
+        {
+            if (trustedInWorld)
+            {
+                ModLog.Event(LogCat.Session,
+                    "Join pipeline phase 3: peer " + playerId
+                    + " already in world — skip world share, queue late-join bulk");
+                // Do NOT MarkPeerLoadingWorld: soft-reconnect peers already have a
+                // playable body. Muting PlayerState prevented host proxy on client
+                // (log: Light RX drop p1 proxy=null, no Created proxy for player 1).
+                // Entity/physics still gate on first ready via IsPeerReadyForGameplay
+                // only after explicit loading mark; leave them open for phase 3.
+                _session.Link.CoopReconnect.Add(playerId);
+                _session.Link.AwaitingLateJoinBulk[playerId] = 0f;
+                // Immediate bulk settle path (shorter for reconnect).
+                MarkPeerGameplayReady(playerId);
+                // Back from a prologue played offline (or any phase-3 return): day 1 stops waiting for it.
+                PersonalPrologue.HostNoteArrived(ClientStateBackup.SanitizeStableClientKey(stableClientKey));
+            }
+            else if (HostHasShareableWorld())
+            {
+                ModLog.Event(LogCat.Save,
+                    "Join pipeline phase 1: client " + playerId
+                    + " handshaked while host fully in-world — HostWorldReady + scheduling world share");
+                SendHostWorldReadyTo(playerId);
+                MarkPeerLoadingWorld(playerId);
+                StartCoroutine(DelayedWorldShareTo(playerId, 0.75f));
+            }
+            else
+            {
+                ModLog.Warn(LogCat.Save,
+                    "Client " + playerId + " joined but host is NOT fully in-world yet (mainMenu="
+                    + Core.mainMenu + " profile=" + (Core.currentProfile != null)
+                    + " player=" + (Player.Instance != null)
+                    + " loaded=" + Core.loadedGame
+                    + " loading=" + Core.loadingGame
+                    + ") — no world download until host ready. Will emit HostWorldReady + share when host enters chapter.");
             }
         }
 

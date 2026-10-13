@@ -185,6 +185,7 @@ namespace DWMPHorde.Networking
                 _session.Link.LoadingWorld.Add(to);
             if (_session.Link.CoopReconnect.Remove(from))
                 _session.Link.CoopReconnect.Add(to);
+            MoveKey(_session.Link.UnverifiedInWorldClaims, from, to);
             MoveKey(_session.Link.LastPlayerStateSequence, from, to);
             MoveKey(_session.Link.LastPhysicsStateSequence, from, to);
             MoveKey(_session.Link.LastReliablePhysicsStateSequence, from, to);
