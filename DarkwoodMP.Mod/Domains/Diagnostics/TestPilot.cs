@@ -935,6 +935,49 @@ namespace DWMPHorde.Sync
                     Out("  afterNight=" + Singleton<Controller>.Instance.isAfterNight
                         + " clockOn=" + Singleton<Controller>.Instance.DoUpdateTime);
                     return;
+                case "objon":
+                {
+                    // "objon <name> [radius]": switch on the nearest switched-off scene object of that
+                    // name, on this machine only (a piece of furniture this world's variant left off).
+                    float radius = a.Length > 2 ? F(a[2]) : 3000f;
+                    Transform best = null;
+                    float bestD = radius;
+                    foreach (Transform t in Resources.FindObjectsOfTypeAll<Transform>())
+                    {
+                        if (t == null || t.gameObject.activeSelf || !t.gameObject.scene.IsValid()
+                            || !string.Equals(t.name, a[1], StringComparison.OrdinalIgnoreCase))
+                            continue;
+                        float dd = Flat(p.transform.position, t.position);
+                        if (dd < bestD) { bestD = dd; best = t; }
+                    }
+                    if (best == null) { Out("  nothing switched off named " + a[1]); return; }
+                    best.gameObject.SetActive(true);
+                    Out("  on " + best.name + "@" + Pos(best.position) + " shown=" + best.gameObject.activeInHierarchy);
+                    return;
+                }
+                case "nudge":
+                {
+                    // "nudge <name> <dx> <dz>": move this machine's copy of the nearest item of that
+                    // name (a copy that drifted apart from the others').
+                    Item best = null;
+                    float bestD = 3000f;
+                    foreach (Item it in Resources.FindObjectsOfTypeAll<Item>())
+                    {
+                        if (it == null || !it.gameObject.activeInHierarchy || !it.gameObject.scene.IsValid()
+                            || !string.Equals(it.name, a[1], StringComparison.OrdinalIgnoreCase))
+                            continue;
+                        float dd = Flat(p.transform.position, it.transform.position);
+                        if (dd < bestD) { bestD = dd; best = it; }
+                    }
+                    if (best == null) { Out("  no item named " + a[1]); return; }
+                    Vector3 to = best.transform.position + new Vector3(F(a[2]), 0f, F(a[3]));
+                    WorldPhysicsSyncService.RemoveObjectFromInterpolation(best.gameObject);
+                    best.transform.position = to;
+                    Rigidbody rb = best.GetComponent<Rigidbody>();
+                    if (rb != null) rb.position = to;
+                    Out("  moved " + best.name + " to " + Pos(to) + " destroyed=" + best.destroyed);
+                    return;
+                }
                 case "padlock":
                 {
                     // "padlock [radius]": open the nearest code lock's screen and close it unsolved,

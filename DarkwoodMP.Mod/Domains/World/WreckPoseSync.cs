@@ -70,12 +70,18 @@ namespace DWMPHorde.Sync
             ModRuntime.LegacyInfo($"[WreckPose] TX {msg.Name} id={msg.SaveId} rest at {p} rot={r.y:F0} (broke at {breakPos})");
         }
 
+        /// <summary>
+        /// The others' copy of the broken piece. Furniture from the save carries the same save id
+        /// on every machine, so the id with the same name is that piece wherever it stands here:
+        /// a hat stand in the hideout stood more than 25 units from the host's copy on a client,
+        /// the break (found by name near the spot) missed it, and it stayed whole there.
+        /// </summary>
         internal static void Handle(ItemPoseMessage msg)
         {
             Vector3 breakPos = new Vector3(msg.BreakX, msg.BreakY, msg.BreakZ);
             Vector3 pos = new Vector3(msg.PosX, msg.PosY, msg.PosZ);
-            Item item = WorldQueryHelper.FindFurnitureBySaveId<Item>(msg.SaveId, breakPos);
-            if (item == null || item.gameObject.name != msg.Name)
+            Item item = WorldQueryHelper.FindFurnitureBySaveId<Item>(msg.SaveId, breakPos, float.MaxValue);
+            if (item == null || item.gameObject.name != msg.Name || !item.destructible)
                 item = WorldQueryHelper.FindDestructibleItemByName(msg.Name, breakPos, WorldPhysicsSyncService.ResolvedNameMaxDist);
             if (item == null)
             {
@@ -85,8 +91,25 @@ namespace DWMPHorde.Sync
             }
             if (!item.destroyed)
             {
-                ModRuntime.LegacyInfo($"[WreckPose] {item.name} is not broken here — pose not applied");
-                return;
+                // The break went by this copy (it stood elsewhere here): it breaks now, as the
+                // break event would have done it.
+                Vector3 here = item.transform.position;
+                ModLog.Event(LogCat.World, "[WreckPose] " + item.name + " (id " + msg.SaveId + ") still whole here, "
+                    + Mathf.RoundToInt(new Vector2(here.x - breakPos.x, here.z - breakPos.z).magnitude)
+                    + " from where it broke: broken now");
+                WorldPhysicsSyncService.RemoveObjectFromInterpolation(item.gameObject);
+                LanNetworkManager.ProcessingBarricadeEvent = true;
+                try
+                {
+                    item.health = 0;
+                    item.die();
+                }
+                finally
+                {
+                    LanNetworkManager.ProcessingBarricadeEvent = false;
+                }
+                if (!item.destroyed)
+                    return;
             }
             Quaternion rot = Quaternion.Euler(msg.RotX, msg.RotY, msg.RotZ);
             Vector3 from = item.transform.position;

@@ -16,7 +16,7 @@ namespace DWMPHorde
         /// <summary>Full product label shown in UI banners, the multiplayer menu and log banners (already includes the product name).</summary>
         public const string DisplayVersion = Name + " " + Version + " / Path B";
         /// <summary>Horde wire protocol. Bumped whenever a wire format changes or a message id is added.</summary>
-        public const int ProtocolVersion = 68;
+        public const int ProtocolVersion = 69;
         public const int DefaultPort = 7788;
         public const string Authors = "Warexpor & Yokyy";
         public const string Description = "Darkwood co-op — Horde host-authoritative sync (Path B)";

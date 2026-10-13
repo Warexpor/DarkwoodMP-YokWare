@@ -61,7 +61,7 @@ namespace DWMPHorde.Patches
 
         /// <param name="playedLocalFx">False when the striker played no hit FX (a predicted
         /// break: vanilla plays only the break FX, which arrive with the host's result).</param>
-        internal static void SendHit(byte targetType, Vector3 pos, int damage, bool playedLocalFx = true)
+        internal static void SendHit(byte targetType, Vector3 pos, int damage, bool playedLocalFx = true, Item item = null)
         {
             if (playedLocalFx)
                 RegisterLocalFx(targetType, pos);
@@ -76,7 +76,9 @@ namespace DWMPHorde.Patches
                 AttackerPosX = atkPos.x,
                 AttackerPosY = atkPos.y,
                 AttackerPosZ = atkPos.z,
-                Damage = damage
+                Damage = damage,
+                SaveId = item != null ? WorldQueryHelper.FurnitureSaveId(item.gameObject) : 0,
+                Name = item != null ? item.gameObject.name : ""
             });
         }
 
@@ -189,7 +191,7 @@ namespace DWMPHorde.Patches
             if (!ClientWorldMeleeRedirectHelper.ShouldRedirect(attacker))
                 return true;
 
-            ClientWorldMeleeRedirectHelper.SendHit(2, __instance.transform.position, damage);
+            ClientWorldMeleeRedirectHelper.SendHit(2, __instance.transform.position, damage, item: __instance);
             // Mirror vanilla Item.getHit FX (redirect skips getHit entirely).
             // Without hitParticlePrefabObject the client never sees wood chips / debris.
             if (__instance.hitParticlePrefabObject != null)

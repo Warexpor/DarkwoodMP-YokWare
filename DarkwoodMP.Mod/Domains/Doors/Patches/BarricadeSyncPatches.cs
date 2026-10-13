@@ -434,18 +434,26 @@ namespace DWMPHorde.Patches
         // nothing accumulates offline.
         [HarmonyPriority(Priority.Last)]
         [HarmonyPrefix]
-        private static void Prefix(Item __instance, out Vector3 __state)
+        private static void Prefix(Item __instance, out HitState __state)
         {
-            __state = __instance.transform.position;
+            __state = new HitState { Pos = __instance.transform.position, WasBroken = __instance.destroyed };
+        }
+
+        internal struct HitState
+        {
+            public Vector3 Pos;
+            public bool WasBroken;
         }
 
         [HarmonyPriority(Priority.Last)]
         [HarmonyPostfix]
-        private static void Postfix(Item __instance, object[] __args, Vector3 __state)
+        private static void Postfix(Item __instance, object[] __args, HitState __state)
         {
             int damage = (int)__args[0];
 
             if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected) return;
+            // Vanilla getHit does nothing to a wreck: a blow on one sent its break and resting spot again.
+            if (__state.WasBroken) return;
             if (Sync.PersonalPads.Contains(__instance.transform)) return; // personal pad (prologue, solo dream): not the world
             // Match Door/Window: allow host MeleeWorldHit apply (IsApplyingRemoteState)
             // to fan BarricadeEvent. Loop stop is ProcessingBarricadeEvent only.
@@ -457,7 +465,7 @@ namespace DWMPHorde.Patches
             if (__args.Length > 1 && __args[1] is Transform atk && ClientWorldMeleeRedirectHelper.ShouldRedirect(atk))
                 return;
 
-            Vector3 pos = __state;
+            Vector3 pos = __state.Pos;
             bool destroyed = __instance.destroyed;
             int health = __instance.health;
 

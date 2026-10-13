@@ -3,12 +3,13 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.281**. The current Horde wire protocol is **68**. Every install in a session
+**0.8.281**. The current Horde wire protocol is **69**. Every install in a session
 needs the same DLL; the protocol is checked on join.
 
 Protocol history (newest first):
 
-- **68**, 0.8.278 to 0.8.281: new `ObjectSpawnerFired` (175) and `OxygenTankRecords` (176); `PeerRoster`
+- **69**, 0.8.281: `MeleeWorldHit` gains the struck item's furniture save id and name.
+- **68**, 0.8.278 to 0.8.280: new `ObjectSpawnerFired` (175) and `OxygenTankRecords` (176); `PeerRoster`
   gains the host's `NextCreatureId`.
 - **67**, 0.8.276 to 0.8.277: new `OxygenTankSet` (174); `OxygenTankTier` (157) retired.
 - **66**, 0.8.274 to 0.8.275: `PlayerAttack` gains `CanInterrupt` and `NormalHit`; `FriendlyFire` gains
@@ -84,7 +85,7 @@ tested in the game.
 
 ---
 
-## 0.8.281 — doorway plugs wait for the party too; pilot: offline games, a host left at the title, joining by hand
+## 0.8.281 — doorway plugs wait for the party too; furniture broken where it drifted apart; pilot: offline games, a host left at the title, joining by hand
 
 A pass over every scene of the game (`.unity` export) for walk-in triggers that shut a way behind
 the first player, by any route: a door locked directly, through a world flag, through another
@@ -103,12 +104,33 @@ doors and flag-armed locks only.
   - The epilogue's baby-room door (`event_parter_02_fov_warmUp`) shuts when a player first sees the
     cot, from the doorway, before anyone can be inside.
   - The doctor's dream sister (`babakura_standing_room1`) is a figure, not a plug.
+- **A piece of furniture broken by one player stayed whole for another.** In the playtest the
+  host smashed a hat stand in the hideout. The client's copy stood more than 25 units from the
+  host's: the break and the wreck's resting spot, both looked up by name near the host's spot,
+  missed it, and it stayed standing there (`[WreckPose] no kapelusznik`). The resting spot also
+  carries the piece's save id, which furniture from the save shares on every machine: the client
+  now finds its copy by that id (with the same name) at any distance, breaks it if the break went
+  by it, and moves it to where the host's wreck rests (`WreckPoseSync.Handle`, log
+  `[WreckPose] … still whole here, N from where it broke: broken now`). Tested in the pilot: the
+  client's wardrobe moved 60 units off, the host broke its own, and the client's broke and moved
+  to the host's wreck.
+- **A client's blow on furniture that stood elsewhere on the host was lost** (the other arrow of
+  the same drift; host log `[MeleeWorldHit] destructible item not found`). The blow now carries
+  the item's save id and name (protocol **69**); with nothing at the striker's spot, the host hits
+  its copy found by them (`[MeleeWorldHit] … hit by its save id`). Tested in the pilot: the host's
+  wardrobe moved 60 units off, the client's blow broke it, and the client's copy moved to the wreck.
+  How the two copies came to stand apart in the playtest is not in its logs (they were at Event
+  level); these lines show the distance next time.
+- **A blow on a wreck sent its break and resting spot again.** Vanilla's `Item.getHit` does nothing
+  to a broken item; the sync after it now does nothing either (`ItemGetHitPatch`).
 - Pilot (`TestPilot`), for automated join tests:
   - `solo…` modes (`solonewgameskip:N`, `solohost:N`) run the same menu sequence offline, without
     hosting: a game of this machine's own.
   - `DWMP_PILOT_HOSTDELAY=<sec>` keeps a host at the title that long before it loads.
   - `connect [address]` joins by hand, the way the Connect button does.
   - `padlock [radius]` opens the nearest code lock's screen and closes it unsolved.
+  - `objon <name>` switches on a hidden scene object on this machine; `nudge <name> <dx> <dz>` moves
+    this machine's copy of an item.
   - `talk` no longer teleports a player already standing at the NPC: its spot (12 units past the
     NPC) was behind the bunker's talking door, inside the trigger that walks a player through, and
     opened the door in a test run.
