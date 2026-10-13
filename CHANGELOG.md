@@ -3,12 +3,12 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.280**. The current Horde wire protocol is **68**. Every install in a session
+**0.8.281**. The current Horde wire protocol is **68**. Every install in a session
 needs the same DLL; the protocol is checked on join.
 
 Protocol history (newest first):
 
-- **68**, 0.8.278 to 0.8.280: new `ObjectSpawnerFired` (175) and `OxygenTankRecords` (176); `PeerRoster`
+- **68**, 0.8.278 to 0.8.281: new `ObjectSpawnerFired` (175) and `OxygenTankRecords` (176); `PeerRoster`
   gains the host's `NextCreatureId`.
 - **67**, 0.8.276 to 0.8.277: new `OxygenTankSet` (174); `OxygenTankTier` (157) retired.
 - **66**, 0.8.274 to 0.8.275: `PlayerAttack` gains `CanInterrupt` and `NormalHit`; `FriendlyFire` gains
@@ -83,6 +83,31 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.281 — doorway plugs wait for the party too; pilot: offline games, a host left at the title, joining by hand
+
+A pass over every scene of the game (`.unity` export) for walk-in triggers that shut a way behind
+the first player, by any route: a door locked directly, through a world flag, through another
+trigger switched on or fired, or by a plug. Before this, the party gate (0.8.280) knew locked
+doors and flag-armed locks only.
+
+- **Plugs now wait for everyone, like locked doors.** Three walk-ins switch on a plug: a bare
+  invisible wall (a solid collider with nothing else on it) dropped into a doorway behind the
+  player. The acid dream's studio entry (`area_enter_studio_dream_acid`, `aw_zatyczka_01`) and the
+  maw entrance in the doctor's dream (`event_wejscieDoMordy_area_zamknijWejscie`, dream_oneChance_01_2)
+  shut out whoever had not walked in yet. The wedding's plug was already held through the flag.
+  `LockBehindPartyGate.PlugsWay`: the trigger counts as locking when it switches on such an object.
+- Checked, not changed:
+  - The doors switched on by a walk-in (`ROOM_close_door_area_simple` in the epilogue's room dream)
+    are walk-in locks themselves, so they wait already.
+  - The epilogue's baby-room door (`event_parter_02_fov_warmUp`) shuts when a player first sees the
+    cot, from the doorway, before anyone can be inside.
+  - The doctor's dream sister (`babakura_standing_room1`) is a figure, not a plug.
+- Pilot (`TestPilot`), for automated join tests:
+  - `solo…` modes (`solonewgameskip:N`, `solohost:N`) run the same menu sequence offline, without
+    hosting: a game of this machine's own.
+  - `DWMP_PILOT_HOSTDELAY=<sec>` keeps a host at the title that long before it loads.
+  - `connect [address]` joins by hand, the way the Connect button does.
 
 ## 0.8.280 — playtest fixes: wedding lock-in, the underground door, joining from your own save or prologue
 

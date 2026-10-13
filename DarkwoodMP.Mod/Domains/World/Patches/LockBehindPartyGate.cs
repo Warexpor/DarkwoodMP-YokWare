@@ -40,7 +40,7 @@ namespace DWMPHorde.Patches
             _nextTick = 0f;
         }
 
-        /// <summary>An area trigger of this set still has to run events that lock a door.</summary>
+        /// <summary>An area trigger of this set still has to run events that lock a door or plug a doorway.</summary>
         private static bool Gated(EventTriggers et)
         {
             if (et == null || et.eventTriggers == null || !et.reactsToPlayer)
@@ -78,8 +78,36 @@ namespace DWMPHorde.Patches
             for (int j = 0; j < ge.events.Count; j++)
             {
                 GameEvent e = ge.events[j];
-                if (e != null && !e.disabled && e.type == GameEvent.Type.modifyDoor
-                    && e.doorModifyType == GameEvent.DoorModify.lockMe)
+                if (e == null || e.disabled)
+                    continue;
+                if (e.type == GameEvent.Type.modifyDoor && e.doorModifyType == GameEvent.DoorModify.lockMe)
+                    return true;
+                if (e.type == GameEvent.Type.gameObject && e.gameObjectModifyType == GameEvent.GameObjectModify.setActive
+                    && e.activeModifier && PlugsWay(e.targetGameObjects))
+                    return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Switching on a plug: a bare solid collider with nothing else on it and nothing under it,
+        /// dropped into a doorway behind the player (the wedding's groom room, the acid dream's
+        /// studio, the maw in the doctor's dream). It shuts the way as a locked door would.
+        /// </summary>
+        private static bool PlugsWay(List<GameObject> targets)
+        {
+            if (targets == null)
+                return false;
+            for (int i = 0; i < targets.Count; i++)
+            {
+                GameObject go = targets[i];
+                if (go == null || go.transform.childCount != 0)
+                    continue;
+                Component[] comps = go.GetComponents<Component>();
+                if (comps.Length != 2)
+                    continue;
+                Collider c = go.GetComponent<Collider>();
+                if (c != null && !c.isTrigger)
                     return true;
             }
             return false;
