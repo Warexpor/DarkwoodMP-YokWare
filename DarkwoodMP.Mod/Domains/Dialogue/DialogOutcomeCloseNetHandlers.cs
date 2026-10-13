@@ -50,7 +50,8 @@ namespace DWMPHorde.Networking
             Vector3 npcPos = npc.transform.position;
             // A talk in the dream closes on the pad twin only. The sender's world bit says which;
             // without a spot (older peer) any active dream counts, as before.
-            if (npcRef.HasPos ? npcRef.Dream : DreamSyncManager.IsDreamActive)
+            bool dreamTalk = npcRef.HasPos ? npcRef.Dream : DreamSyncManager.IsDreamActive;
+            if (dreamTalk)
             {
                 Transform dreamRoot = DreamSyncManager.GetDreamLocationTransform();
                 bool onPad = dreamRoot != null
@@ -68,11 +69,13 @@ namespace DWMPHorde.Networking
 
             // Pre-arm mute window before onCloseDialogue / leave-door GE so peer DoorOpen
             // applies without a second openSound (GE already played it).
+            // Only the dream's door opens on the talk's close. The overworld bunker's door_underground
+            // needs the key; its close must run vanilla's onCloseDialogue only.
             string npcLower = npcName ?? "";
-            bool dialogueDoorNpc =
+            bool dialogueDoorNpc = dreamTalk && (
                 npcLower.IndexOf("door_underground", System.StringComparison.OrdinalIgnoreCase) >= 0
                 || (npcLower.IndexOf("door", System.StringComparison.OrdinalIgnoreCase) >= 0
-                    && npcLower.IndexOf("underground", System.StringComparison.OrdinalIgnoreCase) >= 0);
+                    && npcLower.IndexOf("underground", System.StringComparison.OrdinalIgnoreCase) >= 0));
             if (dialogueDoorNpc)
                 DWMPHorde.Patches.DialogueDoorAftermath.NoteLeaveDoorGameEvent();
 

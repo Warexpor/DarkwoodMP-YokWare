@@ -24,6 +24,12 @@ namespace DWMPHorde.Networking
         /// <summary>Host: peers that reconnected already in the world (no world share).</summary>
         public readonly HashSet<int> CoopReconnect = new HashSet<int>();
 
+        /// <summary>
+        /// Host: peers that said they are in the world while the host had none loaded to compare
+        /// it with. Checked (and routed) when the host is in-world.
+        /// </summary>
+        public readonly Dictionary<int, HandshakeMessage> UnverifiedInWorldClaims = new Dictionary<int, HandshakeMessage>();
+
         /// <summary>Host: peer → time the late-join bulk was queued (0 = pending immediate settle).</summary>
         public readonly Dictionary<int, float> AwaitingLateJoinBulk = new Dictionary<int, float>();
 

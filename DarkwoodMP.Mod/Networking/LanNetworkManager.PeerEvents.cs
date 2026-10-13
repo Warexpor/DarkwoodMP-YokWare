@@ -182,6 +182,7 @@ namespace DWMPHorde.Networking
             _session.Link.PendingHeavyLateJoinBulk.Remove(playerId);
             _session.Link.LoadingWorld.Remove(playerId);
             _session.Link.CoopReconnect.Remove(playerId);
+            _session.Link.UnverifiedInWorldClaims.Remove(playerId);
             if (_session.Link.Handshaked.Count == 0)
                 _session.Link.HandshakeComplete = false;
 

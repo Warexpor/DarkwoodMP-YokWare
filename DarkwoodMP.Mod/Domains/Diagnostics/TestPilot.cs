@@ -24,6 +24,9 @@ namespace DWMPHorde.Sync
     {
         private static readonly string Mode = (Environment.GetEnvironmentVariable("DWMP_PILOT") ?? "").Trim(); // process-scoped: read once at start
         internal static bool Active => Mode.Length > 0;
+        /// <summary>"solo..." runs the same menu sequence offline (no StartHost): a game of this machine's own.</summary>
+        private static readonly bool Solo = Mode.StartsWith("solo", StringComparison.OrdinalIgnoreCase); // process-scoped: read once at start
+        private static readonly string MenuMode = Solo ? Mode.Substring(4) : Mode; // process-scoped: read once at start
 
         private enum Stage { Boot, Hosting, Loading, Joining, InWorld }
 
@@ -181,11 +184,16 @@ namespace DWMPHorde.Sync
                     // The title menu is up and has settled.
                     if (!Core.mainMenu || Singleton<MainMenu>.Instance == null || now < 8f)
                         return;
-                    if (Mode.StartsWith("host", StringComparison.OrdinalIgnoreCase)
-                        || Mode.StartsWith("newgame", StringComparison.OrdinalIgnoreCase))
+                    if (MenuMode.StartsWith("host", StringComparison.OrdinalIgnoreCase)
+                        || MenuMode.StartsWith("newgame", StringComparison.OrdinalIgnoreCase))
                     {
-                        net.StartHost(ModConfig.GetConnectPort());
-                        Out("StartHost → " + net.Role + " (" + net.StatusText + ")");
+                        if (Solo)
+                            Out("solo: offline, not hosting");
+                        else
+                        {
+                            net.StartHost(ModConfig.GetConnectPort());
+                            Out("StartHost → " + net.Role + " (" + net.StatusText + ")");
+                        }
                         _menuStep = 0;
                         Enter(Stage.Hosting);
                     }
@@ -231,19 +239,26 @@ namespace DWMPHorde.Sync
         private static void HostMenu(LanNetworkManager net, float now)
         {
             int profile = 1;
-            int colon = Mode.IndexOf(':');
+            int colon = MenuMode.IndexOf(':');
             if (colon > 0)
-                int.TryParse(Mode.Substring(colon + 1), NumberStyles.Integer, CultureInfo.InvariantCulture, out profile);
+                int.TryParse(MenuMode.Substring(colon + 1), NumberStyles.Integer, CultureInfo.InvariantCulture, out profile);
             MainMenu menu = Singleton<MainMenu>.Instance;
             switch (_menuStep)
             {
                 case 0:
+                    // DWMP_PILOT_HOSTDELAY=<sec>: stay on the title that long first (a host still at the title).
+                    if (float.TryParse(Environment.GetEnvironmentVariable("DWMP_PILOT_HOSTDELAY") ?? "", NumberStyles.Float,
+                            CultureInfo.InvariantCulture, out float delay) && now - _stageAt < delay)
+                    {
+                        _nextStepAt = now + 1f;
+                        return;
+                    }
                     menu.displayProfilesMenu();
                     _menuStep = 1;
                     _nextStepAt = now + 2f;
                     return;
                 case 1:
-                    if (Mode.StartsWith("newgame", StringComparison.OrdinalIgnoreCase))
+                    if (MenuMode.StartsWith("newgame", StringComparison.OrdinalIgnoreCase))
                     {
                         // A new game with the prologue in an EMPTY slot (displayProfile on an inactive
                         // slot clears it, as the menu does).
@@ -255,7 +270,7 @@ namespace DWMPHorde.Sync
                         }
                         menu.displayProfile(profile);
                         // "newgameskip:N" starts with the prologue skipped (the menu's toggle).
-                        Singleton<Controller>.Instance.skipTutorial = Mode.StartsWith("newgameskip", StringComparison.OrdinalIgnoreCase);
+                        Singleton<Controller>.Instance.skipTutorial = MenuMode.StartsWith("newgameskip", StringComparison.OrdinalIgnoreCase);
                         _menuStep = 3;
                         Out("new game " + (Singleton<Controller>.Instance.skipTutorial ? "skipping" : "with") + " the prologue in profile " + profile);
                         Singleton<UI>.Instance.StartCoroutine(Singleton<UI>.Instance.initNewGame());
@@ -481,6 +496,11 @@ namespace DWMPHorde.Sync
                     Out("  cycled " + name);
                     return;
                 }
+                case "connect":
+                    // "connect [address]": what the Connect button does (a join by hand), LAN.
+                    net.ConnectToHost(a.Length > 1 ? a[1] : "127.0.0.1", ModConfig.GetConnectPort());
+                    Out("  connect → role=" + net.Role + " " + net.StatusText);
+                    return;
                 case "pause":
                     Core.showHidePauseMenu();
                     Out("  menu " + (Core.mainMenu ? "open" : "closed"));
@@ -915,6 +935,61 @@ namespace DWMPHorde.Sync
                     Out("  afterNight=" + Singleton<Controller>.Instance.isAfterNight
                         + " clockOn=" + Singleton<Controller>.Instance.DoUpdateTime);
                     return;
+                case "objon":
+                {
+                    // "objon <name> [radius]": switch on the nearest switched-off scene object of that
+                    // name, on this machine only (a piece of furniture this world's variant left off).
+                    float radius = a.Length > 2 ? F(a[2]) : 3000f;
+                    Transform best = null;
+                    float bestD = radius;
+                    foreach (Transform t in Resources.FindObjectsOfTypeAll<Transform>())
+                    {
+                        if (t == null || t.gameObject.activeSelf || !t.gameObject.scene.IsValid()
+                            || !string.Equals(t.name, a[1], StringComparison.OrdinalIgnoreCase))
+                            continue;
+                        float dd = Flat(p.transform.position, t.position);
+                        if (dd < bestD) { bestD = dd; best = t; }
+                    }
+                    if (best == null) { Out("  nothing switched off named " + a[1]); return; }
+                    best.gameObject.SetActive(true);
+                    Out("  on " + best.name + "@" + Pos(best.position) + " shown=" + best.gameObject.activeInHierarchy);
+                    return;
+                }
+                case "nudge":
+                {
+                    // "nudge <name> <dx> <dz>": move this machine's copy of the nearest item of that
+                    // name (a copy that drifted apart from the others').
+                    Item best = null;
+                    float bestD = 3000f;
+                    foreach (Item it in Resources.FindObjectsOfTypeAll<Item>())
+                    {
+                        if (it == null || !it.gameObject.activeInHierarchy || !it.gameObject.scene.IsValid()
+                            || !string.Equals(it.name, a[1], StringComparison.OrdinalIgnoreCase))
+                            continue;
+                        float dd = Flat(p.transform.position, it.transform.position);
+                        if (dd < bestD) { bestD = dd; best = it; }
+                    }
+                    if (best == null) { Out("  no item named " + a[1]); return; }
+                    Vector3 to = best.transform.position + new Vector3(F(a[2]), 0f, F(a[3]));
+                    WorldPhysicsSyncService.RemoveObjectFromInterpolation(best.gameObject);
+                    best.transform.position = to;
+                    Rigidbody rb = best.GetComponent<Rigidbody>();
+                    if (rb != null) rb.position = to;
+                    Out("  moved " + best.name + " to " + Pos(to) + " destroyed=" + best.destroyed);
+                    return;
+                }
+                case "padlock":
+                {
+                    // "padlock [radius]": open the nearest code lock's screen and close it unsolved,
+                    // as a player who looks at the code and walks off (Padlock.deactivate's onActivate).
+                    Door d = Nearest(ListTracker<Door>.GetAll(), a.Length > 1 ? F(a[1]) : 150f);
+                    Padlock pl = d != null ? d.GetComponent<Padlock>() : null;
+                    if (pl == null) { Out("  no code lock near"); return; }
+                    pl.activate();
+                    pl.deactivate();
+                    Out("  " + d.name + "@" + Pos(d.transform.position) + " code screen opened and closed, locked=" + pl.locked);
+                    return;
+                }
                 case "doors":
                     ListNear(ListTracker<Door>.GetAll(), a.Length > 1 ? F(a[1]) : 20f,
                         d => "open=" + d.opened + " locked=" + (d.GetComponent<Padlock>() != null && d.GetComponent<Padlock>().locked));
@@ -1759,7 +1834,10 @@ namespace DWMPHorde.Sync
                     TalkDone();
                     return;
                 }
-                p.teleportTo(_talking.transform.position + new Vector3(12f, 0f, 0f), p.transform.rotation);
+                // A player already standing at it talks from there: the teleport's spot can be on
+                // the far side of a talking door (the bunker's), inside its walk-through trigger.
+                if (Flat(p.transform.position, _talking.transform.position) > 120f)
+                    p.teleportTo(_talking.transform.position + new Vector3(12f, 0f, 0f), p.transform.rotation);
                 GiveAsked(p, _talking);
                 _talkAt = now;
                 _talkSteps = 0;

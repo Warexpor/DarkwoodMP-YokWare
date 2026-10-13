@@ -59,6 +59,47 @@ namespace DWMPHorde.Networking
             }
         }
 
+        /// <summary>Host: a world of its own is loaded, so a client's claimed world can be checked.</summary>
+        private static bool HostHasWorldIdentity()
+        {
+            return !GameScreen.AtTitle && Core.currentProfile != null;
+        }
+
+        /// <summary>
+        /// Host, once in-world: check the AlreadyInWorld claims made while it was still on the
+        /// title, then start each peer's join as the handshake would have.
+        /// </summary>
+        private void VerifyDeferredWorldClaims()
+        {
+            if (_role != NetworkRole.Host || _session.Link.UnverifiedInWorldClaims.Count == 0 || !HostHasWorldIdentity())
+                return;
+            var claims = new List<KeyValuePair<int, HandshakeMessage>>(_session.Link.UnverifiedInWorldClaims);
+            _session.Link.UnverifiedInWorldClaims.Clear();
+            foreach (KeyValuePair<int, HandshakeMessage> claim in claims)
+            {
+                int playerId = claim.Key;
+                HandshakeMessage handshake = claim.Value;
+                if (!_session.Link.Handshaked.Contains(playerId))
+                    continue;
+                PeerWorldVerdict verdict = VerifyPeerWorldIdentity(playerId, handshake, out string reason, out int hostChapter);
+                if (verdict == PeerWorldVerdict.Reject)
+                {
+                    RejectPeerWorld(playerId, hostChapter, reason);
+                    Sync.PersonalPrologue.HostNoteGone(ClientStateBackup.SanitizeStableClientKey(handshake.StableClientKey));
+                    continue;
+                }
+                bool trustedInWorld = verdict == PeerWorldVerdict.Match;
+                if (!trustedInWorld)
+                {
+                    ModLog.Warn(LogCat.Session,
+                        "Join pipeline phase 3: peer " + playerId + " claimed AlreadyInWorld but "
+                        + reason + " — re-sharing host world instead of trusting it");
+                    SendPeerWorldResync(playerId, hostChapter, handshake.StableClientKey);
+                }
+                RouteJoinedPeer(playerId, handshake.StableClientKey, trustedInWorld);
+            }
+        }
+
         /// <summary>
         /// Host: verify a client's claimed world. Only called when the client says
         /// AlreadyInWorld (title joiners always get the share anyway).

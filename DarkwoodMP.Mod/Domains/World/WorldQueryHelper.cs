@@ -221,6 +221,14 @@ namespace DWMPHorde.Sync
         /// within <see cref="SaveIdMatchRange"/> of <paramref name="near"/>.
         /// </summary>
         public static T FindFurnitureBySaveId<T>(int saveId, Vector3 near) where T : Component
+            => FindFurnitureBySaveId<T>(saveId, near, SaveIdMatchRange);
+
+        /// <summary>
+        /// As above, within <paramref name="range"/> across the ground. A caller that also checks
+        /// the object's name may pass a wide range: a piece of furniture from the save that drifted
+        /// apart on two machines is still the same piece.
+        /// </summary>
+        public static T FindFurnitureBySaveId<T>(int saveId, Vector3 near, float range) where T : Component
         {
             if (saveId <= 0)
                 return null;
@@ -234,7 +242,7 @@ namespace DWMPHorde.Sync
             // Across the ground only: height is the draw layer here, and a broken copy lies 56
             // below a standing one (one machine repaired it, the other not yet).
             float dx = c.transform.position.x - near.x, dz = c.transform.position.z - near.z;
-            if (dx * dx + dz * dz > SaveIdMatchRange * SaveIdMatchRange)
+            if (dx * dx + dz * dz > range * range)
                 return null;
             return c;
         }

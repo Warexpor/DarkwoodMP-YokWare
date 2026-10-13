@@ -180,6 +180,23 @@ namespace DWMPHorde.Networking
                     hit = TryHitDestructibleItemAt(pos, BarricadeNetHandlers.ItemMatchRadius, damage, attackerT));
                 if (hit)
                     return;
+                // Nothing at the striker's spot: this machine's copy of that piece stands elsewhere
+                // (pushed apart on the two machines). Furniture from the save is the same piece
+                // everywhere by its save id; the blow lands on it, or it was lost.
+                Item byId = msg.SaveId > 0
+                    ? WorldQueryHelper.FindFurnitureBySaveId<Item>(msg.SaveId, pos, float.MaxValue)
+                    : null;
+                if (byId != null && byId.gameObject.name == msg.Name
+                    && (byId.destructible || WorldQueryHelper.HasAttackTrigger(byId)))
+                {
+                    Vector3 at = byId.transform.position;
+                    ModLog.Event(LogCat.Combat, "[MeleeWorldHit] " + msg.Name + " (id " + msg.SaveId + ") stands "
+                        + Mathf.RoundToInt(new Vector2(at.x - pos.x, at.z - pos.z).magnitude)
+                        + " from p" + playerId + "'s blow here: hit by its save id");
+                    PlayerWorldHitScope.Run(playerId, () =>
+                        DialogHostApplyGuard.RunHostWorldFanout(() => byId.getHit(damage, attackerT, true)));
+                    return;
+                }
                 ModRuntime.LegacyInfo($"[MeleeWorldHit] destructible item not found at {pos}");
             }
         }

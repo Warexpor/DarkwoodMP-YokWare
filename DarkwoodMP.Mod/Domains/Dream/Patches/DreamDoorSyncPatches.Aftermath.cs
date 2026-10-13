@@ -228,8 +228,11 @@ namespace DWMPHorde.Patches
 
         private static void TryForceOpenDialogueDoor(Vector3 eventPos, bool broadcast)
         {
+            // The dream's door opens by its talk alone; the overworld twin (outside_bunker_underground_02)
+            // opens only with the bunker key (insertKey's door21 events). Force-opening it there let
+            // the host through after a client merely looked through the keyhole.
             Transform dreamRoot = DreamSyncManager.GetDreamLocationTransform();
-            if (DreamSyncManager.IsDreamActive && dreamRoot == null)
+            if (!DreamSyncManager.IsDreamActive || dreamRoot == null)
                 return;
 
             Vector3 anchor = eventPos;

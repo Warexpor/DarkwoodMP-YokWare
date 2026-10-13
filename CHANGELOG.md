@@ -3,12 +3,13 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.279**. The current Horde wire protocol is **68**. Every install in a session
+**0.8.281**. The current Horde wire protocol is **69**. Every install in a session
 needs the same DLL; the protocol is checked on join.
 
 Protocol history (newest first):
 
-- **68**, 0.8.278 to 0.8.279: new `ObjectSpawnerFired` (175) and `OxygenTankRecords` (176); `PeerRoster`
+- **69**, 0.8.281: `MeleeWorldHit` gains the struck item's furniture save id and name.
+- **68**, 0.8.278 to 0.8.280: new `ObjectSpawnerFired` (175) and `OxygenTankRecords` (176); `PeerRoster`
   gains the host's `NextCreatureId`.
 - **67**, 0.8.276 to 0.8.277: new `OxygenTankSet` (174); `OxygenTankTier` (157) retired.
 - **66**, 0.8.274 to 0.8.275: `PlayerAttack` gains `CanInterrupt` and `NormalHit`; `FriendlyFire` gains
@@ -83,6 +84,94 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.281 — doorway plugs wait for the party too; furniture broken where it drifted apart; pilot: offline games, a host left at the title, joining by hand
+
+A pass over every scene of the game (`.unity` export) for walk-in triggers that shut a way behind
+the first player, by any route: a door locked directly, through a world flag, through another
+trigger switched on or fired, or by a plug. Before this, the party gate (0.8.280) knew locked
+doors and flag-armed locks only.
+
+- **Plugs now wait for everyone, like locked doors.** Three walk-ins switch on a plug: a bare
+  invisible wall (a solid collider with nothing else on it) dropped into a doorway behind the
+  player. The acid dream's studio entry (`area_enter_studio_dream_acid`, `aw_zatyczka_01`) and the
+  maw entrance in the doctor's dream (`event_wejscieDoMordy_area_zamknijWejscie`, dream_oneChance_01_2)
+  shut out whoever had not walked in yet. The wedding's plug was already held through the flag.
+  `LockBehindPartyGate.PlugsWay`: the trigger counts as locking when it switches on such an object.
+- Checked, not changed:
+  - The doors switched on by a walk-in (`ROOM_close_door_area_simple` in the epilogue's room dream)
+    are walk-in locks themselves, so they wait already.
+  - The epilogue's baby-room door (`event_parter_02_fov_warmUp`) shuts when a player first sees the
+    cot, from the doorway, before anyone can be inside.
+  - The doctor's dream sister (`babakura_standing_room1`) is a figure, not a plug.
+- **A piece of furniture broken by one player stayed whole for another.** In the playtest the
+  host smashed a hat stand in the hideout. The client's copy stood more than 25 units from the
+  host's: the break and the wreck's resting spot, both looked up by name near the host's spot,
+  missed it, and it stayed standing there (`[WreckPose] no kapelusznik`). The resting spot also
+  carries the piece's save id, which furniture from the save shares on every machine: the client
+  now finds its copy by that id (with the same name) at any distance, breaks it if the break went
+  by it, and moves it to where the host's wreck rests (`WreckPoseSync.Handle`, log
+  `[WreckPose] … still whole here, N from where it broke: broken now`). Tested in the pilot: the
+  client's wardrobe moved 60 units off, the host broke its own, and the client's broke and moved
+  to the host's wreck.
+- **A client's blow on furniture that stood elsewhere on the host was lost** (the other arrow of
+  the same drift; host log `[MeleeWorldHit] destructible item not found`). The blow now carries
+  the item's save id and name (protocol **69**); with nothing at the striker's spot, the host hits
+  its copy found by them (`[MeleeWorldHit] … hit by its save id`). Tested in the pilot: the host's
+  wardrobe moved 60 units off, the client's blow broke it, and the client's copy moved to the wreck.
+  How the two copies came to stand apart in the playtest is not in its logs (they were at Event
+  level); these lines show the distance next time.
+- **A blow on a wreck sent its break and resting spot again.** Vanilla's `Item.getHit` does nothing
+  to a broken item; the sync after it now does nothing either (`ItemGetHitPatch`).
+- Pilot (`TestPilot`), for automated join tests:
+  - `solo…` modes (`solonewgameskip:N`, `solohost:N`) run the same menu sequence offline, without
+    hosting: a game of this machine's own.
+  - `DWMP_PILOT_HOSTDELAY=<sec>` keeps a host at the title that long before it loads.
+  - `connect [address]` joins by hand, the way the Connect button does.
+  - `padlock [radius]` opens the nearest code lock's screen and closes it unsolved.
+  - `objon <name>` switches on a hidden scene object on this machine; `nudge <name> <dx> <dz>` moves
+    this machine's copy of an item.
+  - `talk` no longer teleports a player already standing at the NPC: its spot (12 units past the
+    NPC) was behind the bunker's talking door, inside the trigger that walks a player through, and
+    opened the door in a test run.
+
+## 0.8.280 — playtest fixes: wedding lock-in, the underground door, joining from your own save or prologue
+
+**Protocol 68** (unchanged). Built and unit-tested; **runtime is not playtested**. These come from
+a two-player Steam playtest of 0.8.273 (MelonLoader, host + one client, about three hours).
+
+- **The wedding locked a player in the yard.** In the groom room a second walk-in trigger
+  (`area_switch_final`) plugs the yard's doorway and arms the bride attack, which shuts and locks
+  the yard door. The first player back in the groom room set it off and shut the others in the
+  yard with the dancing brides. The party gate held only triggers that lock a door themselves.
+  It now also holds a trigger whose world flag lets another trigger in its location lock a door,
+  until every living player there has walked in (`LockBehindPartyGate`).
+- **The overworld underground door opened for the host when a client only looked through the
+  keyhole.** Closing a talk with `door_underground` ran the dream bunker's door replay (fire the
+  leave-door events, else force the nearest door open) on the overworld twin too, past its key.
+  That replay now runs only for a talk in the dream, and the force-open needs the dream pad
+  (`DialogOutcomeCloseNetHandlers`, `DialogueDoorAftermath`).
+- **Joining from inside your own save while the host was still on the title.** The client said it
+  was already in the world, the host had no world to compare it with and believed it: no world
+  download, and the client played on in its own save. The host now holds that claim, checks it
+  once it is in its world, and then refuses it (other campaign), re-sends its world (other
+  chapter) or takes the player in (`VerifyDeferredWorldClaims`).
+- **Joining by hand during your own prologue.** A Steam invite or the Connect button, accepted
+  while the joiner's own prologue still ran offline, reconnected it into the session from inside
+  the prologue (the host counted it as arrived and day 1 began). It is refused now with a line
+  saying the prologue joins by itself at the wake (`PersonalPrologue.BlocksManualJoin`).
+- A client using a door whose only trigger is its locked-door line (the wedding's code door) no
+  longer asks the host to replay its use; the host found nothing and warned each time.
+- Logging: a client says where each night scene the host started plays (here or elsewhere), and a
+  dropped event names the nearest one of that name on the machine, or none. Several night-scene
+  events (`NightEvent_weird_bansheeIntro_01B`, `FLARE`, `NightEvent_new_lights`, `vortex_wiggle`)
+  were dropped on the client with both players in the hideout, and the logs did not show why.
+
+Checked in these logs, not changed: corpse loot taken by the host while the client had no body
+there (the client reads the container fresh on open); a refused place into a slot the host had
+filled (refunded with the host's container state); short desyncs of a night trader mid-trade, a
+generator's fuel, a saw's wood and a burned wardrobe's spot that cleared themselves; the
+graceful host handoff to the client at the end.
 
 ## 0.8.279 — manual save slots stay after permadeath; release zips
 

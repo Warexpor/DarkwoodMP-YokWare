@@ -170,6 +170,9 @@ namespace DWMPHorde.Networking
         public float PosX, PosY, PosZ;
         public float AttackerPosX, AttackerPosY, AttackerPosZ;
         public int Damage;
+        /// <summary>An item struck: its furniture save id (0: none) and name, found by them when its spot is empty here.</summary>
+        public int SaveId;
+        public string Name;
 
         public void Serialize(NetWriter w)
         {
@@ -177,6 +180,8 @@ namespace DWMPHorde.Networking
             w.Put(PosX); w.Put(PosY); w.Put(PosZ);
             w.Put(AttackerPosX); w.Put(AttackerPosY); w.Put(AttackerPosZ);
             w.Put(Damage);
+            w.Put(SaveId);
+            w.Put(Name ?? "");
         }
 
         public static MeleeWorldHitMessage Deserialize(NetReader r) => new MeleeWorldHitMessage
@@ -188,7 +193,9 @@ namespace DWMPHorde.Networking
             AttackerPosX = r.GetFloat(),
             AttackerPosY = r.GetFloat(),
             AttackerPosZ = r.GetFloat(),
-            Damage = r.GetInt()
+            Damage = r.GetInt(),
+            SaveId = r.GetInt(),
+            Name = r.GetString()
         };
     }
     /// <summary>

@@ -60,7 +60,9 @@ namespace DWMPHorde.Patches
             // What the host replays is the object's EventTriggers (and a bed's time skip). A plain
             // Item without either (furniture picked up to drag) has nothing to replay: the request
             // only made the host search for it, and miss it while it was being pushed around.
-            bool worldUse = destGO.GetComponent<EventTriggers>() != null
+            // Only an onActivate trigger is replayed: a door whose only trigger is its locked-door
+            // line (the wedding's code door) sent a request the host could not match and warned on.
+            bool worldUse = HasActivateTrigger(destGO.GetComponent<EventTriggers>())
                 || (destGO.GetComponent<Item>() != null && destGO.GetComponent<TimeSkip>() != null);
             if (!cursor && !worldUse) return true;
 
@@ -79,6 +81,19 @@ namespace DWMPHorde.Patches
                 $"[CursorActionSync] client request {destGO.name} at {p}");
             // Do not latch the one-shot locally. CustomCursorAction stops here.
             // A plain Item still continues activate() after this call (chest UI, switch).
+            return false;
+        }
+
+        private static bool HasActivateTrigger(EventTriggers ets)
+        {
+            if (ets == null || ets.eventTriggers == null)
+                return false;
+            for (int i = 0; i < ets.eventTriggers.Count; i++)
+            {
+                EventTrigger t = ets.eventTriggers[i];
+                if (t != null && t.type == EventTrigger.Type.onActivate)
+                    return true;
+            }
             return false;
         }
 

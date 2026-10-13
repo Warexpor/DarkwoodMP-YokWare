@@ -206,6 +206,7 @@ namespace DWMPHorde.Networking
 
         public void ConnectSteamLobby(CSteamID lobbyId)
         {
+            if (Sync.PersonalPrologue.BlocksManualJoin(out string prologueBlock)) { StatusText = prologueBlock; return; }
             LastClientSteamLobbyId = lobbyId.m_SteamID;
             bool softReconnect = false;
             try

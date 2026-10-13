@@ -362,6 +362,37 @@ namespace DWMPHorde.Networking
             return best;
         }
 
+        /// <summary>
+        /// For a dropped event: where this machine's nearest one of that name is, if any. A night
+        /// scene's copy placed elsewhere here (and so missed by the position match) reads apart from
+        /// a copy this machine never made.
+        /// </summary>
+        private static string NearestSameNameNote(string name, Vector3 pos)
+        {
+            string want = NormalizeGeName(name);
+            if (want.Length == 0)
+                return string.Empty;
+            GameEvents[] all = WorldQueryHelper.GetCachedSceneComponents<GameEvents>();
+            GameEvents best = null;
+            float bestSq = float.MaxValue;
+            for (int i = 0; i < all.Length; i++)
+            {
+                GameEvents ge = all[i];
+                if (ge == null || !string.Equals(NormalizeGeName(ge.name), want, System.StringComparison.OrdinalIgnoreCase))
+                    continue;
+                float dSq = (ge.transform.position - pos).sqrMagnitude;
+                if (dSq < bestSq)
+                {
+                    bestSq = dSq;
+                    best = ge;
+                }
+            }
+            return best == null
+                ? " (none of that name here)"
+                : " (nearest of that name " + Mathf.Sqrt(bestSq).ToString("F0") + " away at " + best.transform.position
+                  + (best.gameObject.activeInHierarchy ? "" : ", inactive") + ")";
+        }
+
         private void QueuePendingGameEvent(GameEventsFiredMessage msg)
         {
             for (int i = _pendingGameEvents.Count - 1; i >= 0; i--)
@@ -466,7 +497,8 @@ namespace DWMPHorde.Networking
                 if (now - _pendingGameEventQueuedAt[key] > maxAge)
                 {
                     ModLog.WarnRate(LogCat.Session, "ge-none-near:" + msg.EventName,
-                        $"[GameEventsSync] no GameEvents near ({msg.PosX:F1},{msg.PosY:F1},{msg.PosZ:F1}) name='{msg.EventName}' after {maxAge:F0}s, dropped");
+                        $"[GameEventsSync] no GameEvents near ({msg.PosX:F1},{msg.PosY:F1},{msg.PosZ:F1}) name='{msg.EventName}' after {maxAge:F0}s, dropped"
+                        + NearestSameNameNote(msg.EventName, new Vector3(msg.PosX, msg.PosY, msg.PosZ)));
                     _pendingGameEvents.RemoveAt(i);
                     _pendingGameEventQueuedAt.Remove(key);
                     continue;
