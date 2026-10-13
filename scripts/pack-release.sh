@@ -157,6 +157,20 @@ for z in "$ART"/DarkwoodMP-YokWare-"$VERSION"-*.zip; do
   echo "--- $(basename "$z")"
   unzip -l "$z" 2>/dev/null || python3 -m zipfile -l "$z"
 done
+# The DLLs in each zip must be the built ones, byte for byte.
 for loader in BepInEx MelonLoader; do
-  md5sum "$ROOT/DarkwoodMP.Mod/bin/Release/$loader/DarkwoodMP.Mod.dll"
+  python3 - "$ART/DarkwoodMP-YokWare-$VERSION-$loader.zip" "$ROOT/DarkwoodMP.Mod/bin/Release/$loader" <<'PY'
+import hashlib, os, sys, zipfile
+zpath, built = sys.argv[1], sys.argv[2]
+with zipfile.ZipFile(zpath) as z:
+    for name in z.namelist():
+        base = os.path.basename(name)
+        if not base.endswith(".dll"):
+            continue
+        a = hashlib.md5(z.read(name)).hexdigest()
+        b = hashlib.md5(open(os.path.join(built, base), "rb").read()).hexdigest()
+        print(("ok  " if a == b else "BAD ") + a + "  " + os.path.basename(zpath) + ":" + name)
+        if a != b:
+            sys.exit(1)
+PY
 done

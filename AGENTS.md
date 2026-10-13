@@ -145,7 +145,7 @@ scripts/pack-release.sh            # builds both loaders (SkipDeploy), runs the 
 - Contents, exactly: BepInEx zip is flat: `DarkwoodMP.Mod.dll`, `LiteNetLib.dll`, `LICENSE`, `INSTALL.txt` (all go to `BepInEx/plugins/`). MelonLoader zip mirrors the game folder: `Mods/DarkwoodMP.Mod.dll`, `UserLibs/LiteNetLib.dll`, `LICENSE`, `INSTALL.txt`. No pdb, no add-ons, no config, no other DLLs.
 - `INSTALL.txt` comes from `scripts/release/INSTALL-BepInEx.txt` / `INSTALL-MelonLoader.txt` (`{VERSION}`, `{PROTOCOL}` filled from `PluginInfo.cs`, CRLF). Change the install steps there, not in the scripts; `pack-release.ps1` (Windows) reads the same files. When README's Install or Playing section changes, update both templates in the same commit.
 - Pack from a clean, committed tree on `main` after the merge, so the zip matches a pushed commit. The version in the zip names must equal README/`PluginInfo`/CHANGELOG.
-- Check the output the script prints: both listings as above, and each `DarkwoodMP.Mod.dll` md5 in the zip matching `DarkwoodMP.Mod/bin/Release/<loader>/`.
+- Check the output the script prints: both listings as above, and an `ok` md5 line per DLL (the script fails on a DLL that differs from `DarkwoodMP.Mod/bin/Release/<loader>/`). Deploy those same builds to the test boxes and md5-check them, so the boxes run what was shared.
 - The manual-saves add-on is not part of the public share unless the user asks: `--addons` packs `YokWare-ManualSaves-<v>-<loader>.zip` too. `--no-build` packs DLLs already built.
 - The entity spawner (debug) is never packed.
 
