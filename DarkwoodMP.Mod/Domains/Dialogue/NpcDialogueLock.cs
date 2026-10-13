@@ -420,23 +420,25 @@ namespace DWMPHorde.Sync
         /// remaining peers are not stuck "Someone is already talking…" for up to the
         /// 90s lease. Local-only <see cref="ReleaseAllForPlayer"/> covers roster prune.
         /// </summary>
-        public static void HostReleaseAllForPlayer(LanNetworkManager net, int playerId)
+        /// <returns>The NPCs whose talk the leaver still held (their close events have not run).</returns>
+        internal static List<NpcRef> HostReleaseAllForPlayer(LanNetworkManager net, int playerId)
         {
-            if (playerId < 0 || _locks.Count == 0) return;
+            var released = new List<NpcRef>(1);
+            if (playerId < 0 || _locks.Count == 0) return released;
 
-            int released = 0;
             for (int i = _locks.Count - 1; i >= 0; i--)
             {
                 Hold hold = _locks[i];
                 if (hold.OwnerId != playerId) continue;
                 _locks.RemoveAt(i);
-                released++;
+                released.Add(hold.Npc);
                 if (net != null && net.Role == NetworkRole.Host && net.IsConnected)
                     BroadcastState(net, hold.Npc, playerId, granted: true, release: true);
             }
-            if (released == 0) return;
+            if (released.Count == 0) return released;
             ModLog.Event(LogCat.Session,
-                "[DialogLock] released " + released + " NPC lock(s) for disconnect p" + playerId);
+                "[DialogLock] released " + released.Count + " NPC lock(s) for disconnect p" + playerId);
+            return released;
         }
 
         /// <summary>Local clear of locks owned by a pruned roster peer (clients).</summary>

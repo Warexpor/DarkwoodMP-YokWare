@@ -142,7 +142,10 @@ namespace DWMPHorde.Patches
             into.Clear();
             var net = ModRuntime.Network as LanNetworkManager;
             Player host = Player.Instance;
-            if (net != null && host != null && host.whereAmI != null && !HostInOutsideLocation())
+            // A living host only, as for the peers below: a host down for the night anchored the
+            // night's location events to the hideout its body lay in.
+            if (net != null && host != null && host.alive && !DeathStateTracker.LocalNightDeath
+                && host.whereAmI != null && !HostInOutsideLocation())
             {
                 Location big = host.whereAmI.bigLocation;
                 if (big != null && !big.isOutsideLocation)

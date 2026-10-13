@@ -150,9 +150,23 @@ namespace DWMPHorde.Patches
         public static class RestoreDifficultyBeforeSave
         {
             [HarmonyPriority(Priority.First)]
-            private static void Prefix()
+            private static void Prefix(out bool __state)
             {
+                // A Save that lands inside the shared death's body (the host's coordinated Save
+                // during its 2.5 s fade): the profile is written with the real difficulty, and
+                // the body gets its normal one back after. Left on hard, vanilla's last-life
+                // check ran for this player alone and ended its run.
+                __state = _armed && SharedPermadeathDeath.BodyRunning;
                 RestoreIfArmed();
+            }
+
+            [HarmonyPriority(Priority.Last)]
+            private static void Postfix(bool __state)
+            {
+                if (!__state || !SharedPermadeathDeath.BodyRunning || Core.currentProfile == null)
+                    return;
+                Arm(Core.currentProfile.difficulty);
+                Core.currentProfile.difficulty = GameProfile.Difficulty.normal;
             }
         }
     }

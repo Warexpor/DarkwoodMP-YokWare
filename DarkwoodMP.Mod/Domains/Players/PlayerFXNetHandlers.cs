@@ -310,6 +310,37 @@ namespace DWMPHorde.Networking
                 Core.AddPrefab("FX/Muzzle/PistolFlash", firePos + aimUp, muzzleRot, null, worldSpace: true);
             }
 
+            // A weapon whose shot is a flame (the flamethrowers): vanilla's projectile is the
+            // stream itself, and only the shooter's game spawned it. The others saw a muzzle
+            // puff and creatures catching fire from nothing. The copy here is the look only:
+            // its Flame is switched off, the shooter's own flames do the hitting and burning.
+            GameObject shotPrefab = itemDef.item as GameObject;
+            if (shotPrefab != null && shotPrefab.GetComponentInChildren<Flame>(true) != null)
+            {
+                try
+                {
+                    GameObject flame = Core.AddPrefab(shotPrefab, firePos, muzzleRot, null);
+                    if (flame != null)
+                    {
+                        Flame[] parts = flame.GetComponentsInChildren<Flame>(true);
+                        for (int i = 0; i < parts.Length; i++)
+                            parts[i].isActive = false;
+                        Rigidbody body = flame.GetComponent<Rigidbody>();
+                        if (body != null)
+                            body.velocity = aimUp * 700f;
+                        Collider own = flame.GetComponent<Collider>();
+                        Collider shooter = proxy.GetComponent<Collider>();
+                        if (own != null && shooter != null)
+                            Physics.IgnoreCollision(own, shooter);
+                    }
+                }
+                catch (System.Exception ex)
+                {
+                    if (ModRuntime.VerboseLogging)
+                        ModRuntime.Log?.LogWarning("[WeaponFire] flame copy: " + ex.Message);
+                }
+            }
+
             // Shot audio: this is the only path peers hear a gunshot by (the shooter's own play
             // is not forwarded as PlayerAudio: LocalAudioService.IsCurrentFirearmShotSound).
             // ApplyingFromNetwork prevents PlayerAudio re-forward loops.

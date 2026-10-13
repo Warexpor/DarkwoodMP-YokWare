@@ -56,6 +56,21 @@ namespace DWMPHorde
             MultiplayerMapManager.Reset();
         }
 
+        /// <summary>
+        /// A profile's save was deleted by the game (permadeath, a deleted profile, a new game over
+        /// it). Argument: the profile id. Raised after vanilla deleted the files.
+        /// </summary>
+        public static event System.Action<int> ProfileSaveDeleted;
+
+        internal static void RaiseProfileSaveDeleted(int profileId)
+        {
+            System.Action<int> h = ProfileSaveDeleted;
+            if (h == null)
+                return;
+            try { h(profileId); }
+            catch (System.Exception ex) { Logging.ModLog.Error(Logging.LogCat.Session, "[AddOn] ProfileSaveDeleted handler: " + ex.Message); }
+        }
+
         /// <summary>Hold vanilla gameplay input while <paramref name="owner"/>'s screen takes the keyboard.</summary>
         public static void HoldInput(string owner, bool held) => UiInputLock.Set(owner, held);
     }

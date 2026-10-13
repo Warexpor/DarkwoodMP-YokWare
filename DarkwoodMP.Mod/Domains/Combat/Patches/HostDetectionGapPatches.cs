@@ -475,22 +475,34 @@ namespace DWMPHorde.Patches
                     HitIfSeen(__instance, proxy.transform);
             }
 
+            // Where the shot lands goes to the clients too (their own shoot() does not run): they
+            // were hit by a rifle that left no mark anywhere. The wall hit is the game's pooled
+            // bullet_hit_1, which is also what its wallHitPrefab is.
+            Vector3 landed;
+            Quaternion landedRot;
             if (Physics.Raycast(vector, vector3, out var hitInfo, num2, 16809985))
             {
-                Core.AddPrefab(
-                    __instance.wallHitPrefab,
-                    hitInfo.point,
-                    Quaternion.Euler(90f, Helpers.angleBetween(vector, hitInfo.point, __instance.transform.forward), 0f),
-                    null);
+                landed = hitInfo.point;
+                landedRot = Quaternion.Euler(90f, Helpers.angleBetween(vector, hitInfo.point, __instance.transform.forward), 0f);
+                Core.AddPrefab(__instance.wallHitPrefab, landed, landedRot, null);
             }
             else
             {
-                Core.AddPrefab(
-                    __instance.hitPrefab,
-                    vector + vector3 * num2,
-                    Quaternion.Euler(90f, 0f, 0f),
-                    null);
+                landed = vector + vector3 * num2;
+                landedRot = Quaternion.Euler(90f, 0f, 0f);
+                Core.AddPrefab(__instance.hitPrefab, landed, landedRot, null);
             }
+            net.SendBulletImpact(new BulletImpactMessage
+            {
+                PrefabName = "bullet_hit_1",
+                PoolName = "FX",
+                PosX = landed.x,
+                PosY = landed.y,
+                PosZ = landed.z,
+                RotX = landedRot.eulerAngles.x,
+                RotY = landedRot.eulerAngles.y,
+                RotZ = landedRot.eulerAngles.z
+            });
             return false;
         }
     }

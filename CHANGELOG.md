@@ -3,11 +3,13 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.277**. The current Horde wire protocol is **67**. Every install in a session
+**0.8.278**. The current Horde wire protocol is **68**. Every install in a session
 needs the same DLL; the protocol is checked on join.
 
 Protocol history (newest first):
 
+- **68**, 0.8.278: new `ObjectSpawnerFired` (175) and `OxygenTankRecords` (176); `PeerRoster`
+  gains the host's `NextCreatureId`.
 - **67**, 0.8.276 to 0.8.277: new `OxygenTankSet` (174); `OxygenTankTier` (157) retired.
 - **66**, 0.8.274 to 0.8.275: `PlayerAttack` gains `CanInterrupt` and `NormalHit`; `FriendlyFire` gains
   `CanInterrupt` and `NormalHit`.
@@ -81,6 +83,107 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.278 — code-review fixes, part 2: rejoin after a night death, joiners' world, mornings, dreams, host migration, Steam
+
+**Protocol 68.** Built (BepInEx and MelonLoader, both add-ons) and unit-tested; **runtime is not
+playtested**. The rest of the 0.8.277 sweep's open findings, each checked against the code first.
+
+Saves and character backups
+- **A rejoin after a night death restored the last save's character** (full bag, the life back)
+  while the bag still lay at the body. The dead client sends its post-death character; the host
+  keeps it in memory until morning and a rejoin gets that (`DeathStateTracker`, `NightBodyBagPatches`).
+- A host save during a rejoin's restore window stored the host's character as the joiner's own
+  (`SaveNetHandlers.Apply`). A party wipe left this campaign's pre-wipe backup in the machine's
+  other profiles, adopted on the next join (`ClientStateBackup.Paths`). Client backups are
+  written atomically. A chapter-share commit kept the slot's played dreams (`SlotCommit`).
+- A save inside the shared death's fade wrote Hard for the dying client only, and vanilla's
+  last-life check ended its run alone (`ClientDeathPatches`).
+
+Joining
+- Harvests, trap disarms, overworld pickups and lamps switched off since the host's last save are
+  replayed to a joiner (its world is that save) (`WorldPhysicsSyncService`).
+- A stale join snapshot put a freshly lit hideout oven out; a relayed oven-off now names its
+  mover, so a third player's old home no longer stays lit (`BulkSyncNetHandlers`, `ContainerLootNetHandlers`).
+- Traps in a join bulk take their sprung look silently (it replayed every snap and blast), and a
+  queued older trap state no longer re-arms a trap sprung since (`WorldObjectSendNetHandlers`, `TrapNetworkId`).
+- **Version mismatch:** the host now answers with its own handshake and drops the joiner after a
+  grace; the joiner shows the reason instead of a bare lost link. A refused peer is no longer
+  announced to everyone as "left the game".
+
+Night, morning, death
+- A held morning: players who spent the night outside no longer hold the clock until someone in a
+  hideout walks out; a host respawn during the hold no longer removes other hideouts' morning
+  traders (`ClientTimeAuthorityPatches`, `DayNightTransitionPatches`).
+- A night-dead client's home is cleared by the host at its release (creatures, infection, traps);
+  at an all-dead morning everyone wakes at home, not the earlier dead where they fell.
+- A dead host no longer anchors night location events; a player joining mid-night no longer gives
+  the host's hideout a second full set of monsters (`NightSpawnProxyPatch`).
+- At dawn villagers that distance culling had out of view stay to culling instead of standing
+  active far from everyone (`NightVillage`).
+- Chat left open closes on death (it held the input gate through the respawn).
+
+Dreams and dialogue
+- A client forced out of a dream counts as left (an all-dead end could never come); a random-dream
+  request is always answered; dead players are not pulled into a chained dream; a dead late joiner
+  is not counted as a dreamer; the host can no longer take a party dream container's item again
+  and again (`DreamExit`, `DreamNetHandlers`, `DreamLootParty`).
+- A chosen branch's first board was applied twice on the host (reputation counted double) (`DialogOutcomePatch`).
+- **A talker who disconnects mid-talk with nobody listening now ends the talk as its Esc would**:
+  the NPC's close events run on the host (a dream door opening). With a listener the talk is
+  handed over as before.
+
+Items, combat, world
+- The per-player hit budget was 20 hits a second: a flamethrower or shotgun on a pack lost most of
+  its hits. It is now sized by the flamethrower (250/s). Other players see a client's flame stream.
+- Sold items no longer vanish when the host's trader stock is full (`TradeCommit`). Two players can
+  no longer both harvest one trap. A boarded or broken door no longer swings open through the
+  state snapshot after its DoorOpen was refused.
+- Remote players are sensed as vanilla senses the player (everything on the ray, walls decide).
+  The host no longer sends infection splats vanilla refused to spawn. The wolfman's shot hits show
+  on clients.
+- Host-only object spawners (junkyard deadly light, mushroom granny's ghosts) are told to the
+  clients (`ObjectSpawnerFired`); the swamp thunder runs on every machine.
+- A dead player's body wears its own look, not the viewer's, and gives no light (`PlayerCorpses`).
+- Two moving objects with the same name no longer restart each other's scrape loop (`MovingObjectSoundService`).
+- Radio clicks, knobs and beeps follow a player's mute and per-player volume and no longer clip at
+  high Radio volume (one-shots stop at the clip's own level).
+
+Host migration
+- An elected player that never takes the host (gone too, migration off, unreachable) is skipped
+  after 9 tries and the survivors elect the next one; the whole migration still stops at 30 tries.
+- Only players in the world stand for election (one still joining had no world to host).
+- A LAN host promoted on an alternate port is found: survivors alternate the old port with the
+  next five.
+- A promoted host continues the dead host's creature ids (gossiped in the roster); minted from 1
+  they hit ids the survivors still held, and same-species creatures swapped.
+- The dead host's NPC talk lock and a survivor's view of its talk are released.
+- Survivors that never come back are counted as left once the retry window is over (they held the
+  location open and the village from flipping), and a night where everyone left is dead resolves
+  its morning.
+- The oxygen-tank source records are shared with the clients (`OxygenTankRecords`), so a promoted
+  host does not hand out a second set.
+
+Steam
+- The same player connecting again while the host still held its old link: the old one is dropped
+  and the new one gets the handshake (it waited until it gave up).
+- A client leaving the lobby is dropped at once instead of holding a slot until its link timed out.
+- A lobby kept for a chapter resume is left when the resume is dropped.
+
+Add-ons
+- Manual saves: a profile's slots are removed with its save (permadeath, a deleted profile, a new
+  game over it), as vanilla's own save is; kept, a permadeath run could be loaded back from F3.
+  A slot without a chapter in its meta sets the profile to the chapter it loads.
+- Entity spawner: spawning and fast-forward are off for a joined client (a frozen local-only body).
+  Its build also deploys to the third test box.
+
+Checked, not changed (as designed): a promoted host saves at the game's own next save (it is told
+so on promotion); a party-gated door waits for every player in its location and lets go when one
+dies or leaves (a timeout would lock the last one out); a joiner offline in its own prologue holds
+day 1 for at most 45 min (the host cannot see an offline player quit); relayed container takes a
+downloading joiner misses are read fresh on open; kill saturation is a no-op in vanilla; the
+quest-item take-back is count-neutral; a newer world share on the slot picker; outside-pad slots
+and the cutscene skip.
 
 ## 0.8.277 — code-review fixes: second death bag, wrong trap, bird areas with three players, dream left by a dropped link
 

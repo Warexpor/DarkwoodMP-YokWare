@@ -31,7 +31,36 @@ namespace DWMPHorde.Networking.Steam
         {
             if (!_active || !_lobbyId.IsValid() || upd.m_ulSteamIDLobby != _lobbyId.m_SteamID)
                 return;
-            if (!_hosting && _hostSteamId.IsValid())
+            if (_hosting)
+            {
+                // A client that left the lobby (quit, crashed out of Steam, kicked) is gone. Its
+                // SNS link only times out much later, and until then it held a player slot, its
+                // proxy stood frozen and the party gates waited on it. Dropped here as a leave.
+                CSteamID gone = new CSteamID(upd.m_ulSteamIDUserChanged);
+                bool clientLeft = (upd.m_rgfChatMemberStateChange
+                    & (uint)(EChatMemberStateChange.k_EChatMemberStateChangeLeft
+                        | EChatMemberStateChange.k_EChatMemberStateChangeDisconnected
+                        | EChatMemberStateChange.k_EChatMemberStateChangeKicked
+                        | EChatMemberStateChange.k_EChatMemberStateChangeBanned)) != 0;
+                if (!clientLeft || gone == LocalSteamId())
+                    return;
+                if (_pendingHostConnects.TryGetValue(gone.m_SteamID, out PendingHostConnect parked))
+                {
+                    _pendingHostConnects.Remove(gone.m_SteamID);
+                    try { SteamNetworkingSockets.CloseConnection(parked.Conn, CloseReasonGeneric, "left lobby", false); }
+                    catch { /* tear */ }
+                }
+                if (_connBySteamId.TryGetValue(gone.m_SteamID, out HSteamNetConnection conn))
+                {
+                    ModLog.Event(LogCat.Network, "Steam client " + gone.m_SteamID + " left the lobby — dropping its link");
+                    UntrackConn(conn, gone.m_SteamID);
+                    try { SteamNetworkingSockets.CloseConnection(conn, CloseReasonGeneric, "left lobby", false); }
+                    catch { /* tear */ }
+                    _owner.OnSteamSessionFailed(gone, closedByPeer: true);
+                }
+                return;
+            }
+            if (_hostSteamId.IsValid())
             {
                 CSteamID changed = new CSteamID(upd.m_ulSteamIDUserChanged);
                 bool left = (upd.m_rgfChatMemberStateChange

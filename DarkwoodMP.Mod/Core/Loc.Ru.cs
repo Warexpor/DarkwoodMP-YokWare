@@ -161,6 +161,7 @@ namespace DWMPHorde
             { "Steam connected — handshaking…", "Steam подключен — соединение…" },
             { "Steam SNS failed", "Ошибка соединения Steam" },
             { "Host lost — migration failed", "Хост потерян — смена хоста не удалась" },
+            { "Host lost — no survivor could take the host", "Хост потерян — никто из оставшихся не смог стать хостом" },
             { "Host lost — no route to new host", "Хост потерян — новый хост недоступен" },
             { "Host lost — bad Steam route", "Хост потерян — нет связи через Steam" },
             { "Migrating — Steam connect failed, retrying…", "Смена хоста — Steam не подключился, повтор…" },

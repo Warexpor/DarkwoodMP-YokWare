@@ -191,6 +191,7 @@ namespace DWMPHorde.Networking
                     ModRuntime.LegacyInfo(
                         $"[DreamSession] Rejected story end from p{playerId}: {rejectReason}");
                     SendDreamEndedRejected(playerId, rejectReason);
+                    DreamExit.HostDreamerForcedOut(_net, playerId, rejectReason);
                     return;
                 }
 
@@ -349,7 +350,8 @@ namespace DWMPHorde.Networking
 
                 // The level slot(s) the requester's level-up wants: the dream begun for it carries
                 // them, and everyone in it gets them marked.
-                DreamSession.NextLevelBits |= msg.LvlFlags;
+                byte levelBits = msg.LvlFlags;
+                DreamSession.NextLevelBits |= levelBits;
                 ModRuntime.LegacyInfo("[DreamSync] Host handling empty dream start request (random roll)");
                 // Next frame, outside this handler's apply guard: the host's roll hooks
                 // (pool refill, TryBegin, early bulk to clients) stand down inside it, so the
@@ -360,7 +362,14 @@ namespace DWMPHorde.Networking
                     {
                         if (DreamSession.IsActive || Singleton<Dreams>.Instance == null
                             || Singleton<Dreams>.Instance.dreamPrepared || Singleton<Dreams>.Instance.dreaming)
+                        {
+                            // Another dream began in that one frame. The requester is told (it
+                            // waited on a request that got no answer), and its level slots do not
+                            // ride on whichever dream comes next.
+                            DreamSession.NextLevelBits &= (byte)~levelBits;
+                            RejectStartRequest(requesterId, DreamSession.IsActive ? "session_active" : "already_prepared");
                             return;
+                        }
                         Singleton<Controller>.Instance.StartCoroutine(
                             Singleton<Dreams>.Instance.prepareDream(""));
                     }
@@ -511,6 +520,16 @@ namespace DWMPHorde.Networking
                 return;
             }
 
+            // Down in the overworld: this player is in no dream, as at the dream's start (the
+            // session bulk leaves it out the same way). Following the chain put a dead player on
+            // the next pad under a session it never joined.
+            if (DreamSyncManager.IsLocalDeadOutsideDream())
+            {
+                ModRuntime.LegacyInfo($"[DreamSync] DreamChainStart → {msg.NextPresetName} — not followed (down outside the dream)");
+                DreamSession.MirrorPoolRemove(msg.NextPresetName);
+                return;
+            }
+
             if (msg.SessionId != 0)
                 DreamSession.AdoptSessionId(msg.SessionId);
 
@@ -589,7 +608,9 @@ namespace DWMPHorde.Networking
             var bulk = DreamSessionBulkMessage.FromLocal();
             _net.SendToPlayer(playerId, NetMessageType.DreamSessionBulk,
                 w => bulk.Serialize(w), DeliveryMethod.ReliableOrdered);
-            if (bulk.SessionActive && bulk.HasPadPosition)
+            // A joiner resumed as dead for the night stays out of the dream (its own side refuses
+            // the entry): counted in, it held the dream's roster with a frozen stand-in.
+            if (bulk.SessionActive && bulk.HasPadPosition && !DeathStateTracker.IsRemoteNightDead(playerId))
             {
                 DreamSyncManager.NoteRemoteInDream(playerId);
                 var proxy = _net.GetProxy(playerId);

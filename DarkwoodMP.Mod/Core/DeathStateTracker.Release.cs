@@ -1,5 +1,6 @@
 using DWMPHorde.Logging;
 using DWMPHorde.Networking;
+using DWMPHorde.Players;
 using DWMPHorde.Spectator;
 using DWMPHorde.Sync;
 using HarmonyLib;
@@ -79,6 +80,8 @@ namespace DWMPHorde
             ModLog.Event(LogCat.Death,
                 $"Morning release ({reason}): local={localDead} remotes={_remoteDeathPositions.Count} day={day}");
 
+            HostClearHomesOfMorningDead(net);
+
             net.Broadcast(NetMessageType.NightDeathRelease,
                 w => new NightDeathReleaseMessage { Day = day }.Serialize(w),
                 LiteNetLib.DeliveryMethod.ReliableOrdered);
@@ -88,6 +91,36 @@ namespace DWMPHorde
             ClearRemoteNightState();
             if (!localInDream)
                 ReleaseLocalNightDeath(worldAuthority: true);
+        }
+
+        /// <summary>
+        /// Host: each night-dead client wakes at its own home, and a client only moves itself
+        /// there. The world half of vanilla's way home (creatures around the hideout back to
+        /// their spawn points, infection and armed traps near the spawn cleared) is the host's,
+        /// as for a day death; without it a released player woke among whatever the night left
+        /// in a hideout the host does not live in.
+        /// </summary>
+        private static void HostClearHomesOfMorningDead(LanNetworkManager net)
+        {
+            if (_morningDeadIds.Count == 0)
+                return;
+            var done = new System.Collections.Generic.List<Location>(2);
+            Location hostHome = HomeLocation(Player.Instance);
+            foreach (int id in _morningDeadIds)
+            {
+                RemotePlayerProxy proxy = net.GetProxy(id);
+                if (proxy == null || !proxy.RemoteHomeOven.HasValue)
+                    continue;
+                ExperienceMachine oven = WorldQueryHelper.FindNearest<ExperienceMachine>(proxy.RemoteHomeOven.Value, 2f);
+                Location home = oven != null ? oven.transform.GetLocation() : null;
+                // The host's own home is cleared by its own way home when it was dead too.
+                if (home == null || home.playerSpawn == null || done.Contains(home)
+                    || (home == hostHome && LocalNightDeath))
+                    continue;
+                done.Add(home);
+                try { HostClearHomeForRespawn(home.playerSpawn.transform.position); }
+                catch (System.Exception ex) { ModRuntime.Log?.LogWarning("[Death] clearing a released player's home: " + ex.Message); }
+            }
         }
 
         /// <summary>Host clock at the last <see cref="HostCheckClockLeftNight"/> (-1 = none yet).</summary>
@@ -138,6 +171,7 @@ namespace DWMPHorde
             // The night is over: a player who died in it and rejoins later is not down any more
             // (a stale mark put a next-night rejoiner straight into spectate).
             _nightDeadByIdentity.Clear();
+            _nightDeathCharacterByIdentity.Clear();
         }
 
         /// <summary>

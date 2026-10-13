@@ -41,6 +41,28 @@ namespace YokWare.ManualSaves
         /// <summary>Slots belong to one PLAY profile, so another profile's world never shows up here.</summary>
         private static string SlotsBaseFor(int profileId) => SaveDir + "/manual_saves/prof" + profileId;
 
+        /// <summary>
+        /// The game deleted profile <paramref name="profileId"/>'s save (permadeath, a deleted
+        /// profile, a new game over it): its slots go with it, as vanilla's own save does. Kept,
+        /// a permadeath run could be loaded back from F3, and a new game in that profile showed
+        /// the old campaign's slots. The pre-profile shared slots are every profile's and stay.
+        /// </summary>
+        public static void DeleteProfileSlots(int profileId)
+        {
+            try
+            {
+                string dir = SlotsBaseFor(profileId);
+                if (!Directory.Exists(dir))
+                    return;
+                Directory.Delete(dir, true);
+                Log.Info("[ManualSave] profile " + profileId + " save deleted — its slots removed");
+            }
+            catch (Exception ex)
+            {
+                Log.Error("[ManualSave] could not remove profile " + profileId + " slots: " + ex.Message);
+            }
+        }
+
         public SaveSlots()
         {
             for (int i = 0; i < Count; i++)
@@ -193,8 +215,11 @@ namespace YokWare.ManualSaves
                 // another copy cannot apply to it, and the co-op mod's world state is dropped.
                 AddOnApi.BeforeOfflineLoad(Core.currentProfile.id);
 
+                // A slot without a chapter in its meta (an old or missing meta.json) loads
+                // chapter 1, so the profile says chapter 1 too, not the chapter it was on.
+                int chapterId = meta.chapter > 0 ? meta.chapter : 1;
                 Core.currentProfile.day = meta.day;
-                Core.currentProfile.chapter = meta.chapter;
+                Core.currentProfile.chapter = chapterId;
                 Core.currentProfile.timeSaved = meta.timeSaved;
                 Core.currentProfile.majorVersion = meta.majorVersion;
                 Core.currentProfile.minorVersion = meta.minorVersion;
@@ -203,7 +228,6 @@ namespace YokWare.ManualSaves
                 // snapshotted or overlaid — that put the pre-load inventory back on (item dupe).
                 Singleton<SaveManager>.Instance.saveGameProfiles();
 
-                int chapterId = meta.chapter > 0 ? meta.chapter : 1;
                 Log.Info("[ManualSave] loading slot " + (idx + 1) + " into profile " + Core.currentProfile.id + " (chapter " + chapterId + ")");
 
                 Core.coreStarted = false;

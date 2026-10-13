@@ -220,6 +220,19 @@ namespace DWMPHorde.Sync
             });
         }
 
+        /// <summary>
+        /// A newer state was applied to this trap directly: a queued older one (its object was
+        /// not there yet) must not land after it. A queued "armed" re-armed a trap sprung since.
+        /// </summary>
+        public static void DropPending(int netId, Vector3 pos)
+        {
+            for (int i = Pending.Count - 1; i >= 0; i--)
+            {
+                if ((netId > 0 && Pending[i].NetId == netId) || (Pending[i].Pos - pos).sqrMagnitude < 0.25f)
+                    Pending.RemoveAt(i);
+            }
+        }
+
         private static float _nextPendingFlushTime;
         private const float PendingFlushInterval = 3f;
 

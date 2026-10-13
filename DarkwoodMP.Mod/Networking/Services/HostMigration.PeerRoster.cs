@@ -38,7 +38,8 @@ namespace DWMPHorde.Networking
                 SessionPort = IsSteamSession
                     ? SteamCoopTransport.MigrationVirtualPort
                     : _sessionPort,
-                Entries = list.ToArray()
+                Entries = list.ToArray(),
+                NextCreatureId = CharacterTracker.NextId
             };
             ApplyPeerRosterLocal(msg);
 
@@ -90,11 +91,20 @@ namespace DWMPHorde.Networking
             return list;
         }
 
-        private static void AddPeerRosterEntries(List<PeerRosterEntry> list, IPeerTable peers, int port)
+        /// <summary>
+        /// Only players in the world: one still joining (handshake pending, downloading the
+        /// world, loading it) has no session world to host, yet the crash-path election, which
+        /// picks from this roster, could elect it.
+        /// </summary>
+        private void AddPeerRosterEntries(List<PeerRosterEntry> list, IPeerTable peers, int port)
         {
             IReadOnlyList<int> ids = peers.Ids;
             for (int i = 0; i < ids.Count; i++)
             {
+                int id = ids[i];
+                if (!_session.Link.Handshaked.Contains(id) || _session.Link.LoadingWorld.Contains(id)
+                    || !IsPeerInWorld(id))
+                    continue;
                 string addr = peers.RosterAddress(ids[i]);
                 if (addr == null)
                     continue;
@@ -126,6 +136,8 @@ namespace DWMPHorde.Networking
                 _hostPlayerId = msg.HostPlayerId;
             if (msg.SessionPort > 0)
                 _sessionPort = msg.SessionPort;
+            if (msg.NextCreatureId > 0)
+                _hostNextCreatureId = msg.NextCreatureId;
 
             _peerRoster.Clear();
             PlayerNames.ApplyRoster(msg.Entries);
@@ -151,17 +163,17 @@ namespace DWMPHorde.Networking
         /// </summary>
         internal int PeerRosterCount => _peerRoster.Count;
 
-        internal bool IsPlayerListedInPeerRoster(int playerId)
+        internal bool IsPlayerListedInPeerRoster(int playerId, bool rosterOnly = false)
         {
             if (playerId <= 0) return false;
-            if (playerId == _localPlayerId) return true;
+            if (playerId == _localPlayerId && !rosterOnly) return true;
             for (int i = 0; i < _peerRoster.Count; i++)
             {
                 if (_peerRoster[i].PlayerId == playerId)
                     return true;
             }
             // Host still has a live transport slot even if roster tick is stale.
-            if (_role == NetworkRole.Host && HasPeer(playerId))
+            if (!rosterOnly && _role == NetworkRole.Host && HasPeer(playerId))
                 return true;
             return false;
         }

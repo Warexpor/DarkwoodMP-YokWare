@@ -120,8 +120,10 @@ namespace DWMPHorde
                 return;
             }
 
-            // Scene change / title / pause menu: nothing to type into.
-            if (_inputOpen && !InWorld)
+            // Scene change / title / pause menu: nothing to type into. A death too: vanilla
+            // closes every screen on it, and the chat held the input gate through the death
+            // and the respawn after it.
+            if (_inputOpen && (!InWorld || Player.Instance.health <= 0f || DeathStateTracker.LocalDown))
                 ToggleInput(false);
 
             // Open with Ctrl+C (either Ctrl).

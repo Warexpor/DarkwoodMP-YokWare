@@ -124,9 +124,30 @@ namespace DWMPHorde.Patches
     [HarmonyPatch(typeof(Infection), "spawnInfection")]
     public static class InfectionSpawnInfectionPatch
     {
-        private static void Postfix(Infection __instance, Vector3 position)
+        /// <summary>
+        /// Vanilla's own answer to "does a splat appear": none without a prefab or a parent, and
+        /// none within 10 of a splat already there. The send used to go out for every call, so
+        /// each refused spread still put a splat (that hurts) into the clients' worlds only.
+        /// </summary>
+        private static void Prefix(Infection __instance, Vector3 position, out bool __state)
         {
-            if (__instance == null) return;
+            __state = false;
+            if (__instance == null || __instance.infectionPrefab == null || __instance.transform.parent == null)
+                return;
+            Collider[] buf = WorldQueryHelper.SharedOverlapBuf;
+            int n = Physics.OverlapSphereNonAlloc(Core.getYPos(position, PosType.low1), 10f, buf, 2);
+            for (int i = 0; i < n; i++)
+            {
+                if (buf[i] != null && buf[i].GetComponent<Infection>() != null)
+                    return;
+            }
+            // A full buffer may hide a splat past its end: vanilla's own check decides then.
+            __state = n < buf.Length;
+        }
+
+        private static void Postfix(Infection __instance, Vector3 position, bool __state)
+        {
+            if (__instance == null || !__state) return;
             if (!InfectionSyncHelpers.IsHost()) return;
             if (LanNetworkManager.IsApplyingRemoteState) return;
 

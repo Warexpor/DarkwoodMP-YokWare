@@ -19,6 +19,16 @@ namespace DWMPHorde.Networking
 {
     public sealed partial class LanNetworkManager
     {
+        /// <summary>Client: the host's version does not match. Torn down out of the packet loop, with the reason shown.</summary>
+        private System.Collections.IEnumerator LeaveRefusedNextFrame(string why)
+        {
+            yield return null;
+            _suppressHostMigration = true;
+            StopNetwork();
+            StatusText = why;
+            WorldSaveShare?.SetWrongSaveProgress(why);
+        }
+
         private void HandleHandshake(HandshakeMessage handshake)
         {
             if (handshake.ProtocolVersion != PluginInfo.ProtocolVersion)
@@ -29,6 +39,34 @@ namespace DWMPHorde.Networking
                     + " remote="
                     + handshake.ProtocolVersion
                     + " — update both mods to the same version.");
+                string why = "Version mismatch: the host runs co-op protocol "
+                    + (_role == NetworkRole.Host ? PluginInfo.ProtocolVersion : handshake.ProtocolVersion)
+                    + ", this player runs "
+                    + (_role == NetworkRole.Host ? handshake.ProtocolVersion : PluginInfo.ProtocolVersion)
+                    + ". Update both to the same YokWare version.";
+                if (_role == NetworkRole.Host && _currentReceivePlayerId > 0)
+                {
+                    // The joiner was dropped with no word and saw only a lost link. It gets the
+                    // host's handshake (its version fields read the same in every protocol), sees
+                    // the mismatch itself with the reason, and is dropped after a short grace.
+                    int refused = _currentReceivePlayerId;
+                    _session.Link.Rejected.Add(refused);
+                    SendToPlayer(refused, NetMessageType.Handshake, w => new HandshakeMessage
+                    {
+                        ProtocolVersion = PluginInfo.ProtocolVersion,
+                        PlayerId = (short)refused,
+                        HostPlayerId = (short)_localPlayerId
+                    }.Serialize(w), DeliveryMethod.ReliableOrdered);
+                    StartCoroutine(DropPeerAfterGrace(refused, why));
+                    return;
+                }
+                if (_role == NetworkRole.Client)
+                {
+                    // Never a host loss (no migration, no reconnect retry): the join failed, said why.
+                    _suppressHostMigration = true;
+                    StartCoroutine(LeaveRefusedNextFrame(why));
+                    return;
+                }
                 DisconnectCurrentReceivePeer();
                 return;
             }

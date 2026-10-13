@@ -224,6 +224,11 @@ namespace DWMPHorde.Networking
                         : (existing != null ? existing.CampaignId : null),
                     SavBytes = File.Exists(savPath) ? new FileInfo(savPath).Length : 0,
                     SavsBytes = File.Exists(savsPath) ? new FileInfo(savsPath).Length : 0,
+                    // The same world landing again (chapter share, rejoin) keeps its played dreams:
+                    // a copy promoted to host by migration reads them from here.
+                    CompletedDreams = existing != null && (string.IsNullOrEmpty(_pendingBegin.CampaignId)
+                        || string.Equals(existing.CampaignId, _pendingBegin.CampaignId, StringComparison.OrdinalIgnoreCase))
+                        ? existing.CompletedDreams : null,
                     Note = "Permanent local copy of co-op world. Updated on every session Save. Delete PLAY profile to remove."
                 });
                 if (string.IsNullOrEmpty(_pendingBegin.CampaignId)

@@ -129,6 +129,10 @@ namespace DWMPHorde.Networking
             // world comes back under a new id: that is part of its join, not a leave.
             if (!lost && _session.Link.LoadingWorld.Contains(playerId) && !_session.Link.CoopReconnect.Contains(playerId))
                 Sync.PeerNotices.HostLoadingDetach(this, playerId, Sync.PlayerNames.ReportedName(playerId));
+            // A peer refused at its handshake (version, wrong save, wrong password) never joined:
+            // told to everyone as "left the game", as if it had played. It got the reason itself.
+            else if (_session.Link.Rejected.Contains(playerId) && !Sync.PeerNotices.IsInGame(playerId))
+                ModLog.Event(LogCat.Session, "Refused peer " + playerId + " gone (no leave notice)");
             else
                 Sync.PeerNotices.HostGone(this, playerId, Sync.PlayerNames.Shown(playerId), lost);
 
@@ -138,8 +142,17 @@ namespace DWMPHorde.Networking
 
             // Before the presence and key records below are cleared.
             Sync.QuestItemHandoff.Leaving leaving = Sync.QuestItemHandoff.Capture(this, playerId);
-            Sync.NpcDialogueLock.HostReleaseAllForPlayer(this, playerId);
+            // A listener takes the leaver's talk over first (its lock moves to them); a talk
+            // nobody took over ends here as the leaver's Esc would have ended it: the NPC's close
+            // events run (a dream door opening, the NPC going back to its routine). Before, the
+            // talk was dropped and those never ran for anyone.
             Sync.DialogMirror.HostPeerLeft(this, playerId);
+            List<Sync.NpcRef> leftTalks = Sync.NpcDialogueLock.HostReleaseAllForPlayer(this, playerId);
+            for (int i = 0; i < leftTalks.Count; i++)
+            {
+                DialogOutcomeApplyHandlers?.AbortWorldOnlyDrainForRelease(leftTalks[i], playerId);
+                DialogOutcomeCloseHandlers?.HostFireNpcCloseDialogue(leftTalks[i]);
+            }
             Sync.PauseMenuSync.HostPeerLeft(playerId);
             Sync.PlayerNames.HostPeerLeft(playerId);
             Sync.DialogHandInArbiter.HostPeerLeft(playerId);

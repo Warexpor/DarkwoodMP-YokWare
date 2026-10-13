@@ -193,6 +193,8 @@ namespace DWMPHorde.Networking
 
             Vector3 pos = new Vector3(msg.PosX, msg.PosY, msg.PosZ);
             ModRuntime.LegacyInfo($"[ObjectRemove] received destroy request for \"{msg.ObjectName}\" at {pos}");
+            if (_net.Role == NetworkRole.Host)
+                Sync.WorldPhysicsSyncService.HostNoteRemovedSinceSave(msg);
             // Mark consumed before destroy so a same-frame local getDroppedItem Prefix loses.
             Sync.WorldPhysicsSyncService.TryConsumeWorldPickup(msg.PosX, msg.PosY, msg.PosZ, msg.ObjectName);
             // The host's grant Remove also reaches the claimer, whose own pickup already
@@ -356,6 +358,7 @@ namespace DWMPHorde.Networking
                 Durability = msg.Durability,
                 Ammo = msg.Ammo
             };
+            Sync.WorldPhysicsSyncService.HostNoteRemovedSinceSave(remove);
             // Broadcast includes claimer (GO already gone — destroy is idempotent).
             _net.Broadcast(NetMessageType.WorldObjectRemoved, w => remove.Serialize(w),
                 DeliveryMethod.ReliableOrdered);

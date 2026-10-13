@@ -64,6 +64,68 @@ namespace DWMPHorde.Sync
         {
             _inGameSince.Clear();
             _nextTick = 0f;
+            _sentSignature = null;
+        }
+
+        /// <summary>The records as last sent to the clients (null = send on the next tick).</summary>
+        private static string _sentSignature; // reset-in: Reset
+
+        /// <summary>
+        /// Host: the clients keep a copy of the records. They lived on the host alone, so a
+        /// promoted host had none: the next take from a source handed out a second set, and every
+        /// player got a spare again.
+        /// </summary>
+        private static void ShareRecords(LanNetworkManager net, int onlyTo = -1)
+        {
+            int n = Math.Min(_records.Count, OxygenTankRecordsMessage.MaxRecords);
+            var msg = new OxygenTankRecordsMessage
+            {
+                Sources = new byte[n], X = new float[n], Y = new float[n], Z = new float[n],
+                Covered = new string[n][]
+            };
+            for (int i = 0; i < n; i++)
+            {
+                Record r = _records[i];
+                msg.Sources[i] = r.Source;
+                msg.X[i] = r.X;
+                msg.Y[i] = r.Y;
+                msg.Z[i] = r.Z;
+                msg.Covered[i] = r.Covered.ToArray();
+            }
+            if (onlyTo > 0)
+                net.SendToPlayer(onlyTo, NetMessageType.OxygenTankRecords, w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);
+            else
+                net.Broadcast(NetMessageType.OxygenTankRecords, w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);
+        }
+
+        private static string RecordsSignature()
+        {
+            var sb = new System.Text.StringBuilder();
+            foreach (Record r in _records)
+            {
+                sb.Append(r.Source).Append(':').Append(r.Covered.Count).Append(';');
+                foreach (string k in r.Covered)
+                    sb.Append(k).Append(',');
+            }
+            return sb.ToString();
+        }
+
+        /// <summary>Client: the host's records replace this copy's (kept for a promotion).</summary>
+        internal static void ApplyRecords(LanNetworkManager net, OxygenTankRecordsMessage msg)
+        {
+            if (net == null || net.Role != NetworkRole.Client || msg.Sources == null)
+                return;
+            // Bound to this copy's campaign, so EnsureLoaded keeps them instead of reading this
+            // install's own (stale or empty) file.
+            _campaign = CoopWorldCopyMeta.TryGetCampaignIdForCurrentProfile() ?? "";
+            _records.Clear();
+            for (int i = 0; i < msg.Sources.Length; i++)
+            {
+                var rec = new Record { Source = msg.Sources[i], X = msg.X[i], Y = msg.Y[i], Z = msg.Z[i] };
+                if (msg.Covered[i] != null)
+                    rec.Covered.AddRange(msg.Covered[i]);
+                _records.Add(rec);
+            }
         }
 
         /// <summary>A save was loaded: the records go back to what that save was written with.</summary>
@@ -209,6 +271,7 @@ namespace DWMPHorde.Sync
             if (_records.Count == 0)
             {
                 TryRecordCarried(net);
+                ShareIfChanged(net);
                 return;
             }
 
@@ -217,7 +280,10 @@ namespace DWMPHorde.Sync
             {
                 seen.Add(id);
                 if (!_inGameSince.ContainsKey(id))
+                {
                     _inGameSince[id] = now;
+                    ShareRecords(net, id);
+                }
                 if (now - _inGameSince[id] < SettleSec)
                     continue;
                 string key = PlayerKey(net, id);
@@ -246,6 +312,16 @@ namespace DWMPHorde.Sync
             }
             foreach (int id in _gone)
                 _inGameSince.Remove(id);
+            ShareIfChanged(net);
+        }
+
+        private static void ShareIfChanged(LanNetworkManager net)
+        {
+            string sig = RecordsSignature();
+            if (sig == _sentSignature)
+                return;
+            _sentSignature = sig;
+            ShareRecords(net);
         }
 
         private static readonly List<int> _gone = new List<int>(); // process-scoped: scratch, cleared before each use

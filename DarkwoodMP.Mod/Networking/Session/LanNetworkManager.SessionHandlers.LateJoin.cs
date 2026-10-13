@@ -143,7 +143,11 @@ namespace DWMPHorde.Networking
             // Other clients' light state / anim library (the host's own went out just above).
             LateJoinStep(playerId, "clientLightAnim", () => ReplayStickyPlayerStateTo(playerId));
             LateJoinStep(playerId, "worldLights", () => WorldLateJoinHandlers.SyncExistingWorldLightsTo(playerId));
+            LateJoinStep(playerId, "lightsOff", () => Sync.WorldPhysicsSyncService.SendLightsOffSinceSaveTo(this, playerId));
             LateJoinStep(playerId, "generators", () => WorldLateJoinHandlers.SyncExistingGeneratorsTo(playerId));
+            // Ahead of everything that spawns (placed traps, dropped items): a removal must not
+            // take a newer object standing where the removed one was.
+            LateJoinStep(playerId, "removedSinceSave", () => Sync.WorldPhysicsSyncService.SendRemovedSinceSaveTo(this, playerId));
             LateJoinStep(playerId, "traps", () => SendTrapBulkTo(playerId));
             LateJoinStep(playerId, "trapLedger", () => Sync.TrapLedger.SendTo(this, playerId));
             LateJoinStep(playerId, "thrownLights", () => Sync.WorldPhysicsSyncService.SendActiveThrownLightsTo(this, playerId));

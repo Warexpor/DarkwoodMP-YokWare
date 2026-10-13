@@ -320,6 +320,55 @@ namespace DWMPHorde.Networking
                 $"[BulkSync] Hideout ovens applied count={msg.OvenCount} matched={applied}");
         }
 
+        /// <summary>Session reset: a join snapshot still waiting for its pads is the old world's.</summary>
+        internal void ClearPendingHideoutState()
+        {
+            _hasPendingHideoutState = false;
+            _pendingHideoutState = default;
+        }
+
+        /// <summary>
+        /// A live oven message arrived for <paramref name="pos"/>: the join snapshot's entry for
+        /// that oven (kept while its pad is not spawned here) is older and must not be applied
+        /// after it. It used to put a freshly lit oven out once the pad appeared.
+        /// </summary>
+        internal void ForgetPendingHideoutOven(Vector3 pos)
+        {
+            if (!_hasPendingHideoutState || _pendingHideoutState.PosX == null)
+                return;
+            HideoutStateSyncMessage old = _pendingHideoutState;
+            var keep = new System.Collections.Generic.List<int>();
+            for (int i = 0; i < old.OvenCount && i < old.PosX.Length; i++)
+            {
+                if (Vector3.Distance(new Vector3(old.PosX[i], old.PosY[i], old.PosZ[i]), pos) >= 1.5f)
+                    keep.Add(i);
+            }
+            if (keep.Count == old.OvenCount)
+                return;
+            if (keep.Count == 0)
+            {
+                ClearPendingHideoutState();
+                return;
+            }
+            var next = new HideoutStateSyncMessage
+            {
+                OvenCount = keep.Count,
+                PosX = new float[keep.Count],
+                PosY = new float[keep.Count],
+                PosZ = new float[keep.Count],
+                IsOn = new bool[keep.Count]
+            };
+            for (int k = 0; k < keep.Count; k++)
+            {
+                int i = keep[k];
+                next.PosX[k] = old.PosX[i];
+                next.PosY[k] = old.PosY[i];
+                next.PosZ[k] = old.PosZ[i];
+                next.IsOn[k] = old.IsOn != null && i < old.IsOn.Length && old.IsOn[i];
+            }
+            _pendingHideoutState = next;
+        }
+
         private float _nextHideoutFlush;
 
         internal void TryFlushPendingHideoutState()

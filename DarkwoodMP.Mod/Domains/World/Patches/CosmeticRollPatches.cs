@@ -155,6 +155,7 @@ namespace DWMPHorde.Patches
         {
             CosmeticRolls.DeleteStore(__instance, profileId);
             PlacedLootStore.Delete(__instance, profileId);
+            AddOnApi.RaiseProfileSaveDeleted(profileId);
         }
     }
 

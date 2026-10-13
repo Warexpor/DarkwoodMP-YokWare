@@ -45,6 +45,9 @@ namespace DWMPHorde.Networking
         internal void ApplyHideoutUpgrade(HideoutUpgradeMessage msg, bool queueIfMissing)
         {
             Vector3 pos = new Vector3(msg.PosX, msg.PosY, msg.PosZ);
+            // Newer than the join snapshot's word on this oven.
+            if (queueIfMissing)
+                _net.BulkSyncHandlers?.ForgetPendingHideoutOven(pos);
             // 0.5f was too tight vs HideoutStateSync (1f) / oven key rounding — late/live miss.
             ExperienceMachine best = WorldQueryHelper.FindNearest<ExperienceMachine>(pos, HideoutUpgradeFindRadius);
             if (best == null)
@@ -82,9 +85,12 @@ namespace DWMPHorde.Networking
             else if (!msg.IsOn && best.isOn)
             {
                 // Another player moved out; the oven stays lit while it is still someone's home.
+                // The mover is named in the message: relayed to a third player it arrives on the
+                // host's connection, and the mover's own stale home kept the old oven lit there.
                 Player local = Player.Instance;
+                int mover = msg.PlayerId > 0 ? msg.PlayerId : _net.CurrentReceivePlayerId;
                 bool stillHome = (local != null && local.experienceMachine == best)
-                    || Patches.OvenHomes.IsOtherPlayersHome(best, _net.CurrentReceivePlayerId);
+                    || Patches.OvenHomes.IsOtherPlayersHome(best, mover);
                 if (!stillHome)
                     best.disable();
             }

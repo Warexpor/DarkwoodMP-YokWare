@@ -233,6 +233,8 @@ namespace DWMPHorde.Networking
         internal void HandleLightState(LightStateMessage ls)
         {
             string fromPeer = (_net.Role == NetworkRole.Host) ? "client" : "host";
+            if (_net.Role == NetworkRole.Host)
+                Sync.WorldPhysicsSyncService.HostNoteLightState(ls);
             Sync.WorldPhysicsSyncService.ApplyLightState(ls, fromPeer);
         }
     }

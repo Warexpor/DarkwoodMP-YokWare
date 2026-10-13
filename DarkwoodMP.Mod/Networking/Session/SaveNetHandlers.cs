@@ -22,6 +22,8 @@ namespace DWMPHorde.Networking
         private bool _receivedHostClientBackup;
         /// <summary>The host answered that it holds no usable backup for this player: the local file is used at once.</summary>
         private bool _hostHasNoClientBackup;
+        /// <summary>Client: the host's night-death character, held until the player exists to take it.</summary>
+        private ClientStateBackupData _nightDeathCharacter;
         /// <summary>
         /// Client, from the join's handshake until its character backup (position included) is
         /// applied or found missing: the player is not yet where they will stand
@@ -42,6 +44,7 @@ namespace DWMPHorde.Networking
         {
             _receivedHostClientBackup = false;
             _hostHasNoClientBackup = false;
+            _nightDeathCharacter = null;
             ClientPlacementPending = false;
             _clientBackupRestoreCo = null;
             _saveSyncBroadcastPending = false;
@@ -145,6 +148,14 @@ namespace DWMPHorde.Networking
         {
             if (!_net.IsConnected) return;
             if (_net.Role != NetworkRole.Client) return;
+            // Still waiting for its own character after a join: the body is the one the loaded
+            // world came with (the host's). Stored now, it replaced this player's real backup
+            // on the host and on disk.
+            if (ClientPlacementPending)
+            {
+                ModLog.Event(LogCat.Save, "[ClientBackup] not sent — own character not restored yet");
+                return;
+            }
             try
             {
                 PersistClientBackupSnapshot(sendToHost: true);
@@ -153,6 +164,33 @@ namespace DWMPHorde.Networking
             catch (Exception ex)
             {
                 ModRuntime.Log?.LogError("[ClientBackup] failed to send: " + ex);
+            }
+        }
+
+        /// <summary>
+        /// Client, once its night death has dropped the bag and spent the life: the character as
+        /// it is now goes to the host, which keeps it in memory until morning. A rejoin in that
+        /// time used to restore the last save's character, full kit and life included, while the
+        /// bag still lay at the body. Not written to disk on either side: no world save holds
+        /// this death.
+        /// </summary>
+        internal void SendNightDeathCharacter()
+        {
+            if (!_net.IsConnected || _net.Role != NetworkRole.Client)
+                return;
+            try
+            {
+                string json = ClientStateBackup.SerializeToJson(ClientStateBackup.CollectBackupData());
+                if (string.IsNullOrEmpty(json))
+                    return;
+                _net.Broadcast(NetMessageType.ClientStateBackup,
+                    w => new ClientStateBackupMessage { JsonData = json, NightDeath = true }.Serialize(w),
+                    LiteNetLib.DeliveryMethod.ReliableOrdered);
+                ModRuntime.LegacyInfo("[ClientBackup] sent the night-death character to the host");
+            }
+            catch (Exception ex)
+            {
+                ModRuntime.Log?.LogWarning("[ClientBackup] night-death character: " + ex.Message);
             }
         }
 

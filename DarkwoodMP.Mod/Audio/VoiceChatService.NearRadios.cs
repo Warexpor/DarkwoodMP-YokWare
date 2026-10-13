@@ -228,7 +228,7 @@ namespace DWMPHorde.Audio
                 _knobSrc.transform.position = at;
                 _knobMuffle.cutoffFrequency = walled ? WallCutoff : 22000f;
                 RoomReverb.Set(_knobReverb, IsInside(net, proxy.PlayerId));
-                float vol = VolumeScale.Clamp(UserRadioVolume * 0.3f * KnobLevel * (walled ? WallVolume : 1f));
+                float vol = OneShotLevel(UserRadioVolume * 0.3f * KnobLevel * (walled ? WallVolume : 1f));
                 _knobSrc.PlayOneShot(clip, vol);
             }
             catch { /* audio not ready */ }

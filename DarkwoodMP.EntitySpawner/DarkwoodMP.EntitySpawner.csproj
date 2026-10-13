@@ -85,13 +85,14 @@
     </Reference>
   </ItemGroup>
 
-  <Target Name="DeployToGameDirs" AfterTargets="Build" Condition="'$(Loader)' == 'BepInEx'">
+  <Target Name="DeployToGameDirs" AfterTargets="Build" Condition="'$(Loader)' == 'BepInEx' and '$(SkipDeploy)' != 'true'">
     <PropertyGroup>
       <SteamPlugins>$(GameDir)\BepInEx\plugins</SteamPlugins>
       <SecondPlugins Condition="'$(SecondPlugins)' == ''">C:\MyProjects\SecondDarkwood\Darkwood\BepInEx\plugins</SecondPlugins>
     </PropertyGroup>
     <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(SteamPlugins)" Condition="Exists('$(SteamPlugins)')" ContinueOnError="true" />
     <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(SecondPlugins)" Condition="Exists('$(SecondPlugins)')" ContinueOnError="true" />
+    <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(ThirdPlugins)" Condition="'$(ThirdPlugins)' != '' and Exists('$(ThirdPlugins)')" ContinueOnError="true" />
   </Target>
 
 </Project>

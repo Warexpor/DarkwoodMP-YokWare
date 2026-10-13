@@ -80,7 +80,29 @@ namespace DWMPHorde.Sync
             long key = Key(inv, slotIdx);
             if (!Takers.TryGetValue(key, out var set))
                 Takers[key] = set = new HashSet<int>();
+            // The host has its copy already: what lies in the slot now is another dreamer's. A
+            // client's second take is refused before it is applied (IsRepeatTake); the host's own
+            // was applied by vanilla, so it is undone. The host could empty the slot again and
+            // again, each take putting a fresh copy back for the dreamer still waiting.
+            bool hostRepeat = playerId == net.LocalPlayerId && set.Contains(playerId);
             set.Add(playerId);
+            if (hostRepeat)
+            {
+                Vector3 at = inv.transform.position;
+                Singleton<Controller>.Instance.waitFramesAndRun(delegate
+                {
+                    if (!ContainerSyncHelpers.TryCancelCursorItem(at, slotIdx, itemType, isRecipe, amount))
+                        ContainerSyncHelpers.RemoveGrantedFromPlayer(itemType, isRecipe, amount, durability, ammo);
+                    PutBack(inv, slotIdx, itemType, amount, durability, ammo, isRecipe, upgrades, shouldBeActive, "the host already has its copy");
+                    if (Player.Instance != null)
+                    {
+                        DWMPHorde.Patches.PersonalFlavorHud.BeginBypass();
+                        try { Player.Instance.displayMessage(Loc.T("Already taken…")); }
+                        finally { DWMPHorde.Patches.PersonalFlavorHud.EndBypass(); }
+                    }
+                }, 1);
+                return;
+            }
 
             int waiting = 0;
             if (FinalDreamsceneManager.LocalIsLiveDreamer() && !set.Contains(net.LocalPlayerId))
@@ -96,6 +118,15 @@ namespace DWMPHorde.Sync
             // Outside the apply guard of the client's take (a send inside it is dropped), after
             // its relay: the others see the take, then the copy put back.
             Singleton<Controller>.Instance.waitFramesAndRun(delegate
+            {
+                PutBack(inv, slotIdx, itemType, amount, durability, ammo, isRecipe, upgrades, shouldBeActive,
+                    waiting + " dreamer(s) still without theirs");
+            }, 1);
+        }
+
+        private static void PutBack(Inventory inv, int slotIdx, string itemType, int amount, float durability,
+            int ammo, bool isRecipe, string[] upgrades, bool shouldBeActive, string why)
+        {
             {
                 if (inv == null || slotIdx >= inv.slots.Count || !DreamSyncManager.IsDreamActive)
                     return;
@@ -121,8 +152,8 @@ namespace DWMPHorde.Sync
                     itemType, amount, durability, ammo, isPlayerPlaced: false, isRecipe: isRecipe,
                     upgrades: upgrades, shouldBeActive: shouldBeActive);
                 ModLog.Event(LogCat.Dream, "[DreamLoot] " + itemType + " x" + amount + " back in " + inv.name
-                    + " slot " + slotIdx + ": " + waiting + " dreamer(s) still without theirs");
-            }, 1);
+                    + " slot " + slotIdx + ": " + why);
+            }
         }
     }
 }

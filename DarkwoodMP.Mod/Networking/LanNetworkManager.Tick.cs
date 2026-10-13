@@ -107,6 +107,7 @@ namespace DWMPHorde.Networking
             if (perf) ClientPerfProbe.BeginUpdateSegment("peerRoster");
             TickPeerRosterGossip();
             TickHostMigrationRetry();
+            TickMigrationSettle();
             TickSoftReconnectRetry();
             TickSteamUnauthTimeout();
             if (perf) ClientPerfProbe.EndUpdateSegment();

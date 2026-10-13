@@ -22,6 +22,13 @@ namespace DWMPHorde.Audio
         private static float UserVoiceVolume => VolumeScale.Clamp(ModConfig.VoiceVolume?.Value ?? 1f);
 
         /// <summary>How loud the walkies are: Voice volume and Radio volume together. A one-shot's volume scale over 1 plays it louder.</summary>
+        /// <summary>
+        /// Level for a radio one-shot (click, knob, beep). These play straight through
+        /// <c>PlayOneShot</c>, past the voice limiter, and a scale over 1 clips the clip: the Radio
+        /// and Voice boosts (up to +24 dB each) stop at the clip's own level here.
+        /// </summary>
+        private static float OneShotLevel(float gain) => Mathf.Clamp01(gain);
+
         private static float UserRadioVolume => UserVoiceVolume * VolumeScale.Clamp(ModConfig.VoiceRadioVolume?.Value ?? 1f);
 
         private static AudioSource _localRadio; // process-scoped: 2D source for this player's own radio clicks
@@ -245,7 +252,9 @@ namespace DWMPHorde.Audio
                 if (s.Click == null || ModRuntime.Network?.GetProxy(s.Id) == null)
                     return;
                 EnsureSquelchClips();
-                float vol = VolumeScale.Clamp(UserRadioVolume * (keyDown ? KeyBeepShare * 0.3f : 0.3f));
+                // The talker's own per-player volume too: a player muted here clicked at full level.
+                float vol = OneShotLevel(UserRadioVolume * VoicePlayerVolumes.Get(s.Id)
+                    * (keyDown ? KeyBeepShare * 0.3f : 0.3f));
                 AudioClip clip = keyDown ? _keyClip : _releaseClip;
                 if (clip != null)
                     s.Click.PlayOneShot(clip, vol);
@@ -270,7 +279,7 @@ namespace DWMPHorde.Audio
                 AudioClip knob = KnobTake();
                 if (knob == null)
                     return;
-                float vol = VolumeScale.Clamp(UserRadioVolume * (HoldingWalkie() ? 0.4f : 0.22f) * KnobLevel);
+                float vol = OneShotLevel(UserRadioVolume * (HoldingWalkie() ? 0.4f : 0.22f) * KnobLevel);
                 PlayLocal(knob, vol);
             }
             catch { /* audio not ready */ }
@@ -347,7 +356,7 @@ namespace DWMPHorde.Audio
             {
                 EnsureLocalRadioSource();
                 EnsureSquelchClips();
-                float vol = VolumeScale.Clamp(UserRadioVolume * (keyDown ? KeyBeepShare * 0.35f : 0.35f));
+                float vol = OneShotLevel(UserRadioVolume * (keyDown ? KeyBeepShare * 0.35f : 0.35f));
                 PlayLocal(keyDown ? _keyClip : _releaseClip, vol);
             }
             catch { /* audio not ready */ }

@@ -19,6 +19,44 @@ namespace DWMPHorde.Networking
         private readonly Dictionary<int, string> _migrationReservedIds = new Dictionary<int, string>(8);
 
         /// <summary>
+        /// Promoted host: when the survivors still reserved count as gone. A survivor dials for at
+        /// most the whole migration retry budget (several elects in a row); past it, it is not
+        /// coming. 0 = nothing pending.
+        /// </summary>
+        private float _migrationSettleAt;
+        private static float MigrationSettleWindow => (MigrationMaxRetries + 1) * MigrationRetrySec;
+
+        /// <summary>
+        /// Promoted host, every frame: settle the migration once every survivor is back or the
+        /// window is over. A survivor that never returned is a leaver (its location, village
+        /// presence, night death and party gates are released: it held the location open and
+        /// the village from flipping), and a night where everyone who is left is dead resolves
+        /// its morning (nothing else asked once the promoted host was down with the rest).
+        /// </summary>
+        private void TickMigrationSettle()
+        {
+            if (_migrationSettleAt <= 0f || _role != NetworkRole.Host || !_isPromotedHost)
+                return;
+            if (_migrationReservedIds.Count > 0 && UnityEngine.Time.unscaledTime < _migrationSettleAt)
+                return;
+            _migrationSettleAt = 0f;
+            if (_migrationReservedIds.Count > 0)
+            {
+                var gone = new List<int>(_migrationReservedIds.Keys);
+                _migrationReservedIds.Clear();
+                for (int i = 0; i < gone.Count; i++)
+                {
+                    if (HasPeer(gone[i]))
+                        continue;
+                    ModLog.Event(LogCat.Network, "[HostMigration] survivor p" + gone[i] + " never came back — counted as left");
+                    OnHostPeerDisconnectedGameplay(gone[i], removeLanSlot: false,
+                        reasonTag: "migration survivor never returned", lost: true);
+                }
+            }
+            DeathStateTracker.TryResolveNightMorning("host migration settled");
+        }
+
+        /// <summary>
         /// Host: title joiners sent the world (they detach for the offline load, then reconnect
         /// AlreadyInWorld). PlayerId → the stable key that may reclaim it.
         /// </summary>
@@ -60,6 +98,7 @@ namespace DWMPHorde.Networking
                     continue;
                 _migrationReservedIds[e.PlayerId] = e.Address;
             }
+            _migrationSettleAt = UnityEngine.Time.unscaledTime + MigrationSettleWindow;
             if (_migrationReservedIds.Count > 0)
                 ModLog.Event(LogCat.Network,
                     "[HostMigration] reserved " + _migrationReservedIds.Count + " survivor PlayerId(s) for reconnect");

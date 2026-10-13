@@ -62,6 +62,22 @@ namespace DWMPHorde.Networking.Steam
 
                 case ESteamNetworkingConnectionState.k_ESteamNetworkingConnectionState_Connected:
                     SteamNetworkingSockets.SetConnectionPollGroup(cb.m_hConn, _pollGroup);
+                    // The same player on a second connection while the first is still held here
+                    // (its game restarted, or its side saw the link fail before this one did).
+                    // The player behind the old one is gone: dropped now, so the new connection's
+                    // first packet is a new player's and gets the host's handshake. Kept, the host
+                    // went on treating it as the old player, never answered the handshake, and the
+                    // rejoining client waited until it gave up, on every retry.
+                    if (_connBySteamId.TryGetValue(steamId.m_SteamID, out HSteamNetConnection held)
+                        && held != cb.m_hConn && held != HSteamNetConnection.Invalid)
+                    {
+                        ModLog.Warn(LogCat.Network,
+                            "Steam SNS " + steamId.m_SteamID + " connected again on a new connection — the old one is dropped");
+                        UntrackConn(held, steamId.m_SteamID);
+                        try { SteamNetworkingSockets.CloseConnection(held, CloseReasonGeneric, "replaced by a new connection", false); }
+                        catch { /* tear */ }
+                        _owner.OnSteamSessionFailed(steamId, closedByPeer: false);
+                    }
                     TrackConn(cb.m_hConn, steamId.m_SteamID);
                     ModLog.Event(LogCat.Network,
                         "Steam SNS peer connected " + steamId.m_SteamID + " — awaiting packets");

@@ -73,6 +73,13 @@ namespace DWMPHorde.Sync
             public readonly HashSet<PosNameKey> ConsumedWorldPickups = new HashSet<PosNameKey>();
             /// <summary>The same pickups with their real spot and name, for a location's first visitor.</summary>
             public readonly List<KeyValuePair<Vector3, string>> ConsumedWorldPickupLog = new List<KeyValuePair<Vector3, string>>();
+            /// <summary>
+            /// Host: every world object removed since its last world save (pickups, harvests, trap
+            /// disarms, destroyed props). A joiner loads that save, so these are still there for it.
+            /// </summary>
+            public readonly List<WorldObjectRemovedMessage> RemovedSinceSave = new List<WorldObjectRemovedMessage>();
+            /// <summary>Host: lamps and switches turned off since its last world save (a joiner's save has them on).</summary>
+            public readonly Dictionary<PosNameKey, LightStateMessage> LightsOffSinceSave = new Dictionary<PosNameKey, LightStateMessage>();
             public readonly Dictionary<Vector3, bool> LastDoorOpen = new Dictionary<Vector3, bool>();
             public readonly Dictionary<Vector3, bool> LastTrapTriggered = new Dictionary<Vector3, bool>();
             public float FullResyncTimer;

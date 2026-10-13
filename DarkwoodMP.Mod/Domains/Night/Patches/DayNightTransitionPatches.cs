@@ -54,8 +54,13 @@ namespace DWMPHorde.Patches
             return true;
         }
 
-        private static void Postfix(Controller __instance, bool byKillingTrader)
+        private static void Postfix(Controller __instance, bool byKillingTrader, bool __runOriginal)
         {
+            // The prefix kept the morning (host death or respawn with a hideout still occupied):
+            // nothing ended. Running on took the other hideouts' morning traders away and
+            // dropped the hold.
+            if (!__runOriginal)
+                return;
             if (!NetGuard.ConnectedHost(out var net))
                 return;
             // Also when a peer's leave request ended it (that runs under the apply guard).
@@ -248,6 +253,47 @@ namespace DWMPHorde.Patches
                 ClockReleased = true;
                 ModLog.Event(LogCat.Session, "[DayNight] p" + playerId + " left the hideout — the clock runs, the morning holds for those inside");
             }
+        }
+
+        /// <summary>
+        /// Host, each clock step of a held morning: a living player who is in no hideout (it
+        /// spent the night out, so it never "walks out") releases the clock like a leaver does.
+        /// Without this the day stood still for it until someone inside a hideout left. Players
+        /// who were dead at dawn are on their way home and do not count.
+        /// </summary>
+        public static void ReleaseIfSomeoneOutside()
+        {
+            if (ClockReleased || !NetGuard.Host(out var net))
+                return;
+            Controller ctrl = Singleton<Controller>.Instance;
+            if (ctrl == null || !ctrl.isAfterNight)
+                return;
+            int who = 0;
+            Player host = Player.Instance;
+            if (host != null && host.alive && !host.dying && !DeathStateTracker.LocalNightDeath
+                && !LocalPositionInside())
+                who = net.LocalPlayerId;
+            else
+            {
+                foreach (RemotePlayerProxy proxy in net.GetAllProxies())
+                {
+                    if (proxy == null || !Spectator.SpectatorModeController.IsPresent(proxy))
+                        continue;
+                    CharBase cb = proxy.CachedCharBase;
+                    if ((cb != null && !cb.alive) || DeathStateTracker.IsRemoteDown(proxy.PlayerId)
+                        || DeathStateTracker.WasNightDeadAtMorning(proxy.PlayerId, ctrl.day)
+                        || Sync.DreamSyncManager.IsRemoteInDream(proxy.PlayerId))
+                        continue;
+                    if (PositionInPlayerBase(proxy.transform.position))
+                        continue;
+                    who = proxy.PlayerId;
+                    break;
+                }
+            }
+            if (who <= 0)
+                return;
+            ClockReleased = true;
+            ModLog.Event(LogCat.Session, "[DayNight] p" + who + " is outside every hideout this morning — the clock runs, the morning holds for those inside");
         }
 
         /// <summary>Host position tick: a pending leaver whose body is now outside the hideout.</summary>

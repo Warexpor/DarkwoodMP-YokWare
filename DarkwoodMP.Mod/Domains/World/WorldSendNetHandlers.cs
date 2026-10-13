@@ -255,6 +255,7 @@ namespace DWMPHorde.Networking
         {
             if (!_net.IsConnected) return;
             if (LanNetworkManager.IsApplyingRemoteState) return;
+            msg.PlayerId = _net.LocalPlayerId;
             _net.Broadcast(NetMessageType.HideoutUpgrade, w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);
         }
 
@@ -273,6 +274,8 @@ namespace DWMPHorde.Networking
             if (PersonalPads.Contains(new Vector3(ls.PosX, ls.PosY, ls.PosZ))) return;
             if (!_net.IsConnected) return;
             if (LanNetworkManager.IsApplyingRemoteState) return;
+            if (_net.Role == NetworkRole.Host)
+                Sync.WorldPhysicsSyncService.HostNoteLightState(ls);
             // World light state is sticky; lost Unreliable packets permanently desync lamps.
             _net.Broadcast(NetMessageType.LightState, w => ls.Serialize(w), DeliveryMethod.ReliableOrdered);
         }
@@ -287,6 +290,8 @@ namespace DWMPHorde.Networking
             // (3x WorldObjectRemoved would cause peer scan thrash and NRE). One wire send per key.
             if (!Sync.WorldPhysicsSyncService.TryClaimOutboundObjectRemove(msg.PosX, msg.PosY, msg.PosZ, msg.ObjectName))
                 return;
+            if (_net.Role == NetworkRole.Host)
+                Sync.WorldPhysicsSyncService.HostNoteRemovedSinceSave(msg);
             // One-shot removal (claims, trap disarm): a lost Unreliable packet leaves the object alive on a peer.
             _net.Broadcast(NetMessageType.WorldObjectRemoved, w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);
         }

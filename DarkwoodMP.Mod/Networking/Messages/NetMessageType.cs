@@ -500,7 +500,17 @@ namespace DWMPHorde.Networking
         /// (<c>Sync.OxygenTankParty</c>). Protocol 67.
         /// </summary>
         OxygenTankSet = 174,
+        /// <summary>
+        /// Host→clients: one of the world's object spawners placed its next object here
+        /// (<c>Patches.ObjectSpawnerSync</c>). Protocol 68.
+        /// </summary>
+        [HostOnly] ObjectSpawnerFired = 175,
+        /// <summary>
+        /// Host→clients: the oxygen-tank source records (<c>Sync.OxygenTankParty</c>), so a
+        /// promoted host keeps them. Protocol 68.
+        /// </summary>
+        [HostOnly] OxygenTankRecords = 176,
         /// <summary>Highest used message type ID.</summary>
-        _Highest = 174
+        _Highest = 176
     }
 }

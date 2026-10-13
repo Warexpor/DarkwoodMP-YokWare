@@ -8,7 +8,8 @@ namespace DWMPHorde.Networking
     public static partial class ClientStateBackup
     {
         /// <returns>True when inv/skills/pose were applied; false on refuse/no-op.</returns>
-        public static bool RestoreFromBackup(ClientStateBackupData data)
+        /// <param name="afterNightDeath">The snapshot is this night's death (an empty kit is its real state, not a wipe).</param>
+        public static bool RestoreFromBackup(ClientStateBackupData data, bool afterNightDeath = false)
         {
             Player player = Player.Instance;
             if (player == null) return false;
@@ -34,7 +35,7 @@ namespace DWMPHorde.Networking
                 return false;
             }
 
-            if (!HasMeaningfulProgress(data))
+            if (!afterNightDeath && !HasMeaningfulProgress(data))
             {
                 ModRuntime.Log?.LogWarning(
                     "[ClientBackup] refused restore — empty backup would wipe character");

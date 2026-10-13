@@ -94,9 +94,26 @@ namespace DWMPHorde.Sync
         /// (sprite/name, keep the GameObject). No explosion prefab or sound;
         /// the normal triggered path remains separate.
         /// </param>
+        /// <summary>
+        /// Another player's disarm or spring of this trap arrived while this player's own disarm
+        /// of it was still filling its bar: the bar stops. Left running it completed on a trap
+        /// already taken, and both players walked off with the harvest.
+        /// </summary>
+        private static void StopLocalDisarmOf(GameObject go)
+        {
+            Player p = Player.Instance;
+            if (p == null || !p.disarmingTrap)
+                return;
+            Item mine = Traverse.Create(p).Field("trapBeingDisarmed").GetValue<Item>();
+            if (mine != null && mine.gameObject == go)
+                p.interruptProgressBar();
+        }
+
         internal static void ApplyTrapState(GameObject go, bool triggered, bool silentDisarm = false)
         {
             if (go == null) return;
+            if (triggered)
+                StopLocalDisarmOf(go);
 
             // Silent disarm first: even if ReadTrapTriggered already true, peer may still
             // have active=true (catchable). Never early-out before forcing the belt.

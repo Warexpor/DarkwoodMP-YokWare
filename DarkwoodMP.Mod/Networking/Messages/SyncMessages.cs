@@ -421,6 +421,61 @@ namespace DWMPHorde.Networking
         };
     }
 
+    /// <summary>Host→clients: every oxygen-tank source record (source, drop spot, covered player keys).</summary>
+    public struct OxygenTankRecordsMessage
+    {
+        public const int MaxRecords = 16;
+        public const int MaxCovered = 32;
+
+        public byte[] Sources;
+        public float[] X, Y, Z;
+        public string[][] Covered;
+
+        public void Serialize(NetWriter w)
+        {
+            int n = Sources != null ? System.Math.Min(Sources.Length, MaxRecords) : 0;
+            w.Put((byte)n);
+            for (int i = 0; i < n; i++)
+            {
+                w.Put(Sources[i]);
+                w.Put(X[i]);
+                w.Put(Y[i]);
+                w.Put(Z[i]);
+                string[] keys = Covered[i] ?? new string[0];
+                int k = System.Math.Min(keys.Length, MaxCovered);
+                w.Put((byte)k);
+                for (int j = 0; j < k; j++)
+                    w.Put(keys[j]);
+            }
+        }
+
+        public static OxygenTankRecordsMessage Deserialize(NetReader r)
+        {
+            int n = r.GetByte();
+            if (n > MaxRecords)
+                throw new System.IO.InvalidDataException("OxygenTankRecords count " + n);
+            var m = new OxygenTankRecordsMessage
+            {
+                Sources = new byte[n], X = new float[n], Y = new float[n], Z = new float[n],
+                Covered = new string[n][]
+            };
+            for (int i = 0; i < n; i++)
+            {
+                m.Sources[i] = r.GetByte();
+                m.X[i] = r.GetFloat();
+                m.Y[i] = r.GetFloat();
+                m.Z[i] = r.GetFloat();
+                int k = r.GetByte();
+                if (k > MaxCovered)
+                    throw new System.IO.InvalidDataException("OxygenTankRecords covered " + k);
+                m.Covered[i] = new string[k];
+                for (int j = 0; j < k; j++)
+                    m.Covered[i][j] = r.GetString();
+            }
+            return m;
+        }
+    }
+
     public struct OxygenTankSetMessage
     {
         /// <summary>Which tank source (<c>Sync.OxygenTankParty</c> Source*).</summary>
@@ -812,6 +867,11 @@ namespace DWMPHorde.Networking
         public int HostPlayerId;
         public int SessionPort;
         public PeerRosterEntry[] Entries;
+        /// <summary>
+        /// The host's next creature id. A promoted host continues from it, so it never mints an
+        /// id the survivors still hold for another body. Protocol 68.
+        /// </summary>
+        public short NextCreatureId;
 
         public void Serialize(NetWriter w)
         {
@@ -822,6 +882,7 @@ namespace DWMPHorde.Networking
             w.Put((byte)n);
             for (int i = 0; i < n; i++)
                 Entries[i].Serialize(w);
+            w.Put(NextCreatureId);
         }
 
         public static PeerRosterMessage Deserialize(NetReader r)
@@ -837,6 +898,7 @@ namespace DWMPHorde.Networking
             msg.Entries = new PeerRosterEntry[n];
             for (int i = 0; i < n; i++)
                 msg.Entries[i] = PeerRosterEntry.Deserialize(r);
+            msg.NextCreatureId = r.GetShort();
             return msg;
         }
     }
@@ -920,10 +982,16 @@ namespace DWMPHorde.Networking
     public struct ClientStateBackupMessage
     {
         public string JsonData;
+        /// <summary>
+        /// The character as a night death left it (kit in the bag at the body, a life spent). No
+        /// world save holds that death, so the host keeps it in memory for this night only and
+        /// hands it back when the same player rejoins before morning.
+        /// </summary>
+        public bool NightDeath;
         // Long-string framing: a full inventory/skills/journal backup can pass the 65535-byte limit of
         // Put(string), which wrapped the length and corrupted the packet.
-        public void Serialize(NetWriter w) { w.PutLongString(JsonData); }
-        public static ClientStateBackupMessage Deserialize(NetReader r) => new ClientStateBackupMessage { JsonData = r.GetLongString() };
+        public void Serialize(NetWriter w) { w.PutLongString(JsonData); w.Put(NightDeath); }
+        public static ClientStateBackupMessage Deserialize(NetReader r) => new ClientStateBackupMessage { JsonData = r.GetLongString(), NightDeath = r.GetBool() };
     }
 
     public struct ReputationSyncMessage

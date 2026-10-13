@@ -570,6 +570,43 @@ namespace DWMPHorde.Sync
                 DWMPHorde.Patches.NamedNpcScalePatch.HostTrimExtras("p" + playerId + " left");
         }
 
+        /// <summary>
+        /// Host: this dreamer's story end was refused, and a refusal puts the player out of the
+        /// dream on its own machine (ForceLocalDreamCleanup) with no DreamLeft of its own. It is
+        /// a leave here too: still counted in, it kept an all-dead end from ever coming and the
+        /// session open after the last real dreamer was gone.
+        /// </summary>
+        internal static void HostDreamerForcedOut(LanNetworkManager net, int playerId, string reason)
+        {
+            if (net == null || net.Role != NetworkRole.Host || playerId <= 0 || !DreamSession.IsActive
+                || _left.Contains(playerId) || !DreamSyncManager.IsRemoteInDream(playerId))
+                return;
+            string preset = DreamSession.PresetName;
+            _left.Add(playerId);
+            if (net.TryGetRemoteState(playerId, out var st) && st != null)
+                st.IsDeadInDream = false;
+            FinalDreamsceneManager.OnPlayerLeftDream(playerId);
+            DreamSyncManager.ClearRemoteInDream(playerId);
+            ModLog.Event(LogCat.Dream, $"[DreamExit] p{playerId} is out of {preset} (story end refused: {reason})");
+
+            var relay = new DreamLeftMessage
+            {
+                PlayerId = playerId,
+                SessionId = DreamSession.SessionId,
+                PresetName = preset ?? "",
+                OutcomeName = DreamSession.BuildRejectedOutcome(reason)
+            };
+            net.SendToAllExcept(playerId, NetMessageType.DreamLeft, w => relay.Serialize(w), DeliveryMethod.ReliableOrdered);
+
+            Dreams dreams = Dreams.Instance;
+            if (dreams != null && dreams.dreaming && HostWorldTime < 0)
+                HostWorldTime = (int)dreams.timeCopy;
+            DreamSyncManager.UnfreezeWorld(restoreTime: false);
+            HostAfterRosterChange(net, "disconnected");
+            if (DreamSession.IsActive)
+                DWMPHorde.Patches.NamedNpcScalePatch.HostTrimExtras("p" + playerId + " forced out");
+        }
+
         /// <summary>Host: someone left. Nobody in it any more ends the session; only dead players in it ends it for them.</summary>
         internal static void HostAfterRosterChange(LanNetworkManager net, string outcome)
         {

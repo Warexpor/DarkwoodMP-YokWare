@@ -129,6 +129,15 @@ namespace DWMPHorde.Players
                 return;
             foreach (Collider col in body.GetComponentsInChildren<Collider>(true))
                 col.enabled = false;
+            // The clone is of this viewer's player: its lights (a lamp or torch held here) went
+            // onto the body. A dead player's body gives no light.
+            foreach (Light2D light in body.GetComponentsInChildren<Light2D>(true))
+            {
+                light.enabled = false;
+                MeshRenderer mr = light.GetComponent<MeshRenderer>();
+                if (mr != null)
+                    mr.enabled = false;
+            }
             body.transform.position = pos;
             // Face the way the player faced when it fell (the local body has not been moved yet:
             // the spectator takes it away a few seconds into the death sequence).
@@ -138,7 +147,12 @@ namespace DWMPHorde.Players
             // default Idle clip over the death clip played here and loop it, a body standing up.
             foreach (tk2dSpriteAnimator anim in body.GetComponentsInChildren<tk2dSpriteAnimator>(true))
                 anim.playAutomatically = false;
-            body.GetComponent<SecondPlayerAnimController>()?.PlayDeathClip("Death1");
+            SecondPlayerAnimController corpseAnim = body.GetComponent<SecondPlayerAnimController>();
+            // The dead player's own look (its skin, what it held), not this viewer's.
+            tk2dSpriteAnimation look = proxy != null ? proxy.GetComponent<SecondPlayerAnimController>()?.TorsoLibrary : null;
+            if (corpseAnim != null && look != null)
+                corpseAnim.ApplyTorsoLibrary(look);
+            corpseAnim?.PlayDeathClip("Death1");
 
             _corpses[id] = new Corpse
             {

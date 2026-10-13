@@ -32,6 +32,13 @@ namespace DWMPHorde.Sync
         private const float CloseDistance = 1000f; // vanilla Character.inSightOrCloseToPlayer
 
         private static readonly HashSet<GameObject> Hidden = new HashSet<GameObject>();
+        /// <summary>
+        /// Away villagers that distance culling has out of view (already off at dusk, or culled
+        /// since). Dawn leaves them to culling: Show turned them on wherever they stood, far from
+        /// every player, until culling next passed their cell. One culling wants back in view
+        /// moves to <see cref="Hidden"/> and comes back at dawn.
+        /// </summary>
+        private static readonly HashSet<GameObject> Culled = new HashSet<GameObject>(); // reset-in: Reset
         private static readonly List<Character> Villagers = new List<Character>(); // reset-in: Reset
         private static Location _villagersOf;
         private const float ArrivalGrace = 3f;
@@ -45,7 +52,21 @@ namespace DWMPHorde.Sync
         /// <summary>Friendly villagers are away (host decision, mirrored from TimeSync on clients).</summary>
         internal static bool Away { get; private set; }
 
-        internal static bool IsHidden(GameObject go) => go != null && Hidden.Count > 0 && Hidden.Contains(go);
+        internal static bool IsHidden(GameObject go) => go != null && (Hidden.Contains(go) || Culled.Contains(go));
+
+        /// <summary>Culling shows an away villager (blocked): it is in view at dawn.</summary>
+        internal static void NoteCullShow(GameObject go)
+        {
+            if (go != null && Culled.Remove(go))
+                Hidden.Add(go);
+        }
+
+        /// <summary>Culling hides an away villager: dawn leaves it out of view.</summary>
+        internal static void NoteCullHide(GameObject go)
+        {
+            if (go != null && Hidden.Remove(go))
+                Culled.Add(go);
+        }
 
         /// <summary>Client: host TimeSync value.</summary>
         internal static void SetAway(bool away)
@@ -61,6 +82,7 @@ namespace DWMPHorde.Sync
             Away = false;
             Show();
             Hidden.Clear();
+            Culled.Clear();
             Villagers.Clear();
             _villagersOf = null;
             _nextTick = 0f;
@@ -140,14 +162,22 @@ namespace DWMPHorde.Sync
             {
                 if (c == null || !c.alive || !StoryActive(c))
                     continue;
-                Hidden.Add(c.gameObject);
+                // Off already (and not by this): culling's. On (again, a location activation
+                // can turn them back on): this hides it and dawn brings it back.
                 if (c.gameObject.activeSelf)
+                {
+                    Culled.Remove(c.gameObject);
+                    Hidden.Add(c.gameObject);
                     c.gameObject.SetActive(false);
+                }
+                else if (!Hidden.Contains(c.gameObject))
+                    Culled.Add(c.gameObject);
             }
         }
 
         private static void Show()
         {
+            Culled.Clear();
             if (Hidden.Count == 0)
                 return;
             foreach (GameObject go in Hidden)
@@ -308,6 +338,22 @@ namespace DWMPHorde.Sync
     public static class NightVillageCullShowPatch
     {
         private static bool Prefix(WorldGrid.Cullable __instance)
-            => !NightVillage.IsHidden(__instance.GO);
+        {
+            if (!NightVillage.IsHidden(__instance.GO))
+                return true;
+            NightVillage.NoteCullShow(__instance.GO);
+            return false;
+        }
+    }
+
+    /// <summary>Culling hiding an away villager: at dawn it stays to culling.</summary>
+    [HarmonyPatch(typeof(WorldGrid.Cullable), "hide")]
+    public static class NightVillageCullHidePatch
+    {
+        private static void Prefix(WorldGrid.Cullable __instance)
+        {
+            if (NightVillage.IsHidden(__instance.GO))
+                NightVillage.NoteCullHide(__instance.GO);
+        }
     }
 }
