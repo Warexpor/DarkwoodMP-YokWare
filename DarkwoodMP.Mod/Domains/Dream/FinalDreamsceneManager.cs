@@ -423,6 +423,22 @@ namespace DWMPHorde.Sync
             ModRuntime.LegacyInfo(
                 $"[FinalDreamscene] Remote player {playerId} disconnected — removed from death tracking ({_deadPlayerIds.Count}/{_connectedPlayerIds.Count})");
 
+            // A dropped link sends no DreamLeft, so the two things a leave does on the host never
+            // ran: a host that woke first and kept the session for the others never closed it
+            // when the last of them dropped (no dream could start again), and the leaver's extra
+            // creatures stayed for the players still in it.
+            var net = ModRuntime.Network;
+            if (net != null && net.Role == NetworkRole.Host && DreamSession.IsActive)
+            {
+                if (!DreamSyncManager.IsLocalDreamActive)
+                {
+                    DreamExit.HostAfterRosterChange(net, "disconnected");
+                    if (!DreamSession.IsActive)
+                        return;
+                }
+                DWMPHorde.Patches.NamedNpcScalePatch.HostTrimExtras("p" + playerId + " disconnected");
+            }
+
             // Last peer gone while the local player is alive: the host plays the dream out solo.
             // Ending here forced outcome "playerDeath", which MarkCompleted-ed and burned the
             // preset for a player who never died. Solo death/story end then use the vanilla path

@@ -3,12 +3,12 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.276**. The current Horde wire protocol is **67**. Every install in a session
+**0.8.277**. The current Horde wire protocol is **67**. Every install in a session
 needs the same DLL; the protocol is checked on join.
 
 Protocol history (newest first):
 
-- **67**, 0.8.276: new `OxygenTankSet` (174); `OxygenTankTier` (157) retired.
+- **67**, 0.8.276 to 0.8.277: new `OxygenTankSet` (174); `OxygenTankTier` (157) retired.
 - **66**, 0.8.274 to 0.8.275: `PlayerAttack` gains `CanInterrupt` and `NormalHit`; `FriendlyFire` gains
   `CanInterrupt` and `NormalHit`.
 - **65**, 0.8.272 to 0.8.273: `DreamEnded` gains `WorldOutcome` (the outcome whose world events the dream's end runs).
@@ -81,6 +81,73 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.277 — code-review fixes: second death bag, wrong trap, bird areas with three players, dream left by a dropped link
+
+**No protocol change (67).** Built and unit-tested (495 pass); **runtime is not playtested**. These
+came out of a read-only sweep of the whole mod; each was checked against the code before it was
+changed. The findings that were not changed are listed at the end.
+
+- **A second death next to an older death bag lost its bag.** The bag lookup took the first bag
+  within 2 m of the body, which was the older one: its contents were sent again under its own id
+  (everyone skipped it as already there) and the new bag was never sent. The dead player's items
+  existed on one machine only. The lookup now takes the newest bag at the spot that has no
+  network id yet (`DeathBagDropSyncPatch.FindDeathDropAt`; the night body bag uses the same
+  lookup).
+- **A trap's state could land on a neighbouring trap.** When the trap at the sent spot was not
+  found (a sprung trap loaded from the save has no collider left; an unloaded one has no object),
+  the lookup widened to "the nearest trap within 8 m, then 20 m". A late joiner sprang the armed
+  trap next to a sprung one, and a queued state went off on a trap placed nearby later. The
+  lookup now matches only the trap at that spot (1.5 m), with a second pass for traps without a
+  collider (`WorldPhysicsSyncService.FindTrapByPos`). A state with no trap at its spot stays
+  queued, as before.
+- **More than 32 trap changes (64 door changes) in one scan were lost.** Past the packet cap a
+  change was still recorded as sent, so the clients never got it. It now waits for the next scan
+  (`WorldPhysicsSyncService.SnapshotScan`).
+- **Bird areas with three players.** The area remembered one body. When the last one in walked
+  out while another was still inside, the birds dived at the host, wherever the host was. A
+  player who left the game while inside kept the area attacking the host for the rest of the
+  session. The area now tracks every body inside, picks the newest one still there, and closes
+  when the last one is gone (`BirdAreaSyncPatches`).
+- **An item put into a container the host does not have vanished.** A take from such a container
+  was refused and handed back; a place was dropped without an answer, and the next container
+  sync erased the item. The place is now refused the same way, and a refused place also takes
+  the item back out of the container on the placer's side (it sat in the bag and the chest when
+  no host snapshot followed) (`ContainerLootNetHandlers`).
+- **Two talks ending during one outcome replay on the host:** the second NPC's deferred close
+  replaced the first, whose close events never ran (a dream bunker door stayed shut). The closes
+  are queued per NPC (`DialogOutcomeApplyNetHandlers`). Needs three players.
+- **A dreamer whose link dropped** sent no leave. A host that had woken first and kept the dream
+  for the others never closed it when the last of them dropped, so no dream could start again
+  that session; and the leaver's extra creatures stayed for the players still in the dream. A
+  disconnect now does both things a leave does (`FinalDreamsceneManager.OnRemoteDisconnected`).
+- **Creatures and dead players.** A creature that finished sniffing a player who had died in the
+  meantime still went for the body. The Three's mercy attack read the host's health also while
+  the host was down, and each client's health as the host's value from when the stand-in was
+  built: it now reads living players only and each client's reported health
+  (`HostDetectionGapPatches`).
+- **Friendly fire, melee.** One swing could land once per collider of the hit player; it now
+  lands once. Cutting in half follows the weapon (it was "80 damage or more"), and fists no
+  longer lose durability (`ClientFriendlyFirePatch`).
+- **A joiner's flag bulk could push an old story flag back to everyone.** Applied from the frame
+  tick it was outside the packet guard, so a flag the joiner did not have yet went to the host as
+  the joiner's own change (`FlagNetHandlers.ApplyFlagBulkSync`).
+- **F4 spectate** could pick a player who is in a dream or a copy of a place the spectator is
+  not in: the camera showed the void and the spectator's body was pinned to the world origin.
+  Such players are no targets now. The F4 order no longer skips a player or wraps early when
+  the list changes (`SpectatorModeController`).
+
+**Found, checked only by reading, not changed** (each needs a decision or a run; full list with
+files in the session report): host migration (no second election when the elected player cannot
+host, the elected player's alternate port, creature ids restarting at 1, the old host's talk
+lock, a promoted host that is night-dead, saves of the promoted copy); a rejoin after a night
+death restoring the pre-death bag and lives; a host save during a rejoin's restore replacing the
+client's character backup; pre-wipe character backups in other save slots; day 1 held for 45
+minutes by a joiner who quit in its prologue; harvests, disarms and lamps switched off since the
+last save not reaching a late joiner; relayed world events reaching a joiner that is still
+downloading; the morning clock held for players already outside; manual save slots surviving
+permadeath; the per-player attack budget dropping flamethrower and shotgun hits; no flame stream
+for other players.
 
 ## 0.8.276 — oxygen tanks are real items, one per player; one player can carry the party's
 

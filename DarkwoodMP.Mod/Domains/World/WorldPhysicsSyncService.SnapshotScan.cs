@@ -65,10 +65,10 @@ namespace DWMPHorde.Sync
 
                 if (stateChanged)
                 {
-                    _s.LastDoorOpen[key] = opened;
-
+                    // Recorded as sent only when it is (see the trap scan below).
                     if (_doors.Count < 64)
                     {
+                        _s.LastDoorOpen[key] = opened;
                         _doors.Add(new DoorState
                         {
                             PosX = key.x,
@@ -107,9 +107,11 @@ namespace DWMPHorde.Sync
                 NoteStateKey(_s.TrapKeyAge, key, changed);
                 if (changed)
                 {
-                    _s.LastTrapTriggered[key] = triggered;
+                    // Recorded as sent only when it is: past the cap it waits for the next scan
+                    // (it used to be marked sent and the clients never heard of it).
                     if (_traps.Count < 32)
                     {
+                        _s.LastTrapTriggered[key] = triggered;
                         int trapId = TrapNetworkId.GetOrMintHost(go);
                         short occupant = ResolveTrapOccupant(trapId, key);
                         _traps.Add(new TrapState

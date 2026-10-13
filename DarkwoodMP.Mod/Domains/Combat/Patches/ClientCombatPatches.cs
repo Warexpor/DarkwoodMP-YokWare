@@ -33,11 +33,21 @@ namespace DWMPHorde.Patches
             if (!SessionSettings.FriendlyFireEnabled)
                 return true;
 
+            // Vanilla bookkeeping: one swing lands once on a body. The stand-in has several
+            // colliders, and without this each one the sensor crossed sent another hit.
+            GameObject body = proxy.gameObject;
+            if (__instance.collidersToIgnore.Contains(_collider) || __instance.gameObjectsToIgnore.Contains(body))
+                return false;
+            __instance.collidersToIgnore.Add(_collider);
+            __instance.gameObjectsToIgnore.Add(body);
+
             // No hit sound here: the victim's getHit sends its own (LocalPlayerHitScope), which
             // reaches this attacker through the host. Playing a guess too doubled it here.
 
             Player local = Player.Instance;
-            if (local != null && local.currentItem != null)
+            bool armed = local != null && !InvItemClass.isNull(local.currentItem)
+                && local.currentItem.baseClass != null;
+            if (armed && local.currentItem.baseClass.isMelee)
                 local.currentItem.drainDurability(__instance.itemDurabilityDrain);
 
             float strengthMod = 1f;
@@ -56,7 +66,7 @@ namespace DWMPHorde.Patches
                 AttackerPosX = pos.x,
                 AttackerPosY = pos.y,
                 AttackerPosZ = pos.z,
-                CanCutInHalf = dmg >= 80,
+                CanCutInHalf = armed && local.currentItem.baseClass.canCutInHalf,
                 AttackerPlayerId = ModRuntime.Network?.LocalPlayerId ?? 0,
                 VictimPlayerId = proxy.PlayerId,
                 Effects = SensorEffectCodec.ToWire(__instance.effects),

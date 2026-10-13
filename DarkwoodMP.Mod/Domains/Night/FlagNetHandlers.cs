@@ -191,25 +191,31 @@ namespace DWMPHorde.Networking
             if (flags == null) return;
 
             int skipped = 0;
-            for (int i = 0; i < msg.FlagCount; i++)
+            // The queued bulk is flushed from the frame tick, outside the packet guard: setFlag for
+            // a flag this game did not have yet then went back to the host as this player's own
+            // change, and the host fanned that older value out to everyone.
+            using (new NetworkApplyGuard())
             {
-                string name = msg.FlagNames[i];
-                if (string.IsNullOrEmpty(name)) continue;
-                // This player's own flags stay as they are (an older host still sends them).
-                if (FlagSyncBoolPatch.IsLocalOnlyFlag(name))
+                for (int i = 0; i < msg.FlagCount; i++)
                 {
-                    skipped++;
-                    continue;
-                }
-                if (flags.flagsDict.TryGetValue(name, out var flag))
-                {
-                    flag.isTrue = msg.FlagIsTrue[i];
-                    flag.amount = msg.FlagAmounts[i];
-                }
-                else
-                {
-                    flags.setFlag(name, msg.FlagIsTrue[i]);
-                    flags.setFlag(name, msg.FlagAmounts[i]);
+                    string name = msg.FlagNames[i];
+                    if (string.IsNullOrEmpty(name)) continue;
+                    // This player's own flags stay as they are (an older host still sends them).
+                    if (FlagSyncBoolPatch.IsLocalOnlyFlag(name))
+                    {
+                        skipped++;
+                        continue;
+                    }
+                    if (flags.flagsDict.TryGetValue(name, out var flag))
+                    {
+                        flag.isTrue = msg.FlagIsTrue[i];
+                        flag.amount = msg.FlagAmounts[i];
+                    }
+                    else
+                    {
+                        flags.setFlag(name, msg.FlagIsTrue[i]);
+                        flags.setFlag(name, msg.FlagAmounts[i]);
+                    }
                 }
             }
             ModLog.Event(LogCat.Session,

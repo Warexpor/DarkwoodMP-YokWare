@@ -112,16 +112,27 @@ namespace DWMPHorde.Patches
             GameObject container = Core.ItemContainer;
             if (container != null)
             {
-                foreach (Transform child in container.transform)
+                // dropBody appends its bag as the last child, and that bag has no network id yet.
+                // An older bag lying within 2 m (a second death on the same spot) already has one:
+                // taking the first match used to re-send the old bag and never the new one.
+                Transform ct = container.transform;
+                DeathDrop known = null;
+                for (int i = ct.childCount - 1; i >= 0; i--)
                 {
+                    Transform child = ct.GetChild(i);
                     DeathDrop dd = child.GetComponent<DeathDrop>();
-                    if (dd != null)
-                    {
-                        Vector2 childXZ = new Vector2(child.position.x, child.position.z);
-                        if (Vector2.Distance(childXZ, posXZ) < 2f)
-                            return dd;
-                    }
+                    if (dd == null)
+                        continue;
+                    Vector2 childXZ = new Vector2(child.position.x, child.position.z);
+                    if (Vector2.Distance(childXZ, posXZ) >= 2f)
+                        continue;
+                    if (string.IsNullOrEmpty(Sync.DeathBagNetworkId.GetBagId(child.gameObject)))
+                        return dd;
+                    if (known == null)
+                        known = dd;
                 }
+                if (known != null)
+                    return known;
             }
 
             DeathDrop[] all = WorldQueryHelper.GetCachedSceneComponents<DeathDrop>();

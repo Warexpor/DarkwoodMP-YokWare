@@ -142,6 +142,14 @@ namespace DWMPHorde.Networking
                     SendContainerDenied(_net.CurrentReceivePlayerId, msg, "no inventory",
                         ContainerTakeDeniedMessage.ModeTakeReturn);
                 }
+                // Host: peer put an item into a missing inventory; the item already left its bag,
+                // so hand it back (the next container sync would otherwise erase it).
+                else if (_net.Role == NetworkRole.Host
+                    && msg.Action == ContainerAction.PlaceItem
+                    && _net.CurrentReceivePlayerId > 0)
+                {
+                    DenyContainerPlace(_net.CurrentReceivePlayerId, msg, "no inventory");
+                }
                 if (msg.Action == ContainerAction.CloseContainer && _net.Role == NetworkRole.Host)
                     _net.SuppressRelay();
                 return;

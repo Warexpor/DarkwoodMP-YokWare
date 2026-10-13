@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using DWMPHorde;
 using DWMPHorde.Logging;
 using DWMPHorde.Patches;
@@ -18,8 +19,10 @@ namespace DWMPHorde.Networking
         private DialogOutcomeCloseNetHandlers _close;
 
         private Coroutine _dialogWorldDrainCo;
-        // The close waiting for the drain / a queued outcome (Name null = none).
-        private NpcRef _pendingCloseDialogueNpc;
+        // The closes waiting for the drain / a queued outcome. One per NPC: with three players
+        // two talks can end during one drain, and a single slot kept only the later close (the
+        // first NPC's onCloseDialogue, e.g. a dream door opening, never ran).
+        private readonly List<NpcRef> _pendingCloses = new List<NpcRef>(2);
         // Whose drain is running (the NPC body and the peer), so another peer's Release / apply,
         // or a talk with another NPC of the same name, cannot abort it.
         private NPC _drainNpc;
@@ -65,7 +68,28 @@ namespace DWMPHorde.Networking
 
         internal void DeferCloseUntilDrainDone(NpcRef npc)
         {
-            _pendingCloseDialogueNpc = npc;
+            if (!npc.IsValid)
+                return;
+            for (int i = 0; i < _pendingCloses.Count; i++)
+            {
+                if (_pendingCloses[i].Matches(npc))
+                    return;
+            }
+            _pendingCloses.Add(npc);
+        }
+
+        private bool TakePendingClose(NpcRef npc, out NpcRef pending)
+        {
+            for (int i = 0; i < _pendingCloses.Count; i++)
+            {
+                if (!_pendingCloses[i].Matches(npc))
+                    continue;
+                pending = _pendingCloses[i];
+                _pendingCloses.RemoveAt(i);
+                return true;
+            }
+            pending = default;
+            return false;
         }
 
         /// <summary>
@@ -115,7 +139,7 @@ namespace DWMPHorde.Networking
             }
             _drainNpc = null;
             _drainOwnerId = 0;
-            _pendingCloseDialogueNpc = default;
+            _pendingCloses.Clear();
         }
 
         /// <summary>A queued outcome may have been holding back that NPC's close: run it once none is left.</summary>
@@ -123,11 +147,8 @@ namespace DWMPHorde.Networking
         {
             if (_dialogWorldDrainCo != null || HasDeferredApplyFor(npc))
                 return;
-            if (!_pendingCloseDialogueNpc.IsValid || !_pendingCloseDialogueNpc.Matches(npc))
-                return;
-            NpcRef pending = _pendingCloseDialogueNpc;
-            _pendingCloseDialogueNpc = default;
-            _close.HostFireNpcCloseDialogue(pending);
+            if (TakePendingClose(npc, out NpcRef pending))
+                _close.HostFireNpcCloseDialogue(pending);
         }
 
         private void DeferApply(DialogOutcomeSyncMessage msg)

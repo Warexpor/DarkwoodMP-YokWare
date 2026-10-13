@@ -30,11 +30,13 @@ namespace DWMPHorde.Networking
             }
 
             // Client often exits while lookKeyhole drain is still running; replay close afterward.
-            if (_pendingCloseDialogueNpc.IsValid)
+            // A close that is still held back (its own outcome queued) defers itself again.
+            if (_pendingCloses.Count > 0)
             {
-                NpcRef pending = _pendingCloseDialogueNpc;
-                _pendingCloseDialogueNpc = default;
-                _close.HostFireNpcCloseDialogue(pending);
+                NpcRef[] pending = _pendingCloses.ToArray();
+                _pendingCloses.Clear();
+                for (int i = 0; i < pending.Length; i++)
+                    _close.HostFireNpcCloseDialogue(pending[i]);
             }
         }
 
@@ -181,7 +183,15 @@ namespace DWMPHorde.Networking
                     DWMPHorde.Patches.DialogHostPresentation.ScrubAndDisarm(dw);
             }
             catch { /* ignore */ }
-            _pendingCloseDialogueNpc = default;
+            // The caller fires this NPC's close itself; other NPCs' closes still wait their turn.
+            TakePendingClose(npc, out _);
+            if (_pendingCloses.Count > 0)
+            {
+                NpcRef[] pending = _pendingCloses.ToArray();
+                _pendingCloses.Clear();
+                for (int i = 0; i < pending.Length; i++)
+                    _close.HostFireNpcCloseDialogue(pending[i]);
+            }
             ModRuntime.LegacyInfo(
                 "[DialogOutcome] aborted world-only drain on dialog Release (open door now)");
         }
