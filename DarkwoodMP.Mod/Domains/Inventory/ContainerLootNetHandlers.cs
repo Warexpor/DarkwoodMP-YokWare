@@ -207,8 +207,11 @@ namespace DWMPHorde.Networking
                         }
                         FireRemoteContainerStoryTrigger(inv, EventTrigger.Type.onTakeInvItem, msg);
                         if (fromClient)
+                        {
                             DreamLootParty.HostAfterTake(inv, msg.SlotIndex, msg.ItemType, taken, msg.Durability, msg.Ammo,
                                 msg.IsRecipe, msg.Upgrades, msg.ShouldBeActive, _net.CurrentReceivePlayerId);
+                            OxygenTankParty.HostContainerTake(_net, inv, msg.ItemType, _net.CurrentReceivePlayerId);
+                        }
 
                         // World dropped-item pickups (shiny stone): empty inventory still leaves the GO.
                         // DestroyEmptyItemInvAt only destroys Item.isDroppedItem, not wardrobes or chests.

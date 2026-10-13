@@ -151,7 +151,7 @@ the rest of this document easier to read.
 | **Request, validate, broadcast** | A client acts on the world. | Doors, container takes, pickups, attacks, trades, generator switches, gasoline |
 | **Host replays the client's action** | The action runs complex vanilla code that only the host may run for the world. The client does it locally for itself, the host re-runs it silently for the world. | Dialogue outcomes, examining objects |
 | **Per-player instance** | Vanilla does it for "the player", and every player should get their own. | Prologue, morning reward, home oven, hints and one-shot "lessons" |
-| **One for every player** | A unique item would block everyone except its holder. | Chapter 2 oxygen tank |
+| **One for every player** | A unique item would block everyone except its holder. | Chapter 2 oxygen tanks (a set per source, carried like any item) |
 | **Party check** | Vanilla asks "does the player have X?" for a unique item. With one shared world, any player holding it counts. | Event "has item" requirements |
 | **Arbitration (first come, first served)** | Two players race for one thing. The host picks the winner and the loser is refused cleanly (and refunded). | Container slots, ground pickups, hand-ins of shared story items, one speaker per NPC |
 | **Defender decides** | Latency makes the host's judgement wrong for the player being affected. | Enemy attacks on clients |
@@ -226,7 +226,7 @@ on the host, so a returning player gets their own character back, not the host's
 
 ### Duplicated or scaled for the party
 
-- **Oxygen tank:** every player gets one (see [section 10](#10-items-containers-trade-and-crafting)).
+- **Oxygen tank:** each tank source gives a set, one per player (see [section 10](#10-items-containers-trade-and-crafting)).
 - **Hideout fuels:** taking one gives the taker a stack multiplied by party size
   ([section 18](#18-balancing-for-the-party)).
 - **Black chompers in dreams:** one extra per extra player
@@ -328,7 +328,7 @@ ever written inside a dream: such a save strands the player on the pad at the ne
   musician's card) where they stood, or next to the host if they were inside a
   location or dream. When the player returns, a drop that is still lying there is
   taken back, and a drop someone else picked up is removed from the returner's bag.
-  Oxygen tanks and journal items are not dropped (everyone has them already).
+  Oxygen tanks are dropped too; journal items are not (everyone has them already).
 - A player's character (position, bag, health, skills) is stored at real world saves
   only (the "saving" indicator), never on leaving or between saves. A returning
   player comes back as they were at the last world save they were in, not at the
@@ -670,11 +670,14 @@ Items are unique. When two players race for the same thing, the host decides:
 
 ### Oxygen tank
 
-Chapter 2's water passages need the oxygen tank. With one tank, everyone else was
-stuck at the water while its holder was away. Now every player gets one: the host
-remembers the best tank anyone has held (empty or full) and each machine tops its
-own bag up to it once. A tank someone drops or stashes later is not handed out
-again.
+Chapter 2's water passages need a full oxygen tank in the diver's own bag. Diving
+does not empty it, and the hideout 5 compressor fills every empty tank its user
+carries, as often as wanted. The first take from each tank source (the Elephants'
+talk, their body, the mask family's shed body) gives the taker one tank per player
+in the game, so one player can carry the party's tanks, fill them in one go and hand
+them out. A player who joins later gets a spare dropped where that source handed
+out its set, unless they already carry a tank. A leaver's tanks are dropped like
+their other story items.
 
 ### Trading
 
@@ -1046,7 +1049,7 @@ Other party-relevant rules that are not settings:
   menu).
 - Nightmare and Hard last lives end the run only on a full party wipe
   ([section 7](#7-death-spectating-and-difficulty)).
-- The oxygen tank is given to everyone ([section 10](#10-items-containers-trade-and-crafting)).
+- Each oxygen tank source gives one tank per player ([section 10](#10-items-containers-trade-and-crafting)).
 
 ---
 

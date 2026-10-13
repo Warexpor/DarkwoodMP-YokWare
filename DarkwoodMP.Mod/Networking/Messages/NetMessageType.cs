@@ -133,7 +133,7 @@ namespace DWMPHorde.Networking
         // 68 retired (MapMarker): party map pins go through the host (MapPinRequest 166, MapPinEvent 167).
         /// <summary>Either peer: a MapElement was discovered (isOnMap set to true).</summary>
         [Forwardable] MapElementDiscovered = 69,
-        // 70, 71 retired (OxygenTankStash, CompressorTankConvert): replaced by OxygenTankTier (157).
+        // 70, 71 retired (OxygenTankStash, CompressorTankConvert): replaced by OxygenTankTier (157), itself retired.
         // 72 retired (MapMarkerRemove): see MapPinRequest (166).
         /// <summary>Host->Client: bulk-sync all journal entries on connection.</summary>
         [HostOnly] JournalBulkSync = 73,
@@ -415,11 +415,7 @@ namespace DWMPHorde.Networking
         [HostOnly] DesyncDetail = 155,
         /// <summary>Client→host: what the client's check found, for the host log. Protocol 33.</summary>
         DesyncReport = 156,
-        /// <summary>
-        /// Host→clients: the best oxygen tank anyone in the party has (1 empty, 2 full); each player
-        /// is topped up to it once (<c>Sync.OxygenTankParty</c>). Protocol 35.
-        /// </summary>
-        [HostOnly] OxygenTankTier = 157,
+        // 157 retired (OxygenTankTier): replaced by OxygenTankSet (174).
         /// <summary>
         /// Host→client: story items dropped for this player while it was away were taken by others;
         /// remove them from its bag. Client→host: done (same lists). <c>Sync.QuestItemHandoff</c>. Protocol 36.
@@ -498,7 +494,13 @@ namespace DWMPHorde.Networking
         /// line in the chat (<c>Sync.PeerNotices</c>). Protocol 62.
         /// </summary>
         [HostOnly] PeerNotice = 173,
+        /// <summary>
+        /// Client→host: this player's Elephants talk handed over an oxygen tank. Host→client: the
+        /// first take from a tank source; this many more tanks, one for each other player
+        /// (<c>Sync.OxygenTankParty</c>). Protocol 67.
+        /// </summary>
+        OxygenTankSet = 174,
         /// <summary>Highest used message type ID.</summary>
-        _Highest = 173
+        _Highest = 174
     }
 }

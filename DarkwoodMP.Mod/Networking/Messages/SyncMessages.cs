@@ -421,14 +421,32 @@ namespace DWMPHorde.Networking
         };
     }
 
-    public struct OxygenTankTierMessage
+    public struct OxygenTankSetMessage
     {
-        /// <summary>1: an empty tank, 2: a full one.</summary>
-        public byte Tier;
+        /// <summary>Which tank source (<c>Sync.OxygenTankParty</c> Source*).</summary>
+        public byte Source;
+        /// <summary>Host→client: tanks to add. Client→host: 0.</summary>
+        public byte Count;
+        /// <summary>Client→host: where the talk handed the tank over.</summary>
+        public float X, Y, Z;
 
-        public void Serialize(NetWriter w) => w.Put(Tier);
+        public void Serialize(NetWriter w)
+        {
+            w.Put(Source);
+            w.Put(Count);
+            w.Put(X);
+            w.Put(Y);
+            w.Put(Z);
+        }
 
-        public static OxygenTankTierMessage Deserialize(NetReader r) => new OxygenTankTierMessage { Tier = r.GetByte() };
+        public static OxygenTankSetMessage Deserialize(NetReader r) => new OxygenTankSetMessage
+        {
+            Source = r.GetByte(),
+            Count = r.GetByte(),
+            X = r.GetFloat(),
+            Y = r.GetFloat(),
+            Z = r.GetFloat()
+        };
     }
 
     public struct QuestHandoffMessage

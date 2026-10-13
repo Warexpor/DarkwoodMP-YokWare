@@ -110,8 +110,6 @@ namespace DWMPHorde.Networking
             // Republish inv+hotbar so host EventTrigger haveItem (keys/tanks) works again.
             try { Sync.PeerItemPresence.SendFullLocalInventory(); }
             catch { /* offline / mid-teardown */ }
-            // The restored bag may lack the party's oxygen tank.
-            Sync.OxygenTankParty.OnBagRestored();
             Sync.QuestItemHandoff.OnBagRestored();
 
             ModRuntime.LegacyInfo(

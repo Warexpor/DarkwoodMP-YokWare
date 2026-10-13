@@ -3,11 +3,12 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.275**. The current Horde wire protocol is **66**. Every install in a session
+**0.8.276**. The current Horde wire protocol is **67**. Every install in a session
 needs the same DLL; the protocol is checked on join.
 
 Protocol history (newest first):
 
+- **67**, 0.8.276: new `OxygenTankSet` (174); `OxygenTankTier` (157) retired.
 - **66**, 0.8.274 to 0.8.275: `PlayerAttack` gains `CanInterrupt` and `NormalHit`; `FriendlyFire` gains
   `CanInterrupt` and `NormalHit`.
 - **65**, 0.8.272 to 0.8.273: `DreamEnded` gains `WorldOutcome` (the outcome whose world events the dream's end runs).
@@ -80,6 +81,39 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.276 — oxygen tanks are real items, one per player; one player can carry the party's
+
+**Protocol 66 → 67.** Built and unit-tested; **runtime is not playtested**.
+
+The 0.8.135 rule put a tank into every player's bag on its own (and filled it when anyone had a
+full one). Now the tanks are real items that can be carried, dropped, stashed and handed over,
+so one player can carry the whole party's, fill them all at the compressor and hand them out
+at the water.
+
+- **Facts from the game files.** Diving (the mi17 hole, the burned cottage pond, the village
+  cellar passages) only checks for a full tank in the diver's own bag and never empties it. The
+  hideout 5 compressor turns every empty tank in its user's bag into a full one, as often as
+  wanted, at no cost. Vanilla tank sources: the Elephants' talk (one), the Elephants' body
+  (two), the mask family's shed body (one).
+- **The first take from a source gives the taker a set:** one tank per player in the world at
+  that moment (the host plus every player in the game), the source's own vanilla tanks
+  included. A client's talk asks the host; a container take is seen by the host when it
+  applies it. The host decides, so two players racing for a source get one set.
+- **A player who joins later** and was not there for a source's set gets a spare empty tank
+  dropped where that source handed out its set (where the talk happened, or by the body), about
+  10 s after they are in the game, unless they already carry a tank. Each source covers each
+  player once (Steam id or LAN install key), so leaving and coming back adds nothing.
+- **Saves from before this rule** (every player was handed a tank): when the host first sees a
+  tank in the party, it covers the players present, and spares for new players drop where the
+  host stood at that moment.
+- **A leaver's tanks are dropped** with their other story items (they were skipped while every
+  player had one) and come back to them as before if still lying there when they return.
+- Records are kept per save next to the host's save (`oxygen_tanks_<campaign>.json`), written
+  at world saves only, like the story-item drops.
+- Removed: the automatic top-up, its late-join step and the backup-restore re-check.
+  (`Domains/Inventory/OxygenTankParty.cs` rewritten, `QuestItemHandoff`, `ContainerLootNetHandlers`,
+  `ContainerSyncPatches.SendContainerAction`, `PeerNotices.IsInGame`.)
 
 ## 0.8.275 — voice volume sliders in dB up to +24 dB; new Radio volume
 

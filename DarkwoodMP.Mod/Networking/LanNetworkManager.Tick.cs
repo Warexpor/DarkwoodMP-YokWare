@@ -101,6 +101,7 @@ namespace DWMPHorde.Networking
             TickHostWorldShareWhenReady();
             TickSaveSyncBroadcast();
             Sync.QuestItemHandoff.Tick(this);
+            Sync.OxygenTankParty.Tick(this);
             if (perf) ClientPerfProbe.EndUpdateSegment();
 
             if (perf) ClientPerfProbe.BeginUpdateSegment("peerRoster");
@@ -256,7 +257,6 @@ namespace DWMPHorde.Networking
             if (perf) ClientPerfProbe.BeginUpdateSegment("peerItems");
             Sync.PeerItemPresence.Tick(this);
             if (perf) ClientPerfProbe.BeginUpdateSegment("oxygenQuest");
-            Sync.OxygenTankParty.Tick(this);
             Sync.QuestItemHandoff.TickClient(this);
             Sync.DreamRetry.Tick(this);
             Sync.MenuShield.Tick(this);
