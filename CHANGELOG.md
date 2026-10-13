@@ -108,6 +108,10 @@ doors and flag-armed locks only.
     hosting: a game of this machine's own.
   - `DWMP_PILOT_HOSTDELAY=<sec>` keeps a host at the title that long before it loads.
   - `connect [address]` joins by hand, the way the Connect button does.
+  - `padlock [radius]` opens the nearest code lock's screen and closes it unsolved.
+  - `talk` no longer teleports a player already standing at the NPC: its spot (12 units past the
+    NPC) was behind the bunker's talking door, inside the trigger that walks a player through, and
+    opened the door in a test run.
 
 ## 0.8.280 — playtest fixes: wedding lock-in, the underground door, joining from your own save or prologue
 

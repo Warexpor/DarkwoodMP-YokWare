@@ -935,6 +935,18 @@ namespace DWMPHorde.Sync
                     Out("  afterNight=" + Singleton<Controller>.Instance.isAfterNight
                         + " clockOn=" + Singleton<Controller>.Instance.DoUpdateTime);
                     return;
+                case "padlock":
+                {
+                    // "padlock [radius]": open the nearest code lock's screen and close it unsolved,
+                    // as a player who looks at the code and walks off (Padlock.deactivate's onActivate).
+                    Door d = Nearest(ListTracker<Door>.GetAll(), a.Length > 1 ? F(a[1]) : 150f);
+                    Padlock pl = d != null ? d.GetComponent<Padlock>() : null;
+                    if (pl == null) { Out("  no code lock near"); return; }
+                    pl.activate();
+                    pl.deactivate();
+                    Out("  " + d.name + "@" + Pos(d.transform.position) + " code screen opened and closed, locked=" + pl.locked);
+                    return;
+                }
                 case "doors":
                     ListNear(ListTracker<Door>.GetAll(), a.Length > 1 ? F(a[1]) : 20f,
                         d => "open=" + d.opened + " locked=" + (d.GetComponent<Padlock>() != null && d.GetComponent<Padlock>().locked));
@@ -1779,7 +1791,10 @@ namespace DWMPHorde.Sync
                     TalkDone();
                     return;
                 }
-                p.teleportTo(_talking.transform.position + new Vector3(12f, 0f, 0f), p.transform.rotation);
+                // A player already standing at it talks from there: the teleport's spot can be on
+                // the far side of a talking door (the bunker's), inside its walk-through trigger.
+                if (Flat(p.transform.position, _talking.transform.position) > 120f)
+                    p.teleportTo(_talking.transform.position + new Vector3(12f, 0f, 0f), p.transform.rotation);
                 GiveAsked(p, _talking);
                 _talkAt = now;
                 _talkSteps = 0;
