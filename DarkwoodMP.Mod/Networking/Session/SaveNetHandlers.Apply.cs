@@ -136,6 +136,14 @@ namespace DWMPHorde.Networking
                 // Cold LAN rejoin reshuffles PlayerId — never push a pN file unless
                 // soft-reconnect kept the same id. Steam / StableClientKey are safe.
                 bool allowPlayerId = _net.IsCoopReconnectPeer(playerId);
+                if (DeathStateTracker.TryGetNightDeathCharacter(_net, playerId, out string deathJson))
+                {
+                    _net.SendToPlayer(playerId, NetMessageType.ClientStateBackup,
+                        w => new ClientStateBackupMessage { JsonData = deathJson, NightDeath = true }.Serialize(w),
+                        LiteNetLib.DeliveryMethod.ReliableOrdered);
+                    ModRuntime.LegacyInfo("[ClientBackup] pushed this night's death character → p" + playerId);
+                    return;
+                }
                 if (steamId == 0 && string.IsNullOrEmpty(stableKey) && !allowPlayerId)
                 {
                     ModRuntime.LegacyInfo(
@@ -204,6 +212,7 @@ namespace DWMPHorde.Networking
                 return;
             _receivedHostClientBackup = false;
             _hostHasNoClientBackup = false;
+            _nightDeathCharacter = null;
             ClientPlacementPending = true;
             if (_clientBackupRestoreCo != null)
             {
@@ -238,7 +247,10 @@ namespace DWMPHorde.Networking
                 if (_receivedHostClientBackup || _net.Role != NetworkRole.Client)
                     yield break;
 
-                var data = ClientStateBackup.LoadLocalSelfBackupFile();
+                // The host's night-death character arrived before the player existed.
+                bool nightDeath = _nightDeathCharacter != null;
+                var data = _nightDeathCharacter ?? ClientStateBackup.LoadLocalSelfBackupFile();
+                _nightDeathCharacter = null;
                 if (data == null)
                 {
                     ModRuntime.LegacyInfo(
@@ -248,9 +260,10 @@ namespace DWMPHorde.Networking
                 if (Player.Instance == null)
                     yield break;
 
-                ClientStateBackup.RestoreFromBackup(data);
-                ModRuntime.LegacyInfo(
-                    "[ClientBackup] restored local self fallback (no host backup for this player id)");
+                ClientStateBackup.RestoreFromBackup(data, afterNightDeath: nightDeath);
+                ModRuntime.LegacyInfo(nightDeath
+                    ? "[ClientBackup] restored this night's death character (held for the player)"
+                    : "[ClientBackup] restored local self fallback (no host backup for this player id)");
             }
             finally
             {
@@ -284,6 +297,22 @@ namespace DWMPHorde.Networking
                     if (data == null)
                     {
                         ModRuntime.Log?.LogWarning("[ClientBackup] host push deserialize failed");
+                        return;
+                    }
+
+                    // This night's death, kept by the host in memory: it is newer than any file
+                    // and is not one itself (no world save holds the death).
+                    if (msg.NightDeath)
+                    {
+                        if (!ClientStateBackup.MatchesCurrentCampaign(data))
+                            return;
+                        if (Player.Instance == null)
+                            _nightDeathCharacter = data;
+                        else if (ClientStateBackup.RestoreFromBackup(data, afterNightDeath: true))
+                        {
+                            _receivedHostClientBackup = true;
+                            ModRuntime.LegacyInfo("[ClientBackup] restored this night's death character");
+                        }
                         return;
                     }
 
@@ -385,6 +414,13 @@ namespace DWMPHorde.Networking
             if (steamId == 0)
                 _net.TryGetSteamIdForPlayer(playerId, out steamId);
             _net.TryGetStableClientKeyForPlayer(playerId, out string stableKey);
+
+            if (msg.NightDeath)
+            {
+                DeathStateTracker.HostKeepNightDeathCharacter(_net, playerId, msg.JsonData);
+                ModLog.Event(LogCat.Save, "[ClientBackup] kept p" + playerId + "'s night-death character until morning");
+                return;
+            }
 
             ClientStateBackupData parsed = null;
             try { parsed = ClientStateBackup.DeserializeFromJson(msg.JsonData); }

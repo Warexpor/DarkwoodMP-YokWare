@@ -183,6 +183,7 @@ namespace DWMPHorde
             _remotePermadeathEligible.Clear();
             PartyWipeDeclared = false;
             _nightDeadByIdentity.Clear();
+            _nightDeathCharacterByIdentity.Clear();
             _nightParticipantIds.Clear();
             _nightParticipantsCaptured = false;
             _resolvingMorning = false;
@@ -484,6 +485,27 @@ namespace DWMPHorde
         /// RemotePlayerForward (original id = the dead peer), exactly as the host forwards
         /// it live, so the joiner's proxy pose and death bookkeeping match everyone else's.
         /// </summary>
+        /// <summary>Host: each night-dead player's character as its death left it, by lasting identity. This night only.</summary>
+        private static readonly Dictionary<string, string> _nightDeathCharacterByIdentity = new Dictionary<string, string>();
+
+        /// <summary>Host: keep a night-dead player's post-death character for a rejoin before morning.</summary>
+        public static void HostKeepNightDeathCharacter(LanNetworkManager net, int playerId, string json)
+        {
+            string identity = IdentityOf(net, playerId);
+            if (identity == null || string.IsNullOrEmpty(json) || !_nightDeadByIdentity.ContainsKey(identity))
+                return;
+            _nightDeathCharacterByIdentity[identity] = json;
+        }
+
+        /// <summary>Host: the post-death character of a player who died this night, when one is kept.</summary>
+        public static bool TryGetNightDeathCharacter(LanNetworkManager net, int playerId, out string json)
+        {
+            json = null;
+            string identity = IdentityOf(net, playerId);
+            return identity != null && _nightDeadByIdentity.ContainsKey(identity)
+                && _nightDeathCharacterByIdentity.TryGetValue(identity, out json);
+        }
+
         public static void HostSendNightDeathSnapshotTo(LanNetworkManager net, int targetPlayerId)
         {
             if (net == null || net.Role != NetworkRole.Host || targetPlayerId <= 0)

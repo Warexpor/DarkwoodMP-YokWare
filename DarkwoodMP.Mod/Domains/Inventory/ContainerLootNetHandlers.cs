@@ -45,6 +45,9 @@ namespace DWMPHorde.Networking
         internal void ApplyHideoutUpgrade(HideoutUpgradeMessage msg, bool queueIfMissing)
         {
             Vector3 pos = new Vector3(msg.PosX, msg.PosY, msg.PosZ);
+            // Newer than the join snapshot's word on this oven.
+            if (queueIfMissing)
+                _net.BulkSyncHandlers?.ForgetPendingHideoutOven(pos);
             // 0.5f was too tight vs HideoutStateSync (1f) / oven key rounding — late/live miss.
             ExperienceMachine best = WorldQueryHelper.FindNearest<ExperienceMachine>(pos, HideoutUpgradeFindRadius);
             if (best == null)
@@ -82,9 +85,12 @@ namespace DWMPHorde.Networking
             else if (!msg.IsOn && best.isOn)
             {
                 // Another player moved out; the oven stays lit while it is still someone's home.
+                // The mover is named in the message: relayed to a third player it arrives on the
+                // host's connection, and the mover's own stale home kept the old oven lit there.
                 Player local = Player.Instance;
+                int mover = msg.PlayerId > 0 ? msg.PlayerId : _net.CurrentReceivePlayerId;
                 bool stillHome = (local != null && local.experienceMachine == best)
-                    || Patches.OvenHomes.IsOtherPlayersHome(best, _net.CurrentReceivePlayerId);
+                    || Patches.OvenHomes.IsOtherPlayersHome(best, mover);
                 if (!stillHome)
                     best.disable();
             }
@@ -141,6 +147,14 @@ namespace DWMPHorde.Networking
                 {
                     SendContainerDenied(_net.CurrentReceivePlayerId, msg, "no inventory",
                         ContainerTakeDeniedMessage.ModeTakeReturn);
+                }
+                // Host: peer put an item into a missing inventory; the item already left its bag,
+                // so hand it back (the next container sync would otherwise erase it).
+                else if (_net.Role == NetworkRole.Host
+                    && msg.Action == ContainerAction.PlaceItem
+                    && _net.CurrentReceivePlayerId > 0)
+                {
+                    DenyContainerPlace(_net.CurrentReceivePlayerId, msg, "no inventory");
                 }
                 if (msg.Action == ContainerAction.CloseContainer && _net.Role == NetworkRole.Host)
                     _net.SuppressRelay();
@@ -207,8 +221,11 @@ namespace DWMPHorde.Networking
                         }
                         FireRemoteContainerStoryTrigger(inv, EventTrigger.Type.onTakeInvItem, msg);
                         if (fromClient)
+                        {
                             DreamLootParty.HostAfterTake(inv, msg.SlotIndex, msg.ItemType, taken, msg.Durability, msg.Ammo,
                                 msg.IsRecipe, msg.Upgrades, msg.ShouldBeActive, _net.CurrentReceivePlayerId);
+                            OxygenTankParty.HostContainerTake(_net, inv, msg.ItemType, _net.CurrentReceivePlayerId);
+                        }
 
                         // World dropped-item pickups (shiny stone): empty inventory still leaves the GO.
                         // DestroyEmptyItemInvAt only destroys Item.isDroppedItem, not wardrobes or chests.

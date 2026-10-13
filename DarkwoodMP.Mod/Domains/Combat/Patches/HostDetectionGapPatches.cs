@@ -140,6 +140,10 @@ namespace DWMPHorde.Patches
                 CharBase proxyCB = proxy.CachedCharBase;
                 if (proxyCB == null || proxyCB.invisible || proxyCB.ignoreMe)
                     return;
+                // It died (or went down for the night) during the sniff: the pick refused such a
+                // body, and committing to it sent the creature to camp on a corpse.
+                if (!proxyCB.alive || DeathStateTracker.IsRemoteDown(targetPlayerId))
+                    return;
 
                 // Vanilla stopSniffing: the sniffed body must still be within smell range.
                 if (Core.trueDistance(__instance.transform.position, proxy.transform.position) >= __instance.radius)
@@ -152,6 +156,8 @@ namespace DWMPHorde.Patches
                 // Attack the host
                 Player host = Player.Instance;
                 if (host == null || host.invisible || host.ignoreMe)
+                    return;
+                if (!host.alive || DeathStateTracker.LocalDown)
                     return;
 
                 // Vanilla stopSniffing: the sniffed body must still be within smell range.
@@ -469,22 +475,34 @@ namespace DWMPHorde.Patches
                     HitIfSeen(__instance, proxy.transform);
             }
 
+            // Where the shot lands goes to the clients too (their own shoot() does not run): they
+            // were hit by a rifle that left no mark anywhere. The wall hit is the game's pooled
+            // bullet_hit_1, which is also what its wallHitPrefab is.
+            Vector3 landed;
+            Quaternion landedRot;
             if (Physics.Raycast(vector, vector3, out var hitInfo, num2, 16809985))
             {
-                Core.AddPrefab(
-                    __instance.wallHitPrefab,
-                    hitInfo.point,
-                    Quaternion.Euler(90f, Helpers.angleBetween(vector, hitInfo.point, __instance.transform.forward), 0f),
-                    null);
+                landed = hitInfo.point;
+                landedRot = Quaternion.Euler(90f, Helpers.angleBetween(vector, hitInfo.point, __instance.transform.forward), 0f);
+                Core.AddPrefab(__instance.wallHitPrefab, landed, landedRot, null);
             }
             else
             {
-                Core.AddPrefab(
-                    __instance.hitPrefab,
-                    vector + vector3 * num2,
-                    Quaternion.Euler(90f, 0f, 0f),
-                    null);
+                landed = vector + vector3 * num2;
+                landedRot = Quaternion.Euler(90f, 0f, 0f);
+                Core.AddPrefab(__instance.hitPrefab, landed, landedRot, null);
             }
+            net.SendBulletImpact(new BulletImpactMessage
+            {
+                PrefabName = "bullet_hit_1",
+                PoolName = "FX",
+                PosX = landed.x,
+                PosY = landed.y,
+                PosZ = landed.z,
+                RotX = landedRot.eulerAngles.x,
+                RotY = landedRot.eulerAngles.y,
+                RotZ = landedRot.eulerAngles.z
+            });
             return false;
         }
     }
@@ -502,7 +520,10 @@ namespace DWMPHorde.Patches
             if (__instance == null || __instance.attacks == null || __instance.attacks.Count < 3)
                 return true;
 
-            float minHp = Player.Instance != null ? Player.Instance.health : float.MaxValue;
+            // A body that is already down keeps the health of its lethal hit and must not count.
+            Player host = Player.Instance;
+            float minHp = host != null && host.alive && !DeathStateTracker.LocalDown
+                ? host.health : float.MaxValue;
             var net = ModRuntime.Network;
             if (net != null)
             {
@@ -511,8 +532,13 @@ namespace DWMPHorde.Patches
                     if (proxy == null)
                         continue;
                     CharBase cb = proxy.CachedCharBase;
-                    if (cb != null && cb.alive && cb.Health < minHp)
-                        minHp = cb.Health;
+                    if (cb == null || !cb.alive || DeathStateTracker.IsRemoteDown(proxy.PlayerId))
+                        continue;
+                    // The stand-in's own Health is the host's value from when it was built; the
+                    // peer reports its real share.
+                    float hp = proxy.RemoteHealthPct / 100f * cb.maxHealth;
+                    if (hp < minHp)
+                        minHp = hp;
                 }
             }
 

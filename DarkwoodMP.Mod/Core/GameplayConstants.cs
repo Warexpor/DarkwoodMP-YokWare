@@ -46,17 +46,22 @@ namespace DWMPHorde
         /// </summary>
         public const float MaxPlayerRangedAttackRange = 1400f;
 
-        /// <summary>Per-peer attack token bucket: sustained hits per second (shotgun pellets count each).</summary>
-        public const float PeerAttackRatePerSec = 20f;
+        /// <summary>
+        /// Per-peer attack token bucket: sustained hits per second. Sized by the fastest vanilla
+        /// weapon: the military flamethrower shoots a flame every 0.04 s (25 a second) and each
+        /// flame hits every body in the stream once, so 10 bodies in it is 250 hits a second. At
+        /// 20 a second one target was the limit and a pack lost most of its hits.
+        /// </summary>
+        public const float PeerAttackRatePerSec = 250f;
 
-        /// <summary>Per-peer attack token bucket: burst size (one shotgun blast / explosion over a pack).</summary>
-        public const float PeerAttackBurst = 40f;
+        /// <summary>Per-peer attack token bucket: burst size (two seconds of the above).</summary>
+        public const float PeerAttackBurst = 500f;
 
-        /// <summary>Per-peer damage token bucket: sustained damage per second.</summary>
-        public const float PeerDamageRatePerSec = 1000f;
+        /// <summary>Per-peer damage token bucket: sustained damage per second (the hits above at a flame's 18).</summary>
+        public const float PeerDamageRatePerSec = 4500f;
 
-        /// <summary>Per-peer damage token bucket: burst damage (explosion hitting many targets).</summary>
-        public const float PeerDamageBurst = 3000f;
+        /// <summary>Per-peer damage token bucket: burst damage (two seconds of the above; an explosion over a pack fits).</summary>
+        public const float PeerDamageBurst = 9000f;
 
         /// <summary>
         /// When resolving an unsynced client hit by name, host entity must be this close

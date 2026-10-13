@@ -30,7 +30,28 @@ namespace DWMPHorde.Networking
         private int _migrationTargetPort;
         private int _migrationElectId;
         private int _migrationRetryCount;
-        private const int MigrationMaxRetries = 15;
+        private const int MigrationMaxRetries = 30;
+        /// <summary>
+        /// Tries on one elected player before it counts as unable to host (gone too, its host
+        /// migration switched off, its port unreachable) and the next survivor is elected. The
+        /// whole migration still stops at <see cref="MigrationMaxRetries"/>.
+        /// </summary>
+        private const int MigrationTriesPerElect = 9;
+        /// <summary>
+        /// An elected LAN player whose port is still held binds one of the next
+        /// <see cref="MigrationAltPorts"/> (Promote). Survivors only knew the old port and dialed
+        /// it until they gave up: the retries alternate the old port with each of those.
+        /// </summary>
+        internal const int MigrationAltPorts = 5;
+
+        /// <summary>Port offset for LAN migration try <paramref name="retry"/> (0 = the first dial): 0,1,0,2,0,3,…</summary>
+        internal static int MigrationPortOffset(int retry)
+            => retry % 2 == 0 ? 0 : 1 + (retry / 2) % MigrationAltPorts;
+        /// <summary>Elected players that never took the host in this migration; every survivor skips the same ones.</summary>
+        private readonly HashSet<int> _migrationFailedElects = new HashSet<int>();
+        private int _migrationTotalTries;
+        /// <summary>The host's creature id counter from its last roster (<see cref="PeerRosterMessage.NextCreatureId"/>).</summary>
+        private short _hostNextCreatureId;
         // Longer than LiteNetLib's connect-failure timeout (~5 s): a 1 s retry tore every attempt
         // down before it could succeed or fail.
         private const float MigrationRetrySec = 6.0f;
@@ -67,6 +88,9 @@ namespace DWMPHorde.Networking
             _migrationTargetPort = 0;
             _migrationElectId = 0;
             _migrationRetryCount = 0;
+            _migrationFailedElects.Clear();
+            _migrationTotalTries = 0;
+            _hostNextCreatureId = 0;
             _peerRoster.Clear();
             _peerRosterTimer = 0f;
             _hostPlayerId = 1;
@@ -80,6 +104,7 @@ namespace DWMPHorde.Networking
             _softReconnectLobby = 0;
             _isPromotedHost = false;
             _migrationReservedIds.Clear();
+            _migrationSettleAt = 0f;
             _joinPipelineReservedIds.Clear();
             // Keep _suppressHostMigration under StopNetwork control only.
         }
@@ -250,7 +275,25 @@ namespace DWMPHorde.Networking
                 return;
             if (Time.unscaledTime < _migrationRetryAt)
                 return;
-            if (_migrationRetryCount >= MigrationMaxRetries)
+            if (_migrationRetryCount >= MigrationTriesPerElect && _migrationTotalTries < MigrationMaxRetries)
+            {
+                // That player never took the host. Every survivor gives up on it at the same
+                // count and runs the same election without it, so they meet at the next one
+                // (which may be this player, who then promotes itself).
+                int failed = _migrationElectId;
+                _migrationFailedElects.Add(failed);
+                ModLog.Warn(LogCat.Network, "Host migration: p" + failed + " never took the host — electing again");
+                CleanupDeadHostLocal(failed);
+                if (StartMigrationToElect(ElectMigrationHost(_hostPlayerId > 0 ? _hostPlayerId : 1, 0),
+                        "p" + failed + " could not host"))
+                    return;
+                _migrationInProgress = false;
+                _suppressHostMigration = true;
+                StopNetwork();
+                StatusText = "Host lost — no survivor could take the host";
+                return;
+            }
+            if (_migrationTotalTries >= MigrationMaxRetries)
             {
                 ModLog.Warn(LogCat.Network,
                     "Host migration reconnect exhausted — stopping network");
@@ -263,15 +306,17 @@ namespace DWMPHorde.Networking
 
             // First attempt already ran in TryBeginHostMigration, which armed _migrationRetryAt.
             _migrationRetryCount++;
+            _migrationTotalTries++;
             _migrationRetryAt = Time.unscaledTime + MigrationRetrySec;
             ModLog.Event(LogCat.Network,
                 "Migration reconnect try " + _migrationRetryCount + "/" + MigrationMaxRetries
                 + " → " + _migrationTargetAddress
-                + (steamTarget ? " (Steam)" : (":" + _migrationTargetPort)));
+                + (steamTarget ? " (Steam)" : (":" + (_migrationTargetPort + MigrationPortOffset(_migrationRetryCount)))));
             if (steamTarget)
                 ConnectSteamPreservingId(_migrationTargetAddress, _migrationElectId);
             else
-                ConnectToHostPreservingId(_migrationTargetAddress, _migrationTargetPort, _migrationElectId);
+                ConnectToHostPreservingId(_migrationTargetAddress,
+                    _migrationTargetPort + MigrationPortOffset(_migrationRetryCount), _migrationElectId);
         }
     }
 }

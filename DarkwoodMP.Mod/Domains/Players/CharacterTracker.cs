@@ -401,6 +401,26 @@ namespace DWMPHorde.Sync
             return !ReferenceEquals(c, null) && _despawnSent.Add(c);
         }
 
+        /// <summary>The next id this host mints (gossiped in the roster for a later promotion).</summary>
+        internal static short NextId => _nextId;
+
+        /// <summary>
+        /// A promoted host: continue the dead host's counter (<paramref name="hostNext"/>, 0 when
+        /// no roster carried it), and never below one past every id this copy holds. The ids the
+        /// survivors hold came from that counter, so new ones cannot meet them.
+        /// </summary>
+        internal static void ContinueIdsAfterPromote(short hostNext)
+        {
+            short next = hostNext > 0 ? hostNext : (short)1;
+            if (hostNext <= 0)
+            {
+                foreach (short id in _activeIds)
+                    if (id >= next)
+                        next = id == short.MaxValue ? (short)1 : (short)(id + 1);
+            }
+            _nextId = next;
+        }
+
         /// <summary>Clears all tracked characters and resets the ID counter.</summary>
         public static void Clear()
         {

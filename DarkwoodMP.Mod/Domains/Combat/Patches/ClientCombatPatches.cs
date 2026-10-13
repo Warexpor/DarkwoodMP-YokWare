@@ -33,11 +33,21 @@ namespace DWMPHorde.Patches
             if (!SessionSettings.FriendlyFireEnabled)
                 return true;
 
+            // Vanilla bookkeeping: one swing lands once on a body. The stand-in has several
+            // colliders, and without this each one the sensor crossed sent another hit.
+            GameObject body = proxy.gameObject;
+            if (__instance.collidersToIgnore.Contains(_collider) || __instance.gameObjectsToIgnore.Contains(body))
+                return false;
+            __instance.collidersToIgnore.Add(_collider);
+            __instance.gameObjectsToIgnore.Add(body);
+
             // No hit sound here: the victim's getHit sends its own (LocalPlayerHitScope), which
             // reaches this attacker through the host. Playing a guess too doubled it here.
 
             Player local = Player.Instance;
-            if (local != null && local.currentItem != null)
+            bool armed = local != null && !InvItemClass.isNull(local.currentItem)
+                && local.currentItem.baseClass != null;
+            if (armed && local.currentItem.baseClass.isMelee)
                 local.currentItem.drainDurability(__instance.itemDurabilityDrain);
 
             float strengthMod = 1f;
@@ -56,10 +66,13 @@ namespace DWMPHorde.Patches
                 AttackerPosX = pos.x,
                 AttackerPosY = pos.y,
                 AttackerPosZ = pos.z,
-                CanCutInHalf = dmg >= 80,
+                CanCutInHalf = armed && local.currentItem.baseClass.canCutInHalf,
                 AttackerPlayerId = ModRuntime.Network?.LocalPlayerId ?? 0,
                 VictimPlayerId = proxy.PlayerId,
-                Effects = SensorEffectCodec.ToWire(__instance.effects)
+                Effects = SensorEffectCodec.ToWire(__instance.effects),
+                // Vanilla: only a fully charged swing interrupts (Player sets the sensor's flag).
+                CanInterrupt = __instance.canInterrupt,
+                NormalHit = true
             };
             ModRuntime.Network?.Send(NetMessageType.FriendlyFire, w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);
 
@@ -150,9 +163,12 @@ namespace DWMPHorde.Patches
             if (ClientEntityInterpolationService.IsHostSynced(c))
                 CharacterTracker.TryGetStableId(c, out nameHash);
 
-            // Hit SFX + Hit roll locally (host owns damage). Echo GetHit is ignored briefly.
-            ClientEntityInterpolationService.NoteLocalHitPresentation(c, nameHash);
-            ClientEntityInterpolationService.HoldTimelineClipsNow(nameHash);
+            // Hit SFX locally (host owns damage). Echo GetHit is ignored briefly. The hit roll only
+            // where vanilla interrupts: a fully charged swing on a creature that can be interrupted.
+            bool hitRoll = __instance.canInterrupt && !c.dontGetInterrupted;
+            ClientEntityInterpolationService.NoteLocalHitPresentation(c, nameHash, hitRoll);
+            if (hitRoll)
+                ClientEntityInterpolationService.HoldTimelineClipsNow(nameHash);
 
             Vector3 pos = local != null ? local.transform.position : c.transform.position;
             int dmg = Mathf.Max(1, (int)((float)__instance.damage * strengthMod));
@@ -175,7 +191,9 @@ namespace DWMPHorde.Patches
                 TargetPosY = c.transform.position.y,
                 TargetPosZ = c.transform.position.z,
                 Effects = SensorEffectCodec.ToWire(__instance.effects),
-                IsMelee = true
+                IsMelee = true,
+                CanInterrupt = __instance.canInterrupt,
+                NormalHit = true
             };
             ModRuntime.Network?.Send(NetMessageType.PlayerAttack, w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);
             ClientEntityInterpolationService.ShowHitHealthBar(c);

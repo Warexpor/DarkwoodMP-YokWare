@@ -353,6 +353,10 @@ namespace DWMPHorde.Networking
         public SensorEffectWire[] Effects;
         /// <summary>Melee sensor hit: the host applies the short melee range (false = ranged).</summary>
         public bool IsMelee;
+        /// <summary>Vanilla <c>canInterrupt</c>: the hit roll / stagger. A melee swing has it only when fully charged.</summary>
+        public bool CanInterrupt;
+        /// <summary>Vanilla <c>normalHit</c> (false for fire contact: no blood, no hit sound, no wake).</summary>
+        public bool NormalHit;
 
         public void Serialize(NetWriter w)
         {
@@ -364,6 +368,8 @@ namespace DWMPHorde.Networking
             w.Put(CanCutInHalf);
             SensorEffectWire.WriteList(w, Effects);
             w.Put(IsMelee);
+            w.Put(CanInterrupt);
+            w.Put(NormalHit);
         }
 
         public static PlayerAttackMessage Deserialize(NetReader r)
@@ -383,6 +389,8 @@ namespace DWMPHorde.Networking
             };
             msg.Effects = SensorEffectWire.ReadList(r);
             msg.IsMelee = r.GetBool();
+            msg.CanInterrupt = r.GetBool();
+            msg.NormalHit = r.GetBool();
             return msg;
         }
     }

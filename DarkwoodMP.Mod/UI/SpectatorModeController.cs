@@ -212,7 +212,7 @@ namespace DWMPHorde.Spectator
 
             // Prefer alive proxies, ordered by player ID for a stable F4 cycle.
             var targets = net.GetAllProxies()
-                .Where(p => p != null)
+                .Where(IsPresent)
                 .OrderBy(p => p.PlayerId)
                 .ToList();
             var alive = targets
@@ -231,7 +231,10 @@ namespace DWMPHorde.Spectator
             }
             else
             {
-                _spectateTargetIndex++;
+                // Step from where the followed player now is in the list: the list changes as
+                // players die or leave, and a bare counter then skipped one or wrapped early.
+                int cur = _followTarget != null ? targets.FindIndex(p => p.transform == _followTarget) : -1;
+                _spectateTargetIndex = cur >= 0 ? cur + 1 : _spectateTargetIndex;
                 if (_spectateTargetIndex >= targets.Count)
                 {
                     // Night/dream death spectators should not auto-respawn via F4 wrap;
@@ -248,6 +251,14 @@ namespace DWMPHorde.Spectator
                 SwitchToTarget(targets[_spectateTargetIndex].transform);
             }
         }
+
+        /// <summary>
+        /// A stand-in that is really here. One parked at <see cref="RemotePlayerProxy.AbsentPosition"/>
+        /// (its player is in a dream or a copy of a place this player is not in) is no target: the
+        /// camera showed the void and the spectator's body was pinned to the world origin.
+        /// </summary>
+        internal static bool IsPresent(RemotePlayerProxy p)
+            => p != null && p.transform.position.y > RemotePlayerProxy.AbsentPosition.y * 0.5f;
 
         private Transform _cachedCharBaseTarget;
         private CharBase _cachedCharBase;

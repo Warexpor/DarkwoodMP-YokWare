@@ -117,6 +117,33 @@ namespace DWMPHorde.Sync
             }
         }
 
+        private static Character _watch; // process-scoped: test pilot, ends on its own timer
+        private static float _watchUntil; // process-scoped: test pilot
+        private static string _watchLast; // process-scoped: test pilot
+
+        // "cwatch": one line each frame the watched creature's hit / clip state changes.
+        private static void WatchStep(float now)
+        {
+            if (_watch == null)
+                return;
+            if (now > _watchUntil)
+            {
+                Out("  cwatch end");
+                _watch = null;
+                return;
+            }
+            Character c = _watch;
+            tk2dSpriteAnimator an = c.animator;
+            string st = "gettingHit=" + c.gettingHit + " clipToPlay=" + c.clipToPlay
+                + " playing=" + (an != null && an.CurrentClip != null ? an.CurrentClip.name : "-")
+                + " recHit=" + c.recoveringFromHit + " attacking=" + c.attacking + " beh=" + c.behaviour
+                + " hp=" + Mathf.RoundToInt(c.health);
+            if (st == _watchLast)
+                return;
+            _watchLast = st;
+            Out("  [" + Time.frameCount + "] " + st);
+        }
+
         private static void Enter(Stage s)
         {
             _stage = s;
@@ -135,6 +162,7 @@ namespace DWMPHorde.Sync
                 Out("  at " + _atMs + ": " + string.Join(" ", cmd));
                 Run(net, cmd);
             }
+            WatchStep(now);
             if (now < _nextStepAt)
                 return;
             _nextStepAt = now + 0.25f;
@@ -610,6 +638,86 @@ namespace DWMPHorde.Sync
                     best.getHit(a.Length > 2 ? F(a[2]) : 30f, p.transform, false, true, true);
                     Out("  hit " + best.name + "@" + Pos(best.transform.position) + " hp=" + Mathf.RoundToInt(best.health)
                         + " alive=" + best.alive + " active=" + best.gameObject.activeInHierarchy);
+                    return;
+                }
+                case "swing":
+                {
+                    // "swing <name> [item|-] [phys]": a real melee swing at the nearest living creature
+                    // of that name, from beside it: switch to the item (from the pack), then vanilla
+                    // initiateAttack2 (charge state) and attack (the sensor), as the attack clip's
+                    // frame does. "phys": from where this player stands, physics reports the contact.
+                    bool phys = a.Length > 3 && a[3] == "phys";
+                    if (a.Length > 2 && a[2] != "-")
+                    {
+                        InvSlot slot = FindSlot(p, a[2]);
+                        if (slot == null) { Out("  no " + a[2] + " carried"); return; }
+                        p.switchToItem(slot.invItem);
+                    }
+                    if (InvItemClass.isNull(p.currentItem) || !p.currentItem.baseClass.isMelee)
+                    { Out("  no melee item in hand"); return; }
+                    int n = CharacterTracker.CopyAll(out Character[] buf);
+                    var list = new List<Character>(n);
+                    for (int i = 0; i < n; i++)
+                        if (buf[i] != null && buf[i].gameObject != p.gameObject && buf[i].GetComponent<RemotePlayerProxy>() == null
+                            && buf[i].alive && buf[i].name.IndexOf(a[1], StringComparison.OrdinalIgnoreCase) >= 0)
+                            list.Add(buf[i]);
+                    Character c = Nearest(list, 100000f);
+                    if (c == null) { Out("  no " + a[1]); return; }
+                    if (!phys)
+                    {
+                        p.teleportTo(c.transform.position + new Vector3(50f, 0f, 0f), p.transform.rotation);
+                        p.transform.rotation = Quaternion.Euler(90f, -90f, 0f);
+                    }
+                    AccessTools.Method(typeof(Player), "initiateAttack2").Invoke(p, null);
+                    bool loaded = p.fullyLoadedAttack;
+                    AccessTools.Method(typeof(Player), "attack").Invoke(p, new object[] { 1f });
+                    // The sensor's contact with the creature, as physics would report it (the whole
+                    // patched OnTriggerEnter path, vanilla's included).
+                    MeleeSensor sensor = null;
+                    foreach (MeleeSensor ms in UnityEngine.Object.FindObjectsOfType<MeleeSensor>())
+                        if (ms != null && ms.type == MeleeSensor.MeleeSensorType.player && ms.attackerTransform == p.transform)
+                            sensor = ms;
+                    Collider col = c.GetComponent<Collider>();
+                    string touched = "no sensor";
+                    if (phys)
+                        touched = sensor != null ? "sensor canInterrupt=" + sensor.canInterrupt + " (physics)" : "no sensor";
+                    else if (sensor != null && col != null)
+                    {
+                        AccessTools.Method(typeof(MeleeSensor), "OnTriggerEnter").Invoke(sensor, new object[] { col });
+                        touched = "sensor canInterrupt=" + sensor.canInterrupt;
+                    }
+                    Out("  swing " + p.currentItem.type + " at " + c.name + " fullyLoaded=" + loaded
+                        + " noInterruptItem=" + p.currentItem.baseClass.attackDoesNotInterrupt + " " + touched
+                        + " hp=" + Mathf.RoundToInt(c.health) + " gettingHit=" + c.gettingHit);
+                    return;
+                }
+                case "cwatch":
+                case "cstate":
+                {
+                    // "cstate <name>": the nearest creature of that name's hit / attack state and clip.
+                    int n = CharacterTracker.CopyAll(out Character[] buf);
+                    var list = new List<Character>(n);
+                    for (int i = 0; i < n; i++)
+                        if (buf[i] != null && buf[i].gameObject != p.gameObject && buf[i].GetComponent<RemotePlayerProxy>() == null
+                            && buf[i].name.IndexOf(a[1], StringComparison.OrdinalIgnoreCase) >= 0)
+                            list.Add(buf[i]);
+                    Character c = Nearest(list, 100000f);
+                    if (c == null) { Out("  no " + a[1]); return; }
+                    if (a[0] == "cwatch")
+                    {
+                        _watch = c;
+                        _watchLast = null;
+                        _watchUntil = Time.realtimeSinceStartup + (a.Length > 2 ? F(a[2]) : 3f);
+                        Out("  watching " + c.name);
+                        return;
+                    }
+                    tk2dSpriteAnimator an = c.animator;
+                    Out("  " + c.name + " gettingHit=" + c.gettingHit + " hitAnim=" + c.currentHitAnim
+                        + " clipToPlay=" + c.clipToPlay + " playing=" + (an != null && an.CurrentClip != null ? an.CurrentClip.name : "-")
+                        + " recHit=" + c.recoveringFromHit + " attacking=" + c.attacking + " recAtk=" + c.recoveringFromAttack
+                        + " jumping=" + c.jumping + " immob=" + c.immobilised + " sleep=" + c.sleeping
+                        + " waking=" + c.wakingUp + " spawning=" + c.spawning + " customAni=" + c.playingCustomAni
+                        + " beh=" + c.behaviour + " hp=" + Mathf.RoundToInt(c.health));
                     return;
                 }
                 case "skill":

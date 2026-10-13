@@ -38,15 +38,19 @@ namespace DWMPHorde.Networking
                         : null;
                     if (go == null)
                         go = WorldPhysicsSyncService.FindTrapByPos(pos);
+                    // A bulk is how the traps stand now, not something happening: a trap sprung
+                    // or quietly disarmed earlier takes its sprung look with no snap, blast or
+                    // sound. The loud form replayed every one of them at a join.
                     if (go == null)
                     {
-                        Sync.TrapNetworkId.QueuePending(e.TrapNetId, pos, e.Triggered);
+                        Sync.TrapNetworkId.QueuePending(e.TrapNetId, pos, e.Triggered, silentDisarm: e.Triggered);
                         pending++;
                         continue;
                     }
                     if (e.TrapNetId > 0)
                         Sync.TrapNetworkId.Ensure(go, e.TrapNetId);
-                    WorldPhysicsSyncService.ApplyTrapState(go, e.Triggered);
+                    Sync.TrapNetworkId.DropPending(e.TrapNetId, pos);
+                    WorldPhysicsSyncService.ApplyTrapState(go, e.Triggered, silentDisarm: e.Triggered);
                     applied++;
                 }
             }

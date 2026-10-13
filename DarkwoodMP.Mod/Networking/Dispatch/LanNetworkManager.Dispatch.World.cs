@@ -27,7 +27,9 @@ namespace DWMPHorde.Networking
             On(NetMessageType.BansheeAgitation, BansheeAgitationMessage.Deserialize, m => WorldFxHandlers.HandleBansheeAgitation(m));
             On(NetMessageType.PorterTransport, PorterTransportMessage.Deserialize, m => Patches.PorterTransport.ApplyOnClient(this, m));
             On(NetMessageType.PlayerSpecial, PlayerSpecialMessage.Deserialize, m => Patches.ActorStoryFunctions.ApplyPlayerSpecial(this, m));
-            On(NetMessageType.OxygenTankTier, OxygenTankTierMessage.Deserialize, m => OxygenTankParty.HandleTier(this, m));
+            On(NetMessageType.ObjectSpawnerFired, ObjectSpawnerFiredMessage.Deserialize, m => Patches.ObjectSpawnerSync.ClientApply(this, m));
+            On(NetMessageType.OxygenTankSet, OxygenTankSetMessage.Deserialize, m => OxygenTankParty.Handle(this, m));
+            On(NetMessageType.OxygenTankRecords, OxygenTankRecordsMessage.Deserialize, m => OxygenTankParty.ApplyRecords(this, m));
             On(NetMessageType.QuestHandoff, QuestHandoffMessage.Deserialize, m => QuestItemHandoff.HandleOnClient(this, m));
             On(NetMessageType.DialogHandInGone, DialogHandInGoneMessage.Deserialize, m => DialogHandInArbiter.HandleOnClient(this, m));
             On(NetMessageType.DialogMirror, DialogMirrorMessage.Deserialize, m => DialogMirror.Handle(this, m));

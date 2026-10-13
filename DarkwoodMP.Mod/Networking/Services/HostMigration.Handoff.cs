@@ -157,29 +157,11 @@ namespace DWMPHorde.Networking
             }
 
             int deadHost = _hostPlayerId > 0 ? _hostPlayerId : 1;
-            var candidates = new List<int>(8) { _localPlayerId };
-            for (int i = 0; i < _peerRoster.Count; i++)
-            {
-                PeerRosterEntry e = _peerRoster[i];
-                if (e.PlayerId == deadHost) continue;
-                if (e.PlayerId == _localPlayerId) continue;
-                if (string.IsNullOrEmpty(e.Address)) continue;
-                if (!candidates.Contains(e.PlayerId))
-                    candidates.Add(e.PlayerId);
-            }
-
-            int elect = _forcedElectId > 0
-                ? _forcedElectId
-                : HostMigrationPolicy.ElectNewHost(candidates);
+            int forced = _forcedElectId;
             _forcedElectId = 0;
-
-            // Forced elect must still be a known survivor (or self).
-            if (elect != _localPlayerId && !candidates.Contains(elect))
-            {
-                // Handoff elect is not in the roster; fall back to pure election.
-                elect = HostMigrationPolicy.ElectNewHost(candidates);
-            }
-
+            _migrationFailedElects.Clear();
+            _migrationTotalTries = 0;
+            int elect = ElectMigrationHost(deadHost, forced);
             if (elect <= 0)
             {
                 ModLog.Warn(LogCat.Network, "Host migration: no electable survivor — StopNetwork");
@@ -187,20 +169,16 @@ namespace DWMPHorde.Networking
                 return;
             }
 
-            _migrationInProgress = true;
-            _migrationElectId = elect;
             ModLog.Event(LogCat.Network,
                 "HOST GRANT migration (" + reason + "): elect=" + elect
                 + " local=" + _localPlayerId + " deadHost=" + deadHost
-                + " candidates=" + candidates.Count
                 + (IsSteamSession ? " steam" : " lan"));
 
-            int keepId = _localPlayerId;
             // A dream in progress carries over to the new host (each peer has its own pad).
             try
             {
                 Sync.DreamSyncManager.OnHostMigrating(deadHost, elect,
-                    HostMigrationPolicy.IsLocalElected(keepId, elect));
+                    HostMigrationPolicy.IsLocalElected(_localPlayerId, elect));
             }
             catch (System.Exception ex)
             {
@@ -208,10 +186,51 @@ namespace DWMPHorde.Networking
             }
             CleanupDeadHostLocal(deadHost);
 
+            if (!StartMigrationToElect(elect, reason))
+                StopNetwork();
+        }
+
+        /// <summary>
+        /// Who takes the host: the handoff's pick when it is still a survivor, else the lowest id
+        /// among this player and the roster's survivors, without the dead host and without any
+        /// player that already failed to take it in this migration. -1 when nobody is left.
+        /// </summary>
+        private int ElectMigrationHost(int deadHost, int forced)
+        {
+            var candidates = new List<int>(8);
+            // This player only stands when the host listed it as in the world: still joining,
+            // it has no session world to host.
+            if (!_migrationFailedElects.Contains(_localPlayerId)
+                && (_peerRoster.Count == 0 || IsPlayerListedInPeerRoster(_localPlayerId, rosterOnly: true)))
+                candidates.Add(_localPlayerId);
+            for (int i = 0; i < _peerRoster.Count; i++)
+            {
+                PeerRosterEntry e = _peerRoster[i];
+                if (e.PlayerId == deadHost) continue;
+                if (e.PlayerId == _localPlayerId) continue;
+                if (string.IsNullOrEmpty(e.Address)) continue;
+                if (_migrationFailedElects.Contains(e.PlayerId)) continue;
+                if (!candidates.Contains(e.PlayerId))
+                    candidates.Add(e.PlayerId);
+            }
+            if (forced > 0 && candidates.Contains(forced))
+                return forced;
+            return HostMigrationPolicy.ElectNewHost(candidates);
+        }
+
+        /// <summary>Promote this player or dial the elected one. False when there is no route to it.</summary>
+        private bool StartMigrationToElect(int elect, string reason)
+        {
+            if (elect <= 0)
+                return false;
+            int keepId = _localPlayerId;
+            _migrationInProgress = true;
+            _migrationElectId = elect;
+
             if (HostMigrationPolicy.IsLocalElected(keepId, elect))
             {
                 PromoteLocalToHost(keepId, reason);
-                return;
+                return true;
             }
 
             PeerRosterEntry? target = null;
@@ -229,9 +248,8 @@ namespace DWMPHorde.Networking
                 ModLog.Warn(LogCat.Network,
                     "Host migration: elected p" + elect + " has no roster address — cannot reconnect");
                 _migrationInProgress = false;
-                StopNetwork();
                 StatusText = "Host lost — no route to new host";
-                return;
+                return false;
             }
 
             string addr = target.Value.Address;
@@ -247,6 +265,7 @@ namespace DWMPHorde.Networking
                 ConnectSteamPreservingId(addr, elect);
             else
                 ConnectToHostPreservingId(addr, port, elect);
+            return true;
         }
 
         private void CleanupDeadHostLocal(int deadHost)
@@ -264,6 +283,10 @@ namespace DWMPHorde.Networking
             }
             catch { /* optional */ }
             Sync.FinalDreamsceneManager.OnRemoteDisconnected(deadHost);
+            // Its NPC talk lock and this player's view of its talk: nobody is left to release
+            // them (the lock held the NPC for up to its 90 s lease).
+            Sync.NpcDialogueLock.ReleaseAllForPlayer(deadHost);
+            Sync.DialogMirror.OwnerGone(deadHost);
         }
     }
 }

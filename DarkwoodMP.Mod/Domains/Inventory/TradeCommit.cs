@@ -134,8 +134,19 @@ namespace DWMPHorde.Patches
             for (int i = 0; i < msg.Sold.Length; i++)
             {
                 InvSlot slot = stock.getNextFreeSlot();
+                // The seller's copy of the stock had room; the host's is full (bought-back goods,
+                // another player's sale). The item is the trader's now either way: it gets a slot.
+                // Dropping it here lost it from the world while the seller kept the pay.
                 if (slot == null)
-                    break;
+                {
+                    stock.addSlot();
+                    slot = stock.getNextFreeSlot();
+                }
+                if (slot == null)
+                {
+                    ModRuntime.Log?.LogWarning("[TradeSync] no slot for a sold item in '" + msg.NpcName + "' stock");
+                    continue;
+                }
                 Create(slot, msg.Sold[i]);
             }
             if (standing != null && msg.RepDelta != 0)

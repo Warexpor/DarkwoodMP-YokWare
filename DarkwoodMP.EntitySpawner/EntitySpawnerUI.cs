@@ -60,6 +60,32 @@ namespace YokWare.EntitySpawner
 
         private List<string> _filtered;
 
+        private static System.Reflection.PropertyInfo _coopIsClient;
+        private static bool _coopLooked;
+
+        /// <summary>
+        /// Joined to someone else's co-op world (read from the co-op mod when it is loaded; this
+        /// add-on does not depend on it). A client's spawn is a local body the host never has:
+        /// it stands frozen, nobody else sees it and its hits go nowhere. Its clock is the host's.
+        /// </summary>
+        private static bool JoinedAsClient()
+        {
+            if (!_coopLooked)
+            {
+                _coopLooked = true;
+                foreach (var asm in System.AppDomain.CurrentDomain.GetAssemblies())
+                {
+                    var t = asm.GetType("DWMPHorde.AddOnApi", false);
+                    if (t == null) continue;
+                    _coopIsClient = t.GetProperty("IsClient",
+                        System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static);
+                    break;
+                }
+            }
+            try { return _coopIsClient != null && (bool)_coopIsClient.GetValue(null, null); }
+            catch { return false; }
+        }
+
         private void Awake()
         {
             _filtered = new List<string>(_allEntities);
@@ -115,6 +141,10 @@ namespace YokWare.EntitySpawner
 
             GUILayout.Space(4f);
 
+            bool client = JoinedAsClient();
+            if (client)
+                GUILayout.Label("Joined as a client: only the host can spawn or skip time.");
+            GUI.enabled = !client;
             _scroll = GUILayout.BeginScrollView(_scroll);
             foreach (string entity in _filtered)
             {
@@ -122,11 +152,12 @@ namespace YokWare.EntitySpawner
                     SpawnEntity(entity);
             }
             GUILayout.EndScrollView();
+            GUI.enabled = true;
 
             GUILayout.Space(4f);
 
             var ctrl = Singleton<Controller>.Instance;
-            bool canFF = ctrl != null
+            bool canFF = !client && ctrl != null
                 && Singleton<Dreams>.Instance != null
                 && !Singleton<Dreams>.Instance.dreaming
                 && ctrl.CurrentTime < (int)ctrl.nightTime
@@ -164,7 +195,7 @@ namespace YokWare.EntitySpawner
         private void DoFastForwardToNight()
         {
             var ctrl = Singleton<Controller>.Instance;
-            if (ctrl == null) return;
+            if (ctrl == null || JoinedAsClient()) return;
 
             ctrl.CurrentTime = (int)ctrl.nightTime;
             ctrl.refreshTime();
@@ -176,7 +207,7 @@ namespace YokWare.EntitySpawner
         private void SpawnEntity(string prefabPath)
         {
             Player player = Player.Instance;
-            if (player == null) return;
+            if (player == null || JoinedAsClient()) return;
 
             for (int i = 0; i < _spawnCount; i++)
             {

@@ -1361,6 +1361,19 @@ namespace DWMPHorde.Sync
                 Run(it);
         }
 
+        /// <summary>
+        /// The talking player is gone with nobody to tell this listener (it was the host, lost
+        /// in a host migration): the view closes. Kept, the listener sat in a dead talk.
+        /// </summary>
+        internal static void OwnerGone(int ownerId)
+        {
+            if (ownerId <= 0 || _ownerId != ownerId)
+                return;
+            if (SpectatorActive)
+                StopView(sendLeave: false);
+            _pendingJoin = false;
+        }
+
         /// <summary>The listener leaves (Esc), or the talk ended for it.</summary>
         internal static void StopView(bool sendLeave)
         {

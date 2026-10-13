@@ -3,11 +3,16 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.273**. The current Horde wire protocol is **65**. Every install in a session
+**0.8.279**. The current Horde wire protocol is **68**. Every install in a session
 needs the same DLL; the protocol is checked on join.
 
 Protocol history (newest first):
 
+- **68**, 0.8.278 to 0.8.279: new `ObjectSpawnerFired` (175) and `OxygenTankRecords` (176); `PeerRoster`
+  gains the host's `NextCreatureId`.
+- **67**, 0.8.276 to 0.8.277: new `OxygenTankSet` (174); `OxygenTankTier` (157) retired.
+- **66**, 0.8.274 to 0.8.275: `PlayerAttack` gains `CanInterrupt` and `NormalHit`; `FriendlyFire` gains
+  `CanInterrupt` and `NormalHit`.
 - **65**, 0.8.272 to 0.8.273: `DreamEnded` gains `WorldOutcome` (the outcome whose world events the dream's end runs).
 - **64**, 0.8.265 to 0.8.271: `SessionSettings` gains the host's `SoloHomeDream`.
 - **63**, 0.8.259 to 0.8.264: `TradeCommit` gains the trade's change to the trader's standing; a
@@ -78,6 +83,288 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.279 — manual save slots stay after permadeath; release zips
+
+**Protocol 68** (unchanged). Built (BepInEx and MelonLoader, both add-ons) and unit-tested;
+**runtime is not playtested**.
+
+- Manual saves: a profile's slots are kept when the game deletes its save (permadeath, a deleted
+  profile, a new game over it), as before 0.8.278. A permadeath run can be loaded back from F3 on
+  purpose. `AddOnApi.ProfileSaveDeleted` (added in 0.8.278 only for this) is removed again. The
+  0.8.278 fix for a slot without a chapter in its meta stays.
+- Release packing: `scripts/pack-release.sh` builds the two public zips (BepInEx, MelonLoader),
+  each with `DarkwoodMP.Mod.dll`, `LiteNetLib.dll`, `LICENSE` and a fuller `INSTALL.txt` (loader
+  links, Proton launch options, host and join, where the logs are). The add-on zips are opt-in
+  (`--addons`). The packing rule is in `AGENTS.md`.
+- Docs: README's install section names the two release zips and where they are shared; the
+  build section lists the packing options.
+
+---
+
+## 0.8.278 — code-review fixes, part 2: rejoin after a night death, joiners' world, mornings, dreams, host migration, Steam
+
+**Protocol 68.** Built (BepInEx and MelonLoader, both add-ons) and unit-tested; **runtime is not
+playtested**. The rest of the 0.8.277 sweep's open findings, each checked against the code first.
+
+Saves and character backups
+- **A rejoin after a night death restored the last save's character** (full bag, the life back)
+  while the bag still lay at the body. The dead client sends its post-death character; the host
+  keeps it in memory until morning and a rejoin gets that (`DeathStateTracker`, `NightBodyBagPatches`).
+- A host save during a rejoin's restore window stored the host's character as the joiner's own
+  (`SaveNetHandlers.Apply`). A party wipe left this campaign's pre-wipe backup in the machine's
+  other profiles, adopted on the next join (`ClientStateBackup.Paths`). Client backups are
+  written atomically. A chapter-share commit kept the slot's played dreams (`SlotCommit`).
+- A save inside the shared death's fade wrote Hard for the dying client only, and vanilla's
+  last-life check ended its run alone (`ClientDeathPatches`).
+
+Joining
+- Harvests, trap disarms, overworld pickups and lamps switched off since the host's last save are
+  replayed to a joiner (its world is that save) (`WorldPhysicsSyncService`).
+- A stale join snapshot put a freshly lit hideout oven out; a relayed oven-off now names its
+  mover, so a third player's old home no longer stays lit (`BulkSyncNetHandlers`, `ContainerLootNetHandlers`).
+- Traps in a join bulk take their sprung look silently (it replayed every snap and blast), and a
+  queued older trap state no longer re-arms a trap sprung since (`WorldObjectSendNetHandlers`, `TrapNetworkId`).
+- **Version mismatch:** the host now answers with its own handshake and drops the joiner after a
+  grace; the joiner shows the reason instead of a bare lost link. A refused peer is no longer
+  announced to everyone as "left the game".
+
+Night, morning, death
+- A held morning: players who spent the night outside no longer hold the clock until someone in a
+  hideout walks out; a host respawn during the hold no longer removes other hideouts' morning
+  traders (`ClientTimeAuthorityPatches`, `DayNightTransitionPatches`).
+- A night-dead client's home is cleared by the host at its release (creatures, infection, traps);
+  at an all-dead morning everyone wakes at home, not the earlier dead where they fell.
+- A dead host no longer anchors night location events; a player joining mid-night no longer gives
+  the host's hideout a second full set of monsters (`NightSpawnProxyPatch`).
+- At dawn villagers that distance culling had out of view stay to culling instead of standing
+  active far from everyone (`NightVillage`).
+- Chat left open closes on death (it held the input gate through the respawn).
+
+Dreams and dialogue
+- A client forced out of a dream counts as left (an all-dead end could never come); a random-dream
+  request is always answered; dead players are not pulled into a chained dream; a dead late joiner
+  is not counted as a dreamer; the host can no longer take a party dream container's item again
+  and again (`DreamExit`, `DreamNetHandlers`, `DreamLootParty`).
+- A chosen branch's first board was applied twice on the host (reputation counted double) (`DialogOutcomePatch`).
+- **A talker who disconnects mid-talk with nobody listening now ends the talk as its Esc would**:
+  the NPC's close events run on the host (a dream door opening). With a listener the talk is
+  handed over as before.
+
+Items, combat, world
+- The per-player hit budget was 20 hits a second: a flamethrower or shotgun on a pack lost most of
+  its hits. It is now sized by the flamethrower (250/s). Other players see a client's flame stream.
+- Sold items no longer vanish when the host's trader stock is full (`TradeCommit`). Two players can
+  no longer both harvest one trap. A boarded or broken door no longer swings open through the
+  state snapshot after its DoorOpen was refused.
+- Remote players are sensed as vanilla senses the player (everything on the ray, walls decide).
+  The host no longer sends infection splats vanilla refused to spawn. The wolfman's shot hits show
+  on clients.
+- Host-only object spawners (junkyard deadly light, mushroom granny's ghosts) are told to the
+  clients (`ObjectSpawnerFired`); the swamp thunder runs on every machine.
+- A dead player's body wears its own look, not the viewer's, and gives no light (`PlayerCorpses`).
+- Two moving objects with the same name no longer restart each other's scrape loop (`MovingObjectSoundService`).
+- Radio clicks, knobs and beeps follow a player's mute and per-player volume and no longer clip at
+  high Radio volume (one-shots stop at the clip's own level).
+
+Host migration
+- An elected player that never takes the host (gone too, migration off, unreachable) is skipped
+  after 9 tries and the survivors elect the next one; the whole migration still stops at 30 tries.
+- Only players in the world stand for election (one still joining had no world to host).
+- A LAN host promoted on an alternate port is found: survivors alternate the old port with the
+  next five.
+- A promoted host continues the dead host's creature ids (gossiped in the roster); minted from 1
+  they hit ids the survivors still held, and same-species creatures swapped.
+- The dead host's NPC talk lock and a survivor's view of its talk are released.
+- Survivors that never come back are counted as left once the retry window is over (they held the
+  location open and the village from flipping), and a night where everyone left is dead resolves
+  its morning.
+- The oxygen-tank source records are shared with the clients (`OxygenTankRecords`), so a promoted
+  host does not hand out a second set.
+
+Steam
+- The same player connecting again while the host still held its old link: the old one is dropped
+  and the new one gets the handshake (it waited until it gave up).
+- A client leaving the lobby is dropped at once instead of holding a slot until its link timed out.
+- A lobby kept for a chapter resume is left when the resume is dropped.
+
+Add-ons
+- Manual saves: a profile's slots are removed with its save (permadeath, a deleted profile, a new
+  game over it), as vanilla's own save is; kept, a permadeath run could be loaded back from F3.
+  A slot without a chapter in its meta sets the profile to the chapter it loads.
+- Entity spawner: spawning and fast-forward are off for a joined client (a frozen local-only body).
+  Its build also deploys to the third test box.
+
+Checked, not changed (as designed): a promoted host saves at the game's own next save (it is told
+so on promotion); a party-gated door waits for every player in its location and lets go when one
+dies or leaves (a timeout would lock the last one out); a joiner offline in its own prologue holds
+day 1 for at most 45 min (the host cannot see an offline player quit); relayed container takes a
+downloading joiner misses are read fresh on open; kill saturation is a no-op in vanilla; the
+quest-item take-back is count-neutral; a newer world share on the slot picker; outside-pad slots
+and the cutscene skip.
+
+## 0.8.277 — code-review fixes: second death bag, wrong trap, bird areas with three players, dream left by a dropped link
+
+**No protocol change (67).** Built and unit-tested (495 pass); **runtime is not playtested**. These
+came out of a read-only sweep of the whole mod; each was checked against the code before it was
+changed. The findings that were not changed are listed at the end.
+
+- **A second death next to an older death bag lost its bag.** The bag lookup took the first bag
+  within 2 m of the body, which was the older one: its contents were sent again under its own id
+  (everyone skipped it as already there) and the new bag was never sent. The dead player's items
+  existed on one machine only. The lookup now takes the newest bag at the spot that has no
+  network id yet (`DeathBagDropSyncPatch.FindDeathDropAt`; the night body bag uses the same
+  lookup).
+- **A trap's state could land on a neighbouring trap.** When the trap at the sent spot was not
+  found (a sprung trap loaded from the save has no collider left; an unloaded one has no object),
+  the lookup widened to "the nearest trap within 8 m, then 20 m". A late joiner sprang the armed
+  trap next to a sprung one, and a queued state went off on a trap placed nearby later. The
+  lookup now matches only the trap at that spot (1.5 m), with a second pass for traps without a
+  collider (`WorldPhysicsSyncService.FindTrapByPos`). A state with no trap at its spot stays
+  queued, as before.
+- **More than 32 trap changes (64 door changes) in one scan were lost.** Past the packet cap a
+  change was still recorded as sent, so the clients never got it. It now waits for the next scan
+  (`WorldPhysicsSyncService.SnapshotScan`).
+- **Bird areas with three players.** The area remembered one body. When the last one in walked
+  out while another was still inside, the birds dived at the host, wherever the host was. A
+  player who left the game while inside kept the area attacking the host for the rest of the
+  session. The area now tracks every body inside, picks the newest one still there, and closes
+  when the last one is gone (`BirdAreaSyncPatches`).
+- **An item put into a container the host does not have vanished.** A take from such a container
+  was refused and handed back; a place was dropped without an answer, and the next container
+  sync erased the item. The place is now refused the same way, and a refused place also takes
+  the item back out of the container on the placer's side (it sat in the bag and the chest when
+  no host snapshot followed) (`ContainerLootNetHandlers`).
+- **Two talks ending during one outcome replay on the host:** the second NPC's deferred close
+  replaced the first, whose close events never ran (a dream bunker door stayed shut). The closes
+  are queued per NPC (`DialogOutcomeApplyNetHandlers`). Needs three players.
+- **A dreamer whose link dropped** sent no leave. A host that had woken first and kept the dream
+  for the others never closed it when the last of them dropped, so no dream could start again
+  that session; and the leaver's extra creatures stayed for the players still in the dream. A
+  disconnect now does both things a leave does (`FinalDreamsceneManager.OnRemoteDisconnected`).
+- **Creatures and dead players.** A creature that finished sniffing a player who had died in the
+  meantime still went for the body. The Three's mercy attack read the host's health also while
+  the host was down, and each client's health as the host's value from when the stand-in was
+  built: it now reads living players only and each client's reported health
+  (`HostDetectionGapPatches`).
+- **Friendly fire, melee.** One swing could land once per collider of the hit player; it now
+  lands once. Cutting in half follows the weapon (it was "80 damage or more"), and fists no
+  longer lose durability (`ClientFriendlyFirePatch`).
+- **A joiner's flag bulk could push an old story flag back to everyone.** Applied from the frame
+  tick it was outside the packet guard, so a flag the joiner did not have yet went to the host as
+  the joiner's own change (`FlagNetHandlers.ApplyFlagBulkSync`).
+- **F4 spectate** could pick a player who is in a dream or a copy of a place the spectator is
+  not in: the camera showed the void and the spectator's body was pinned to the world origin.
+  Such players are no targets now. The F4 order no longer skips a player or wraps early when
+  the list changes (`SpectatorModeController`).
+
+**Found, checked only by reading, not changed** (each needs a decision or a run; full list with
+files in the session report): host migration (no second election when the elected player cannot
+host, the elected player's alternate port, creature ids restarting at 1, the old host's talk
+lock, a promoted host that is night-dead, saves of the promoted copy); a rejoin after a night
+death restoring the pre-death bag and lives; a host save during a rejoin's restore replacing the
+client's character backup; pre-wipe character backups in other save slots; day 1 held for 45
+minutes by a joiner who quit in its prologue; harvests, disarms and lamps switched off since the
+last save not reaching a late joiner; relayed world events reaching a joiner that is still
+downloading; the morning clock held for players already outside; manual save slots surviving
+permadeath; the per-player attack budget dropping flamethrower and shotgun hits; no flame stream
+for other players.
+
+## 0.8.276 — oxygen tanks are real items, one per player; one player can carry the party's
+
+**Protocol 66 → 67.** Built and unit-tested; **runtime is not playtested**.
+
+The 0.8.135 rule put a tank into every player's bag on its own (and filled it when anyone had a
+full one). Now the tanks are real items that can be carried, dropped, stashed and handed over,
+so one player can carry the whole party's, fill them all at the compressor and hand them out
+at the water.
+
+- **Facts from the game files.** Diving (the mi17 hole, the burned cottage pond, the village
+  cellar passages) only checks for a full tank in the diver's own bag and never empties it. The
+  hideout 5 compressor turns every empty tank in its user's bag into a full one, as often as
+  wanted, at no cost. Vanilla tank sources: the Elephants' talk (one), the Elephants' body
+  (two), the mask family's shed body (one).
+- **The first take from a source gives the taker a set:** one tank per player in the world at
+  that moment (the host plus every player in the game), the source's own vanilla tanks
+  included. A client's talk asks the host; a container take is seen by the host when it
+  applies it. The host decides, so two players racing for a source get one set.
+- **A player who joins later** and was not there for a source's set gets a spare empty tank
+  dropped where that source handed out its set (where the talk happened, or by the body), about
+  10 s after they are in the game, unless they already carry a tank. Each source covers each
+  player once (Steam id or LAN install key), so leaving and coming back adds nothing.
+- **Saves from before this rule** (every player was handed a tank): when the host first sees a
+  tank in the party, it covers the players present, and spares for new players drop where the
+  host stood at that moment.
+- **A leaver's tanks are dropped** with their other story items (they were skipped while every
+  player had one) and come back to them as before if still lying there when they return.
+- Records are kept per save next to the host's save (`oxygen_tanks_<campaign>.json`), written
+  at world saves only, like the story-item drops.
+- Removed: the automatic top-up, its late-join step and the backup-restore re-check.
+  (`Domains/Inventory/OxygenTankParty.cs` rewritten, `QuestItemHandoff`, `ContainerLootNetHandlers`,
+  `ContainerSyncPatches.SendContainerAction`, `PeerNotices.IsInGame`.)
+
+## 0.8.275 — voice volume sliders in dB up to +24 dB; new Radio volume
+
+The voice sliders did too little: Voice volume and each player's went to x2 (+6 dB), the
+microphone's to x2 on screen, and a voice turned past about x1.5 only hit the speaker's clamp.
+
+- **Voice volume, Microphone volume and each player's volume (Voice > Players) are in dB.**
+  Left end muted, middle as recorded (0 dB), right end +24 dB (about x16), 1 dB steps
+  (`Audio/VolumeScale.cs`). The config still keeps a multiplier (`VoiceVolume`,
+  `VoiceMicVolume`, `VoicePlayerVolumes`, now 0 to about 16); old values keep their level,
+  and the old right end (2) sits at +6 dB.
+- **Turned up, a voice really gets louder.** Up to as recorded the volume stays on the
+  speaker; the part above goes in ahead of the voice limiter (`Speaker.Boost`, applied in
+  `WriteVoice` after the radio filter), so quiet speech comes up and peaks are still held
+  under full scale instead of clipping at the speaker's volume clamp. Far up it is heavily
+  compressed and the background comes up with it, which is the point of the range.
+- **New Radio volume** (`VoiceRadioVolume`, Voice screen, same dB slider), on top of Voice
+  volume: talk heard on a walkie (own or another player's, and this player's own voice on a
+  nearby walkie), its static, call beep and squelch tail, the talk key's beep and release, and
+  the knob clicks. The one-shot radio sounds were clamped to 1 and now take the same range.
+- **Microphone up to +24 dB** (was 0 to 4 in the config, 0 to 2 on screen). Peaks past the soft
+  ceiling are bent under it, so far up it sounds harsher. The mic level still sets how far the
+  voice carries, so a louder mic carries farther.
+- The Voice screen has fourteen rows now; its row spacing is 3 units tighter to stay above Return.
+- Other players' steps keep their slider. Local only, no protocol change.
+
+## 0.8.274 — client hits stagger creatures exactly as vanilla does (knife and sickle never do); host swing roll checked in a run
+
+From a suspicion that the host's swings never roll a dog over while the clients' do.
+
+- **Checked in an automated host + client run (omabox): the host's swing does roll the dog.**
+  A real host swing (vanilla `initiateAttack2` + `attack`, the spawned sensor's contact) on a
+  dog that was idle, chasing or in the middle of its own attack played `Hit1`/`Hit2` on the
+  host and the same clip on the client's copy. Rechecked with the plank with nails (the
+  reported weapon) and a real physics contact on a dog in mid-bite: `Hit1` plays, and the
+  second plank hit (11 + 11 of the dog's 20) kills. Not reproduced on this build.
+- **Client hits always staggered, whatever the weapon.** Vanilla makes a creature play its hit
+  clip (the dog's roll) and break its attack when the hit carries `canInterrupt`: every normal
+  or special melee swing does (`getAttackFrame` always returns 0, so `fullyLoadedAttack` is set),
+  except weapons with `attackDoesNotInterrupt` (the knife and the sickle). The host applied every
+  client hit with `canInterrupt: true`, so a client's knife or sickle knocked dogs over, and the
+  client played the roll on its own copy for those too. `PlayerAttack` now carries the swing's
+  `canInterrupt` and `normalHit`, the host applies them as vanilla does, and the client shows
+  its local hit roll only where vanilla would interrupt (the sensor's `canInterrupt`, the
+  creature's `dontGetInterrupted`). Bullets keep interrupting (vanilla `Bullet`).
+- **A client's flamethrower contact counted as a normal hit.** Vanilla fire contact passes
+  `canInterrupt: false, normalHit: false` (no blood, no hit sound, no wake, no stagger). The
+  client's redirected hit now passes the vanilla caller's values through.
+- **Friendly fire had the same gap.** A client's knife or sickle on another player, and the
+  host's own on a client, always staggered the victim. `FriendlyFire` carries the hit's
+  `canInterrupt` and `normalHit`, the host forwards them to the victim, and the host's own
+  weapon sensor on a client stand-in sends its `canInterrupt` (enemy sensors still interrupt,
+  as vanilla `Player.getHit` does).
+- Test pilot: `cstate <name>` (a creature's hit / attack state and clip), `cwatch <name> [sec]`
+  (one line per frame that state changes), `swing <name> [item|-] [phys]` (a real melee swing
+  whose sensor touches the nearest living creature; `phys` leaves the contact to physics).
+- Protocol **66**. (`PlayerAttackMessage`, `FriendlyFireMessage`, `ClientMeleeSensorPatch`,
+  `ClientFriendlyFirePatch`, `ClientDamageRedirectPatch`, `ProxyDamagePatch`,
+  `HostMeleeSensorPatch`, `CombatAttackNetHandlers`,
+  `ClientEntityInterpolationService.NoteLocalHitPresentation`, `TestPilot`)
+
+Status: unit-tested build; host swing roll checked in an automated run; the client-side change
+not yet playtested.
 
 ## 0.8.273 — every dreamer gets the dream's container weapon; everyone wakes through the death transition when all die
 

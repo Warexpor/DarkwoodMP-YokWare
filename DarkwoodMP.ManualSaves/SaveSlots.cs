@@ -193,8 +193,11 @@ namespace YokWare.ManualSaves
                 // another copy cannot apply to it, and the co-op mod's world state is dropped.
                 AddOnApi.BeforeOfflineLoad(Core.currentProfile.id);
 
+                // A slot without a chapter in its meta (an old or missing meta.json) loads
+                // chapter 1, so the profile says chapter 1 too, not the chapter it was on.
+                int chapterId = meta.chapter > 0 ? meta.chapter : 1;
                 Core.currentProfile.day = meta.day;
-                Core.currentProfile.chapter = meta.chapter;
+                Core.currentProfile.chapter = chapterId;
                 Core.currentProfile.timeSaved = meta.timeSaved;
                 Core.currentProfile.majorVersion = meta.majorVersion;
                 Core.currentProfile.minorVersion = meta.minorVersion;
@@ -203,7 +206,6 @@ namespace YokWare.ManualSaves
                 // snapshotted or overlaid — that put the pre-load inventory back on (item dupe).
                 Singleton<SaveManager>.Instance.saveGameProfiles();
 
-                int chapterId = meta.chapter > 0 ? meta.chapter : 1;
                 Log.Info("[ManualSave] loading slot " + (idx + 1) + " into profile " + Core.currentProfile.id + " (chapter " + chapterId + ")");
 
                 Core.coreStarted = false;

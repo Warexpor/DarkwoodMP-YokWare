@@ -36,6 +36,14 @@ namespace DWMPHorde.Sync
 
         public static void Reset()
         {
+            // A Steam host's lobby kept open for this resume: the resume is off, so the lobby goes.
+            // Kept, the host sat in it through single-player and friends could still join it.
+            if (_pending && _wasHost && _steam && _steamLobbyId != 0)
+            {
+                ModLog.Event(LogCat.Session, "[ChapterResume] resume dropped — leaving kept Steam lobby " + _steamLobbyId);
+                try { SteamMatchmaking.LeaveLobby(new CSteamID(_steamLobbyId)); }
+                catch { /* Steam gone */ }
+            }
             _pending = false;
             _wasHost = false;
             _port = PluginInfo.DefaultPort;

@@ -380,6 +380,15 @@ namespace DWMPHorde.Sync
                             continue;
                         }
 
+                        // Boarded up or broken here meanwhile: the DoorOpen form of this change is
+                        // refused for the same reason (vanilla never opens such a door), and the
+                        // state snapshot that follows it swung the boarded door open anyway.
+                        if (ds.Opened && (door.barricaded || door.destroyed))
+                        {
+                            doorSkipped++;
+                            continue;
+                        }
+
                         if (ModRuntime.VerboseLogging)
                             ModRuntime.LegacyInfo("[DoorApply] " + door.name + " " + (ds.Opened ? "OPEN" : "CLOSE") + " from " + fromPeer);
                         TraverseHack.SetDoorOpened(door, ds.Opened, new Vector3(ds.OpenerPosX, ds.OpenerPosY, ds.OpenerPosZ), ds.OpenForce, ds.BodyRotY);
@@ -448,6 +457,7 @@ namespace DWMPHorde.Sync
                         }
 
                         bool silent = ts.OccupantPlayerId == TrapState.OccupantSilentDisarm;
+                        TrapNetworkId.DropPending(ts.TrapNetId, tPos);
                         if (ModRuntime.VerboseLogging)
                             ModRuntime.LegacyInfo($"[TrapApply] {go.name} id={ts.TrapNetId} at {tPos} triggered={ts.Triggered} silent={silent}");
                         ApplyTrapState(go, ts.Triggered, silentDisarm: silent);

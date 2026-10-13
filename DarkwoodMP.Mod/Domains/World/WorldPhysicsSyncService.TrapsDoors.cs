@@ -10,17 +10,23 @@ namespace DWMPHorde.Sync
     /// </summary>
     public static partial class WorldPhysicsSyncService
     {
+        /// <summary>A trap's sent spot and its spot here agree to well within this (0.1 m rounding).</summary>
+        private const float TrapMatchRadius = 1.5f;
+
         /// <summary>
-        /// Finds a trap by position using the local overlap query. This avoids
-        /// scene-wide searches on the packet path.
+        /// Finds the trap at a position. Only the trap at that spot: wider "nearest trap within
+        /// 8 m / 20 m" tiers used to hand a state to a neighbouring trap whenever the real one was
+        /// not found (a sprung trap loaded from the save has no collider left, an unloaded one has
+        /// no object), so a late joiner sprang the armed trap next to it and a queued state went
+        /// off on a trap placed nearby later.
         /// </summary>
         internal static GameObject FindTrapByPos(Vector3 pos, string objectName = null)
         {
-            GameObject hit = FindTrapInSphere(pos, 1.5f);
+            GameObject hit = FindTrapInSphere(pos, TrapMatchRadius);
             if (hit != null) return hit;
-            hit = FindTrapInSphere(pos, 8f);
-            if (hit != null) return hit;
-            hit = FindTrapInSphere(pos, 20f);
+
+            // A sprung one-shot trap destroyed its collider (vanilla OnAfterTrigger, also on load).
+            hit = FindColliderlessTrap(pos);
             if (hit != null) return hit;
 
             // Optional name, used only when an instance is already active.
@@ -28,11 +34,28 @@ namespace DWMPHorde.Sync
             {
                 GameObject named = GameObject.Find(objectName);
                 if (named != null && TrapNetworkId.IsWorldTrap(named) && HasTrapField(named)
-                    && (named.transform.position - pos).sqrMagnitude <= 20f * 20f)
+                    && (named.transform.position - pos).sqrMagnitude <= TrapMatchRadius * TrapMatchRadius)
                     return named;
             }
 
             return null;
+        }
+
+        private static GameObject FindColliderlessTrap(Vector3 pos)
+        {
+            Trigger[] all = WorldQueryHelper.GetCachedSceneComponents<Trigger>();
+            GameObject best = null;
+            float bestSq = TrapMatchRadius * TrapMatchRadius;
+            for (int i = 0; i < all.Length; i++)
+            {
+                Trigger t = all[i];
+                if (t == null || !t.gameObject.activeInHierarchy) continue;
+                float sq = (t.transform.position - pos).sqrMagnitude;
+                if (sq > bestSq || !TrapNetworkId.IsWorldTrap(t.gameObject)) continue;
+                bestSq = sq;
+                best = t.gameObject;
+            }
+            return best;
         }
 
         private static GameObject FindTrapInSphere(Vector3 pos, float radius)
@@ -71,9 +94,26 @@ namespace DWMPHorde.Sync
         /// (sprite/name, keep the GameObject). No explosion prefab or sound;
         /// the normal triggered path remains separate.
         /// </param>
+        /// <summary>
+        /// Another player's disarm or spring of this trap arrived while this player's own disarm
+        /// of it was still filling its bar: the bar stops. Left running it completed on a trap
+        /// already taken, and both players walked off with the harvest.
+        /// </summary>
+        private static void StopLocalDisarmOf(GameObject go)
+        {
+            Player p = Player.Instance;
+            if (p == null || !p.disarmingTrap)
+                return;
+            Item mine = Traverse.Create(p).Field("trapBeingDisarmed").GetValue<Item>();
+            if (mine != null && mine.gameObject == go)
+                p.interruptProgressBar();
+        }
+
         internal static void ApplyTrapState(GameObject go, bool triggered, bool silentDisarm = false)
         {
             if (go == null) return;
+            if (triggered)
+                StopLocalDisarmOf(go);
 
             // Silent disarm first: even if ReadTrapTriggered already true, peer may still
             // have active=true (catchable). Never early-out before forcing the belt.

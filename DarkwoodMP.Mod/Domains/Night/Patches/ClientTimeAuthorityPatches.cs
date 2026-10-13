@@ -145,6 +145,8 @@ namespace DWMPHorde.Patches
             bool personal = LocalPersonalHold();
             // The morning holds the clock until the first player walks out of the hideout; the
             // morning's own freeze (vanilla timeFreeze, DoUpdateTime off) is then not a hold.
+            if (__instance.isAfterNight)
+                MorningHideoutHold.ReleaseIfSomeoneOutside();
             bool morningHeld = __instance.isAfterNight && !MorningHideoutHold.ClockReleased;
             bool morningFreezeOnly = __instance.isAfterNight && MorningHideoutHold.ClockReleased;
             // DoUpdateTime off for a reason that is not this player's own (a load, a scripted

@@ -209,6 +209,8 @@ namespace DWMPHorde.Patches
         /// the creature's smell radius, which the host never did; smell goes through the sniffer for
         /// every player.
         /// </summary>
+        private static readonly RaycastHit[] SightHits = new RaycastHit[64]; // process-scoped: scratch, filled per ray
+
         private static void SenseStandIns(Character c, bool assigns)
         {
             if (ProxyDistanceHelper.ProxyIsFar(c))
@@ -246,10 +248,18 @@ namespace DWMPHorde.Patches
                 float d = to.magnitude;
                 if (d > maxD || !(Vector3.Angle(to, up) < fov))
                     continue;
-                if (!Physics.Raycast(from, to, out RaycastHit hit, d, 18909185)
-                    || hit.collider == null
-                    || hit.collider == own
-                    || hit.collider.GetComponentInParent<RemotePlayerProxy>() != proxy)
+                // As vanilla's own look at a body: everything on the ray counts (RaycastAll), and
+                // with more than the body itself on it, walls alone decide (Core.canSee). Taking
+                // only the first thing hit hid a player standing behind another creature, another
+                // player or a prop from every creature looking that way.
+                int hits = Physics.RaycastNonAlloc(from, to, SightHits, d, 18909185);
+                bool onRay = false;
+                for (int h = 0; h < hits && !onRay; h++)
+                {
+                    Collider col = SightHits[h].collider;
+                    onRay = col != null && col != own && col.GetComponentInParent<RemotePlayerProxy>() == proxy;
+                }
+                if (!onRay || (hits > 1 && !Core.canSee(c.transform, pt)))
                     continue;
 
                 c.charactersInSight.Add(pcb);

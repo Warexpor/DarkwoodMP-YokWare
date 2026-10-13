@@ -1020,14 +1020,50 @@ namespace DWMPHorde.Networking
     {
         public float PosX, PosY, PosZ;
         public bool IsOn;
+        /// <summary>
+        /// The player whose oven this is. The host relays the message as it came, so on another
+        /// client the connection it arrives on is the host's, not the mover's.
+        /// </summary>
+        public int PlayerId;
 
-        public void Serialize(NetWriter w) { w.Put(PosX); w.Put(PosY); w.Put(PosZ); w.Put(IsOn); }
+        public void Serialize(NetWriter w) { w.Put(PosX); w.Put(PosY); w.Put(PosZ); w.Put(IsOn); w.Put(PlayerId); }
         public static HideoutUpgradeMessage Deserialize(NetReader r) => new HideoutUpgradeMessage
         {
             PosX = r.GetFloat(),
             PosY = r.GetFloat(),
             PosZ = r.GetFloat(),
-            IsOn = r.GetBool()
+            IsOn = r.GetBool(),
+            PlayerId = r.GetInt()
+        };
+    }
+
+    public struct ObjectSpawnerFiredMessage
+    {
+        /// <summary>The spawner's GameObject name and spot: several share a name.</summary>
+        public string SpawnerName;
+        public float SpawnerX, SpawnerY, SpawnerZ;
+        /// <summary>Which of its objects (ObjectSpawner.objectsToSpawn).</summary>
+        public int Index;
+        public float PosX, PosY, PosZ;
+
+        public void Serialize(NetWriter w)
+        {
+            w.Put(SpawnerName ?? "");
+            w.Put(SpawnerX); w.Put(SpawnerY); w.Put(SpawnerZ);
+            w.Put(Index);
+            w.Put(PosX); w.Put(PosY); w.Put(PosZ);
+        }
+
+        public static ObjectSpawnerFiredMessage Deserialize(NetReader r) => new ObjectSpawnerFiredMessage
+        {
+            SpawnerName = r.GetString(),
+            SpawnerX = r.GetFloat(),
+            SpawnerY = r.GetFloat(),
+            SpawnerZ = r.GetFloat(),
+            Index = r.GetInt(),
+            PosX = r.GetFloat(),
+            PosY = r.GetFloat(),
+            PosZ = r.GetFloat()
         };
     }
 

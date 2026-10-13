@@ -46,6 +46,17 @@ namespace DWMPHorde.Patches
                 var dw = Singleton<UI>.Instance?.dialogueWindow;
                 if (dw?.currentDialogue != null)
                     __state = dw.currentDialogue.fullName ?? "";
+                // Noted before vanilla runs: onPress shows the destination's first board inside
+                // itself, and that board's commit is read against this note. Set in the Postfix
+                // it came too late, so the first board went to the host twice (its own commit,
+                // then the choice the host plays the whole destination from): reputation and
+                // other adding outcomes on it counted double.
+                if (dw != null && __instance != null && NetGuard.Connected(out var net) && net.Role == NetworkRole.Client
+                    && !LanNetworkManager.IsApplyingRemoteState
+                    && (!dw.displayingDialogue || dw.boardFinished)
+                    && (__instance.type == DialogueButton.Type.displayDialogue || __instance.type == DialogueButton.Type.decision)
+                    && !string.IsNullOrEmpty(__instance.destDialogueName))
+                    DialogBoardCommit.NoteChoiceDest(__instance.destDialogueName);
             }
             catch { __state = ""; }
         }

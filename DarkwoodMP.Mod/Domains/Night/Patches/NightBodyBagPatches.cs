@@ -93,5 +93,24 @@ namespace DWMPHorde.Patches
             p.dropBody(DeathStateTracker.LocalDeathPosition);
             NightBodyBag.Dropped = false;
         }
+
+        /// <summary>
+        /// The bag is down and the life spent; the rest of this step of vanilla's sequence (halved
+        /// saturation) is done by the next frame. That character is what a rejoin before morning gets.
+        /// </summary>
+        private static void Postfix()
+        {
+            if (!(ModRuntime.Network is LanNetworkManager net) || net.Role != NetworkRole.Client || !net.IsConnected
+                || !DeathStateTracker.LocalNightDeath || FinalDreamsceneManager.IsActive)
+                return;
+            net.StartCoroutine(SendNextFrame(net));
+        }
+
+        private static System.Collections.IEnumerator SendNextFrame(LanNetworkManager net)
+        {
+            yield return null;
+            if (DeathStateTracker.LocalNightDeath)
+                net.SaveHandlers.SendNightDeathCharacter();
+        }
     }
 }

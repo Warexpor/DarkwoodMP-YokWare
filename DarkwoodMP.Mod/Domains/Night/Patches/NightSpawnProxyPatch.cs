@@ -144,7 +144,10 @@ namespace DWMPHorde.Patches
             float mult = CoopBalance.NightMonsterMultiplier;
             bool coop = NetGuard.ConnectedHost(out LanNetworkManager net) && PlayerPositionManager.HasRemotePlayer;
             if (!coop && mult <= 1f)
+            {
+                NightSpawnGetFreeSpotPatch.VanillaNightSpawn = true;
                 return true;
+            }
             if (!__instance.spawnNocturnalCharacters)
                 return false;
             if (coop)
@@ -181,12 +184,14 @@ namespace DWMPHorde.Patches
         private static void Postfix()
         {
             NightSpawnGetFreeSpotPatch.InsideNightSpawn = false;
+            NightSpawnGetFreeSpotPatch.VanillaNightSpawn = false;
         }
 
         [HarmonyPriority(Priority.Last)]
         private static void Finalizer()
         {
             NightSpawnGetFreeSpotPatch.InsideNightSpawn = false;
+            NightSpawnGetFreeSpotPatch.VanillaNightSpawn = false;
         }
 
         /// <summary>
@@ -263,5 +268,36 @@ namespace DWMPHorde.Patches
     public static class NightSpawnGetFreeSpotPatch
     {
         internal static bool InsideNightSpawn; // process-scoped: call-scoped, unwound by NightSpawnFlagPatch's Finalizer
+        /// <summary>Vanilla's own spawnNightChar is running (host alone, multiplier 1).</summary>
+        internal static bool VanillaNightSpawn; // process-scoped: call-scoped, unwound by NightSpawnFlagPatch's Finalizer
+    }
+
+    /// <summary>
+    /// A monster vanilla places while the host is alone goes into its hideout's count as well.
+    /// The count started at zero when a player joined mid-night, and the host's hideout was
+    /// given a second full set on top of the one already out.
+    /// </summary>
+    [HarmonyPatch(typeof(CharacterSpawner), nameof(CharacterSpawner.spawnCharacterAround))]
+    public static class NightHideoutQuotaVanillaNotePatch
+    {
+        private static void Postfix(Character __result, string type)
+        {
+            if (!NightSpawnGetFreeSpotPatch.VanillaNightSpawn || __result == null)
+                return;
+            Player host = Player.Instance;
+            Location home = host != null && host.whereAmI != null ? host.whereAmI.bigLocation : null;
+            var ns = Singleton<NightScenarios>.Instance;
+            if (home == null || ns == null || ns.currentScenario == null)
+                return;
+            for (int i = 0; i < ns.currentScenario.characters.Count; i++)
+            {
+                NightScenario.CharacterToSpawn c = ns.currentScenario.characters[i];
+                if (c != null && c.characterName == type)
+                {
+                    NightHideoutQuota.Note(home, i, __result);
+                    return;
+                }
+            }
+        }
     }
 }

@@ -262,6 +262,9 @@ namespace DWMPHorde.Players
         /// running clips are replayed from the new library at the same frame: tk2d keeps playing
         /// the old clip object, so a player standing still kept the old look until it moved.
         /// </summary>
+        /// <summary>The torso library in use (the player's skin and what it holds); null before one is set.</summary>
+        internal tk2dSpriteAnimation TorsoLibrary => _torsoAnimator != null ? _torsoAnimator.Library : null;
+
         internal void ApplyTorsoLibrary(tk2dSpriteAnimation lib)
         {
             if (_torsoAnimator == null || lib == null)

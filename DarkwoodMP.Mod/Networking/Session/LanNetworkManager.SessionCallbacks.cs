@@ -88,6 +88,7 @@ namespace DWMPHorde.Networking
             NightHandlers?.ClearShadowLookups();
             ContainerPendingHandlers?.ClearPendingContainerState();
             ContainerLootHandlers?.ClearPendingHideoutUpgrades();
+            BulkSyncHandlers?.ClearPendingHideoutState();
             FlagHandlers?.ClearPendingFlags();
             JournalHandlers?.ClearPendingJournal();
             SaveHandlers?.Reset();

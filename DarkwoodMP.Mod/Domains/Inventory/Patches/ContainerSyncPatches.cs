@@ -236,6 +236,8 @@ namespace DWMPHorde.Patches
                     net.CombatDeathBagHandlers?.TryHostFanDeathBagEmptied(taken);
                 DreamLootParty.HostAfterTake(taken, slotIdx, itemType, amount, durability, ammo, isRecipe,
                     upgrades, shouldBeActive, net.LocalPlayerId);
+                if (!isRecipe)
+                    OxygenTankParty.HostContainerTake(net, taken, itemType, net.LocalPlayerId);
             }
 
             // Track the pre-take player inventory count for a precise denial refund.

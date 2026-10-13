@@ -222,8 +222,10 @@ namespace DWMPHorde.Networking
 
             ModRuntime.LegacyInfo("[Death] All dead at night — exiting spectator for morning");
 
-            if (Spectator.SpectatorModeController.Instance != null)
-                Spectator.SpectatorModeController.Instance.ExitAndRespawn();
+            // Home, as at any other morning: leaving spectate with the saved position put the
+            // players who died earlier back where they fell, while the last to die and the
+            // host woke at home.
+            DeathStateTracker.ClientReleaseNightDeadAtMorning();
 
             DeathStateTracker.Reset();
         }

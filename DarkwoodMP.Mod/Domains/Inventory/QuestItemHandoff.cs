@@ -18,9 +18,9 @@ namespace DWMPHorde.Sync
     /// ground where it stood (by the host when it stood on a pad or in a dream). The host remembers
     /// each drop for that player, and the record is written with the host's save so it always
     /// matches the saved world. When the player comes back: a drop still lying there is taken off the
-    /// ground (the player keeps theirs); one someone took is removed from the player's bag. The
-    /// oxygen tanks are every player's (<see cref="OxygenTankParty"/>) and journal items are shared,
-    /// so neither is dropped.
+    /// ground (the player keeps theirs); one someone took is removed from the player's bag. Oxygen
+    /// tanks are dropped too (one player may carry the party's, <see cref="OxygenTankParty"/>);
+    /// journal items are shared, so they are not.
     /// </summary>
     internal static class QuestItemHandoff
     {
@@ -78,10 +78,10 @@ namespace DWMPHorde.Sync
         /// <summary>A save was loaded: the records go back to what that save was written with.</summary>
         internal static void OnWorldLoaded() => _campaign = null;
 
-        /// <summary>A story item this mod hands off (vanilla quest item, not an oxygen tank).</summary>
+        /// <summary>A story item this mod hands off (vanilla quest item, oxygen tanks included).</summary>
         internal static bool IsStoryItem(string type)
         {
-            if (string.IsNullOrEmpty(type) || type == OxygenTankParty.Empty || type == OxygenTankParty.Full)
+            if (string.IsNullOrEmpty(type))
                 return false;
             ItemsDatabase db = Singleton<ItemsDatabase>.Instance;
             if (db == null || db.itemsDict == null || !db.itemsDict.TryGetValue(type, out string path) || path == null)
@@ -188,7 +188,7 @@ namespace DWMPHorde.Sync
             }
         }
 
-        private static string SpawnDrop(LanNetworkManager net, string type, Vector3 pos)
+        internal static string SpawnDrop(LanNetworkManager net, string type, Vector3 pos)
         {
             InvItem baseItem = Singleton<ItemsDatabase>.Instance.getItem(type, instantiate: false);
             var msg = new DroppedItemSpawnMessage
@@ -488,6 +488,7 @@ namespace DWMPHorde.Sync
             if (Patches.NightDeathSavePatch.IsHeld())
                 return;
             QuestItemHandoff.OnHostSaved();
+            OxygenTankParty.OnHostSaved();
         }
     }
 
@@ -495,6 +496,10 @@ namespace DWMPHorde.Sync
     [HarmonyLib.HarmonyPatch(typeof(SaveManager), nameof(SaveManager.Load))]
     public static class QuestItemHandoffLoadPatch
     {
-        private static void Prefix() => QuestItemHandoff.OnWorldLoaded();
+        private static void Prefix()
+        {
+            QuestItemHandoff.OnWorldLoaded();
+            OxygenTankParty.OnWorldLoaded();
+        }
     }
 }

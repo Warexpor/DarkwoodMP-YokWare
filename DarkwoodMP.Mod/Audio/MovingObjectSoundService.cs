@@ -38,16 +38,23 @@ namespace DWMPHorde.Audio
             public bool Fading;
         }
 
-        private static readonly Dictionary<string, Entry> _byName =
-            new Dictionary<string, Entry>(StringComparer.Ordinal);
+        /// <summary>
+        /// Loops by network name, one per object: two moving objects can share a name (two
+        /// planks, two barrels). Keyed by name alone, each snapshot of one restarted the other's
+        /// loop. A stop or fade by name still covers every object of that name, as the network
+        /// names them.
+        /// </summary>
+        private static readonly Dictionary<string, List<Entry>> _byName =
+            new Dictionary<string, List<Entry>>(StringComparer.Ordinal);
         private static readonly List<string> _reap = new List<string>(8); // process-scoped: scratch
 
         public static void Reset()
         {
             foreach (var kv in _byName)
             {
-                if (Owns(kv.Value))
-                    kv.Value.Ao.Stop();
+                foreach (Entry e in kv.Value)
+                    if (Owns(e))
+                        e.Ao.Stop();
             }
             _byName.Clear();
         }
@@ -104,13 +111,18 @@ namespace DWMPHorde.Audio
         {
             if (string.IsNullOrEmpty(objectName))
                 return;
-            if (!_byName.TryGetValue(objectName, out Entry e) || !Owns(e))
+            if (!_byName.TryGetValue(objectName, out List<Entry> list))
                 return;
-            if (e.Fading)
-                return;
-
-            e.StationaryTicks++;
-            if (e.StationaryTicks >= StationaryTicksBeforeFade)
+            bool fade = false;
+            foreach (Entry e in list)
+            {
+                if (!Owns(e) || e.Fading)
+                    continue;
+                e.StationaryTicks++;
+                if (e.StationaryTicks >= StationaryTicksBeforeFade)
+                    fade = true;
+            }
+            if (fade)
                 BeginFade(objectName, DefaultFadeSeconds);
         }
 
@@ -133,18 +145,29 @@ namespace DWMPHorde.Audio
             // MOS is the remote-owner path; keep native ItemSounds suppressed.
             ItemMovingSoundHelper.MarkRemoteScrape(objectName);
 
-            if (_byName.TryGetValue(objectName, out Entry existing))
+            if (!_byName.TryGetValue(objectName, out List<Entry> list))
             {
+                list = new List<Entry>(1);
+                _byName[objectName] = list;
+            }
+            for (int i = list.Count - 1; i >= 0; i--)
+            {
+                Entry existing = list[i];
+                if (existing.Host != go)
+                {
+                    if (!Owns(existing))
+                        list.RemoveAt(i);
+                    continue;
+                }
                 existing.StationaryTicks = 0;
-                if (Owns(existing) && !existing.Fading
-                    && existing.Host == go && existing.SoundId == soundId)
+                if (Owns(existing) && !existing.Fading && existing.SoundId == soundId)
                     return;
 
-                // Fading, surface changed or host replaced: vanilla lets the old loop finish its
-                // 0.5 s fade and starts a fresh one.
+                // Fading or surface changed: vanilla lets the old loop finish its 0.5 s fade
+                // and starts a fresh one.
                 if (Owns(existing) && !existing.Fading)
                     existing.Ao.Stop(VanillaMovingStopFade);
-                _byName.Remove(objectName);
+                list.RemoveAt(i);
             }
 
             AudioObject ao;
@@ -157,23 +180,21 @@ namespace DWMPHorde.Audio
             if (ao == null)
                 return; // out of hearing range (AudioSuppression) or unknown id; next motion tick retries
 
-            _byName[objectName] = new Entry
+            list.Add(new Entry
             {
                 Ao = ao,
                 Host = go,
                 SoundId = soundId,
                 StationaryTicks = 0,
                 Fading = false
-            };
+            });
         }
 
         public static void BeginFade(string objectName, float fadeSeconds = DefaultFadeSeconds)
         {
             if (string.IsNullOrEmpty(objectName))
                 return;
-            if (!_byName.TryGetValue(objectName, out Entry e) || !Owns(e))
-                return;
-            if (e.Fading)
+            if (!_byName.TryGetValue(objectName, out List<Entry> list))
                 return;
 
             if (fadeSeconds <= 0f)
@@ -182,19 +203,25 @@ namespace DWMPHorde.Audio
                 return;
             }
 
-            e.Ao.Stop(fadeSeconds);
-            e.Fading = true;
-            e.StationaryTicks = 0;
+            foreach (Entry e in list)
+            {
+                if (!Owns(e) || e.Fading)
+                    continue;
+                e.Ao.Stop(fadeSeconds);
+                e.Fading = true;
+                e.StationaryTicks = 0;
+            }
         }
 
         public static void StopImmediate(string objectName)
         {
             if (string.IsNullOrEmpty(objectName))
                 return;
-            if (_byName.TryGetValue(objectName, out Entry e))
+            if (_byName.TryGetValue(objectName, out List<Entry> list))
             {
-                if (Owns(e))
-                    e.Ao.Stop();
+                foreach (Entry e in list)
+                    if (Owns(e))
+                        e.Ao.Stop();
                 _byName.Remove(objectName);
             }
             ItemMovingSoundHelper.ClearRemoteScrape(objectName);
@@ -204,14 +231,20 @@ namespace DWMPHorde.Audio
         public static bool IsPlaying(string objectName)
         {
             if (string.IsNullOrEmpty(objectName)) return false;
-            return _byName.TryGetValue(objectName, out Entry e) && Owns(e);
+            if (!_byName.TryGetValue(objectName, out List<Entry> list)) return false;
+            foreach (Entry e in list)
+                if (Owns(e)) return true;
+            return false;
         }
 
         /// <summary>True while a scrape fade-out is in progress (not fully stopped).</summary>
         public static bool IsFading(string objectName)
         {
             if (string.IsNullOrEmpty(objectName)) return false;
-            return _byName.TryGetValue(objectName, out Entry e) && e.Fading && Owns(e);
+            if (!_byName.TryGetValue(objectName, out List<Entry> list)) return false;
+            foreach (Entry e in list)
+                if (e.Fading && Owns(e)) return true;
+            return false;
         }
 
         /// <summary>
@@ -275,7 +308,11 @@ namespace DWMPHorde.Audio
             _reap.Clear();
             foreach (var kv in _byName)
             {
-                if (!Owns(kv.Value))
+                List<Entry> list = kv.Value;
+                for (int i = list.Count - 1; i >= 0; i--)
+                    if (!Owns(list[i]))
+                        list.RemoveAt(i);
+                if (kv.Value.Count == 0)
                     _reap.Add(kv.Key);
             }
             for (int i = 0; i < _reap.Count; i++)

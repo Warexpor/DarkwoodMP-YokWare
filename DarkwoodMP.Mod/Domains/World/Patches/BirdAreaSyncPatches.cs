@@ -25,7 +25,10 @@ namespace DWMPHorde.Patches
         private sealed class State
         {
             public int Count;
-            public Transform Target;
+            // Every body inside, in entry order. One slot was not enough for three players: when
+            // the last one in walked out the slot went empty and vanilla sent the bird at the
+            // host, who could be standing outside.
+            public readonly List<Transform> Present = new List<Transform>(4);
         }
 
         private static readonly Dictionary<BirdArea, State> States =
@@ -115,7 +118,8 @@ namespace DWMPHorde.Patches
         {
             State s = Get(area);
             s.Count++;
-            s.Target = presence;
+            s.Present.Remove(presence);
+            s.Present.Add(presence);
             if (!area.playerIsInside)
             {
                 area.playerIsInside = true;
@@ -135,13 +139,12 @@ namespace DWMPHorde.Patches
             State s = Get(area);
             if (s.Count > 0)
                 s.Count--;
-            if (s.Target == presence)
-                s.Target = null;
+            s.Present.Remove(presence);
 
             if (s.Count <= 0)
             {
                 s.Count = 0;
-                s.Target = null;
+                s.Present.Clear();
                 if (area.playerIsInside)
                 {
                     area.playerIsInside = false;
@@ -160,7 +163,25 @@ namespace DWMPHorde.Patches
             State s;
             if (!States.TryGetValue(area, out s) || s == null)
                 return null;
-            return s.Target;
+            // The newest body still inside. A proxy destroyed while inside (its player left the
+            // game) gets no trigger exit: drop it here, and close the area once nobody is left.
+            for (int i = s.Present.Count - 1; i >= 0; i--)
+            {
+                if (s.Present[i] != null)
+                    return s.Present[i];
+                s.Present.RemoveAt(i);
+                if (s.Count > 0)
+                    s.Count--;
+            }
+            return null;
+        }
+
+        /// <summary>Every body that was inside is gone (left the game without a trigger exit).</summary>
+        internal static bool Abandoned(BirdArea area)
+        {
+            State s;
+            return States.TryGetValue(area, out s) && s != null
+                && s.Present.Count == 0 && !LocalPlayerInside(area);
         }
     }
 
@@ -248,7 +269,13 @@ namespace DWMPHorde.Patches
 
             Transform target = BirdAreaPresence.GetAttackTarget(__instance);
             if (target == null)
-                return true;
+            {
+                if (!BirdAreaPresence.Abandoned(__instance))
+                    return true;
+                __instance.playerIsInside = false;
+                __instance.stopRoutine(__instance.sendBirdToAttackPlayer);
+                return false;
+            }
 
             Character bird = __instance.birds[Random.Range(0, __instance.birds.Count)];
             if (bird == null)

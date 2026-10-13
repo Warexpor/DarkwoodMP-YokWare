@@ -1,14 +1,15 @@
-# Pack the two loader builds into versioned release zips under artifacts\:
+# Pack the two loader builds into the public release zips under artifacts\ (shared on Discord
+# and attached to GitHub releases; packing rules in AGENTS.md, "Release zips"):
 #   DarkwoodMP-YokWare-<version>-BepInEx.zip
 #   DarkwoodMP-YokWare-<version>-MelonLoader.zip
-# plus the optional manual-saves add-on (F3) for each loader:
+# With -Addons, also the optional manual-saves add-on (F3) for each loader:
 #   YokWare-ManualSaves-<addon version>-<loader>.zip
-# Each holds DarkwoodMP.Mod.dll + LiteNetLib.dll (+ LICENSE and an INSTALL.txt generated from
-# PluginInfo.cs, so the text cannot drift from the shipped version/protocol). The BepInEx zip is
+# Each holds DarkwoodMP.Mod.dll + LiteNetLib.dll (+ LICENSE and INSTALL.txt from
+# scripts\release\INSTALL-<loader>.txt, version/protocol filled in from PluginInfo.cs). The BepInEx zip is
 # flat (both DLLs go to BepInEx/plugins); the MelonLoader zip mirrors the game folder (Mods/ for the
 # mod, UserLibs/ for LiteNetLib), so it can be extracted straight into Darkwood/.
-# Usage: scripts\pack-release.ps1 [-NoBuild]
-param([switch]$NoBuild)
+# Usage: scripts\pack-release.ps1 [-NoBuild] [-Addons]
+param([switch]$NoBuild, [switch]$Addons)
 $ErrorActionPreference = "Stop"
 $root = Split-Path $PSScriptRoot -Parent
 Set-Location $root
@@ -31,11 +32,13 @@ if (-not $NoBuild) {
     Write-Host "== Build MelonLoader =="
     dotnet build DarkwoodMP.Mod\DarkwoodMP.Mod.csproj -c Release -p:Loader=MelonLoader -p:SkipDeploy=true --nologo
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-    Write-Host "== Build manual-saves add-on =="
-    dotnet build DarkwoodMP.ManualSaves\DarkwoodMP.ManualSaves.csproj -c Release -p:Loader=BepInEx -p:SkipDeploy=true --nologo
-    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-    dotnet build DarkwoodMP.ManualSaves\DarkwoodMP.ManualSaves.csproj -c Release -p:Loader=MelonLoader -p:SkipDeploy=true --nologo
-    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    if ($Addons) {
+        Write-Host "== Build manual-saves add-on =="
+        dotnet build DarkwoodMP.ManualSaves\DarkwoodMP.ManualSaves.csproj -c Release -p:Loader=BepInEx -p:SkipDeploy=true --nologo
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        dotnet build DarkwoodMP.ManualSaves\DarkwoodMP.ManualSaves.csproj -c Release -p:Loader=MelonLoader -p:SkipDeploy=true --nologo
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    }
     Write-Host "== Path B tests =="
     dotnet test DarkwoodMP.PathB.Tests -c Release --nologo
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
@@ -46,7 +49,7 @@ $art = Join-Path $root "artifacts"
 New-Item -ItemType Directory -Force -Path $art | Out-Null
 Get-ChildItem $art -Directory -Filter "stage-*" -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force
 
-function New-LoaderZip([string]$loader, [string]$loaderText, [string]$cfg) {
+function New-LoaderZip([string]$loader) {
     $src = Join-Path $root "DarkwoodMP.Mod\bin\Release\$loader"
     $stage = Join-Path $art "stage-$loader"
     $zip = Join-Path $art "DarkwoodMP-YokWare-$version-$loader.zip"
@@ -57,26 +60,15 @@ function New-LoaderZip([string]$loader, [string]$loaderText, [string]$cfg) {
     if ($loader -eq "BepInEx") {
         Copy-Item (Join-Path $src "DarkwoodMP.Mod.dll") $stage
         Copy-Item (Join-Path $src "LiteNetLib.dll") $stage
-        $step2 = "Copy DarkwoodMP.Mod.dll and LiteNetLib.dll into Darkwood/BepInEx/plugins/"
     } else {
         New-Item -ItemType Directory -Force -Path (Join-Path $stage "Mods"), (Join-Path $stage "UserLibs") | Out-Null
         Copy-Item (Join-Path $src "DarkwoodMP.Mod.dll") (Join-Path $stage "Mods")
         Copy-Item (Join-Path $src "LiteNetLib.dll") (Join-Path $stage "UserLibs")
-        $step2 = "Extract this zip into the Darkwood folder: Mods/DarkwoodMP.Mod.dll and`r`n   UserLibs/LiteNetLib.dll (MelonLoader loads UserLibs before the mod)."
     }
     if (Test-Path (Join-Path $root "LICENSE")) { Copy-Item (Join-Path $root "LICENSE") $stage }
-    @"
-YokWare Branch $version - Path B (Horde base), $loader build
-Wire protocol ${protocol}: every player in a session must run the same version.
-
-1. Install $loaderText for Darkwood (one loader per game install).
-2. $step2
-3. Launch Darkwood. MULTIPLAYER on the title screen and in the pause menu hosts, joins
-   and holds the settings; its screen shows "YokWare Branch $version" at the bottom.
-   F4 spectate, Ctrl+C chat. Manual save slots (F3) are a separate optional add-on.
-4. Config file (created on first launch): $cfg
-License: GPLv3 (see LICENSE)
-"@ | Set-Content (Join-Path $stage "INSTALL.txt")
+    # Shared text with pack-release.sh; CRLF so Notepad shows it right.
+    $text = (Get-Content (Join-Path $root "scripts\release\INSTALL-$loader.txt") -Raw).Replace("{VERSION}", $version).Replace("{PROTOCOL}", $protocol)
+    [IO.File]::WriteAllText((Join-Path $stage "INSTALL.txt"), ($text -replace "\r?\n", "`r`n"))
     Compress-Archive -Path (Join-Path $stage "*") -DestinationPath $zip -Force
     Remove-Item $stage -Recurse -Force
     Write-Host "  $zip"
@@ -114,10 +106,12 @@ License: GPLv3 (see LICENSE)
     Write-Host "  $zip"
 }
 
-New-LoaderZip "BepInEx" "BepInEx 5.x" "BepInEx/config/com.yokware.branch.cfg"
-New-LoaderZip "MelonLoader" "MelonLoader 0.7.x" "UserData/YokWare/com.yokware.branch.cfg"
-New-AddonZip "BepInEx"
-New-AddonZip "MelonLoader"
+New-LoaderZip "BepInEx"
+New-LoaderZip "MelonLoader"
+if ($Addons) {
+    New-AddonZip "BepInEx"
+    New-AddonZip "MelonLoader"
+}
 
 Write-Host "Packed:"
 Get-ChildItem $art -File | Select-Object Name, Length

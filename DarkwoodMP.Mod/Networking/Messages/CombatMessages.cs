@@ -9,6 +9,10 @@ namespace DWMPHorde.Networking
         public int VictimPlayerId;
         /// <summary>Melee weapon status effects (<c>MeleeSensor.effects</c>) for the victim. Trailing count + effects; null = none.</summary>
         public SensorEffectWire[] Effects;
+        /// <summary>Vanilla <c>canInterrupt</c> of the hit (a melee swing: only a fully charged one).</summary>
+        public bool CanInterrupt;
+        /// <summary>Vanilla <c>normalHit</c> of the hit (false for fire contact).</summary>
+        public bool NormalHit;
 
         public void Serialize(NetWriter w)
         {
@@ -18,6 +22,8 @@ namespace DWMPHorde.Networking
             w.Put(AttackerPlayerId);
             w.Put(VictimPlayerId);
             SensorEffectWire.WriteList(w, Effects);
+            w.Put(CanInterrupt);
+            w.Put(NormalHit);
         }
 
         public static FriendlyFireMessage Deserialize(NetReader r)
@@ -33,6 +39,8 @@ namespace DWMPHorde.Networking
                 VictimPlayerId = r.GetInt()
             };
             msg.Effects = SensorEffectWire.ReadList(r);
+            msg.CanInterrupt = r.GetBool();
+            msg.NormalHit = r.GetBool();
             return msg;
         }
     }

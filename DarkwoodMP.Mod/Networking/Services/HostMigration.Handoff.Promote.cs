@@ -32,6 +32,9 @@ namespace DWMPHorde.Networking
             _localPlayerId = keepId;
             _hostPlayerId = keepId;
             _nextPlayerId = Math.Max(2, keepId + 1);
+            // Creature ids go on from the dead host's counter: minted from 1, they hit ids the
+            // survivors still held for other bodies and same-species creatures swapped.
+            Sync.CharacterTracker.ContinueIdsAfterPromote(_hostNextCreatureId);
             for (int i = 0; i < _peerRoster.Count; i++)
             {
                 int pid = _peerRoster[i].PlayerId;
@@ -67,7 +70,7 @@ namespace DWMPHorde.Networking
             {
                 // Port may still be in TIME_WAIT after a crash; try nearby ports.
                 bool bound = false;
-                for (int d = 1; d <= 5 && !bound; d++)
+                for (int d = 1; d <= MigrationAltPorts && !bound; d++)
                 {
                     int alt = port + d;
                     if (_net.Start(alt))

@@ -217,6 +217,42 @@ namespace DWMPHorde.Networking
         }
 
         /// <summary>
+        /// A refused place leaves this game's container slot holding the item that goes back to the
+        /// bag. The host's snapshot normally corrects the slot, but a host without that container
+        /// sends none, and the item then sat in both the bag and the chest.
+        /// </summary>
+        private static void TakeBackFromContainer(ContainerTakeDeniedMessage msg)
+        {
+            try
+            {
+                if (string.IsNullOrEmpty(msg.ItemType) || msg.Amount <= 0)
+                    return;
+                Inventory inv = WorldQueryHelper.FindInventory(
+                    new Vector3(msg.PosX, msg.PosY, msg.PosZ), msg.SaveId);
+                if (inv == null || inv.slots == null || msg.SlotIndex >= inv.slots.Count)
+                    return;
+                InvSlot slot = inv.slots[msg.SlotIndex];
+                InvItemClass it = slot != null ? slot.invItem : null;
+                if (InvItemClass.isNull(it))
+                    return;
+                string held = it.isRecipe ? it.recipeFor : it.type;
+                if (held != msg.ItemType)
+                    return;
+                if (it.amount > msg.Amount)
+                {
+                    it.amount -= msg.Amount;
+                    it.refresh();
+                }
+                else
+                    slot.removeItem();
+            }
+            catch (System.Exception ex)
+            {
+                ModLog.Warn(LogCat.Container, "place refund: container slot not cleared: " + ex.Message);
+            }
+        }
+
+        /// <summary>
         /// The host has no such container (ModeTakeReturn): the item taken back from the bag goes
         /// into this game's container slot again. Before, it was only taken out of the bag, and
         /// the container here had already lost it: it was gone from this game.
@@ -274,6 +310,7 @@ namespace DWMPHorde.Networking
                 + " to bag");
 
             _pending.ClearPendingContainerRemove(new Vector3(msg.PosX, msg.PosY, msg.PosZ), msg.SlotIndex);
+            TakeBackFromContainer(msg);
 
             try
             {

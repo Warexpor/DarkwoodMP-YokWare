@@ -38,6 +38,12 @@ namespace DWMPHorde.Audio
             public AudioSource Src;
             public AudioLowPassFilter Muffle;
             public VoiceSpeakerBehaviour Beh;
+            /// <summary>
+            /// The part of the volume set for this talker above as recorded, put in ahead of the
+            /// limiter (<see cref="WriteVoice"/>): turned up, a voice gets louder and its peaks still
+            /// stay under full scale. Up to as recorded is the speaker's own volume.
+            /// </summary>
+            public float Boost = 1f;
             public float[] Ring;
             public int ReadPos;
             public int WritePos;
@@ -822,6 +828,8 @@ namespace DWMPHorde.Audio
         private static void WriteVoice(Speaker speaker, float[] buf, int samples)
         {
             float gain = (ModConfig.VoiceGain?.Value ?? 1.4f) * VoiceBaseGain;
+            // After the radio, so a radio turned up is louder as it is (static and beep too), not driven harder.
+            float boost = speaker.Boost;
             // Only what the talker's radio sends goes through the listener's radio.
             bool radioMode = speaker.RadioMode && speaker.WalkieActive;
             bool radioStart = radioMode && !speaker.RadioWasActive;
@@ -851,6 +859,7 @@ namespace DWMPHorde.Audio
                     float sample = buf[i] * gain;
                     if (radioMode)
                         sample = RadioSample(speaker, sample);
+                    sample *= boost;
                     // Turned down ahead of a peak; the soft limit only catches what is left.
                     speaker.Ring[speaker.WritePos] = SoftLimit(speaker.Limiter.Process(sample));
                     speaker.WritePos = (speaker.WritePos + 1) % speaker.Ring.Length;

@@ -82,6 +82,9 @@ namespace DWMPHorde.Sync
             }
         }
 
+        /// <summary>Host: the player has sent its first in-world state and is still here.</summary>
+        internal static bool IsInGame(int playerId) => _inGame.Contains(playerId);
+
         /// <summary>Host: the player sent its first in-world state.</summary>
         internal static void HostInGame(LanNetworkManager net, int playerId)
         {

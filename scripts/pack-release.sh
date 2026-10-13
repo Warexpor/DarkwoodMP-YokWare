@@ -1,16 +1,18 @@
 #!/usr/bin/env bash
-# Pack the two loader builds into versioned release zips under artifacts/:
+# Pack the two loader builds into the public release zips under artifacts/ (the ones shared on
+# Discord and attached to GitHub releases; packing rules in AGENTS.md, "Release zips"):
 #   DarkwoodMP-YokWare-<version>-BepInEx.zip
 #   DarkwoodMP-YokWare-<version>-MelonLoader.zip
-# plus the optional manual-saves add-on (F3) for each loader:
+# With --addons, also the optional manual-saves add-on (F3) for each loader:
 #   YokWare-ManualSaves-<addon version>-<loader>.zip
-# Each holds DarkwoodMP.Mod.dll + LiteNetLib.dll (+ LICENSE and an INSTALL.txt generated from
-# PluginInfo.cs, so the text can never drift from the shipped version/protocol). The BepInEx zip is
+# Each holds DarkwoodMP.Mod.dll + LiteNetLib.dll (+ LICENSE and INSTALL.txt from
+# scripts/release/INSTALL-<loader>.txt, version/protocol filled in from PluginInfo.cs). The BepInEx zip is
 # flat (both DLLs go to BepInEx/plugins); the MelonLoader zip mirrors the game folder (Mods/ for the
 # mod, UserLibs/ for LiteNetLib), so it can be extracted straight into Darkwood/.
 #
-# Usage: scripts/pack-release.sh [--no-build]
+# Usage: scripts/pack-release.sh [--no-build] [--addons]
 #   --no-build  pack whatever is already in DarkwoodMP.Mod/bin/Release/{BepInEx,MelonLoader}
+#   --addons    also pack the manual-saves add-on zips
 #
 # Needs a GamePath.local.props (Steam GameDir) for the BepInEx build, like any other build.
 # Override the SDK location with DOTNET_ROOT (defaults to the Unity-bundled SDK if present).
@@ -19,10 +21,18 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
 NO_BUILD=0
-[[ "${1:-}" == "--no-build" ]] && NO_BUILD=1
+ADDONS=0
+for arg in "$@"; do
+  case "$arg" in
+    --no-build) NO_BUILD=1 ;;
+    --addons) ADDONS=1 ;;
+    *) echo "error: unknown option $arg" >&2; exit 1 ;;
+  esac
+done
 
 # Linux hosts often have a runtime-only system dotnet; same hint as build-loaders.sh.
-if [[ -z "${DOTNET_ROOT:-}" && -n "${UNITY_DOTNET_SDK:-}" && -d "$UNITY_DOTNET_SDK" ]]; then
+UNITY_DOTNET_SDK="${UNITY_DOTNET_SDK:-/home/warexpor/Unity/Hub/Editor/6000.6.0f1/Editor/Data/DotNetSdk}"
+if [[ -z "${DOTNET_ROOT:-}" && -d "$UNITY_DOTNET_SDK" ]]; then
   export DOTNET_ROOT="$UNITY_DOTNET_SDK"
   export PATH="$DOTNET_ROOT:$PATH"
 fi
@@ -43,9 +53,11 @@ if [[ "$NO_BUILD" -eq 0 ]]; then
   dotnet build DarkwoodMP.Mod -c Release -p:Loader=BepInEx -p:SkipDeploy=true --nologo
   echo "== Build MelonLoader =="
   dotnet build DarkwoodMP.Mod -c Release -p:Loader=MelonLoader -p:SkipDeploy=true --nologo
-  echo "== Build manual-saves add-on =="
-  dotnet build DarkwoodMP.ManualSaves -c Release -p:Loader=BepInEx -p:SkipDeploy=true --nologo
-  dotnet build DarkwoodMP.ManualSaves -c Release -p:Loader=MelonLoader -p:SkipDeploy=true --nologo
+  if [[ "$ADDONS" -eq 1 ]]; then
+    echo "== Build manual-saves add-on =="
+    dotnet build DarkwoodMP.ManualSaves -c Release -p:Loader=BepInEx -p:SkipDeploy=true --nologo
+    dotnet build DarkwoodMP.ManualSaves -c Release -p:Loader=MelonLoader -p:SkipDeploy=true --nologo
+  fi
   echo "== Path B tests =="
   dotnet test DarkwoodMP.PathB.Tests -c Release --nologo
 fi
@@ -67,37 +79,21 @@ make_zip() {
   done
 
   mkdir -p "$stage"
-  local step2
   if [[ "$loader" == "BepInEx" ]]; then
     cp "$src/DarkwoodMP.Mod.dll" "$src/LiteNetLib.dll" "$stage/"
-    step2="Copy DarkwoodMP.Mod.dll and LiteNetLib.dll into Darkwood/BepInEx/plugins/"
   else
     mkdir -p "$stage/Mods" "$stage/UserLibs"
     cp "$src/DarkwoodMP.Mod.dll" "$stage/Mods/"
     cp "$src/LiteNetLib.dll" "$stage/UserLibs/"
-    step2="Extract this zip into the Darkwood folder: Mods/DarkwoodMP.Mod.dll and
-   UserLibs/LiteNetLib.dll (MelonLoader loads UserLibs before the mod)."
   fi
   [[ -f "$ROOT/LICENSE" ]] && cp "$ROOT/LICENSE" "$stage/"
 
-  local cfg
-  if [[ "$loader" == "BepInEx" ]]; then
-    cfg="BepInEx/config/com.yokware.branch.cfg"
-  else
-    cfg="UserData/YokWare/com.yokware.branch.cfg"
-  fi
-  cat > "$stage/INSTALL.txt" <<TXT
-YokWare Branch $VERSION - Path B (Horde base), $loader build
-Wire protocol $PROTOCOL: every player in a session must run the same version.
-
-1. Install $( [[ "$loader" == "BepInEx" ]] && echo "BepInEx 5.x" || echo "MelonLoader 0.7.x" ) for Darkwood (one loader per game install).
-2. $step2
-3. Launch Darkwood. MULTIPLAYER on the title screen and in the pause menu hosts, joins
-   and holds the settings; its screen shows "YokWare Branch $VERSION" at the bottom.
-   F4 spectate, Ctrl+C chat. Manual save slots (F3) are a separate optional add-on.
-4. Config file (created on first launch): $cfg
-License: GPLv3 (see LICENSE)
-TXT
+  # The text lives in scripts/release/INSTALL-<loader>.txt (shared with pack-release.ps1);
+  # the version and protocol are filled in from PluginInfo.cs, so they cannot drift.
+  sed -e "s/{VERSION}/$VERSION/g" -e "s/{PROTOCOL}/$PROTOCOL/g" \
+    "$ROOT/scripts/release/INSTALL-$loader.txt" > "$stage/INSTALL.txt"
+  # Windows users open the .txt in Notepad: CRLF line ends.
+  sed -i 's/$/\r/' "$stage/INSTALL.txt"
 
   if command -v zip >/dev/null 2>&1; then
     (cd "$stage" && zip -q -r "$zip" .)
@@ -149,8 +145,18 @@ TXT
 
 make_zip BepInEx
 make_zip MelonLoader
-make_addon_zip BepInEx
-make_addon_zip MelonLoader
+if [[ "$ADDONS" -eq 1 ]]; then
+  make_addon_zip BepInEx
+  make_addon_zip MelonLoader
+fi
 
 echo "Packed:"
-ls -l "$ART"/DarkwoodMP-YokWare-"$VERSION"-*.zip "$ART"/YokWare-ManualSaves-*.zip
+ls -l "$ART"/DarkwoodMP-YokWare-"$VERSION"-*.zip
+[[ "$ADDONS" -eq 1 ]] && ls -l "$ART"/YokWare-ManualSaves-*.zip
+for z in "$ART"/DarkwoodMP-YokWare-"$VERSION"-*.zip; do
+  echo "--- $(basename "$z")"
+  unzip -l "$z" 2>/dev/null || python3 -m zipfile -l "$z"
+done
+for loader in BepInEx MelonLoader; do
+  md5sum "$ROOT/DarkwoodMP.Mod/bin/Release/$loader/DarkwoodMP.Mod.dll"
+done

@@ -55,6 +55,7 @@
     <Compile Include="..\DarkwoodMP.Mod\Audio\VoiceResampler.cs" Link="Shipped\VoiceResampler.cs" />
     <Compile Include="..\DarkwoodMP.Mod\Audio\VoicePlayout.cs" Link="Shipped\VoicePlayout.cs" />
     <Compile Include="..\DarkwoodMP.Mod\Audio\VoiceMicChain.cs" Link="Shipped\VoiceMicChain.cs" />
+    <Compile Include="..\DarkwoodMP.Mod\Audio\VolumeScale.cs" Link="Shipped\VolumeScale.cs" />
     <Compile Include="..\DarkwoodMP.Mod\Audio\RnNoise.cs" Link="Shipped\RnNoise.cs" />
     <EmbeddedResource Include="..\DarkwoodMP.Mod\Resources\RnNoise\rnnoise_weights.bin" LogicalName="DWMPHorde.Resources.rnnoise_weights.bin" />
     <Compile Include="..\DarkwoodMP.Mod\Domains\Inventory\InvItemUpgradeWire.cs" Link="Shipped\InvItemUpgradeWire.cs" />

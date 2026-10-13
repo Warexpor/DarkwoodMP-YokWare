@@ -77,6 +77,7 @@ namespace DWMPHorde.Config
         public static ModSetting<string> VoicePttKey { get; private set; }
         public static ModSetting<string> VoicePadTalkButton { get; private set; }
         public static ModSetting<float> VoiceVolume { get; private set; }
+        public static ModSetting<float> VoiceRadioVolume { get; private set; }
         public static ModSetting<float> VoiceGain { get; private set; }
         public static ModSetting<float> VoiceFullVolumeDistance { get; private set; }
         public static ModSetting<float> VoiceMaxDistance { get; private set; }
@@ -246,7 +247,9 @@ namespace DWMPHorde.Config
             VoicePadTalkButton = config.Bind("Voice", "VoicePadTalkButton", "DpadLeft",
                 "Push to talk on a controller, held: DpadLeft, DpadRight, LeftStick, RightStick or Off. The game has no free controller button, so each also does its vanilla action (by the default layout: next thing under the cursor, next skill, reload, dodge).");
             VoiceVolume = config.Bind("Voice", "VoiceVolume", 1f,
-                "Playback volume multiplier for remote voice.");
+                "How loud other players' voices are heard, as a multiplier: 0 muted, 1 as recorded, up to about 16 (+24 dB). The Voice screen sets it in dB steps.");
+            VoiceRadioVolume = config.Bind("Voice", "VoiceRadioVolume", 1f,
+                "How loud walkies are, on top of VoiceVolume: the talk heard on them, their static, beeps, squelch and knob clicks. 0 muted, 1 as recorded, up to about 16 (+24 dB).");
             VoiceGain = config.Bind("Voice", "VoiceGain", 1.4f,
                 "Gain applied to received voice.");
             // Game units, like every other range here (a body is about 40 across).
@@ -275,7 +278,7 @@ namespace DWMPHorde.Config
             VoiceMicDevice = config.Bind("Voice", "VoiceMicDevice", "",
                 "Microphone to talk into, by the name the game lists it under (Multiplayer > Settings > Voice). Empty: the system default.");
             VoiceMicVolume = config.Bind("Voice", "VoiceMicVolume", 1f,
-                "Microphone volume, 0..4 (1 as recorded). Also how loud you count for how far your voice carries.");
+                "Microphone volume, as a multiplier: 0 muted, 1 as recorded, up to about 16 (+24 dB). Also how loud you count for how far your voice carries.");
             VoiceNoiseSuppression = config.Bind("Voice", "VoiceNoiseSuppression", true,
                 "Take noise (fans, hiss, hum, the room, keys and clicks) out of your microphone before it is sent.");
             VoiceNoiseSuppressionStrength = config.Bind("Voice", "VoiceNoiseSuppressionStrength", DefaultNoiseSuppressionStrength,
@@ -283,7 +286,7 @@ namespace DWMPHorde.Config
             VoiceRadioWorldSounds = config.Bind("Voice", "VoiceRadioWorldSounds", true,
                 "Your keyed walkie also sends the sounds around you, as loud as they reach you (not music or menu sounds). Off: your voice only.");
             VoicePlayerVolumes = config.Bind("Voice", "VoicePlayerVolumes", "",
-                "How loud each other player is heard, by name: name=volume entries (0 muted .. 2) separated by |. Set in Multiplayer > Settings > Voice > Players.");
+                "How loud each other player is heard, by name: name=volume entries (0 muted, 1 as recorded, up to about 16 = +24 dB) separated by |. Set in Multiplayer > Settings > Voice > Players.");
             VoiceAlertsEnemies = config.Bind("Voice", "VoiceAlertsEnemies", true,
                 "Host: creatures hear players talk. Normal speech carries about as far as a walking step, a shout farther than running; a whisper is not heard.");
             // Entity spawner moved to standalone plugin YokWare.EntitySpawner.

@@ -167,6 +167,29 @@ namespace DWMPHorde.Networking
             {
                 ModRuntime.Log?.LogWarning("[ClientBackup] clearing the dead mark failed: " + ex.Message);
             }
+            // This campaign's own character in the other profiles of this machine too: the next
+            // join adopts the newest of those when this profile has none
+            // (AdoptSelfBackupFromOtherProfile), and it is from before the wipe.
+            try
+            {
+                string selfName = Path.GetFileName(GetLocalSelfBackupPath());
+                string saveDir = Application.persistentDataPath + "/1_4Save";
+                if (selfName != "client_backup_self.json" && Directory.Exists(saveDir))
+                {
+                    foreach (string prof in Directory.GetDirectories(saveDir, "prof*"))
+                    {
+                        foreach (string f in Directory.GetFiles(prof, selfName + "*"))
+                        {
+                            try { File.Delete(f); }
+                            catch (Exception ex) { ModRuntime.Log?.LogWarning("[ClientBackup] delete " + f + ": " + ex.Message); }
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                ModRuntime.Log?.LogWarning("[ClientBackup] chapter start-over discard (other profiles) failed: " + ex.Message);
+            }
             try
             {
                 string dir = GetProfileBackupDirectory();
@@ -349,7 +372,7 @@ namespace DWMPHorde.Networking
                     catch { /* use path from GetBackupFilePathForPlayer */ }
                 }
 
-                File.WriteAllText(path, json);
+                CoopWorldCopyMeta.WriteAllTextAtomic(path, json);
                 ModRuntime.LegacyInfo($"[ClientBackup] saved{keyTag} → {path}");
             }
             catch (Exception ex)
@@ -398,7 +421,7 @@ namespace DWMPHorde.Networking
                 }
                 catch { /* default path */ }
 
-                File.WriteAllText(path, json);
+                CoopWorldCopyMeta.WriteAllTextAtomic(path, json);
                 ModRuntime.LegacyInfo($"[ClientBackup] saved local self → {path}");
             }
             catch (Exception ex)

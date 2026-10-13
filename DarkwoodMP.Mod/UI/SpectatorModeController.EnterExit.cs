@@ -295,7 +295,7 @@ namespace DWMPHorde.Spectator
             if (!NetGuard.Connected(out var net)) return false;
 
             var living = net.GetAllProxies()
-                .Where(p => p != null && p.GetComponent<CharBase>()?.alive != false)
+                .Where(p => IsPresent(p) && p.GetComponent<CharBase>()?.alive != false)
                 .OrderBy(p => p.PlayerId)
                 .ToList();
             if (living.Count == 0) return false;

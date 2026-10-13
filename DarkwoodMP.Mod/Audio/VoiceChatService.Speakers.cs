@@ -168,7 +168,7 @@ namespace DWMPHorde.Audio
                 return;
 
             float dt = Time.unscaledDeltaTime;
-            float vol = ModConfig.VoiceVolume?.Value ?? 1f;
+            float vol = UserVoiceVolume;
             float rangeFull = ModConfig.VoiceFullVolumeDistance?.Value ?? 300f;
             float rangeMax = ModConfig.VoiceMaxDistance?.Value ?? 1300f;
             // Heard from where this player listens (the followed player while spectating).
@@ -204,6 +204,16 @@ namespace DWMPHorde.Audio
         private static void UpdateSpeaker(Speaker s, float dt, float vol, float rangeFull, float rangeMax, Vector3 listen)
         {
             Speaker r = s.Radio;
+            // The volume set for this talker (Voice volume, theirs on the Players screen, and
+            // Radio volume for their transmissions): up to as recorded here, the rest as Boost.
+            float user = vol * VoicePlayerVolumes.Get(s.Id);
+            float radioUser = user * VolumeScale.Clamp(ModConfig.VoiceRadioVolume?.Value ?? 1f);
+            s.Boost = Mathf.Max(user, 1f);
+            if (r != null)
+                r.Boost = Mathf.Max(radioUser, 1f);
+            vol = Mathf.Min(user, 1f);
+            float radioLevel = Mathf.Min(radioUser, 1f);
+
             float since = Time.unscaledTime - s.LastData;
             FlushShortSpurt(s, since);
             if (r != null)
@@ -289,7 +299,7 @@ namespace DWMPHorde.Audio
                 {
                     ownQuality = RadioQuality(talkerPos, listen, talkerInside, Player.Instance != null && Player.Instance.isInside,
                         talkerUnder, LocalUnderground);
-                    ownRadioVol = vol * 0.9f * airShare * (WalkieStates.InHand(local) ? 1f : PocketVolume);
+                    ownRadioVol = radioLevel * 0.9f * airShare * (WalkieStates.InHand(local) ? 1f : PocketVolume);
                 }
                 float nearRadioVol = 0f;
                 float nearQuality = 0f;
@@ -305,7 +315,7 @@ namespace DWMPHorde.Audio
                         bool hand = WalkieStates.InHand(carrier);
                         float d = DistXz(listen, nearRadioPos);
                         float range = hand ? NearRadioRange : NearRadioRange * 0.7f;
-                        nearRadioVol = Mathf.InverseLerp(range, NearRadioFull, d) * vol * NearRadioVolume * airShare * (hand ? 1f : PocketVolume);
+                        nearRadioVol = Mathf.InverseLerp(range, NearRadioFull, d) * radioLevel * NearRadioVolume * airShare * (hand ? 1f : PocketVolume);
                         if (nearRadioId != r.NearRadioId || Time.unscaledTime >= r.NextRadioOcclusionCheck)
                         {
                             r.NextRadioOcclusionCheck = Time.unscaledTime + 0.15f;
@@ -357,8 +367,8 @@ namespace DWMPHorde.Audio
             // Heard both ways it is one voice twice, peak on peak: together the two get the
             // level one alone may have, each by its share, so the sum stays under full scale.
             float both = proxVol + radioVol;
-            float share = both > vol && both > 0f ? vol / both : 1f;
-            float playerVol = VoicePlayerVolumes.Get(s.Id);
+            float cap = Mathf.Max(vol, radioLevel);
+            float share = both > cap && both > 0f ? cap / both : 1f;
 
             if (r != null)
             {
@@ -376,7 +386,7 @@ namespace DWMPHorde.Audio
                 }
                 RoomReverb.Drive(r.Reverb, r.ReverbInside, dt);
                 if (r.Beh != null)
-                    r.Beh.Volume = Mathf.Clamp(radioVol * share * playerVol * VoiceOutLevel, 0f, 2f);
+                    r.Beh.Volume = Mathf.Clamp(radioVol * share * VoiceOutLevel, 0f, 2f);
                 if (r.Muffle != null)
                 {
                     r.SmoothCutoff = Mathf.Lerp(r.SmoothCutoff, radioCutoff, Mathf.Clamp01(dt * 8f));
@@ -409,7 +419,7 @@ namespace DWMPHorde.Audio
             RoomReverb.Drive(s.Reverb, talkerInside, dt);
 
             if (s.Beh != null)
-                s.Beh.Volume = Mathf.Clamp(proxVol * share * playerVol * VoiceOutLevel, 0f, 2f);
+                s.Beh.Volume = Mathf.Clamp(proxVol * share * VoiceOutLevel, 0f, 2f);
             if (s.Muffle != null)
             {
                 s.SmoothCutoff = Mathf.Lerp(s.SmoothCutoff, cutoff, Mathf.Clamp01(dt * 8f));
@@ -462,7 +472,7 @@ namespace DWMPHorde.Audio
         {
             if (s == null || s.Go == null)
                 return;
-            UpdateSpeaker(s, 0f, ModConfig.VoiceVolume?.Value ?? 1f,
+            UpdateSpeaker(s, 0f, UserVoiceVolume,
                 ModConfig.VoiceFullVolumeDistance?.Value ?? 300f, ModConfig.VoiceMaxDistance?.Value ?? 1300f,
                 LocalAudioService.GetListenPosition());
         }

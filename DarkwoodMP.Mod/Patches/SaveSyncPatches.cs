@@ -256,6 +256,29 @@ namespace DWMPHorde.Patches
     }
 
     /// <summary>
+    /// Host: a world save that really writes (vanilla skips one at night without force, while
+    /// loading, or with dontSave) holds everything removed so far; the list replayed to joiners
+    /// starts over.
+    /// </summary>
+    [HarmonyPatch(typeof(SaveManager), "Save")]
+    public static class RemovedSinceSaveResetPatch
+    {
+        private static void Prefix(SaveManager __instance, bool force, out bool __state)
+        {
+            __state = __instance != null && !__instance.dontSave
+                && !((!Core.isDay() && !force) || Core.loadingGame);
+        }
+
+        private static void Postfix(bool __state, bool __runOriginal)
+        {
+            if (!__state || !__runOriginal)
+                return;
+            if (ModRuntime.Network != null && ModRuntime.Network.Role == NetworkRole.Host)
+                WorldPhysicsSyncService.HostWorldSaved();
+        }
+    }
+
+    /// <summary>
     /// Co-op coordinated save: local <see cref="SaveManager.Save"/> notifies the host;
     /// host rate-limits then broadcasts SaveSync so clients run full Save with Saving UI.
     /// <see cref="LanNetworkManager.RemoteSaveInProgress"/> prevents rebroadcast loops.

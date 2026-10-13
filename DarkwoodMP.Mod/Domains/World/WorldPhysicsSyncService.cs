@@ -156,6 +156,80 @@ namespace DWMPHorde.Sync
             }
         }
 
+        /// <summary>Host: a world object is gone for everyone; a joiner's world (the last save) still has it.</summary>
+        internal static void HostNoteRemovedSinceSave(WorldObjectRemovedMessage msg)
+        {
+            if (msg.Mode != WorldObjectRemovedMessage.ModeRemove || string.IsNullOrEmpty(msg.ObjectName))
+                return;
+            if (_s.RemovedSinceSave.Count >= 4096)
+            {
+                if (_s.RemovedSinceSave.Count == 4096)
+                    ModLog.Warn(LogCat.World, "[ObjectRemove] 4096 removals since the last save — later ones are not replayed to joiners");
+                return;
+            }
+            _s.RemovedSinceSave.Add(msg);
+        }
+
+        /// <summary>Host: the world save now on disk has none of the removed objects, and its lamps as they are.</summary>
+        internal static void HostWorldSaved()
+        {
+            _s.RemovedSinceSave.Clear();
+            _s.LightsOffSinceSave.Clear();
+        }
+
+        /// <summary>Host: a lamp or switch changed for everyone (its own toggle or a client's).</summary>
+        internal static void HostNoteLightState(LightStateMessage ls)
+        {
+            PosNameKey key = MakePosNameKey(ls.PosX, ls.PosY, ls.PosZ, ls.ItemName);
+            if (ls.IsOn)
+            {
+                _s.LightsOffSinceSave.Remove(key);
+                return;
+            }
+            ls.Switched = false;
+            _s.LightsOffSinceSave[key] = ls;
+        }
+
+        /// <summary>
+        /// Host → joiner: the join bulk names the lamps that are on; one switched off since the
+        /// last save stayed lit in the joiner's world.
+        /// </summary>
+        internal static void SendLightsOffSinceSaveTo(LanNetworkManager net, int targetPlayerId)
+        {
+            if (net == null || net.Role != NetworkRole.Host || targetPlayerId <= 0)
+                return;
+            foreach (KeyValuePair<PosNameKey, LightStateMessage> kv in _s.LightsOffSinceSave)
+            {
+                LightStateMessage ls = kv.Value;
+                net.SendToPlayer(targetPlayerId, NetMessageType.LightState, w => ls.Serialize(w),
+                    LiteNetLib.DeliveryMethod.ReliableOrdered);
+            }
+            if (_s.LightsOffSinceSave.Count > 0)
+                ModLog.Event(LogCat.Session, "[BulkSync] lamps off since the last save → p" + targetPlayerId + ": " + _s.LightsOffSinceSave.Count);
+        }
+
+        /// <summary>
+        /// Host → joiner: the removals its loaded world does not have yet. Harvested plants,
+        /// disarmed traps and taken overworld items since the last save used to stay in a
+        /// joiner's world until someone touched them.
+        /// </summary>
+        internal static void SendRemovedSinceSaveTo(LanNetworkManager net, int targetPlayerId)
+        {
+            if (net == null || net.Role != NetworkRole.Host || targetPlayerId <= 0)
+                return;
+            List<WorldObjectRemovedMessage> list = _s.RemovedSinceSave;
+            for (int i = 0; i < list.Count; i++)
+            {
+                WorldObjectRemovedMessage rm = list[i];
+                // Not the taker's own grant here: the joiner's copy has to go.
+                rm.ClaimedByPlayerId = 0;
+                net.SendToPlayer(targetPlayerId, NetMessageType.WorldObjectRemoved, w => rm.Serialize(w),
+                    LiteNetLib.DeliveryMethod.ReliableOrdered);
+            }
+            if (list.Count > 0)
+                ModLog.Event(LogCat.Session, "[BulkSync] removed since the last save → p" + targetPlayerId + ": " + list.Count);
+        }
+
         public static bool IsWorldPickupConsumed(float x, float y, float z, string objectName)
         {
             return _s.ConsumedWorldPickups.Contains(MakePosNameKey(x, y, z, objectName));
