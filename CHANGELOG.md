@@ -3,12 +3,12 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.299**. The current Horde wire protocol is **75**. Every install in a session
+**0.8.300**. The current Horde wire protocol is **75**. Every install in a session
 needs the same DLL; the protocol is checked on join.
 
 Protocol history (newest first):
 
-- **75**, 0.8.297 to 0.8.299: `CoHold` (170) gains mode 5, `ModePlayerPush`: a player walking into another
+- **75**, 0.8.297 to 0.8.300: `CoHold` (170) gains mode 5, `ModePlayerPush`: a player walking into another
   player, sent to the pushed player.
 - **74**, 0.8.294 to 0.8.296: `PlayerEffectSync` with `MovedHome` carries the home it left (`FromX/Y/Z`);
   new `PartyHomeMoves` (178), host to a joiner: the party's home moves kept with the world.
@@ -95,6 +95,18 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.300 — a living spectator sees its own body
+
+- **Playtest: a client watching the host with F4 could not see itself.** The others see a living
+  spectator's body standing where it pressed F4 (its sent position stays there), but on its own
+  screen the real body is moved under the watched player and hidden, since the world around
+  the camera, its sounds and rooms follow the local player's position. The spot was empty for
+  the spectator alone. A copy of the player now stands there on its own screen (idle, facing
+  the way it faced, its look at that moment; no collider, light or sound) until it stops
+  watching or goes down (a dead spectator's body is `PlayerCorpses`'s, as before).
+- Files: `UI/SpectatorModeController.SelfBody.cs` (new), `SpectatorModeController` enter and
+  every exit.
 
 ## 0.8.299 — a pushed player who drags something is heavier; the chapter title for a joiner
 

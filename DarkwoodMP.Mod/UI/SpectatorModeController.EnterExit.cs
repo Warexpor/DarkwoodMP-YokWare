@@ -80,6 +80,7 @@ namespace DWMPHorde.Spectator
 
             cam.followTarget = remoteTransform;
 
+            ShowSelfBody(player);
             player.switchVisibilty(false);
             HideLocalExtraVision(player);
 
@@ -209,6 +210,7 @@ namespace DWMPHorde.Spectator
 
         private void ExitSpectate(Player player, CamMain cam)
         {
+            DropSelfBody();
             _spectateTargetIndex = -1;
             _followTarget = null;
 
@@ -237,6 +239,7 @@ namespace DWMPHorde.Spectator
         public void ForceExit()
         {
             bool holdNightDeath = DeathStateTracker.LocalNightDeath && !DeathStateTracker.AllDeadAtNight;
+            DropSelfBody();
 
             _spectateTargetIndex = -1;
             _followTarget = null;

@@ -567,7 +567,8 @@ wrapping around the list returns to their own body. F4 is blocked in menus, chat
 dialogue, dream entries, cutscenes and the title screen. It skips players in a dream
 or in another place's copy, and a dead player follows a living player out in the
 night first. The spectator sees the followed player's circle of light and hears them
-as that player hears themselves.
+as that player hears themselves. A living spectator's body stays standing where it was,
+for the others and on its own screen too.
 
 When spectating begins, one line at the bottom of the screen says what F4 does from
 there (next player, and for a living player back to the body). It fades in, stays

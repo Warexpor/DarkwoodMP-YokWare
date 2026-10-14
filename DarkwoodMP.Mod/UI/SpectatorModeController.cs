@@ -78,6 +78,7 @@ namespace DWMPHorde.Spectator
         public void ExitAndRespawn(bool restorePosition = true)
         {
             if (_spectateTargetIndex < 0) return;
+            DropSelfBody();
 
             var player = Player.Instance;
             if (player != null)
@@ -132,6 +133,7 @@ namespace DWMPHorde.Spectator
         public void ExitWithoutPositionRestore()
         {
             if (_spectateTargetIndex < 0) return;
+            DropSelfBody();
             _spectateTargetIndex = -1;
             _followTarget = null;
 
@@ -214,6 +216,7 @@ namespace DWMPHorde.Spectator
                 SyncProxyVision();
                 SyncAudioListener();
                 SyncPlayerPosition();
+                TickSelfBody();
             }
 
             if (!Input.GetKeyDown(KeyCode.F4))
