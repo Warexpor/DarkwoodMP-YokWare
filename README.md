@@ -140,7 +140,7 @@ A GOG copy of Darkwood has no Steam, so a GOG player joins over LAN.
 |-----|--------|
 | **Esc** | Pause menu, with **MULTIPLAYER** (session, settings) |
 | **F3** | Save slots, with the optional manual-saves add-on |
-| **F4** | Spectate other players; also used while dead at night |
+| **F4** | Spectate other players (alive, your body stays put and a hit brings you back); also used while dead at night |
 | **Ctrl+C** | Text chat (Enter sends, Esc closes, Ctrl+V pastes) |
 | **V** | Push-to-talk voice chat (any install, LAN or Steam; no Steam client needed) |
 | **Right mouse** with a walkie-talkie in hand | Talk on the radio (rebindable, side mouse buttons too) |
