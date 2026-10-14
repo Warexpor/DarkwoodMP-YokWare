@@ -27,6 +27,14 @@ namespace DWMPHorde.Sync
 
         private static readonly HashSet<long> _keys = new HashSet<long>(); // process-scoped: world state, replaced when a world starts
 
+        /// <summary>
+        /// Marked slots whose container had no save id yet. Vanilla gives a new dynamic object (a
+        /// player's drop, a container just built) its id only when the game next saves, so the
+        /// mark is keyed then (<see cref="Write"/>). Before, the drop lost its mark with the
+        /// reload and a stack a player dropped came back as world loot.
+        /// </summary>
+        private static readonly List<KeyValuePair<Inventory, int>> _pending = new List<KeyValuePair<Inventory, int>>(); // process-scoped: world state, cleared when a world starts
+
         private static bool TryKey(Inventory inv, int slot, out long key)
         {
             key = 0;
@@ -37,9 +45,32 @@ namespace DWMPHorde.Sync
         internal static bool Mark(Inventory inv, int slot)
         {
             if (!TryKey(inv, slot, out long key))
+            {
+                if (inv != null && slot >= 0 && !_pending.Exists(p => p.Key == inv && p.Value == slot))
+                    _pending.Add(new KeyValuePair<Inventory, int>(inv, slot));
                 return false;
+            }
             _keys.Add(key);
             return true;
+        }
+
+        /// <summary>Keys the pending marks whose container has its save id now; drops the gone ones.</summary>
+        private static void FlushPending()
+        {
+            for (int i = _pending.Count - 1; i >= 0; i--)
+            {
+                Inventory inv = _pending[i].Key;
+                if (inv == null)
+                {
+                    _pending.RemoveAt(i);
+                    continue;
+                }
+                if (TryKey(inv, _pending[i].Value, out long key))
+                {
+                    _keys.Add(key);
+                    _pending.RemoveAt(i);
+                }
+            }
         }
 
         internal static bool IsMarked(Inventory inv, int slot)
@@ -55,12 +86,17 @@ namespace DWMPHorde.Sync
         }
 
         /// <summary>A new world is generated: nothing carries over.</summary>
-        internal static void BeginNewWorld() => _keys.Clear();
+        internal static void BeginNewWorld()
+        {
+            _keys.Clear();
+            _pending.Clear();
+        }
 
         /// <summary><c>SaveManager.Load</c> starts: read the marks its save carries.</summary>
         internal static void BeginLoad(SaveManager sm)
         {
             _keys.Clear();
+            _pending.Clear();
             string path = StorePath(sm);
             if (path == null || !File.Exists(path))
                 return;
@@ -101,6 +137,7 @@ namespace DWMPHorde.Sync
             string path = StorePath(sm);
             if (!CosmeticRolls.Active || path == null || sm.uniqueIdDict == null)
                 return;
+            FlushPending();
             var live = new List<long>(_keys.Count);
             foreach (long key in _keys)
             {

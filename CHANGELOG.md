@@ -3,12 +3,12 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.302**. The current Horde wire protocol is **75**. Every install in a session
+**0.8.303**. The current Horde wire protocol is **75**. Every install in a session
 needs the same DLL; the protocol is checked on join.
 
 Protocol history (newest first):
 
-- **75**, 0.8.297 to 0.8.302: `CoHold` (170) gains mode 5, `ModePlayerPush`: a player walking into another
+- **75**, 0.8.297 to 0.8.303: `CoHold` (170) gains mode 5, `ModePlayerPush`: a player walking into another
   player, sent to the pushed player.
 - **74**, 0.8.294 to 0.8.296: `PlayerEffectSync` with `MovedHome` carries the home it left (`FromX/Y/Z`);
   new `PartyHomeMoves` (178), host to a joiner: the party's home moves kept with the world.
@@ -95,6 +95,22 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.303 — the rest of the loot-bonus dupes
+
+An audit of every way the co-op loot bonus (fuels and oven items, `ItemDoublePickupPatch`) can
+reach a player's own items, after the Sell-tray dupe in 0.8.302:
+
+- **A player's death bag multiplied its oven items.** The vanilla `deathDrop` bag has the same
+  invType as a creature's body, so taking back what you died with counted as body loot. Bags
+  with the `DeathDrop` component are no longer a loot source (creature bodies still are).
+- **A dropped stack came back multiplied after a reload.** Only the network GUID told a player's
+  drop apart from world loot, and the GUID is not saved; a drop on a personal pad (prologue,
+  solo dream) never had one. Every player drop (own, a peer's copy, a saved drop adopted on
+  join, a full-bag overflow) is now marked as player-placed, and the mark is kept with the save.
+- **Marks on objects without a save id were lost on reload.** Vanilla gives a new dynamic object
+  (a drop, a container just built) its id at the next save; `PlacedLootStore` now keeps such
+  marks pending and keys them when the save writes them.
 
 ## 0.8.302 — cookable items no longer multiply through the trader's Sell tray
 

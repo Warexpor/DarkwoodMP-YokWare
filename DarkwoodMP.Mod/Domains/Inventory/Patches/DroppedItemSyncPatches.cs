@@ -20,6 +20,7 @@ namespace DWMPHorde.Patches
         private static void Postfix(Player __instance, Transform __result)
         {
             if (__result == null) return;
+            ItemDoublePickupPatch.MarkPlayerDrop(__result);
             InvItemClass item = DroppedItemSyncHelpers.GetItemFromSpawned(__result);
             if (item == null) return;
             string prefab = __instance.inWater ? "Items/DroppedItem_water" : "Items/DroppedItem";
@@ -37,6 +38,7 @@ namespace DWMPHorde.Patches
         private static void Postfix(Player __instance, Transform __result)
         {
             if (__result == null) return;
+            ItemDoublePickupPatch.MarkPlayerDrop(__result);
             InvItemClass item = DroppedItemSyncHelpers.GetItemFromSpawned(__result);
             if (item == null) return;
             // Vanilla spawnDroppedInvItemm always uses the plain prefab, in water too.
