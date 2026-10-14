@@ -104,9 +104,9 @@ On top of 0.8.284. Protocol **71** (`SaveSync` gains `ShowIndicator`).
   flips the villagers back only while nobody in the village has one in sight or within 1000 units
   (checked at their spots, hidden or not). In the open village someone standing in it nearly always
   has, so the flip waited for ever (no `[NightVillage] ... back for the day` in the host log all
-  morning). The return now waits for an unseen moment for 20 s, then happens regardless; leaving
-  for the night is unchanged (never in front of a player). The host log line gains `seen=`.
-  Files: `CoopPolicy.NpcNight.cs` (`VillageNightPolicy.ShouldFlip`, `ReturnMaxWaitSec`),
+  morning). The return now happens at once at daybreak, seen or not (the day's hard transition covers
+  it); leaving for the night is unchanged (never in front of a player). The host log line gains
+  `seen=`. Files: `CoopPolicy.NpcNight.cs` (`VillageNightPolicy.ShouldFlip`),
   `NightVillage.cs`; unit-tested in `CoopPolicyTests`.
 - Not run in game yet: both read from the 0.8.284 playtest logs (host: new day Save; no return flip
   while the client was in the village) and the vanilla code.

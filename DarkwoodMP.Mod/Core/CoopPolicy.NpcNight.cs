@@ -13,21 +13,15 @@ namespace DWMPHorde
             => time >= nightTime - NightComingLeadMinutes || time < dayTime;
 
         /// <summary>
-        /// How long the morning waits for a moment nobody sees the villagers' spots. In an open
-        /// village somebody standing in it nearly always has one in sight or within reach, and the
-        /// villagers then never came back for them; vanishing in front of a player is what the rule
-        /// is for, not their return.
+        /// Leaving for the night waits until nobody sees them go. The return is at once at daybreak
+        /// (the day's hard transition covers it): somebody standing in the open village nearly always
+        /// has a spot in sight, and waiting for an unseen moment never ended.
         /// </summary>
-        public const float ReturnMaxWaitSec = 20f;
-
-        public static bool ShouldFlip(bool currentlyAway, bool wantAway, bool occupied, bool anyoneSees,
-            float waitedSec = 0f)
+        public static bool ShouldFlip(bool currentlyAway, bool wantAway, bool occupied, bool anyoneSees)
         {
             if (currentlyAway == wantAway)
                 return false;
-            if (!occupied || !anyoneSees)
-                return true;
-            return currentlyAway && !wantAway && waitedSec >= ReturnMaxWaitSec;
+            return !wantAway || !occupied || !anyoneSees;
         }
     }
 

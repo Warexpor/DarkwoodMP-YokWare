@@ -57,12 +57,8 @@ public class CoopPolicyTests
         Assert.False(VillageNightPolicy.ShouldFlip(false, true, occupied: true, anyoneSees: true));
         Assert.True(VillageNightPolicy.ShouldFlip(false, true, occupied: true, anyoneSees: false));
         Assert.False(VillageNightPolicy.ShouldFlip(true, true, occupied: false, anyoneSees: false));
-        // The return waits for an unseen moment, then happens anyway.
-        Assert.False(VillageNightPolicy.ShouldFlip(true, false, occupied: true, anyoneSees: true, waitedSec: 5f));
-        Assert.True(VillageNightPolicy.ShouldFlip(true, false, occupied: true, anyoneSees: true,
-            waitedSec: VillageNightPolicy.ReturnMaxWaitSec));
-        // Leaving is never forced in front of someone.
-        Assert.False(VillageNightPolicy.ShouldFlip(false, true, occupied: true, anyoneSees: true, waitedSec: 999f));
+        // The return at daybreak is at once, seen or not; leaving is never in front of someone.
+        Assert.True(VillageNightPolicy.ShouldFlip(true, false, occupied: true, anyoneSees: true));
         Assert.True(CoopTimePolicy.LiveStepCrossedMinute(1068, 1071, 1070));
         Assert.False(CoopTimePolicy.LiveStepCrossedMinute(100, 500, 1070));
         Assert.True(CoopTimePolicy.LiveStepCrossedMinute(1438, 2, 0));
