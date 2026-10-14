@@ -376,6 +376,7 @@ namespace DWMPHorde.Networking
 
                 CoopWorldCopyMeta.WriteAllTextAtomic(path, json);
                 InvalidateSelfPeek();
+                CampaignFiles.OnCharacterStored(path);
                 ModRuntime.LegacyInfo($"[ClientBackup] saved{keyTag} → {path}");
                 // A Steam player's LAN key file too: a later host of this world on LAN (a GOG copy)
                 // finds the character by the key alone.
@@ -386,6 +387,7 @@ namespace DWMPHorde.Networking
                     if (!string.IsNullOrEmpty(c))
                         keyPath = GetProfileBackupDirectory() + "/client_backup_k" + stableKey + "_" + c + ".json";
                     CoopWorldCopyMeta.WriteAllTextAtomic(keyPath, json);
+                    CampaignFiles.OnCharacterStored(keyPath);
                 }
             }
             catch (Exception ex)

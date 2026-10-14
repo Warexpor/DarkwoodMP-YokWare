@@ -301,7 +301,10 @@ ever written inside a dream: such a save strands the player on the pad at the ne
 
 - **Only the host saves the world.** Any host save (the game's own, or a slot of the
   optional manual-saves add-on) makes every client save its copy at the same moment
-  and send its character snapshot to the host. The add-on's Save is greyed out on a
+  and send its character snapshot to the host. Every player's character belongs to the
+  save it was taken with: an add-on slot keeps its own copy of everyone's character (and
+  the co-op records of that save), and loading the slot brings them back as they were.
+  The add-on's Save is greyed out on a
   client. Every machine shows the corner "Saving" notice only when the save that
   started it does (none at the new day's save, as in vanilla).
 - A connected client never writes the world to disk on its own, because a

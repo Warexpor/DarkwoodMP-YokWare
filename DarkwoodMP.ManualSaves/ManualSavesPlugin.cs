@@ -18,7 +18,7 @@ namespace YokWare.ManualSaves
 {
 #if BEPINEX
     [BepInPlugin(PluginInfo.Guid, PluginInfo.Name, PluginInfo.Version)]
-    [BepInDependency(PluginInfo.CoopGuid, BepInDependency.DependencyFlags.HardDependency)]
+    [BepInDependency(PluginInfo.CoopGuid, PluginInfo.MinCoopVersion)]
     public sealed class ManualSavesPlugin : BaseUnityPlugin
     {
         internal static ManualLogSource Log;

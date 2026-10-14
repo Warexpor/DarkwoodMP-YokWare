@@ -3,12 +3,12 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.295**. The current Horde wire protocol is **74**. Every install in a session
+**0.8.296**. The current Horde wire protocol is **74**. Every install in a session
 needs the same DLL; the protocol is checked on join.
 
 Protocol history (newest first):
 
-- **74**, 0.8.294 to 0.8.295: `PlayerEffectSync` with `MovedHome` carries the home it left (`FromX/Y/Z`);
+- **74**, 0.8.294 to 0.8.296: `PlayerEffectSync` with `MovedHome` carries the home it left (`FromX/Y/Z`);
   new `PartyHomeMoves` (178), host to a joiner: the party's home moves kept with the world.
 - **73**, 0.8.293: the entity snapshot leaves out an entity's clip name while it is unchanged
   (`Flag2ClipSame`, 64); the clip now follows the loop flag on the wire.
@@ -93,6 +93,26 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.296 — a manual save slot keeps every player's character of its own save
+
+- **Loading a manual save slot (F3 add-on) lost the other players' characters.** Every player's
+  character (`client_backup_*_{campaign}.json`) and the co-op records written with the host's save
+  (story-item handoffs, oxygen tanks, party home moves, the home choice) lived in the profile
+  folder, keyed by campaign id: one set per profile, always from the newest save. A slot loaded
+  later gets a new campaign id, so none of them matched and the other players came back without
+  their bag, skills and level.
+- A slot now carries its own copy in `manual_saves/prof<N>/slot<M>/characters/`, taken when the
+  slot is saved. While hosting, the clients' characters of that save arrive a moment after the
+  host's Save; each one stored in the next 2 minutes is added to the slot too. Loading the slot
+  puts them back into the profile under the slot's new campaign id (the id inside each character
+  is rewritten as well), so joining players get their characters as they were at that save.
+- A slot saved before this build has no copy: loading it works as before.
+- The manual-saves add-on is now 1.1.0 and needs YokWare Branch 0.8.296 or newer (BepInEx
+  refuses to load it next to an older mod instead of failing on a missing call).
+- Files: `Networking/Services/CampaignFiles.cs` (new), `ClientStateBackup.Paths.cs`,
+  `Bootstrap/AddOnApi.cs`, `DarkwoodMP.ManualSaves/SaveSlots.cs`, README, `docs/HOW_COOP_WORKS.md`.
+- Status: builds, unit tests pass. Not playtested.
 
 ## 0.8.295 — the party can split into different hideouts
 
