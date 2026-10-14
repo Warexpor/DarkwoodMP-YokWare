@@ -3,7 +3,7 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.291**. The current Horde wire protocol is **72**. Every install in a session
+**0.8.292**. The current Horde wire protocol is **72**. Every install in a session
 needs the same DLL; the protocol is checked on join.
 
 Protocol history (newest first):
@@ -89,6 +89,21 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.292 — a night body's bag never shows on the ground, and is named after its player
+
+- **The death bag showed on the ground for a moment before the body covered it.** The body looked
+  for its bag once a second, so the bag was drawn until the next look (and on a peer the bag can
+  arrive before the death). A bag made where a player went down for the night (vanilla dropBody
+  here, or a peer's bag arriving) is now hidden on the spot, before its first frame; one that comes
+  before the body is held hidden and handed to it. If no body ever claims it, it shows again.
+- **Pointing at the body said "Backpack".** The bag under a night body is now named after its
+  player ("<name>'s body", "Тело: <name>" in Russian), which is also the loot window's title. At
+  morning the name goes back with the bag.
+- Pilot `corpses` shows the bag's name.
+- Files: `Players/Runtime/PlayerCorpses.cs`, `Night/Patches/NightBodyBagPatches.cs`,
+  `Combat/CombatDeathBagNetHandlers.cs`.
+- Status: bag hidden and named on both machines in a pilot run; the hover text not seen by eye.
 
 ## 0.8.291 — night-dead player: one body, lying under the living, real spectator view and sound
 

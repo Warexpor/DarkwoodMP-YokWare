@@ -26,7 +26,9 @@ namespace DWMPHorde.Players
             public GameObject Body;
             public bool Dream;
             public Vector3 Pos;
+            public int Id;
             public DeathDrop Bag;
+            public string BagName;
             public float BagSearchUntil;
             public float NextBagSearch;
             public readonly List<Renderer> HiddenBag = new List<Renderer>();
@@ -35,6 +37,13 @@ namespace DWMPHorde.Players
 
         private static readonly Dictionary<int, Corpse> _corpses = new Dictionary<int, Corpse>(); // process-scoped: emptied on session stop and scene change
         private static readonly List<int> _scratch = new List<int>(); // process-scoped: scratch
+
+        /// <summary>
+        /// Bags that dropped where a player went down before that player's body was laid out here
+        /// (the bag message can beat the death): hidden from their first frame, handed to the body.
+        /// </summary>
+        private static readonly Dictionary<DeathDrop, List<Renderer>> _pendingBags = new Dictionary<DeathDrop, List<Renderer>>(); // process-scoped: emptied with the bodies
+        private static readonly List<DeathDrop> _bagScratch = new List<DeathDrop>(); // process-scoped: scratch
         private static float _nextTick; // process-scoped: throttle
 
         /// <summary>A bag is dropped 3.5 s into vanilla's death sequence (later on a peer that gets it over the net).</summary>
@@ -102,11 +111,99 @@ namespace DWMPHorde.Players
                 if (c.Bag == null && Time.unscaledTime < c.BagSearchUntil && Time.unscaledTime >= c.NextBagSearch)
                 {
                     c.NextBagSearch = Time.unscaledTime + 1f;
-                    c.Bag = FindBag(c.Pos);
+                    DeathDrop found = FindBag(c.Pos);
+                    if (found != null)
+                        AttachBag(c, found);
                 }
                 if (c.Bag != null)
                     HideRenderers(c.Bag.gameObject, c.HiddenBag);
             }
+
+            // A held bag whose player is no longer down (or never got a body) shows again.
+            _bagScratch.Clear();
+            foreach (KeyValuePair<DeathDrop, List<Renderer>> kv in _pendingBags)
+                if (kv.Key == null || !NearNightDeath(kv.Key.transform.position))
+                    _bagScratch.Add(kv.Key);
+            for (int i = 0; i < _bagScratch.Count; i++)
+            {
+                if (_pendingBags.TryGetValue(_bagScratch[i], out List<Renderer> hidden))
+                    ShowRenderers(hidden);
+                _pendingBags.Remove(_bagScratch[i]);
+            }
+            foreach (KeyValuePair<DeathDrop, List<Renderer>> kv in _pendingBags)
+                HideRenderers(kv.Key.gameObject, kv.Value);
+        }
+
+        /// <summary>
+        /// A death bag was just made (vanilla dropBody here, or a peer's bag arriving): when it is a
+        /// night body's, it is hidden before it is ever drawn. Waiting for the body's own search
+        /// showed the bag on the ground for a moment.
+        /// </summary>
+        internal static void ClaimNewBag(DeathDrop dd)
+        {
+            if (dd == null || !NetGuard.Connected(out _) || Claimed(dd) || _pendingBags.ContainsKey(dd))
+                return;
+            Vector3 p = dd.transform.position;
+            foreach (Corpse c in _corpses.Values)
+            {
+                if (c.Dream || c.Bag != null || FlatDistance(c.Pos, p) >= BagRadius)
+                    continue;
+                AttachBag(c, dd);
+                HideRenderers(dd.gameObject, c.HiddenBag);
+                return;
+            }
+            if (!NearNightDeath(p))
+                return;
+            var hidden = new List<Renderer>();
+            HideRenderers(dd.gameObject, hidden);
+            _pendingBags[dd] = hidden;
+        }
+
+        /// <summary>The bag becomes the body: hidden under it, and named after its player.</summary>
+        private static void AttachBag(Corpse c, DeathDrop dd)
+        {
+            c.Bag = dd;
+            if (_pendingBags.TryGetValue(dd, out List<Renderer> hidden))
+            {
+                _pendingBags.Remove(dd);
+                for (int i = 0; i < hidden.Count; i++)
+                    if (!c.HiddenBag.Contains(hidden[i]))
+                        c.HiddenBag.Add(hidden[i]);
+            }
+            // What pointing at it says (Language.Get falls back to the key itself), and the title
+            // of the loot window (taken from that text).
+            Item item = dd.GetComponent<Item>();
+            if (item != null)
+            {
+                c.BagName = item.name;
+                item.name = BodyLabel(c.Id);
+            }
+        }
+
+        internal static string BodyLabel(int playerId)
+        {
+            string name = PlayerNames.Shown(playerId);
+            return Loc.Russian ? "Тело: " + name : name + "'s body";
+        }
+
+        /// <summary>Within a bag's reach of where a player went down for the night (no body here yet).</summary>
+        private static bool NearNightDeath(Vector3 p)
+        {
+            if (DeathStateTracker.LocalNightDeath && DeathStateTracker.LocalDiedInNightWindow
+                && FlatDistance(DeathStateTracker.LocalDeathPosition, p) < BagRadius)
+                return true;
+            foreach (int id in DeathStateTracker.RemoteNightDeadIds)
+                if (DeathStateTracker.RemoteDiedInNightWindow(id)
+                    && DeathStateTracker.TryGetRemoteDeathPosition(id, out Vector3 at)
+                    && FlatDistance(at, p) < BagRadius)
+                    return true;
+            return false;
+        }
+
+        private static float FlatDistance(Vector3 a, Vector3 b)
+        {
+            float dx = a.x - b.x, dz = a.z - b.z;
+            return Mathf.Sqrt(dx * dx + dz * dz);
         }
 
         private static bool StillDown(int id, int local, bool dream)
@@ -129,13 +226,25 @@ namespace DWMPHorde.Players
                 return;
             // Registered before it is dressed: a throw below left it unregistered, and every tick
             // (4 a second) cloned another standing body on the spot.
-            _corpses[id] = new Corpse
+            var corpse = new Corpse
             {
+                Id = id,
                 Body = body,
                 Dream = dream,
                 Pos = pos,
                 BagSearchUntil = Time.unscaledTime + BagSearchSeconds,
             };
+            _corpses[id] = corpse;
+            if (!dream)
+            {
+                // A bag that came first, held hidden for this body.
+                foreach (KeyValuePair<DeathDrop, List<Renderer>> kv in _pendingBags)
+                    if (kv.Key != null && FlatDistance(kv.Key.transform.position, pos) < BagRadius)
+                    {
+                        AttachBag(corpse, kv.Key);
+                        break;
+                    }
+            }
             try
             {
                 Dress(body, pos, proxy, source);
@@ -197,6 +306,12 @@ namespace DWMPHorde.Players
             _corpses.Remove(id);
             if (c.Body != null)
                 Object.Destroy(c.Body);
+            if (c.Bag != null && c.BagName != null)
+            {
+                Item item = c.Bag.GetComponent<Item>();
+                if (item != null)
+                    item.name = c.BagName;
+            }
             ShowRenderers(c.HiddenBag);
             ShowRenderers(c.HiddenProxy);
             ModRuntime.LegacyInfo($"[Corpse] body of p{id} removed" + (c.Bag != null ? " (its bag shows again)" : ""));
@@ -213,7 +328,7 @@ namespace DWMPHorde.Players
                 lines.Add("p" + kv.Key + " " + (c.Dream ? "dream" : "night") + " body@" + Mathf.RoundToInt(p.x) + "," + Mathf.RoundToInt(p.z)
                     + " shown=" + (c.Body != null && c.Body.activeInHierarchy)
                     + " solidColliders=" + SolidColliders(c.Body)
-                    + " bag=" + (c.Bag != null ? "hidden(" + c.HiddenBag.Count + " renderers)" : "none")
+                    + " bag=" + (c.Bag != null ? "hidden(" + c.HiddenBag.Count + " renderers) '" + c.Bag.GetComponent<Item>()?.name + "'" : "none")
                     + " proxyHidden=" + c.HiddenProxy.Count
                     + " " + Look(c.Body));
             }
@@ -253,6 +368,9 @@ namespace DWMPHorde.Players
 
         internal static void ClearAll()
         {
+            foreach (List<Renderer> hidden in _pendingBags.Values)
+                ShowRenderers(hidden);
+            _pendingBags.Clear();
             if (_corpses.Count == 0)
                 return;
             _scratch.Clear();
@@ -325,7 +443,11 @@ namespace DWMPHorde.Players
     [HarmonyLib.HarmonyPatch(typeof(DeathDrop), "Start")]
     internal static class DeathBagStartPatch
     {
-        private static void Postfix(DeathDrop __instance) => DeathBagRegistry.Live.Add(__instance);
+        private static void Postfix(DeathDrop __instance)
+        {
+            DeathBagRegistry.Live.Add(__instance);
+            PlayerCorpses.ClaimNewBag(__instance);
+        }
     }
 
     [HarmonyLib.HarmonyPatch(typeof(DeathDrop), "OnDestroy")]
