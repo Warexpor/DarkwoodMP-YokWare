@@ -3,12 +3,12 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.303**. The current Horde wire protocol is **75**. Every install in a session
+**0.8.304**. The current Horde wire protocol is **75**. Every install in a session
 needs the same DLL; the protocol is checked on join.
 
 Protocol history (newest first):
 
-- **75**, 0.8.297 to 0.8.303: `CoHold` (170) gains mode 5, `ModePlayerPush`: a player walking into another
+- **75**, 0.8.297 to 0.8.304: `CoHold` (170) gains mode 5, `ModePlayerPush`: a player walking into another
   player, sent to the pushed player.
 - **74**, 0.8.294 to 0.8.296: `PlayerEffectSync` with `MovedHome` carries the home it left (`FromX/Y/Z`);
   new `PartyHomeMoves` (178), host to a joiner: the party's home moves kept with the world.
@@ -95,6 +95,21 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.304 — walking into a lit hideout makes it your home
+
+- **Home now follows where you go, not only which oven you lit.** Your home (respawn point)
+  used to change only when you talked to or cooked at an oven, so a player who spent the day
+  in a friend's hideout still woke up in its old one after a death, and cooking at a friend's
+  oven dragged everyone who lived with you along as a party move. Now, during the day,
+  entering a hideout whose oven is lit makes it your home (`OvenHomes.TryAttachOnEntry`,
+  checked with the 2 s home check in `PartyHomeMoves.CheckLocalHome`).
+- It is personal: nobody follows, and the oven you left stays lit, so you can walk back and
+  attach to it again. Not from 50 minutes before night to morning, not while down, not in a
+  dream, prologue or epilogue. A hideout the party moved out of becomes your own choice when
+  you attach to it, so the recorded move does not pull you away again.
+- Lighting a new oven by its talk is unchanged: it is still the party move (co-residents not
+  standing in the old hideout follow). An unlit oven is never lit by walking in.
 
 ## 0.8.303 — the rest of the loot-bonus dupes
 
