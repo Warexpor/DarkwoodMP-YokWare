@@ -34,6 +34,12 @@ namespace DWMPHorde.Sync
         /// Empty for objects that have no <see cref="Item"/> component.
         /// </summary>
         public string ItemType;
+        /// <summary>
+        /// Furniture's vanilla save id (0: none): the receiver's copy by identity, wherever it
+        /// stands. Matched by spot alone, a wardrobe the host's creatures had shoved past the
+        /// resolve radius before any scan saw it never caught up on the client.
+        /// </summary>
+        public int SaveId;
 
         /// <summary>Serializes this state into a network writer.</summary>
         /// <param name="w">The network writer.</param>
@@ -41,6 +47,7 @@ namespace DWMPHorde.Sync
         {
             w.Put(Name ?? ""); w.Put(PosX); w.Put(PosY); w.Put(PosZ); w.Put(RotX); w.Put(RotY); w.Put(RotZ);
             w.Put(ItemType ?? "");
+            w.Put(SaveId);
         }
         /// <summary>Deserializes a state from a network reader.</summary>
         /// <param name="r">The network reader.</param>
@@ -53,7 +60,8 @@ namespace DWMPHorde.Sync
             RotX = r.GetFloat(),
             RotY = r.GetFloat(),
             RotZ = r.GetFloat(),
-            ItemType = r.GetString()
+            ItemType = r.GetString(),
+            SaveId = r.GetInt()
         };
     }
 

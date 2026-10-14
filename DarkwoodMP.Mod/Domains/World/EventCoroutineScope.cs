@@ -206,15 +206,26 @@ namespace DWMPHorde.Sync
                     || __instance.characterModifyType == GameEvent.CharacterModify.behaviour
                     || __instance.characterModifyType == GameEvent.CharacterModify.addActivity
                     || __instance.characterModifyType == GameEvent.CharacterModify.removeActivities);
+            // A creature's tasks, waking and behaviour are the host's AI at any time, not only
+            // inside the scene: a scene piece's later trigger (the redneck night's "check": a
+            // player standing still for a while sends a creature at them; the centipede's "wake it
+            // if the player does not") reached clients as a GameEvents replay and ordered the copy
+            // here ("Invalid (or 0 returned) gameObjects for check. Type character").
+            bool creatureTask = __instance.type == GameEvent.Type.modifyCharacter
+                && (__instance.characterModifyType == GameEvent.CharacterModify.addActivity
+                    || __instance.characterModifyType == GameEvent.CharacterModify.removeActivities
+                    || __instance.characterModifyType == GameEvent.CharacterModify.wakeup
+                    || __instance.characterModifyType == GameEvent.CharacterModify.behaviour);
             if (!relativeFlag && !relativeSharedRep && !characterSpawn && !scriptedHit && !scriptedSpawn && !sceneDoor
-                && !sceneCreatureOrder)
+                && !sceneCreatureOrder && !creatureTask)
                 return true;
             __result = DWMPHorde.Harmony.HarmonyCoroutineUtil.Empty();
             return false;
         }
 
         private static void Postfix(GameEvent __instance, GameObject thisGO, ref IEnumerator __result)
-            => __result = EventCoroutineScope.Wrap(ScriptedSpawnSync.WrapHost(__instance, __result, thisGO));
+            => __result = EventCoroutineScope.Wrap(ScriptedSpawnSync.WrapHost(__instance,
+                ActorSpawnAnchor.Wrap(__instance, __result), thisGO));
     }
 
     [HarmonyPatch(typeof(EventTrigger), nameof(EventTrigger.fire))]

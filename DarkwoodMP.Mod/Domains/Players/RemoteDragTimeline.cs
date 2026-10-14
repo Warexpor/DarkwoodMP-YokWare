@@ -183,14 +183,15 @@ namespace DWMPHorde.Networking
             float gap = msg.SendTime - last.T;
             if (tr.Samples > 0 && gap < MaxIntervalSample)
                 tr.Interval += (gap - tr.Interval) * IntervalGain;
+            // Where the dragger's machine has the local player, when it holds the body too.
+            bool hasCo = msg.TryGetCo(ModRuntime.Network != null ? ModRuntime.Network.LocalPlayerId : 0, out Vector3 co);
             tr.Push(new Sample
             {
                 T = msg.SendTime,
                 Pos = new Vector3(msg.PosX, msg.PosY, msg.PosZ),
                 Rot = Quaternion.Euler(msg.RotX, msg.RotY, msg.RotZ),
-                Co = new Vector3(msg.CoPosX, msg.CoPosY, msg.CoPosZ),
-                HasCo = msg.CoHolderId > 0 && ModRuntime.Network != null
-                    && msg.CoHolderId == ModRuntime.Network.LocalPlayerId
+                Co = co,
+                HasCo = hasCo
             });
             tr.Samples++;
             HoldKinematic(tr);

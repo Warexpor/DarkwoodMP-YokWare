@@ -9,7 +9,7 @@ using UnityEngine;
 namespace DWMPHorde.Networking
 {
     /// <summary>
-    /// ShadowArmor mid-fight health sync (pos-keyed absolute state).
+    /// ShadowArmor mid-fight health sync (absolute state, keyed by the wearing creature, else by position).
     /// Covers damageMe (melee + light), die, and late-join damaged armor.
     /// </summary>
     internal sealed partial class ShadowArmorNetHandlers
@@ -64,10 +64,13 @@ namespace DWMPHorde.Networking
                 || !CombatAuthorityPolicy.IsFinite(msg.Health) || msg.Health <= 0f)
                 return;
 
-            Vector3 pos = new Vector3(msg.PosX, msg.PosY, msg.PosZ);
             RemotePlayerProxy proxy = _net.GetProxy(playerId);
             if (proxy == null || DeathStateTracker.IsRemoteNightDead(playerId))
                 return;
+            // The range is checked against the host's armor (a creature's stands where the host's
+            // creature is), else the spot the client sent.
+            ShadowArmor target = FindShadowArmor(msg);
+            Vector3 pos = target != null ? target.transform.position : new Vector3(msg.PosX, msg.PosY, msg.PosZ);
             float maxRange = GameplayConstants.MaxPlayerRangedAttackRange;
             if (Vector3.SqrMagnitude(proxy.transform.position - pos) > maxRange * maxRange)
             {
@@ -76,7 +79,7 @@ namespace DWMPHorde.Networking
                 return;
             }
 
-            ShadowArmor armor = FindShadowArmor(pos);
+            ShadowArmor armor = target;
             if (armor == null)
                 return;
 
@@ -130,17 +133,21 @@ namespace DWMPHorde.Networking
         internal void ApplyShadowArmorState(ShadowArmorStateMessage msg, bool queueIfMissing)
         {
             Vector3 pos = new Vector3(msg.PosX, msg.PosY, msg.PosZ);
-            ShadowArmor armor = FindShadowArmor(pos);
+            ShadowArmor armor = FindShadowArmor(msg);
             if (armor == null)
             {
                 if (queueIfMissing)
                 {
+                    // One entry per armor: a creature's by its id, a world object's by its spot.
                     for (int i = _pending.Count - 1; i >= 0; i--)
                     {
                         var p = _pending[i];
-                        if (Mathf.Abs(p.PosX - msg.PosX) < 0.5f &&
-                            Mathf.Abs(p.PosY - msg.PosY) < 0.5f &&
-                            Mathf.Abs(p.PosZ - msg.PosZ) < 0.5f)
+                        bool same = msg.EntityId > 0
+                            ? p.EntityId == msg.EntityId
+                            : p.EntityId <= 0 && Mathf.Abs(p.PosX - msg.PosX) < 0.5f &&
+                              Mathf.Abs(p.PosY - msg.PosY) < 0.5f &&
+                              Mathf.Abs(p.PosZ - msg.PosZ) < 0.5f;
+                        if (same)
                             _pending.RemoveAt(i);
                     }
                     if (_pending.Count >= MaxPendingShadowArmorStates)
@@ -205,8 +212,7 @@ namespace DWMPHorde.Networking
             for (int i = _pending.Count - 1; i >= 0; i--)
             {
                 var msg = _pending[i];
-                Vector3 pos = new Vector3(msg.PosX, msg.PosY, msg.PosZ);
-                if (FindShadowArmor(pos) == null)
+                if (FindShadowArmor(msg) == null)
                     continue;
                 _pending.RemoveAt(i);
                 ApplyShadowArmorState(msg, queueIfMissing: false);
@@ -252,6 +258,17 @@ namespace DWMPHorde.Networking
         /// destructible Item standing there (world chests). No wider fallback: an armor
         /// that is not here yet stays queued rather than damaging an unrelated neighbour.
         /// </summary>
+        private static ShadowArmor FindShadowArmor(ShadowArmorStateMessage msg)
+        {
+            // A creature's armor: that creature's, wherever this machine's copy of it stands.
+            if (msg.EntityId > 0)
+            {
+                Character wearer = CharacterTracker.FindByStableId(msg.EntityId);
+                return wearer != null ? wearer.GetComponentInChildren<ShadowArmor>(true) : null;
+            }
+            return FindShadowArmor(new Vector3(msg.PosX, msg.PosY, msg.PosZ));
+        }
+
         private static ShadowArmor FindShadowArmor(Vector3 pos)
         {
             ShadowArmor near = WorldQueryHelper.FindNearest<ShadowArmor>(pos, ArmorMatchRadius);

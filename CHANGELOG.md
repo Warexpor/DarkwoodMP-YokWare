@@ -3,11 +3,13 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.281**. The current Horde wire protocol is **69**. Every install in a session
+**0.8.282**. The current Horde wire protocol is **70**. Every install in a session
 needs the same DLL; the protocol is checked on join.
 
 Protocol history (newest first):
 
+- **70**, 0.8.282: `ScenarioEventFired` gains `AnchorActors` (the player each anchor's scene played for);
+  `ShadowArmorState` gains the wearing creature's `EntityId`.
 - **69**, 0.8.281: `MeleeWorldHit` gains the struck item's furniture save id and name.
 - **68**, 0.8.278 to 0.8.280: new `ObjectSpawnerFired` (175) and `OxygenTankRecords` (176); `PeerRoster`
   gains the host's `NextCreatureId`.
@@ -84,6 +86,167 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.282 — night soak: a hideout's scene lands where the host's did, scene pieces under the right player, creature events to the peers who have the creature; the hatted man's wreck
+
+On top of 0.8.281. Protocol **70** (`ScenarioEventFired` names the player each anchor's scene
+played for; `ShadowArmorState` names the creature wearing the armor; a physics pose carries the
+furniture's save id; a drag sample lists up to three co-holders, not one). Found by an unattended three-player soak in the omabox: a new world, 24 nights
+(12 in chapter 1 over its three hideouts, 12 in chapter 2), the players together, two plus one,
+all apart and one out in the forest, on 0.8.281; then verify runs on the fixes (10, 5 and 5 nights
+over both chapters' hideouts, every event of each night's scenario fired).
+
+**Changed**
+- **More players move a thing faster: up to four can drag one together, and pushes count the
+  same way.** Two players walking the same way moved a body 1.5 times as fast as one, and a
+  shared drag took one co-holder. Now a crew of N moves it at N·7/(6+N) times one player's
+  speed: 1.75 for two, about 2.33 for three, 2.8 for four. That is the game's own force model
+  (speed is the crew's force over the damping of the body and every player's own body),
+  settled with the body six times a player: each helper adds less, as people pushing a
+  wardrobe do. Up to three players take hold of a body someone drags (`SharedDrag`); the
+  dragger's game runs all of them. When the dragger lets go, the first co-holder drags on and
+  the others let go. Body pushes (`CoPush`) and pushes on a door swing (`DoorSwing`) use the
+  same rule for every pusher, and so does a push on a dragged body. A fifth player is
+  refused ("Four players are already moving this"). Files: `SharedDrag.cs`, `CoPush.cs`,
+  `DoorSwing.cs`, `WorldMessages.cs` (`DragSyncMessage` co-holder list),
+  `RemoteDragTimeline.cs`, `PlayerInteractNetHandlers.cs`; `docs/HOW_COOP_WORKS.md`,
+  `docs/CONFIG.md`. Not run in a game yet.
+
+**Fixed**
+- **A client's copy of the night scene put its pieces by its own body.** The host plays a
+  hideout's scene for one player there (the actor); a client in that hideout replayed it for
+  itself. Steps that pick "the spot closest to the player" (the vortex and its sound, the flare's
+  spot, the messages) landed by the client while the host's landed by the actor, and every later
+  fire of the host's pieces found nothing on the client ("no GameEvents near ... name='vortex_move'
+  after 60s, dropped", also `vortex_wiggle`, `message_2`, the centipede's spawn events). The
+  host now sends the actor of each anchor with the scene; the client replays it for that player,
+  and "closest to the player" measures from that player's body on clients too. Files:
+  `SyncMessages.cs` (`ScenarioEventFiredMessage.AnchorActors`), `NightEventAnchorPatches.cs`,
+  `NightNetHandlers.Scenario.cs`, `NightSceneTargetPatches.cs`.
+- **A scene step's random spot differed on every machine.** A step that takes a random waypoint,
+  door or window of the location (where the banshee's intro stands) rolled on each machine: the
+  host's piece stood at one waypoint and a client's replay at another, and the host's later
+  fires found nothing ("no GameEvents near ... name='NightEvent_weird_bansheeIntro_01B' after
+  60s, dropped (nearest of that name 624 away)"). In co-op a scripted step's pick comes from what
+  all machines share (the day, the step's object, the location), so they take the same one.
+  Creatures still pick on their own (the host's). File: `NightSceneTargetPatches.cs`
+  (`SharedRandomPick`).
+- **A timed pickup ran out on each machine's own clock.** The piskle nest (`WaitAndDie`) was gone
+  on the host minutes before a client's ("DESYNC Pickups nest_piskle_01 ... host=<none>"). The
+  host's end of it is now sent as a removal and a client's copy waits for it. File:
+  `TimedPickupDeathPatch.cs` (new).
+- **A peer's scene dropped its pieces at the host's feet.** A step that spawns something at "the
+  player" (the gore floor and its stand-still check) used this machine's own body whoever the
+  scene played for: the host's copy for a peer's hideout put them in the host's hideout (or, with
+  the host in the forest, in no location: "Location not found for gevent check"), and their fires
+  went to that peer, who had nothing there (`check`, `goreFloor`, `usun_jezeli_gracz_wyjdzie`,
+  `remove_goreFloor_lv1` dropped). While such a step runs for another player, "the player" is
+  that player's body: a marker there, in that player's location, or the body itself for a piece
+  hung on the player. File: `ActorSpawnAnchorPatch.cs` (new).
+- **A client's hideout got the flare twice** (two flares, two lights on one spot, on every
+  machine). Two patches pick "the spot closest to the player" in a hideout where the host is not:
+  one for the scene's player, one for any peer standing there. Both ran and each added its
+  pick. The scene's player now picks first and the other steps aside. Files:
+  `NightSceneTargetPatches.cs`, `LocationClosestToPlayerPatches.cs`.
+- **Furniture knocked away far from any player stayed put on clients.** The host sends moving
+  free bodies found within 40 units of a player. A night scene flings a client's hideout doors
+  open on the host, and a slammed door sent a wardrobe 160 units across the room; creatures
+  shove furniture the same way. The client's copy never moved (the desync check: the wardrobe
+  host-only, the client's nearest 160 units off). The host now also scans round every door whose
+  swing it runs, every moving creature a peer has in range, and every body it sent moving until
+  that body settles, so the slide's end is sent too. Files: `WorldPhysicsSyncService.Snapshot.cs`,
+  `DoorSwing.cs`.
+- **A wardrobe the host's creatures had shoved far stayed put on the client even once sent.**
+  A client finds the copy a physics pose is about by name near the pose, at most 50 units off.
+  The rednecks in big_hideout_03 pushed its low wardrobe before any scan round them saw it move,
+  and by the first pose it stood 115 units from the client's copy: every pose missed, and the
+  desync check reported the wardrobe at two spots for the rest of the night. A pose of a piece of
+  furniture now carries its save id, and the client takes that piece wherever it stands. Files:
+  `WorldPhysicsSyncService.Types.cs` (`WorldObjectState.SaveId`), `.Snapshot.cs`, `.ObjectResolve.cs`.
+- **The night mushroom grew at one waypoint on the host and another on a client.** The shared
+  pick (above) indexed the location's waypoint list, and a location rebuilt from the save lists
+  its waypoints in another order than the host's: the same index was another waypoint, and the
+  host's removal of its mushroom missed on the client (`[ObjectDestroy] miss
+  "expObj_nightMushroom_01"`). The pick now takes the candidates in the order of their spots, and
+  logs what it took (`[SharedPick]`). File: `NightSceneTargetPatches.cs`.
+- **The hatted man's own events were dropped on clients.** When he appears on the host, his
+  PositionOverride raises him 11 units; a client's copy, switched off by the culling far from that
+  client, stayed at its height, and a fired event is matched to this machine's copy within 8
+  units in 3D. `inFOV` and `outOfFov_remove_kapelusznik` were dropped after a minute, and the
+  client's copy was never removed. The match is now across the ground, as everywhere else (height
+  is the draw layer). File: `GameEventNetHandlers.Apply.cs`.
+- **A trader's stock was dropped on a client that had the trader out but not set up yet.** After
+  the chapter 2 move the wolfman stood active before vanilla `NPC.init` had read his inventory: the
+  host's stock was thrown away ("[TradeSync] NPC 'wolfman' has no inventory") and the client's
+  trader stood empty until the host's next sale. Such stock now waits in the queue like a trader
+  not out yet. Files: `TradeSyncPatches.cs`, `TradeNetHandlers.cs`.
+- **A client's creature copies shoved its furniture a second time.** A copy's pose is written
+  every frame from the host's stream, and where it stood against a wardrobe the client's physics
+  pushed the wardrobe out of it, on top of the host's push that arrives as the wardrobe's own
+  pose. The client's copy crept 12 to 20 units off while a redneck stood at it, and since the
+  host's lay still nothing sent it back. On a client, contacts between a creature copy the host
+  drives and a piece of furniture the host streams are now dropped (Unity's contact
+  modification): furniture moves by the host's push alone. Walls, players, other creatures and
+  thrown bottles keep their contacts. File: `ClientEntityInterpolationService.Contacts.cs` (new).
+- **The red chompers' shadow armor was synced by where it stood.** The armor moves with its
+  creature, and a peer's copy stands a little behind: the host's state missed it and queued
+  ("[ShadowArmorSync] pending queue full (32)"), and a client's damage request named a spot the
+  host's creature had left. The armor now goes by its creature's entity id (a world object's
+  still by its spot). Files: `ShadowArmorNetHandlers.cs`, `ShadowArmorSyncPatches.cs`,
+  `WorldMessages.cs`.
+- **A client hatched its own spider.** The FOV mob's spawner (its projectile lands and hatches
+  a `HumanSpiderMinion`) ran its hatching frame on a client's copy as well: a second, local-only
+  creature that no host creature matched ("DESYNC Creatures local:HumanSpiderMinion ...
+  host=<none>"). A creature-spawning frame on a client is the host's; its creature arrives as an
+  entity. File: `ClientAIDisablePatches.cs`.
+- **A client gave the host's creatures orders.** A scene piece's later trigger (the redneck
+  night's `check`: stand still a while and a creature is sent at you; the banshee's run-away)
+  reached clients as a replay and queued the task on the creature copy there ("Invalid (or 0
+  returned) gameObjects for check. Type character"; the centipede's "wake it if the player does
+  not"). A creature's tasks, waking and behaviour are the host's AI: replays skip them at any
+  time, not only inside the scene. File: `EventCoroutineScope.cs`.
+- **A spawned creature's own events went to every client.** The banshee's and the spiders' own
+  GameEvents fired at the creature; clients far away have no copy of it and searched a minute
+  ("no GameEvents near ... name='Banshee'", `Spider01` from all three hideouts). They now go
+  only to the peers the creature is streamed to. File: `GameEventsFiredPatch.cs`.
+- **The vortex scene's sound piece was sent as an empty template.** Its "sound_item" shares the
+  name of the save's `Templates/sound_item`; the name lookup took it for that world object, sent
+  the empty template, and the replay skipped the real piece. A world object must now be that very
+  prefab asset. File: `ScriptedSpawnSync.IsWorldObject`.
+- **The hatted man at the cottage's bed stayed whole on clients** (`[WreckPose] no kapelusznik`,
+  the 0.8.281 playtest report too). He is a child of the bed: his save id is the bed's, and his
+  item name (`epilog_man_idle_01`) is not his object's name. The wreck lookup took the bed by the
+  id and compared the wrong name, then fell back to item names. 0.8.281 read this as the two
+  copies standing apart; they did not. The lookup now takes the piece of that object name under
+  the id (`WorldQueryHelper.FindFurnitureItemBySaveId`), and its name fallback goes by object
+  name (`FindDestructibleItemByObjectName`). The same miss hit every spawned destructible with no
+  save id (the FOV mob's spawner: `[WreckPose] no Fov_Mob_Spawner`), and client blows on a piece
+  of furniture standing elsewhere on the host (`MeleeWorldHit`).
+
+**Diagnostics and tooling**
+- The desync check keys traps by their spot on the ground: a night mushroom that rises as it
+  grows read as two different traps when one machine's copy started a moment later.
+- A desync line for something only the host has now names the client's nearest object of that
+  name (`client's nearest: …`), so a piece that drifted apart reads as such (a farm wardrobe
+  reported host-only after creatures pushed it).
+- A client rebuilding the host's new chapter on its way back (the normal chapter move) is logged
+  as an event, not a warning.
+- Pilot: `cevent [text]` lists or fires the night's events (sent at once, as a natural start is;
+  an event the night already started is not fired twice, which put two deadly lights on one spot); `scripts/pilot/night-tour.sh` (nights
+  over every hideout of both chapters, three players) and `night-verify.sh` (every event of each
+  night's scenario, players apart).
+
+**Seen, vanilla**
+- `Location not found for morning event` while the host is out in the forest: vanilla's own
+  morning, which the co-op morning (0.8.165) runs on the occupied hideouts instead.
+- The chapter save is written plain and read as encrypted (`FormatException ... Base-64` on
+  loading chapter 2): vanilla's `doEncrypt` is off; it falls back to the static save.
+- A creature told to go for a barricaded window or a door when none is left, a night spawner
+  with no free door, the banshee's babies with no location (they are parented outside one), and
+  "adding an activity while busy": the same lines as single player.
+- A hideout's scene meant for another hideout misses a waypoint that hideout lacks
+  (`bansheeIntro_01A_spawn ... Type waypoint` in big_hideout_03, which has no banshee waypoint):
+  the same miss on host and clients, that piece is left out there.
 
 ## 0.8.281 — doorway plugs wait for the party too; furniture broken where it drifted apart; pilot: offline games, a host left at the title, joining by hand
 

@@ -928,6 +928,32 @@ namespace DWMPHorde.Sync
                     Out("  pages done inEpilogue=" + p.inEpilogue + " ending=" + EpilogueNetHandlers.IsLocalInEpilogue());
                     return;
                 }
+                case "cevent":
+                {
+                    // "cevent [text]": fire the current night's event whose name contains the text, as
+                    // its time had come (host: every occupied hideout gets its scene, clients replay
+                    // it); no text lists the night's events.
+                    NightScenario sc = Singleton<NightScenarios>.Instance != null ? Singleton<NightScenarios>.Instance.currentScenario : null;
+                    if (sc == null) { Out("  no night scenario"); return; }
+                    CustomEvent pick = null;
+                    foreach (var cei in sc.customEventAndInts)
+                    {
+                        if (cei == null || cei.customEvent == null) continue;
+                        if (a.Length < 2) { Out("  " + cei.customEvent.name); continue; }
+                        if (pick == null && cei.customEvent.name.IndexOf(a[1], StringComparison.OrdinalIgnoreCase) >= 0)
+                            pick = cei.customEvent;
+                    }
+                    if (a.Length < 2) return;
+                    if (pick == null) { Out("  no event like " + a[1] + " in " + sc.name); return; }
+                    // The night already started it on its own: a second fire doubles its pieces
+                    // (two deadly lights on one spot), which no real night does.
+                    if (pick.started) { Out("  already started " + pick.name + " in " + sc.name); return; }
+                    pick.fire(force: true);
+                    // Sent now: the next check would see only the last of several forced at once.
+                    Patches.HostCheckFrequenciesPostfix.SendCurrent(sc);
+                    Out("  fired " + pick.name + " in " + sc.name);
+                    return;
+                }
                 case "endnight":
                     // What walking out of the hideout does in the morning (Location.OnTriggerExit);
                     // a teleport fires no trigger exit. On a client it asks the host, as a walk-out would.

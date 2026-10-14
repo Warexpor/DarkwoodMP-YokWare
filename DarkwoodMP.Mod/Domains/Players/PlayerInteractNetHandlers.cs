@@ -115,7 +115,7 @@ namespace DWMPHorde.Networking
             // runs it (and this player's body with it); here it plays back like any remote drag.
             bool coFollowing = Sync.SharedDrag.IsFollowing(msg.ObjectName, msg.ClaimedByPlayerId);
             if (msg.IsDragging)
-                Sync.SharedDrag.NoteCoHolder(msg.ObjectName, msg.ClaimedByPlayerId, msg.CoHolderId);
+                Sync.SharedDrag.NoteCoHolders(msg.ObjectName, msg);
             if (coFollowing)
             {
                 if (msg.IsDragging)
@@ -128,8 +128,9 @@ namespace DWMPHorde.Networking
                         && _net.PlayerInteractHandlers.DragClaims.TryGetValue(msg.ObjectName, out int oldClaim)
                         && oldClaim == msg.ClaimedByPlayerId)
                         _net.PlayerInteractHandlers.DragClaims.Remove(msg.ObjectName);
-                    Sync.SharedDrag.ClearCoHolder(msg.ObjectName, msg.ClaimedByPlayerId);
+                    // Who drags on comes from the crew the last sample named: cleared after.
                     Sync.SharedDrag.PromoteFollower(msg);
+                    Sync.SharedDrag.ClearCoHolder(msg.ObjectName, msg.ClaimedByPlayerId);
                     DWMPHorde.Audio.ItemMovingSoundHelper.SoftStopNetwork(msg.ObjectName);
                     _net.PlayerInteractHandlers.LastDragSyncPos.Remove(msg.ObjectName);
                     Sync.WorldPhysicsSyncService.ReleaseClientPushHoldByName(msg.ObjectName);

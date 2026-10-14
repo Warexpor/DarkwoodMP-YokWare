@@ -235,7 +235,7 @@ namespace DWMPHorde.Config
             PeerMovementVolume = config.Bind("Gameplay", "PeerMovementVolume", 0.85f,
                 "Volume of other players' movement here (footsteps, clothes, dodge and landing steps), 0..1. Their other sounds (shots, hits, tools) stay at full volume.");
             SharedDrag = config.Bind("Gameplay", "SharedDrag", true,
-                "Experimental: a second player can take hold of a body another player is dragging (E on it) and the two move it together: 1.5x a lone player's speed walking the same way, held still pulling apart. Both players need it on.");
+                "Experimental: other players can take hold of a body another player is dragging (E on it), up to four in all, and move it together: walking the same way 1.75x a lone player's speed for two, about 2.33x for three, 2.8x for four; held still pulling apart. Everyone holding needs it on.");
             HostMigrationEnabled = config.Bind("Network", "HostMigrationEnabled", true,
                 "If true, host crash/timeout elects lowest remaining player id as new host (LAN n+). Peers reconnect to elected listen port.");
             VoiceEnabled = config.Bind("Voice", "VoiceEnabled", true,

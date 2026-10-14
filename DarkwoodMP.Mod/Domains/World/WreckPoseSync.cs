@@ -80,9 +80,11 @@ namespace DWMPHorde.Sync
         {
             Vector3 breakPos = new Vector3(msg.BreakX, msg.BreakY, msg.BreakZ);
             Vector3 pos = new Vector3(msg.PosX, msg.PosY, msg.PosZ);
-            Item item = WorldQueryHelper.FindFurnitureBySaveId<Item>(msg.SaveId, breakPos, float.MaxValue);
-            if (item == null || item.gameObject.name != msg.Name || !item.destructible)
-                item = WorldQueryHelper.FindDestructibleItemByName(msg.Name, breakPos, WorldPhysicsSyncService.ResolvedNameMaxDist);
+            // The name sent is the GameObject's (the item's own name can differ: the cottage's
+            // hatted man is "kapelusznik" with the item name "epilog_man_idle_01").
+            Item item = WorldQueryHelper.FindFurnitureItemBySaveId(msg.SaveId, msg.Name);
+            if (item == null || !item.destructible)
+                item = WorldQueryHelper.FindDestructibleItemByObjectName(msg.Name, breakPos, WorldPhysicsSyncService.ResolvedNameMaxDist);
             if (item == null)
             {
                 ModLog.WarnRate(LogCat.World, "wreck-pose-miss",

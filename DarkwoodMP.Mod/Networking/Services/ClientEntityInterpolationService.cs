@@ -457,6 +457,8 @@ namespace DWMPHorde.Networking
         public static void Reset()
         {
             _states.Clear();
+            _drivenBodyIds = new HashSet<int>();
+            _modifiableSet.Clear();
             _descriptors.Clear();
             _hostClock.Reset();
             _jitter.Reset();

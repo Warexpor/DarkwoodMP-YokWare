@@ -10,12 +10,12 @@ using UnityEngine;
 namespace DWMPHorde.Sync
 {
     /// <summary>
-    /// Shared drag (experimental, config <c>SharedDrag</c>): a second player takes hold of a body
-    /// another player drags, and the two move it together. Vanilla hinges the body to the
+    /// Shared drag (experimental, config <c>SharedDrag</c>): other players take hold of a body
+    /// another player drags (up to four in all), and they move it together. Vanilla hinges the body to the
     /// dragger's rigidbody and the dragger's walk force moves the pair; here the dragger's
     /// machine runs one body with both players on it:
     /// <list type="bullet">
-    /// <item>Dragger (leader): its vanilla hinge, plus a hinge of the same kind from the
+    /// <item>Dragger (leader): its vanilla hinge, plus a hinge of the same kind from each
     /// co-holder's stand-in to the body. The stand-in stops following its network position and
     /// becomes a real body with the player's mass and drag, pushed by the co-holder's walk input
     /// (sent about 30 a second). Walls block either player; pulling apart turns the body.</item>
@@ -24,16 +24,25 @@ namespace DWMPHorde.Sync
     /// spot the dragger's machine has it at (carried in the same samples), on the same delay, so
     /// body and player stay together. Its push animation and legs are vanilla's.</item>
     /// </list>
-    /// Speed: both players' walk forces are scaled by one factor chosen so that two players
-    /// walking the same way move it at 1.5 times a lone dragger's speed, one walking while the
-    /// other stands at 0.75 times (it drags the other along), and two pulling opposite ways
-    /// hold it still. When the dragger lets go (or leaves), the co-holder keeps hold and drags on
-    /// alone; when the co-holder lets go, nothing changes for the dragger. One co-holder at most.
+    /// Speed: every holder's walk force is scaled by one factor chosen so that N players walking
+    /// the same way move it at <see cref="Together"/>(N) times a lone dragger's speed: 1.75 for
+    /// two, about 2.33 for three, 2.8 for four. Each helper adds less, as in life: the crew also
+    /// moves its own bodies, so the gain flattens toward their walking pace. One walking while the
+    /// others stand drags them along; two pulling opposite ways hold it still. When the dragger
+    /// lets go (or leaves), a co-holder keeps hold and drags on alone (the others let go); when
+    /// a co-holder lets go, the rest go on.
     /// </summary>
     internal static class SharedDrag
     {
         /// <summary>Two players walking the same way move the body this much faster than one.</summary>
-        internal const float TogetherSpeed = 1.5f;
+        internal const float TogetherSpeed = 1.75f;
+        /// <summary>
+        /// The body's damping over a player's (mass times drag) in the crew rule: a crew of N
+        /// moves at N F / (B + N P) against F / (B + P) alone, so N (k + 1) / (k + N) times as
+        /// fast; k = 6 gives the two-player 1.75 above.
+        /// </summary>
+        private const float CrewBodyToPlayer = 6f;
+        private const int MaxCoHolders = DragSyncMessage.MaxCoHolders;
         /// <summary>A co-holder's join not confirmed by the dragger's samples within this is given up.</summary>
         private const float JoinTimeout = 2f;
         /// <summary>The co-holder's input older than this counts as standing still.</summary>
@@ -61,13 +70,13 @@ namespace DWMPHorde.Sync
             public bool HasTarget;
             public Vector3 Target;
             public readonly List<KeyValuePair<Collider, Collider>> Ignored = new List<KeyValuePair<Collider, Collider>>();
+            /// <summary>The other co-holders whose stand-ins the local player passes through.</summary>
+            public readonly HashSet<int> IgnoredPeers = new HashSet<int>();
         }
 
-        private sealed class Lead
+        /// <summary>One co-holder on the dragger's machine: its stand-in hinged to the body.</summary>
+        private sealed class Holder
         {
-            public Item Item;
-            public Rigidbody ItemRb;
-            public string Name;
             public int FollowerId;
             public RemotePlayerProxy Proxy;
             public Rigidbody ProxyRb;
@@ -78,11 +87,19 @@ namespace DWMPHorde.Sync
             public readonly List<KeyValuePair<Collider, Collider>> Ignored = new List<KeyValuePair<Collider, Collider>>();
         }
 
+        private sealed class Lead
+        {
+            public Item Item;
+            public Rigidbody ItemRb;
+            public string Name;
+            public readonly List<Holder> Holders = new List<Holder>(MaxCoHolders);
+        }
+
         private static Follow _follow;
         private static Lead _lead;
-        /// <summary>Observers: the co-holder of each body a remote player drags (from its samples).</summary>
-        private static readonly Dictionary<string, int> _coHolders =
-            new Dictionary<string, int>(System.StringComparer.OrdinalIgnoreCase);
+        /// <summary>Observers: the co-holders of each body a remote player drags (from its samples).</summary>
+        private static readonly Dictionary<string, int[]> _coHolders =
+            new Dictionary<string, int[]>(System.StringComparer.OrdinalIgnoreCase);
 
         private static bool Enabled => ModConfig.SharedDrag == null || ModConfig.SharedDrag.Value;
 
@@ -105,37 +122,78 @@ namespace DWMPHorde.Sync
             if (_follow != null)
                 return 0f;
             if (_lead != null)
-                return PairScale(_lead);
+                return CrewScale(_lead);
             return 1f;
         }
 
         /// <summary>
-        /// One scale for both players' walk forces. The pair moves at the summed force over the
-        /// summed damping (mass times drag of the body and both players): s × 2F / (B + 2P) for
-        /// two pushing together against F / (B + P) alone, so s = 1.5 (B + 2P) / (2 (B + P)).
+        /// How much faster <paramref name="n"/> players walking the same way move a body than one:
+        /// N (k + 1) / (k + N), see <see cref="CrewBodyToPlayer"/>.
         /// </summary>
-        private static float PairScale(Lead l)
+        internal static float Together(int n)
+            => n <= 1 ? 1f : n * (CrewBodyToPlayer + 1f) / (CrewBodyToPlayer + n);
+
+        /// <summary>
+        /// The share of a vanilla walk force each of <paramref name="remote"/> other players' pushes
+        /// gets on a body this machine runs, where <paramref name="localCrew"/> players already move
+        /// it here (0: none; 1: the local player pushing or dragging; more: a shared drag's crew),
+        /// so the whole crew moves it at <see cref="Together"/> of its size. <paramref name="body"/>
+        /// and <paramref name="player"/> are mass times drag. The local crew moves at R(n) times a
+        /// lone player's speed against the damping of the body and its n players; the remote
+        /// pushers' own bodies are not in this machine's physics, so their forces make up the rest:
+        /// (R(n + m) − R(n)) (B + n P) / (m (B + P)) each. With no local crew the pushes move the
+        /// body alone: R(m) B / (m (B + P)) each.
+        /// </summary>
+        internal static float AssistShare(int localCrew, int remote, float body, float player)
+        {
+            if (remote <= 0 || body + player <= 0.0001f)
+                return 1f;
+            float m = remote;
+            if (localCrew <= 0)
+                return Mathf.Clamp(Together(remote) * body / (m * (body + player)), 0.25f / m, Together(remote) / m);
+            float n = localCrew;
+            float s = (Together(localCrew + remote) - Together(localCrew)) * (body + n * player) / (m * (body + player));
+            return Mathf.Max(s, 0f);
+        }
+
+        /// <summary>Players moving <paramref name="item"/> on this machine's drag: the local player and its co-holders.</summary>
+        internal static int LocalCrew(Item item)
+            => _lead != null && _lead.Item == item ? 1 + _lead.Holders.Count : 1;
+
+        /// <summary>
+        /// One scale for every holder's walk force. The crew moves at the summed force over the
+        /// summed damping (mass times drag of the body and every player): s × N F / (B + N P) for
+        /// N pushing together against F / (B + P) alone, so s = R (B + N P) / (N (B + P)) for the
+        /// crew's <see cref="Together"/> R, whatever this body weighs.
+        /// </summary>
+        private static float CrewScale(Lead l)
         {
             Player p = Player.Instance;
             if (l.ItemRb == null || p == null || p.Rigidbody == null)
                 return 1f;
+            int n = 1 + l.Holders.Count;
             float b = l.ItemRb.mass * l.ItemRb.drag;
             float pl = p.Rigidbody.mass * p.Rigidbody.drag;
             if (b + pl <= 0.0001f)
                 return 1f;
-            float s = TogetherSpeed * (b + 2f * pl) / (2f * (b + pl));
-            return Mathf.Clamp(s, TogetherSpeed * 0.5f, TogetherSpeed);
+            float r = Together(n);
+            float s = r * (b + n * pl) / (n * (b + pl));
+            return Mathf.Clamp(s, r / n, r);
         }
 
         // ------------------------------------------------------------------ observers
 
-        /// <summary>A remote drag sample: remember who co-holds that body (a third player is refused).</summary>
-        internal static void NoteCoHolder(string name, int dragger, int coHolder)
+        /// <summary>A remote drag sample: remember who co-holds that body (a fifth player is refused).</summary>
+        internal static void NoteCoHolders(string name, DragSyncMessage msg)
         {
             if (string.IsNullOrEmpty(name))
                 return;
-            if (coHolder > 0)
-                _coHolders[name] = coHolder;
+            if (msg.CoCount > 0 && msg.CoIds != null)
+            {
+                var ids = new int[System.Math.Min(msg.CoCount, msg.CoIds.Length)];
+                System.Array.Copy(msg.CoIds, ids, ids.Length);
+                _coHolders[name] = ids;
+            }
             else
                 _coHolders.Remove(name);
         }
@@ -168,9 +226,10 @@ namespace DWMPHorde.Sync
                 leader = claim;
             if (leader <= 0 || leader == net.LocalPlayerId)
                 return false;
-            if (_coHolders.TryGetValue(name, out int other) && other > 0 && other != net.LocalPlayerId)
+            if (_coHolders.TryGetValue(name, out int[] others) && others.Length >= MaxCoHolders
+                && System.Array.IndexOf(others, net.LocalPlayerId) < 0)
             {
-                refusal = "Two players are already moving this";
+                refusal = "Four players are already moving this";
                 return false;
             }
             _follow = new Follow
@@ -251,13 +310,27 @@ namespace DWMPHorde.Sync
             var net = ModRuntime.Network;
             if (f == null || net == null)
                 return;
-            if (msg.CoHolderId == net.LocalPlayerId)
+            if (msg.TryGetCo(net.LocalPlayerId, out _))
             {
                 if (!f.Confirmed)
                 {
                     f.Confirmed = true;
                     f.ConfirmSendTime = msg.SendTime;
                     ModLog.Event(LogCat.Physics, $"[SharedDrag] p{f.LeaderId} confirmed the hold on {f.Name}");
+                }
+                // The other co-holders' stand-ins come from the dragger's machine on a delay too:
+                // the local player passes through them, as through the dragger's.
+                for (int i = 0; i < msg.CoCount && msg.CoIds != null && i < msg.CoIds.Length; i++)
+                {
+                    int other = msg.CoIds[i];
+                    if (other == net.LocalPlayerId || f.IgnoredPeers.Contains(other))
+                        continue;
+                    RemotePlayerProxy proxy = net.GetProxy(other);
+                    Player me = Player.Instance;
+                    if (proxy == null || me == null)
+                        continue;
+                    Ignore(f.Ignored, me.GetComponentsInChildren<Collider>(), proxy.CachedColliders);
+                    f.IgnoredPeers.Add(other);
                 }
             }
             else if (f.Confirmed && msg.SendTime > f.ConfirmSendTime)
@@ -288,6 +361,19 @@ namespace DWMPHorde.Sync
             Follow f = _follow;
             if (f == null)
                 return;
+            // Several held it: the first of them (in the dragger's last sample) drags on, the
+            // others let go, or each would drag its own copy on alone.
+            var net = ModRuntime.Network;
+            if (net != null && _coHolders.TryGetValue(f.Name, out int[] crew) && crew.Length > 1
+                && crew[0] != net.LocalPlayerId)
+            {
+                _coHolders.Remove(f.Name);
+                ModLog.Event(LogCat.Physics, $"[SharedDrag] p{f.LeaderId} let go of {f.Name} — p{crew[0]} drags on, letting go");
+                StopFollowDrag(null);
+                return;
+            }
+            if (!string.IsNullOrEmpty(f.Name))
+                _coHolders.Remove(f.Name);
             _follow = null;
             Item item = f.Item;
             RestoreContacts(f.Ignored);
@@ -417,19 +503,44 @@ namespace DWMPHorde.Sync
         internal static void FillLeaderFields(ref DragSyncMessage msg, Item dragged)
         {
             Lead l = _lead;
-            if (l == null || l.Item != dragged || l.ProxyRb == null)
+            if (l == null || l.Item != dragged || l.Holders.Count == 0)
                 return;
-            Vector3 co = l.ProxyRb.position;
-            msg.CoHolderId = l.FollowerId;
-            msg.CoPosX = co.x;
-            msg.CoPosY = co.y;
-            msg.CoPosZ = co.z;
+            int n = Mathf.Min(l.Holders.Count, MaxCoHolders);
+            msg.CoIds = new int[n];
+            msg.CoX = new float[n];
+            msg.CoY = new float[n];
+            msg.CoZ = new float[n];
+            int k = 0;
+            for (int i = 0; i < n; i++)
+            {
+                Holder h = l.Holders[i];
+                if (h.ProxyRb == null)
+                    continue;
+                Vector3 co = h.ProxyRb.position;
+                msg.CoIds[k] = h.FollowerId;
+                msg.CoX[k] = co.x;
+                msg.CoY[k] = co.y;
+                msg.CoZ[k] = co.z;
+                k++;
+            }
+            msg.CoCount = k;
+        }
+
+        private static Holder HolderOf(Lead l, int playerId)
+        {
+            if (l == null)
+                return null;
+            for (int i = 0; i < l.Holders.Count; i++)
+                if (l.Holders[i].FollowerId == playerId)
+                    return l.Holders[i];
+            return null;
         }
 
         private static void HandleJoin(CoHoldMessage m, LanNetworkManager net)
         {
             Player p = Player.Instance;
             Item item = p != null && p.dragging ? p.itemBeingDragged : null;
+            Holder again = HolderOf(_lead, m.SenderId);
             string why = null;
             if (!Enabled)
                 why = "shared drag off here";
@@ -437,8 +548,10 @@ namespace DWMPHorde.Sync
                 why = "not dragging it";
             else if (FlatDistance(item.transform.position, new Vector3(m.PosX, m.PosY, m.PosZ)) > SameBodyRange)
                 why = "another body of that name";
-            else if (_lead != null && _lead.FollowerId != m.SenderId)
-                why = "already held by p" + _lead.FollowerId;
+            else if (_lead != null && _lead.Item != item)
+                why = "leading another body";
+            else if (_lead != null && again == null && _lead.Holders.Count >= MaxCoHolders)
+                why = "already held by four";
             else if (_follow != null)
                 why = "co-holding something itself";
             RemotePlayerProxy proxy = why == null ? net.GetProxy(m.SenderId) : null;
@@ -454,8 +567,9 @@ namespace DWMPHorde.Sync
                 SendRefuse(net, m.SenderId, m.ObjectName);
                 return;
             }
-            if (_lead != null)
-                EndLead("rejoin", tellFollower: false);
+            if (again != null)
+                RemoveHolder(_lead, again, "rejoin", tellFollower: false);
+            Lead l = _lead ?? new Lead { Item = item, ItemRb = itemRb, Name = m.ObjectName };
 
             // The stand-in where the co-holder stands relative to the body on its own machine.
             Transform it = item.transform;
@@ -466,11 +580,8 @@ namespace DWMPHorde.Sync
             proxy.transform.position = spot;
             proxyRb.velocity = Vector3.zero;
 
-            var l = new Lead
+            var h = new Holder
             {
-                Item = item,
-                ItemRb = itemRb,
-                Name = m.ObjectName,
                 FollowerId = m.SenderId,
                 Proxy = proxy,
                 ProxyRb = proxyRb,
@@ -499,12 +610,40 @@ namespace DWMPHorde.Sync
             joint.limits = limits;
             joint.enableCollision = true;
             joint.enablePreprocessing = false;
-            l.Joint = joint;
-            // The two players do not shove each other while both hold it.
-            Ignore(l.Ignored, p.GetComponentsInChildren<Collider>(), proxy.CachedColliders);
+            h.Joint = joint;
+            // The players do not shove each other while they all hold it.
+            Ignore(h.Ignored, p.GetComponentsInChildren<Collider>(), proxy.CachedColliders);
+            for (int i = 0; i < l.Holders.Count; i++)
+                if (l.Holders[i].Proxy != null)
+                    Ignore(h.Ignored, proxy.CachedColliders, l.Holders[i].Proxy.CachedColliders);
+            l.Holders.Add(h);
             _lead = l;
             ModLog.Event(LogCat.Physics,
-                $"[SharedDrag] p{m.SenderId} took hold of {m.ObjectName} with us at {spot} (scale {PairScale(l):F2})");
+                $"[SharedDrag] p{m.SenderId} took hold of {m.ObjectName} with us at {spot} ({l.Holders.Count + 1} holding, scale {CrewScale(l):F2})");
+        }
+
+        /// <summary>One co-holder off the body; the last one off ends the lead.</summary>
+        private static void RemoveHolder(Lead l, Holder h, string why, bool tellFollower)
+        {
+            if (l == null || h == null)
+                return;
+            l.Holders.Remove(h);
+            // At once: the stand-in follows its network position again from the next step.
+            if (h.Joint != null)
+                Object.DestroyImmediate(h.Joint);
+            if (h.ProxyRb != null)
+            {
+                h.ProxyRb.mass = h.ProxyMass;
+                h.ProxyRb.drag = h.ProxyDrag;
+            }
+            if (h.Proxy != null)
+                h.Proxy.CoHeld = false;
+            RestoreContacts(h.Ignored);
+            if (tellFollower && NetGuard.Connected(out LanNetworkManager net))
+                SendRefuse(net, h.FollowerId, l.Name);
+            ModLog.Event(LogCat.Physics, $"[SharedDrag] p{h.FollowerId} off {l.Name}: {why}");
+            if (l.Holders.Count == 0 && _lead == l)
+                _lead = null;
         }
 
         private static void EndLead(string why, bool tellFollower)
@@ -513,20 +652,8 @@ namespace DWMPHorde.Sync
             if (l == null)
                 return;
             _lead = null;
-            // At once: the stand-in follows its network position again from the next step.
-            if (l.Joint != null)
-                Object.DestroyImmediate(l.Joint);
-            if (l.ProxyRb != null)
-            {
-                l.ProxyRb.mass = l.ProxyMass;
-                l.ProxyRb.drag = l.ProxyDrag;
-            }
-            if (l.Proxy != null)
-                l.Proxy.CoHeld = false;
-            RestoreContacts(l.Ignored);
-            if (tellFollower && NetGuard.Connected(out LanNetworkManager net))
-                SendRefuse(net, l.FollowerId, l.Name);
-            ModLog.Event(LogCat.Physics, $"[SharedDrag] p{l.FollowerId} off {l.Name}: {why}");
+            for (int i = l.Holders.Count - 1; i >= 0; i--)
+                RemoveHolder(l, l.Holders[i], why, tellFollower);
         }
 
         private static void SendRefuse(LanNetworkManager net, int to, string name)
@@ -562,15 +689,17 @@ namespace DWMPHorde.Sync
                     HandleJoin(m, net);
                     break;
                 case CoHoldMessage.ModeInput:
-                    if (_lead != null && _lead.FollowerId == m.SenderId)
+                {
+                    Holder h = HolderOf(_lead, m.SenderId);
+                    if (h != null)
                     {
-                        _lead.Intent = new Vector3(m.ForceX, 0f, m.ForceZ);
-                        _lead.LastInputAt = Time.unscaledTime;
+                        h.Intent = new Vector3(m.ForceX, 0f, m.ForceZ);
+                        h.LastInputAt = Time.unscaledTime;
                     }
                     break;
+                }
                 case CoHoldMessage.ModeLeave:
-                    if (_lead != null && _lead.FollowerId == m.SenderId)
-                        EndLead("co-holder let go", tellFollower: false);
+                    RemoveHolder(_lead, HolderOf(_lead, m.SenderId), "co-holder let go", tellFollower: false);
                     break;
                 case CoHoldMessage.ModeRefuse:
                     if (_follow != null && _follow.LeaderId == m.SenderId)
@@ -599,26 +728,26 @@ namespace DWMPHorde.Sync
                 EndLead("drag ended", tellFollower: true);
                 return;
             }
-            if (l.Proxy == null || l.ProxyRb == null || l.Joint == null)
+            float now = Time.unscaledTime;
+            for (int i = l.Holders.Count - 1; i >= 0; i--)
             {
-                EndLead("stand-in gone", tellFollower: false);
-                return;
+                Holder h = l.Holders[i];
+                if (h.Proxy == null || h.ProxyRb == null || h.Joint == null)
+                    RemoveHolder(l, h, "stand-in gone", tellFollower: false);
+                else if (now - h.LastInputAt > InputLost)
+                    RemoveHolder(l, h, "co-holder silent", tellFollower: true);
+                else if (FlatDistance(h.ProxyRb.position, l.Item.transform.position) > HoldBreakRange)
+                    RemoveHolder(l, h, "hold broke", tellFollower: true);
             }
-            float since = Time.unscaledTime - l.LastInputAt;
-            if (since > InputLost)
-            {
-                EndLead("co-holder silent", tellFollower: true);
+            if (l.Holders.Count == 0)
                 return;
-            }
-            if (FlatDistance(l.ProxyRb.position, l.Item.transform.position) > HoldBreakRange)
+            // Vanilla's walk force for each co-holder, applied on this step, times the crew's scale.
+            float scale = CrewScale(l);
+            for (int i = 0; i < l.Holders.Count; i++)
             {
-                EndLead("hold broke", tellFollower: true);
-                return;
-            }
-            if (since <= InputStale && l.Intent.sqrMagnitude > 0.0001f)
-            {
-                // Vanilla's walk force for that player, applied on this step, times the pair's scale.
-                l.ProxyRb.AddForce(l.Intent * (PlayerMoveForcePatch.VanillaForceFactor * Time.fixedDeltaTime * PairScale(l)));
+                Holder h = l.Holders[i];
+                if (now - h.LastInputAt <= InputStale && h.Intent.sqrMagnitude > 0.0001f)
+                    h.ProxyRb.AddForce(h.Intent * (PlayerMoveForcePatch.VanillaForceFactor * Time.fixedDeltaTime * scale));
             }
         }
 
@@ -662,8 +791,7 @@ namespace DWMPHorde.Sync
         /// <summary>A player left: a shared drag with it ends (its partner drags on alone, or is let go of).</summary>
         internal static void OnPeerLeft(int playerId)
         {
-            if (_lead != null && _lead.FollowerId == playerId)
-                EndLead("co-holder left", tellFollower: false);
+            RemoveHolder(_lead, HolderOf(_lead, playerId), "co-holder left", tellFollower: false);
             if (_follow != null && _follow.LeaderId == playerId)
                 PromoteFollower(default);
         }

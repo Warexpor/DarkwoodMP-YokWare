@@ -1,4 +1,5 @@
 using DWMPHorde.Networking;
+using DWMPHorde.Sync;
 using HarmonyLib;
 using LiteNetLib;
 using UnityEngine;
@@ -34,8 +35,16 @@ namespace DWMPHorde.Sync
                 PosZ = Mathf.Round(p.z * 10f) / 10f,
                 Health = Mathf.Max(0f, hp),
                 MaxHealth = maxHp,
-                Destroyed = destroyed ? ModeDestroyed : ModeAlive
+                Destroyed = destroyed ? ModeDestroyed : ModeAlive,
+                EntityId = WearerId(armor)
             };
+        }
+
+        /// <summary>The stable id of the creature wearing <paramref name="armor"/>, or 0.</summary>
+        internal static short WearerId(ShadowArmor armor)
+        {
+            Character c = armor != null ? armor.GetComponentInParent<Character>() : null;
+            return c != null ? CharacterTracker.GetStableId(c) : (short)0;
         }
 
         /// <summary>A connected client's own (not network-applied) armor damage / break.</summary>
@@ -81,7 +90,8 @@ namespace DWMPHorde.Sync
                 PosZ = Mathf.Round(p.z * 10f) / 10f,
                 Health = damage,
                 MaxHealth = armor.maxHealth,
-                Destroyed = ModeDamageRequest
+                Destroyed = ModeDamageRequest,
+                EntityId = WearerId(armor)
             };
             ModRuntime.Network.Broadcast(NetMessageType.ShadowArmorState,
                 w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);

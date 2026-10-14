@@ -204,9 +204,14 @@ namespace DWMPHorde.Networking
                     }
                     if (verdict == PeerWorldVerdict.ResyncChapter)
                     {
-                        ModLog.Warn(LogCat.Session,
-                            "Join pipeline phase 3: peer " + playerId + " claims AlreadyInWorld but "
-                            + verdictReason + " — re-sharing host world instead of trusting it");
+                        // The host's chapter, built on the client: the normal way back after a
+                        // chapter move (every machine builds the new chapter, then gets the host's).
+                        string line = "Join pipeline phase 3: peer " + playerId + " claims AlreadyInWorld but "
+                            + verdictReason + " — re-sharing host world instead of trusting it";
+                        if (handshake.ChapterId == verdictHostChapter)
+                            ModLog.Event(LogCat.Session, line);
+                        else
+                            ModLog.Warn(LogCat.Session, line);
                         trustedInWorld = false;
                         SendPeerWorldResync(playerId, verdictHostChapter, handshake.StableClientKey);
                     }

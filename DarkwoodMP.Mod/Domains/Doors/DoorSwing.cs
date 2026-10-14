@@ -236,6 +236,18 @@ namespace DWMPHorde.Sync
         internal static bool IsFollowingSwing(Door door)
             => door != null && _drives.TryGetValue(door.GetInstanceID(), out Drive d) && d.Mode == Mode.Follow;
 
+        /// <summary>
+        /// Doors whose swing runs on this machine: what they knock over is sent from there. A night
+        /// scene flings a client's hideout doors open on the host; a door slamming into a wardrobe
+        /// sent it 160 units across the room, far from any player, and the client's stayed put.
+        /// </summary>
+        internal static void AddScanCenters(List<Vector3> centers)
+        {
+            foreach (Drive d in _drives.Values)
+                if (d.Mode == Mode.Own && d.Door != null)
+                    centers.Add(d.Door.transform.position);
+        }
+
         /// <summary>The door's swing is run or followed here: other door state leaves its angle alone.</summary>
         internal static bool IsDriven(Door door)
             => door != null && _drives.ContainsKey(door.GetInstanceID());
@@ -407,22 +419,26 @@ namespace DWMPHorde.Sync
         }
 
         /// <summary>
-        /// The share of a walk force another player's push gets here: half when the local player
-        /// pushes too (the two turn it 1.5 times as fast), else the door's share of the damping of
-        /// it and a pusher (mass times drag of each), as a lone body push moves it.
+        /// The share of a walk force each other player's push gets here, so the crew (the local
+        /// player pushing too, and every remote pusher) turns it as SharedDrag's crew rule says
+        /// (1.75 times as fast for two, about 2.33 for three, 2.8 for four); with nobody here
+        /// pushing, the door's share of the damping of it and a pusher (mass times drag of each),
+        /// as a lone body push moves it.
         /// </summary>
         private static float PushScale(Drive d, float now)
         {
             Player p = Player.Instance;
             if (p == null || p.Rigidbody == null)
                 return 1f;
-            if (PushingInto(d.Door, now, out _))
-                return SharedDrag.TogetherSpeed - 1f;
+            int remote = 0;
+            foreach (var kv in d.Pushes)
+                if (now <= kv.Value.Until)
+                    remote++;
+            if (remote < 1)
+                remote = 1;
             float door = d.Rb.mass * d.Rb.drag;
             float pusher = p.Rigidbody.mass * p.Rigidbody.drag;
-            if (door + pusher <= 0.0001f)
-                return 1f;
-            return Mathf.Clamp(door / (door + pusher), 0.25f, 1f);
+            return SharedDrag.AssistShare(PushingInto(d.Door, now, out _) ? 1 : 0, remote, door, pusher);
         }
 
         private static bool TickFollow(LanNetworkManager net, Drive d, float now)

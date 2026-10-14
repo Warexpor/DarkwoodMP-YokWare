@@ -8,14 +8,15 @@ using UnityEngine;
 namespace DWMPHorde.Sync
 {
     /// <summary>
-    /// Two players pushing one body with their own bodies. Only one machine runs a pushed body
+    /// Players pushing one body with their own bodies. Only one machine runs a pushed body
     /// (the pusher's; the others follow its states with the body held kinematic), and other
     /// players' stand-ins pass through pushable bodies there, so a second pusher added nothing:
     /// two players moved it as fast as one. Now a player walking into a body another machine
     /// moves sends its walk force (about 15 a second); the machine that runs the body applies it
-    /// at the contact point. Scaled so two players pushing the same way move it 1.5 times as fast
-    /// as one, and a player pushing alone on a body the other machine still runs (its player
-    /// touching it, not pushing) moves it at a lone pusher's speed. Also adds a push to a body
+    /// at the contact point. Scaled so a crew pushing the same way moves it as SharedDrag's crew
+    /// rule says (1.75 times one player's speed for two, about 2.33 for three, 2.8 for four), and
+    /// a player pushing alone on a body another machine still runs (its player touching it, not
+    /// pushing) moves it at a lone pusher's speed. Also adds a push to a body
     /// another player drags (that player's machine runs it). Pushing off-centre turns the body.
     /// </summary>
     internal static class CoPush
@@ -207,11 +208,13 @@ namespace DWMPHorde.Sync
         }
 
         /// <summary>
-        /// The share of a vanilla walk force the other player's push gets here. The local player
-        /// pushing (or dragging) it too: half, so the two move it at 1.5 times one player's
-        /// speed. A body pushed alone moves at its force over the damping of it and its pusher
-        /// (mass times drag of each); applied to the body alone it takes the body's share of that
-        /// damping to match. A dragged body already carries its dragger: the whole force.
+        /// The share of a vanilla walk force another player's push gets here, so the whole crew
+        /// on the body (the local player pushing or dragging it, a shared drag's co-holders, and
+        /// every remote pusher) moves it at <see cref="SharedDrag.Together"/> of its size: 1.75
+        /// times one player's speed for two, about 2.33 for three, 2.8 for four. Nobody here
+        /// pushing: the pushes move the body alone, at the body's share of the damping of it and
+        /// a pusher (mass times drag of each). A dragged body whose dragger stands carries the
+        /// dragger: the pushers drag it along.
         /// </summary>
         private static float Scale(Assist a)
         {
@@ -242,15 +245,22 @@ namespace DWMPHorde.Sync
                     }
                 }
             }
-            if (pushingToo)
-                return (SharedDrag.TogetherSpeed - 1f);
-            if (dragged || p == null || p.Rigidbody == null)
+            int remote = 0;
+            float now = Time.unscaledTime;
+            foreach (var kv in _assists)
+                if (kv.Value.Item == a.Item && now <= kv.Value.Until)
+                    remote++;
+            if (remote < 1)
+                remote = 1;
+            if (p == null || p.Rigidbody == null)
                 return 1f;
             float body = a.Rb.mass * a.Rb.drag;
             float pusher = p.Rigidbody.mass * p.Rigidbody.drag;
-            if (body + pusher <= 0.0001f)
-                return 1f;
-            return Mathf.Clamp(body / (body + pusher), 0.25f, 1f);
+            if (pushingToo)
+                return SharedDrag.AssistShare(dragged ? SharedDrag.LocalCrew(a.Item) : 1, remote, body, pusher);
+            if (dragged)
+                return SharedDrag.Together(remote) / remote;
+            return SharedDrag.AssistShare(0, remote, body, pusher);
         }
 
         internal static void Reset()

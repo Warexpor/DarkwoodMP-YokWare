@@ -237,8 +237,16 @@ namespace DWMPHorde.Patches
         private static readonly AccessTools.FieldRef<AnimationTriggerListener, Character> CharacterRef =
             AccessTools.FieldRefAccess<AnimationTriggerListener, Character>("character");
 
-        private static bool Prefix(AnimationTriggerListener __instance, tk2dSpriteAnimationFrame.Trigger.Type type)
+        private static bool Prefix(AnimationTriggerListener __instance, tk2dSpriteAnimationFrame.Trigger.Type type, UnityEngine.Object prefab)
         {
+            // A frame that spawns a creature (the FOV mob's spawner hatching its spider minion): the
+            // host's spawner hatches the real one, which reaches this peer as an entity. The copy's
+            // own hatchling was a second, local-only creature ("DESYNC Creatures
+            // local:HumanSpiderMinion ... host=<none>").
+            if (type == tk2dSpriteAnimationFrame.Trigger.Type.spawnPrefab && prefab is GameObject go
+                && go.GetComponent<Character>() != null
+                && ModRuntime.Network != null && ModRuntime.Network.IsConnected && ModRuntime.Network.Role == NetworkRole.Client)
+                return false;
             if (type != tk2dSpriteAnimationFrame.Trigger.Type.fireWorldEvent
                 && type != tk2dSpriteAnimationFrame.Trigger.Type.teleportNearPlayer
                 && type != tk2dSpriteAnimationFrame.Trigger.Type.runFunction

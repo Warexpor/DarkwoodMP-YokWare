@@ -348,10 +348,13 @@ namespace DWMPHorde.Patches
             if (string.IsNullOrEmpty(msg.NpcName)) return;
 
             NPC npc = FindNpcByName(msg);
-            if (npc == null || !npc.gameObject.activeInHierarchy)
+            if (npc == null || !npc.gameObject.activeInHierarchy || npc.inventory == null)
             {
                 // Not here yet, or switched off (a trader the story keeps hidden; the host sends
-                // every trader's stock, out or not): queued, applied once it is out.
+                // every trader's stock, out or not): queued, applied once it is out. Out but not
+                // set up yet (vanilla NPC.init reads its Inventory later): the stock was dropped
+                // ("NPC 'wolfman' has no inventory" after a chapter move) and the client's trader
+                // stood empty until the host's next sale.
                 ModRuntime.Network?.TradeHandlers?.QueuePendingTradeInventory(msg);
                 return;
             }

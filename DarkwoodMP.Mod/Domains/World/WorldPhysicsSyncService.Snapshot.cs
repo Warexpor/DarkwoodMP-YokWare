@@ -184,13 +184,16 @@ namespace DWMPHorde.Sync
                     RotX = rot.x,
                     RotY = rot.y,
                     RotZ = rot.z,
-                    ItemType = itemType
+                    ItemType = itemType,
+                    SaveId = itemComp != null ? WorldQueryHelper.FurnitureSaveId(rootGo) : 0
                 });
                 // Client free-body send: refresh authority so host PhysicsState echo cannot
                 // arm MOS while native ItemSounds owns the scrape (round-trip latency gap).
                 // Only for motion of its own: a quiet resend (every few seconds, every body
                 // in range) claimed bodies the client never touched and dropped the host's
                 // pushes of them.
+                if (reallyMoved && (net == null || net.Role == NetworkRole.Host))
+                    _s.RecentMovers[rootId] = rootGo.transform;
                 if (reallyMoved && net != null && net.Role == NetworkRole.Client && !string.IsNullOrEmpty(rootName))
                     ItemMovingSoundHelper.NoteClientPhysicsSent(rootName);
             }
@@ -203,6 +206,65 @@ namespace DWMPHorde.Sync
         /// </summary>
         /// <param name="msg">Output parameter populated with the current world snapshot.</param>
         /// <returns>True if any state was captured; false if everything is idle.</returns>
+        /// <summary>Most creatures whose surroundings are scanned in one snapshot.</summary>
+        private const int MaxCreatureScanCenters = 32;
+
+        /// <summary>
+        /// Host: around every moving creature a peer has streamed to it. The host's creatures shove
+        /// furniture wherever they walk: a redneck in a client's hideout pushed a wardrobe 160 units
+        /// from the client, beyond the scan round each player, so the client's copy stayed where it
+        /// was ("DESYNC Containers Wardrobe_low_01 ... client's nearest" seven units off).
+        /// </summary>
+        private static void AddMovingCreatureCenters(LanNetworkManager net)
+        {
+            int n = CharacterTracker.CopyAll(out Character[] all);
+            float rangeSq = GameplayConstants.EntityInterestLeaveRange * GameplayConstants.EntityInterestLeaveRange;
+            int added = 0;
+            for (int i = 0; i < n && added < MaxCreatureScanCenters; i++)
+            {
+                Character c = all[i];
+                if (c == null || !c.alive || !c.gameObject.activeInHierarchy)
+                    continue;
+                Rigidbody rb = c.GetComponent<Rigidbody>();
+                if (rb == null || rb.velocity.sqrMagnitude < 1f)
+                    continue;
+                Vector3 at = c.transform.position;
+                bool seen = false;
+                foreach (var proxy in net.GetAllProxies())
+                {
+                    if (proxy == null)
+                        continue;
+                    Vector3 d = proxy.transform.position - at;
+                    if (d.x * d.x + d.z * d.z <= rangeSq) { seen = true; break; }
+                }
+                if (!seen)
+                    continue;
+                _s.ScanCenters.Add(at);
+                added++;
+            }
+        }
+
+        /// <summary>
+        /// Host: a body knocked away (by a door, a creature) keeps sliding after what shoved it
+        /// stopped, out of every scan round a player: it is scanned where it is until it settles,
+        /// so its last pose is sent too.
+        /// </summary>
+        private static void AddRecentMoverCenters()
+        {
+            float now = Time.time;
+            _s.RecentMoversDone.Clear();
+            foreach (KeyValuePair<int, Transform> kv in _s.RecentMovers)
+            {
+                if (kv.Value == null || !_s.LastMoveTime.TryGetValue(kv.Key, out float moved)
+                    || now - moved > QuietConfirmWindow + 1f)
+                    _s.RecentMoversDone.Add(kv.Key);
+                else
+                    _s.ScanCenters.Add(kv.Value.position);
+            }
+            for (int i = 0; i < _s.RecentMoversDone.Count; i++)
+                _s.RecentMovers.Remove(_s.RecentMoversDone[i]);
+        }
+
         public static bool TryBuildWorldSnapshot(out PhysicsStateMessage msg)
         {
             msg = default;
@@ -230,6 +292,9 @@ namespace DWMPHorde.Sync
                 // A body a repeating event turns is sent from where it stands, not only when a
                 // player is next to it (the dream carousel is seen from far off).
                 ScriptedSpin.AddScanCenters(_s.ScanCenters);
+                AddMovingCreatureCenters(net);
+                DoorSwing.AddScanCenters(_s.ScanCenters);
+                AddRecentMoverCenters();
             }
 
             _s.ScannedObjectIds.Clear();
