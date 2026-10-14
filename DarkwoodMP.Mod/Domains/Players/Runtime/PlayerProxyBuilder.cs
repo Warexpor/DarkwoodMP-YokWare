@@ -214,6 +214,18 @@ namespace DWMPHorde.Players
 
             if (kind == PlayerCloneKind.Remote)
             {
+                // The flashlight beam box (Player.flashlightCollider: up to 1000 units ahead while
+                // the flashlight is on) is the local player's alone: vanilla lights path nodes and
+                // wakes shadow armor from it, and a peer's beam is lit from its own box
+                // (RemoteFlashlightNodesPatch). The clone kept this viewer's box as it was when
+                // cloned; the stand-in makes its colliders solid, so the box shoved every player
+                // near a stand-in up to its length away (a third player entering the bunker landed
+                // beside the others and was pushed into its exit) and reached into area triggers
+                // far from the body.
+                Transform beam = clone.transform.Find("FlashlightCollider");
+                if (beam != null)
+                    UnityEngine.Object.DestroyImmediate(beam.gameObject);
+
                 foreach (Collider col in clone.GetComponentsInChildren<Collider>(true))
                     col.enabled = false;
 

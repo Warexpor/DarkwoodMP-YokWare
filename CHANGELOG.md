@@ -198,13 +198,23 @@ over both chapters' hideouts, every event of each night's scenario fired).
   (`RushWorldOnlyDrainForRelease`), `DialogNpcLockNetHandlers.cs`, `LanNetworkManager.PeerEvents.cs`.
 - **The overworld bunker door opened by itself on the host when a client stood at it.** A
   remote player's stand-in on each machine is a copy of the player, and the mod makes all its
-  child colliders solid (the player's sensor volumes among them). An area trigger counted any of
+  child colliders solid (the player's flashlight beam box among them, see below). An area trigger counted any of
   them as the player walking in, where vanilla takes only the player's own body. At the shut door
   a sensor reached into the walk-through volume behind it (`goThroughDoor`), which ran on the host
   for that client: the shut door went and the open one came on there, nowhere else, with no key
   (seen in a three-player run, the trigger firing three times while the client stood still).
   Area triggers and the party gate now take the stand-in's body only. Files:
   `EventTriggersProxyPatches.cs`, `LockBehindPartyGate.cs`.
+- **A player entering a location beside another player was shoved away, into the bunker's
+  exit.** A remote player's stand-in is a copy of this viewer's player, and it kept the player's
+  flashlight beam box (up to 1000 units ahead while the flashlight is on) as it was when copied;
+  the stand-in makes its colliders solid, so the box pushed every player near a stand-in up to
+  its length away. A third player entering the bunker landed where the other two stood, was
+  pushed about 150 units into the bunker's exit and sent back to the world (the same box was the
+  "sensor" reaching into the walk-through volume above, and shoved two players who met at the
+  bunker door). The beam box is local-only in vanilla (path-node light and shadow armor; a peer's
+  beam is lit from its own box), so stand-ins and corpse copies no longer carry it. File:
+  `PlayerProxyBuilder.cs`.
 - **The bunker key opened the door on the host only.** With the boards played, the key's
   `endOfChapter1` ran `goThroughDoor` on the host (shut door removed, open door and corridor on,
   the keyholder's trip), but that event is repeatable in the scene data, and the host never sends
