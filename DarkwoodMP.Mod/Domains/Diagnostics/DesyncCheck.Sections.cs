@@ -418,7 +418,7 @@ namespace DWMPHorde.Sync
         /// <summary>World traps near the player: sprung or set.</summary>
         private static void CollectTraps(Ctx ctx, List<KeyValuePair<string, string>> into)
         {
-            var all = new List<Trigger>(256);
+            List<Trigger> all = DesyncRegistry<Trigger>.Scratch;
             DesyncRegistry<Trigger>.Snapshot(all);
             for (int i = 0; i < all.Count; i++)
             {
@@ -470,7 +470,7 @@ namespace DWMPHorde.Sync
         /// </summary>
         private static void CollectPickups(Ctx ctx, List<KeyValuePair<string, string>> into)
         {
-            var all = new List<Item>(256);
+            List<Item> all = DesyncRegistry<Item>.Scratch;
             DesyncRegistry<Item>.Snapshot(all);
             for (int i = 0; i < all.Count; i++)
             {
@@ -531,7 +531,7 @@ namespace DWMPHorde.Sync
 
         private static void CollectContainers(Ctx ctx, List<KeyValuePair<string, string>> into)
         {
-            var all = new List<Inventory>(256);
+            List<Inventory> all = DesyncRegistry<Inventory>.Scratch;
             DesyncRegistry<Inventory>.Snapshot(all);
             var parts = new List<string>(16);
             for (int i = 0; i < all.Count; i++)
@@ -576,7 +576,7 @@ namespace DWMPHorde.Sync
         /// <summary>Burning doors, windows and items near the player.</summary>
         private static void CollectBurning(Ctx ctx, List<KeyValuePair<string, string>> into)
         {
-            var all = new List<Burn>(256);
+            List<Burn> all = DesyncRegistry<Burn>.Scratch;
             DesyncRegistry<Burn>.Snapshot(all);
             for (int i = 0; i < all.Count; i++)
             {
@@ -599,7 +599,7 @@ namespace DWMPHorde.Sync
         /// <summary>Trader stock, per stack as the host sends it (TradeInventorySync).</summary>
         private static void CollectTraders(Ctx ctx, List<KeyValuePair<string, string>> into)
         {
-            var all = new List<NPC>(256);
+            List<NPC> all = DesyncRegistry<NPC>.Scratch;
             DesyncRegistry<NPC>.Snapshot(all);
             var parts = new List<string>(16);
             for (int i = 0; i < all.Count; i++)

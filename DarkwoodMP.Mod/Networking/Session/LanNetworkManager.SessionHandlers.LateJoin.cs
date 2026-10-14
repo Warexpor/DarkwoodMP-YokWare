@@ -195,13 +195,18 @@ namespace DWMPHorde.Networking
         /// <summary>
         /// Host: one heavy late-join phase per frame total (not one per peer).
         /// </summary>
+        private readonly List<int> _heavyPeers = new List<int>(4);
+
         private void TickHeavyLateJoinBulk()
         {
             if (_role != NetworkRole.Host || _session.Link.PendingHeavyLateJoinBulk.Count == 0)
                 return;
 
-            // Copy keys because the dictionary changes as peers finish.
-            var peers = new List<int>(_session.Link.PendingHeavyLateJoinBulk.Keys);
+            // Copy keys because the dictionary changes as peers finish (a kept list: this runs
+            // every frame while a join is pending).
+            List<int> peers = _heavyPeers;
+            peers.Clear();
+            peers.AddRange(_session.Link.PendingHeavyLateJoinBulk.Keys);
             for (int p = 0; p < peers.Count; p++)
             {
                 int playerId = peers[p];

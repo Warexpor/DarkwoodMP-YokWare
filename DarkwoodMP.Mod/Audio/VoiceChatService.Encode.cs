@@ -16,19 +16,54 @@ namespace DWMPHorde.Audio
     /// </summary>
     public static partial class VoiceChatService
     {
+        /// <summary>One packet on its way: recycled (<see cref="RentTxJob"/>), its buffers with it.</summary>
         private sealed class TxJob
         {
             public int Epoch;
-            public float[] Voice;
-            /// <summary>What the keyed radio picked up around its holder, or null.</summary>
-            public float[] World;
+            public float[] Voice = new float[VoiceCodec.PacketSamples];
+            public int VoiceCount;
+            /// <summary>What the keyed radio picked up around its holder (when <see cref="HasWorld"/>).</summary>
+            public readonly float[] World = new float[VoiceCodec.PacketSamples];
+            public bool HasWorld;
             public int PlayerId;
             public ushort Seq;
             public byte Flags;
             public byte Level;
-            public byte[] Data;
+            /// <summary>The encoded packet: its first <see cref="Length"/> bytes.</summary>
+            public readonly byte[] Data = new byte[WorldPrefixBytes + VoiceCodec.MaxBlockBytes * 2];
             public int Length;
         }
+
+        private const int TxPoolKeep = 16;
+        private static readonly Stack<TxJob> _txFree = new Stack<TxJob>(TxPoolKeep); // process-scoped: recycled jobs, either thread under its lock
+
+        private static TxJob RentTxJob(int voiceSamples)
+        {
+            TxJob job = null;
+            lock (_txFree)
+            {
+                if (_txFree.Count > 0)
+                    job = _txFree.Pop();
+            }
+            job = job ?? new TxJob();
+            if (job.Voice.Length < voiceSamples)
+                job.Voice = new float[voiceSamples];
+            return job;
+        }
+
+        private static void ReturnTxJob(TxJob job)
+        {
+            lock (_txFree)
+            {
+                if (_txFree.Count < TxPoolKeep)
+                    _txFree.Push(job);
+            }
+        }
+
+        /// <summary>The packet <see cref="SendEncoded"/> is putting on the wire (game thread), for <see cref="_writeSending"/>.</summary>
+        private static TxJob _sending; // process-scoped: set and cleared around one Broadcast call
+        private static readonly Action<NetWriter> _writeSending = w =>
+            VoiceDataMessage.WriteSlice(w, _sending.PlayerId, _sending.Seq, _sending.Flags, _sending.Level, _sending.Data, _sending.Length); // process-scoped: cached delegate
 
         private static readonly Queue<TxJob> _txIn = new Queue<TxJob>(8);   // reset-in: ResetEncoder
         private static readonly Queue<TxJob> _txOut = new Queue<TxJob>(8);  // reset-in: ResetEncoder
@@ -43,6 +78,7 @@ namespace DWMPHorde.Audio
             _txEpoch++;
             lock (_txIn) _txIn.Clear();
             lock (_txOut) _txOut.Clear();
+            // A job the encoder holds right now is dropped by its epoch and given back there.
         }
 
         private static void QueueEncode(TxJob job)
@@ -76,10 +112,21 @@ namespace DWMPHorde.Audio
                     job = _txOut.Dequeue();
                 }
                 if (job.Epoch != _txEpoch || net == null || !net.IsConnected)
+                {
+                    ReturnTxJob(job);
                     continue;
-                net.Broadcast(NetMessageType.VoiceData,
-                    w => VoiceDataMessage.WriteSlice(w, job.PlayerId, job.Seq, job.Flags, job.Level, job.Data, job.Length),
-                    DeliveryMethod.Unreliable);
+                }
+                // Broadcast writes the packet before it returns; the job is free after it.
+                _sending = job;
+                try
+                {
+                    net.Broadcast(NetMessageType.VoiceData, _writeSending, DeliveryMethod.Unreliable);
+                }
+                finally
+                {
+                    _sending = null;
+                }
+                ReturnTxJob(job);
                 _txPackets++;
             }
         }
@@ -88,7 +135,6 @@ namespace DWMPHorde.Audio
         {
             VoiceEncoder voiceEnc = null, worldEnc = null;
             int epoch = -1;
-            var buf = new byte[WorldPrefixBytes + VoiceCodec.MaxBlockBytes * 2];
             while (true)
             {
                 _txWake.WaitOne(250);
@@ -102,7 +148,10 @@ namespace DWMPHorde.Audio
                         job = _txIn.Dequeue();
                     }
                     if (job.Epoch != _txEpoch)
+                    {
+                        ReturnTxJob(job);
                         continue;
+                    }
                     try
                     {
                         if (job.Epoch != epoch)
@@ -112,10 +161,11 @@ namespace DWMPHorde.Audio
                             worldEnc = null;
                         }
                         long t0 = System.Diagnostics.Stopwatch.GetTimestamp();
-                        bool world = job.World != null;
+                        bool world = job.HasWorld;
+                        byte[] buf = job.Data;
                         int at = world ? WorldPrefixBytes : 0;
                         int voiceLen = (voiceEnc ?? (voiceEnc = new VoiceEncoder(speech: true)))
-                            .Encode(job.Voice, job.Voice.Length, buf, at);
+                            .Encode(job.Voice, job.VoiceCount, buf, at);
                         int len = at + voiceLen;
                         if (world)
                         {
@@ -126,8 +176,6 @@ namespace DWMPHorde.Audio
                                 .Encode(job.World, VoiceCodec.PacketSamples, buf, len);
                         }
                         Interlocked.Add(ref _encodeTicks, System.Diagnostics.Stopwatch.GetTimestamp() - t0);
-                        job.Data = new byte[len];
-                        Buffer.BlockCopy(buf, 0, job.Data, 0, len);
                         job.Length = len;
                         lock (_txOut) _txOut.Enqueue(job);
                     }
@@ -136,6 +184,7 @@ namespace DWMPHorde.Audio
                         _txError = ex.GetType().Name + ": " + ex.Message;
                         voiceEnc = null;
                         worldEnc = null;
+                        ReturnTxJob(job);
                     }
                 }
             }

@@ -57,12 +57,6 @@ namespace DWMPHorde.Sync
                 if (!_s.ScannedObjectIds.Add(rootId))
                     continue; // already processed from another scan center
 
-                string rootName = rootGo.name;
-                if (rootName == "Player" || rootName == "PlayerLegs" || rootName == "RemotePlayer") continue;
-                if (rootName.IndexOf("DoorSensor", StringComparison.Ordinal) >= 0) continue;
-                // Cheap name reject for common non-freebodies (avoids Character GetComponent).
-                if (rootName.IndexOf("RemotePlayer", StringComparison.Ordinal) >= 0) continue;
-
                 // Check for motion before touching components; idle free bodies
                 // are common in hideouts. Key by InstanceID (no name+id string alloc).
                 int trackingKey = rootId;
@@ -113,6 +107,15 @@ namespace DWMPHorde.Sync
 
                 if (_s.LastClientUpdateTime.TryGetValue(trackingKey, out float lastClient) && (now - lastClient) < 0.5f)
                     continue;
+
+                // Read after the motion test: an idle body (most of them, every scan) never pays
+                // for the name string. Not cached by id: vanilla renames bodies at runtime
+                // (ShadowArmor end restores name_noShadowArmor) and the name goes on the wire.
+                string rootName = rootGo.name;
+                if (rootName == "Player" || rootName == "PlayerLegs" || rootName == "RemotePlayer") continue;
+                if (rootName.IndexOf("DoorSensor", StringComparison.Ordinal) >= 0) continue;
+                // Cheap name reject for common non-freebodies (avoids Character GetComponent).
+                if (rootName.IndexOf("RemotePlayer", StringComparison.Ordinal) >= 0) continue;
 
                 // Heavy filters only for objects we are about to serialize.
                 // Personal pads (the host's prologue, a solo dream) are not the world.
@@ -225,7 +228,11 @@ namespace DWMPHorde.Sync
                 Character c = all[i];
                 if (c == null || !c.alive || !c.gameObject.activeInHierarchy)
                     continue;
-                Rigidbody rb = c.GetComponent<Rigidbody>();
+                // Vanilla keeps its own body (CharBase._rigidBody, set in Awake); look it up only
+                // when that is unset.
+                Rigidbody rb = c._rigidBody;
+                if (rb == null)
+                    rb = c.GetComponent<Rigidbody>();
                 if (rb == null || rb.velocity.sqrMagnitude < 1f)
                     continue;
                 Vector3 at = c.transform.position;

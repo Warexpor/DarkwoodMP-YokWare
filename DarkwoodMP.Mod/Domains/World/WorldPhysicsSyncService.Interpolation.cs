@@ -81,9 +81,7 @@ namespace DWMPHorde.Sync
                 float t = duration > 0.001f ? Mathf.Clamp01(elapsed / duration) : 1f;
 
                 Vector3 lerpPos = Vector3.Lerp(s.PrevPos, s.TargetPos, t);
-                Quaternion prevRotQ = Quaternion.Euler(s.PrevRot);
-                Quaternion targetRotQ = Quaternion.Euler(s.TargetRot);
-                Quaternion lerpRot = Quaternion.Slerp(prevRotQ, targetRotQ, t);
+                Quaternion lerpRot = Quaternion.Slerp(s.PrevRotQ, s.TargetRotQ, t);
 
                 // A switched-off body is not in the physics scene: only its transform moves it.
                 Rigidbody rb = s.Target.activeInHierarchy ? s.CachedRb : null;
@@ -93,7 +91,7 @@ namespace DWMPHorde.Sync
                     // Active lerp, or hold last target on host while waiting for next
                     // client PhysicsState (avoids freeze-then-teleport between packets).
                     Vector3 pos = t < 1f ? lerpPos : s.TargetPos;
-                    Quaternion rot = t < 1f ? lerpRot : Quaternion.Euler(s.TargetRot);
+                    Quaternion rot = t < 1f ? lerpRot : s.TargetRotQ;
                     if (rb != null)
                     {
                         LockKinematic(rb);

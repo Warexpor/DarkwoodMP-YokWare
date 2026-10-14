@@ -17,8 +17,11 @@ namespace DWMPHorde.Patches
             if (!NetGuard.ConnectedHost(out var net))
                 return true;
 
+            // Not diving (most frames): vanilla, before the component lookup.
+            if (!__instance.diving)
+                return true;
             Character character = __instance.GetComponent<Character>();
-            if (character == null || !character.alive || !__instance.diving || character.target == null)
+            if (character == null || !character.alive || character.target == null)
                 return true;
 
             Player host = Player.Instance;

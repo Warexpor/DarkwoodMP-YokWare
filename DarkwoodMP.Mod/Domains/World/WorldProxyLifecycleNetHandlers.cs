@@ -117,7 +117,8 @@ namespace DWMPHorde.Networking
             }
         }
 
-        public IEnumerable<RemotePlayerProxy> GetAllProxies()
+        /// <summary>The live proxies (a struct enumerator in foreach: nothing allocated per loop).</summary>
+        public Dictionary<int, RemotePlayerProxy>.ValueCollection GetAllProxies()
         {
             return _net.RemoteProxies.Values;
         }

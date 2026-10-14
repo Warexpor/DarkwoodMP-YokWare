@@ -81,6 +81,8 @@ namespace DWMPHorde.Sync
         private static int _nextId = 1;
         /// <summary>Bumped on every board change; the open map redraws when it moves.</summary>
         internal static int Version;
+        /// <summary>Bumped when a ping comes or goes (the pins themselves are unchanged: no full redraw).</summary>
+        internal static int PingVersion; // process-scoped: monotonic counter (the view compares, never resets)
         private static string _localTag; // process-scoped: hash of this install's constant key
 
         internal static MapPinKind ClampKind(int k) => k >= 0 && k < KindCount ? (MapPinKind)k : MapPinKind.Mark;
@@ -387,7 +389,7 @@ namespace DWMPHorde.Sync
                     Pings.Add(new MapPing { Pin = incoming, Until = Time.unscaledTime + PingSeconds });
                     while (Pings.Count > 8)
                         Pings.RemoveAt(0);
-                    Version++;
+                    PingVersion++;
                     if (!IsLocalOwner(incoming))
                         Notify(incoming.OwnerName + (Loc.Russian ? " подает сигнал на карте." : " pinged the map."));
                     ModLog.Event(LogCat.UI, "[MapPin] ping by " + incoming.OwnerName + " at "
@@ -430,7 +432,7 @@ namespace DWMPHorde.Sync
                 if (Pings[i].Until <= now)
                 {
                     Pings.RemoveAt(i);
-                    Version++;
+                    PingVersion++;
                 }
             }
         }

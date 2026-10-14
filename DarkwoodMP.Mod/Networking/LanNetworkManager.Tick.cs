@@ -16,6 +16,13 @@ namespace DWMPHorde.Networking
     /// </summary>
     public sealed partial class LanNetworkManager
     {
+        private static PlayerStateMessage _playerStateOut; // process-scoped: the state BroadcastHot is writing
+        private static readonly Action<NetWriter> WritePlayerStateOut = w => _playerStateOut.Serialize(w); // process-scoped: cached writer
+        private static DragSyncMessage _dragOut; // process-scoped: the drag pose BroadcastHot is writing
+        private static readonly Action<NetWriter> WriteDragOut = w => _dragOut.Serialize(w); // process-scoped: cached writer
+        /// <summary>This drag's stop (quiet tick) went out reliably; the quiet ticks after it go unreliably.</summary>
+        private bool _dragQuietReliableSent;
+
         private void Update()
         {
             Players.LocalGetUpHold.Tick(this);
@@ -238,7 +245,12 @@ namespace DWMPHorde.Networking
             if (Sync.FinalDreamsceneManager.IsLocalDead)
                 return;
 
-            _sendTimer = 0f;
+            // Keep 30 Hz on average: the remainder carries over (reset to zero, a send landed on
+            // the first frame past 33 ms after the last one: 25 a second at 75 or 100 fps, unevenly
+            // spaced). After a hitch at most half a step carries, so a stall does not burst.
+            _sendTimer -= SendInterval;
+            if (_sendTimer > SendInterval * 0.5f)
+                _sendTimer = SendInterval * 0.5f;
             Vector3 pos = local.transform.position;
 
             // When spectating, report original (saved) position to network so the remote
@@ -247,7 +259,13 @@ namespace DWMPHorde.Networking
             if (netPosOverride.HasValue)
                 pos = netPosOverride.Value;
 
-            Vector3 vel = (pos - _lastSentPosition) / SendInterval;
+            // Over the time that really passed since the last send (the beat varies with frames).
+            float sentNow = Time.unscaledTime;
+            float sinceSent = sentNow - _lastSentAt;
+            if (sinceSent <= 0f || sinceSent > SendInterval * 4f)
+                sinceSent = SendInterval;
+            _lastSentAt = sentNow;
+            Vector3 vel = (pos - _lastSentPosition) / sinceSent;
             _lastSentPosition = pos;
 
             // Host + clients: periodically sync wards / poison / bleed / skill flags to peers.
@@ -339,8 +357,10 @@ namespace DWMPHorde.Networking
             // Continue sending PlayerState to loading peers so their proxies
             // can be created before the rest of the join traffic.
             // while host muted PlayerState under skipLoadingPeers during world share / phase-3 mute.
-            BroadcastHot(NetMessageType.PlayerState, w => msg.Serialize(w),
-                skipLoadingPeers: false);
+            // A kept writer over a field: a lambda over msg made Update allocate on every frame.
+            _playerStateOut = msg;
+            BroadcastHot(NetMessageType.PlayerState, WritePlayerStateOut, skipLoadingPeers: false);
+            _playerStateOut = default;
             Players.LocalGetUpHold.NoteStateSent(torsoClip);
 
             // Detect OutsideLocation (basement/bunker) transitions
@@ -435,6 +455,8 @@ namespace DWMPHorde.Networking
             else if (local.dragging && local.itemBeingDragged != null)
             {
                 Item dragged = local.itemBeingDragged;
+                if (!ReferenceEquals(dragged, _lastDraggedItem))
+                    _dragQuietReliableSent = false; // another object: its stop is told again
                 _lastDraggedItem = dragged;
                 _lastDraggedItemName = dragged.gameObject.name;
                 // Claim this object so other players can't grab it simultaneously
@@ -488,12 +510,21 @@ namespace DWMPHorde.Networking
                     HasPose = true
                 };
                 Sync.SharedDrag.FillLeaderFields(ref dragMsg, dragged);
-                // Quiet scrape stop must be reliable; unreliable quiet ticks can be lost
-                // observers kept the last NoteMoving loop until full release.
-                var dragDelivery = _dragScrapeActive
-                    ? DeliveryMethod.Unreliable
-                    : DeliveryMethod.ReliableOrdered;
-                BroadcastHot(NetMessageType.DragSync, w => dragMsg.Serialize(w), dragDelivery);
+                // The scrape's stop must arrive (a lost one left observers on the last NoteMoving
+                // loop until the release): the first quiet tick goes reliably. The quiet ticks
+                // after it repeat the same pose and stop, so they go unreliably like the moving
+                // ones (sent reliably 30 a second, they queued every reliable event behind them).
+                DeliveryMethod dragDelivery = DeliveryMethod.Unreliable;
+                if (_dragScrapeActive)
+                    _dragQuietReliableSent = false;
+                else if (!_dragQuietReliableSent)
+                {
+                    dragDelivery = DeliveryMethod.ReliableOrdered;
+                    _dragQuietReliableSent = true;
+                }
+                _dragOut = dragMsg;
+                BroadcastHot(NetMessageType.DragSync, WriteDragOut, dragDelivery);
+                _dragOut = default;
                 _wasDragging = true;
             }
             else if (_wasDragging)

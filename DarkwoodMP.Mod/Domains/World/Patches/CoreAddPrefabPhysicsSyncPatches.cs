@@ -1,3 +1,4 @@
+using System;
 using DWMPHorde.Networking;
 using DWMPHorde.Sync;
 using HarmonyLib;
@@ -27,35 +28,36 @@ namespace DWMPHorde.Patches
                 return;
 
             // Skip Characters — entity state broadcast + pending match handles them
-            if (path.StartsWith("Characters/"))
+            if (path.StartsWith("Characters/", StringComparison.Ordinal))
                 return;
 
             // Skip items already synced by dedicated patches (avoid double-spawn)
             if (path == "Items/GasolineTrail" ||
                 path == "Items/DroppedItem" ||
                 path == "Items/DroppedItem_water" ||
-                path.StartsWith("Objects/_Unique/deathDrop"))
+                path.StartsWith("Objects/_Unique/deathDrop", StringComparison.Ordinal))
                 return;
 
             // Catch all Items, Traps, Objects, and gameplay-critical FX
-            if (!path.StartsWith("Items/") && !path.StartsWith("Traps/") &&
-                !path.StartsWith("Objects/") && !path.StartsWith("FX/"))
+            if (!path.StartsWith("Items/", StringComparison.Ordinal) && !path.StartsWith("Traps/", StringComparison.Ordinal) &&
+                !path.StartsWith("Objects/", StringComparison.Ordinal) && !path.StartsWith("FX/", StringComparison.Ordinal))
                 return;
 
             // Filter out pure cosmetic FX
-            if (path.StartsWith("FX/"))
+            if (path.StartsWith("FX/", StringComparison.Ordinal))
             {
-                if (path.StartsWith("FX/Bloodsplats/") ||
-                    path.StartsWith("FX/particles/") ||
-                    path.StartsWith("FX/skills/") ||
-                    path.StartsWith("FX/Muzzle/") ||
-                    path.StartsWith("FX/WaterRipple"))
+                if (path.StartsWith("FX/Bloodsplats/", StringComparison.Ordinal) ||
+                    path.StartsWith("FX/particles/", StringComparison.Ordinal) ||
+                    path.StartsWith("FX/skills/", StringComparison.Ordinal) ||
+                    path.StartsWith("FX/Muzzle/", StringComparison.Ordinal) ||
+                    path.StartsWith("FX/WaterRipple", StringComparison.Ordinal))
                     return;
             }
 
             var net = ModRuntime.Network;
             if (net == null) return;
 
+            Vector3 euler = rot.eulerAngles;
             // Broadcast: host → all clients; client → host (3+ peer fan-out on host receive).
             // Do not use Send() — that only reaches the first peer.
             net.Broadcast(NetMessageType.EntitySpawn,
@@ -65,9 +67,9 @@ namespace DWMPHorde.Patches
                     PosX = pos.x,
                     PosY = pos.y,
                     PosZ = pos.z,
-                    RotX = rot.eulerAngles.x,
-                    RotY = rot.eulerAngles.y,
-                    RotZ = rot.eulerAngles.z
+                    RotX = euler.x,
+                    RotY = euler.y,
+                    RotZ = euler.z
                 }.Serialize(w),
                 DeliveryMethod.ReliableOrdered);
 

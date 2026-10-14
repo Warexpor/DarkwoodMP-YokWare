@@ -333,6 +333,13 @@ namespace DWMPHorde.Patches
         /// <summary>How far behind the stand-in a chasing creature's chase point is, once a second.</summary>
         private static void TraceProxyChase(Character c)
         {
+            // The key and the closure (allocated on entry of the method that holds it) only when on.
+            if (ModLog.IsTrace(LogCat.AI))
+                TraceProxyChaseOn(c);
+        }
+
+        private static void TraceProxyChaseOn(Character c)
+        {
             Transform t = c.target;
             if (t == null || c.behaviour != Character.Behaviour.chasingTarget || !CanSeeComponentCache.IsProxy(t))
                 return;

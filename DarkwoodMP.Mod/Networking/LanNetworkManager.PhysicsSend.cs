@@ -22,11 +22,10 @@ namespace DWMPHorde.Networking
         /// </summary>
         private uint _nextPhysicsStateSequence;
 
+        private static PhysicsStateMessage _physWhole; // process-scoped: the snapshot BuildPacketHot is writing
+        private static readonly Action<NetWriter> WritePhysWhole = w => _physWhole.Serialize(w); // process-scoped: cached writer
+
         private readonly NetWriter _physMeasureWriter = new NetWriter();
-        private WorldObjectState[] _physSliceObjects = Array.Empty<WorldObjectState>();
-        private DoorState[] _physSliceDoors = Array.Empty<DoorState>();
-        private TrapState[] _physSliceTraps = Array.Empty<TrapState>();
-        private GeneratorState[] _physSliceGenerators = Array.Empty<GeneratorState>();
 
         /// <summary>
         /// Send a free-body PhysicsState snapshot unreliably, re-stamped from this node's own
@@ -44,9 +43,9 @@ namespace DWMPHorde.Networking
 
             msg.Reliable = false;
             msg.Sequence = ++_nextPhysicsStateSequence;
-            PhysicsStateMessage whole = msg;
-            BuildPacketHot(NetMessageType.PhysicsState, w => whole.Serialize(w),
-                out byte[] data, out int length);
+            _physWhole = msg;
+            BuildPacketHot(NetMessageType.PhysicsState, WritePhysWhole, out byte[] data, out int length);
+            _physWhole = default;
 
             int budget = MinUnreliablePacketBytes(false, skipLoadingPeers, excludePlayerId);
             if (length <= budget)
@@ -58,7 +57,7 @@ namespace DWMPHorde.Networking
             SendPhysicsStateChunked(msg, length, budget, skipLoadingPeers, excludePlayerId);
         }
 
-        /// <summary>Over-limit path, kept out of the hot method so its closures only allocate when it runs.</summary>
+        /// <summary>Over-limit path, kept out of the hot method so its work only runs when it is needed.</summary>
         private void SendPhysicsStateChunked(PhysicsStateMessage msg, int length, int budget,
             bool skipLoadingPeers, int excludePlayerId)
         {
@@ -66,104 +65,73 @@ namespace DWMPHorde.Networking
             int dc = msg.EffectiveDoorCount;
             int tc = msg.EffectiveTrapCount;
             int gc = msg.EffectiveGeneratorCount;
-            int cap = Math.Max(budget - PhysicsStateFrameBytes, 64);
-            int oi = 0, di = 0, ti = 0, gi = 0;
-            int packets = 0;
-            while (oi < oc || di < dc || ti < tc || gi < gc)
-            {
-                int os = oi, ds = di, ts = ti, gs = gi;
-                int used = 0;
-                bool full = false;
 
+            // Every entry serialized once, back to back in category order (as the whole message
+            // lays them out); each packet then copies its run of each category. The bytes are the
+            // ones a PhysicsStateMessage of that slice would write.
+            NetWriter body = _physMeasureWriter;
+            body.Reset();
+            EnsureSliceCapacity(ref _physEnds, oc + dc + tc + gc);
+            int[] ends = _physEnds;
+            int e = 0;
+            for (int i = 0; i < oc; i++) { msg.Objects[i].Serialize(body); ends[e++] = body.Length; }
+            for (int i = 0; i < dc; i++) { msg.Doors[i].Serialize(body); ends[e++] = body.Length; }
+            for (int i = 0; i < tc; i++) { msg.Traps[i].Serialize(body); ends[e++] = body.Length; }
+            for (int i = 0; i < gc; i++) { msg.Generators[i].Serialize(body); ends[e++] = body.Length; }
+            byte[] bytes = body.RawBuffer;
+            int total = oc + dc + tc + gc;
+
+            int cap = Math.Max(budget - PhysicsStateFrameBytes, 64);
+            int next = 0; // entry index across the four categories
+            int packets = 0;
+            while (next < total)
+            {
+                int first = next;
+                int startAt = first > 0 ? ends[first - 1] : 0;
                 // Always take at least one entry per packet so the loop terminates; an entry that
                 // alone exceeds the limit is promoted to ReliableOrdered by SendToLanPeer.
-                while (!full && oi < oc)
-                {
-                    _physMeasureWriter.Reset();
-                    msg.Objects[oi].Serialize(_physMeasureWriter);
-                    int sz = _physMeasureWriter.Length;
-                    if (used > 0 && used + sz > cap) { full = true; break; }
-                    used += sz;
-                    oi++;
-                }
-                while (!full && di < dc)
-                {
-                    _physMeasureWriter.Reset();
-                    msg.Doors[di].Serialize(_physMeasureWriter);
-                    int sz = _physMeasureWriter.Length;
-                    if (used > 0 && used + sz > cap) { full = true; break; }
-                    used += sz;
-                    di++;
-                }
-                while (!full && ti < tc)
-                {
-                    _physMeasureWriter.Reset();
-                    msg.Traps[ti].Serialize(_physMeasureWriter);
-                    int sz = _physMeasureWriter.Length;
-                    if (used > 0 && used + sz > cap) { full = true; break; }
-                    used += sz;
-                    ti++;
-                }
-                while (!full && gi < gc)
-                {
-                    _physMeasureWriter.Reset();
-                    msg.Generators[gi].Serialize(_physMeasureWriter);
-                    int sz = _physMeasureWriter.Length;
-                    if (used > 0 && used + sz > cap) { full = true; break; }
-                    used += sz;
-                    gi++;
-                }
+                next++;
+                while (next < total && ends[next] - startAt <= cap)
+                    next++;
 
-                var slice = new PhysicsStateMessage
-                {
-                    Reliable = false,
-                    Sequence = ++_nextPhysicsStateSequence
-                };
-                int n = oi - os;
-                if (n > 0)
-                {
-                    EnsureSliceCapacity(ref _physSliceObjects, n);
-                    Array.Copy(msg.Objects, os, _physSliceObjects, 0, n);
-                    slice.Objects = _physSliceObjects;
-                    slice.ObjectCount = n;
-                }
-                n = di - ds;
-                if (n > 0)
-                {
-                    EnsureSliceCapacity(ref _physSliceDoors, n);
-                    Array.Copy(msg.Doors, ds, _physSliceDoors, 0, n);
-                    slice.Doors = _physSliceDoors;
-                    slice.DoorCount = n;
-                }
-                n = ti - ts;
-                if (n > 0)
-                {
-                    EnsureSliceCapacity(ref _physSliceTraps, n);
-                    Array.Copy(msg.Traps, ts, _physSliceTraps, 0, n);
-                    slice.Traps = _physSliceTraps;
-                    slice.TrapCount = n;
-                }
-                n = gi - gs;
-                if (n > 0)
-                {
-                    EnsureSliceCapacity(ref _physSliceGenerators, n);
-                    Array.Copy(msg.Generators, gs, _physSliceGenerators, 0, n);
-                    slice.Generators = _physSliceGenerators;
-                    slice.GeneratorCount = n;
-                }
-
-                PhysicsStateMessage chunk = slice;
-                BuildPacketHot(NetMessageType.PhysicsState, w => chunk.Serialize(w),
-                    out byte[] cdata, out int clen);
-                FanOutHot(cdata, clen, DeliveryMethod.Unreliable, skipLoadingPeers, excludePlayerId);
+                NetWriter w = _hotPacketWriter;
+                w.Reset();
+                w.Put((byte)NetMessageType.PhysicsState);
+                w.Put(false);
+                w.Put(++_nextPhysicsStateSequence);
+                PutRun(w, bytes, ends, first, next, 0, oc);
+                PutRun(w, bytes, ends, first, next, oc, oc + dc);
+                PutRun(w, bytes, ends, first, next, oc + dc, oc + dc + tc);
+                PutRun(w, bytes, ends, first, next, oc + dc + tc, total);
+                w.CopyDataInto(ref _hotPacketBuf, out int clen);
+                FanOutHot(_hotPacketBuf, clen, DeliveryMethod.Unreliable, skipLoadingPeers, excludePlayerId);
                 packets++;
             }
 
-            ModLog.TraceRate(LogCat.Network, "phys-split",
-                () => "PhysicsState split into " + packets + " packets (" + length + "B whole > "
-                    + budget + "B limit; objs=" + oc + " doors=" + dc + " traps=" + tc + " gens=" + gc + ")",
-                5f);
+            if (ModLog.IsTrace(LogCat.Network))
+                ModLog.TraceRate(LogCat.Network, "phys-split",
+                    "PhysicsState split into " + packets + " packets (" + length + "B whole > "
+                        + budget + "B limit; objs=" + oc + " doors=" + dc + " traps=" + tc + " gens=" + gc + ")",
+                    5f);
         }
+
+        /// <summary>
+        /// One category's part of a packet: its count, then the entries of
+        /// [<paramref name="from"/>, <paramref name="to"/>) that fall in [<paramref name="catFrom"/>, <paramref name="catTo"/>).
+        /// </summary>
+        private static void PutRun(NetWriter w, byte[] bytes, int[] ends, int from, int to, int catFrom, int catTo)
+        {
+            int a = Math.Max(from, catFrom);
+            int b = Math.Min(to, catTo);
+            int n = b > a ? b - a : 0;
+            w.Put(n);
+            if (n == 0)
+                return;
+            int startAt = a > 0 ? ends[a - 1] : 0;
+            w.PutRaw(bytes, startAt, ends[b - 1] - startAt);
+        }
+
+        private int[] _physEnds = Array.Empty<int>();
 
         private static void EnsureSliceCapacity<T>(ref T[] buf, int n)
         {

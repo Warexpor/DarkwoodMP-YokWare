@@ -14,6 +14,8 @@ namespace DWMPHorde.Players
         private SecondPlayerAnimController _anim;
         private Transform _shadow;
         private Vector3 _targetPosition;
+        /// <summary>The player's positions, played back a short delay behind (FixedUpdate follows it).</summary>
+        private readonly RemotePoseTimeline _timeline = new RemotePoseTimeline();
         private float _targetRotationY;
         private Vector3 _pushOffset;
         private float _blockedTime;
@@ -39,7 +41,17 @@ namespace DWMPHorde.Players
         /// transitions to prevent the proxy from drifting while the remote player
         /// loads the dream scene. Cleared when the remote confirms dream entry.
         /// </summary>
-        public bool FreezePosition { get => _freezePosition; set => _freezePosition = value; }
+        public bool FreezePosition
+        {
+            get => _freezePosition;
+            set
+            {
+                // Positions from before or during the hold are not played back after it.
+                if (_freezePosition != value)
+                    _timeline.Clear();
+                _freezePosition = value;
+            }
+        }
 
         /// <summary>The network PlayerId this proxy represents.</summary>
         public int PlayerId { get; set; } = -1;
@@ -60,6 +72,7 @@ namespace DWMPHorde.Players
                 if (_coHeld == value)
                     return;
                 _coHeld = value;
+                _timeline.Clear();
                 if (!value && _rb != null)
                 {
                     _targetPosition = _rb.position;

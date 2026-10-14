@@ -66,6 +66,7 @@ namespace DWMPHorde.Audio
 
         public static void Reset()
         {
+            EnableTaps(false);
             _active = false;
             _nextSweep = 0f;
         }
@@ -83,6 +84,8 @@ namespace DWMPHorde.Audio
                 }
                 _nextSweep = 0f;
             }
+            if (on != _active)
+                EnableTaps(on);
             _active = on;
             // Sources that do not come from the game's sound pool (ambient emitters placed in
             // the scenes, the mod's own) are found by looking, now and then while keyed.
@@ -118,12 +121,32 @@ namespace DWMPHorde.Audio
             go.GetComponents(_sources);
             if (_sources.Count != 1 || go.GetComponent<AudioListener>() != null)
                 return;
-            go.AddComponent<Tap>();
+            Tap tap = go.AddComponent<Tap>();
+            // Off while the radio is not keyed: a disabled filter is skipped by the sound card's
+            // thread (it only passes the sound through, so nothing changes in what is heard).
+            tap.enabled = _active;
+            _tapList.Add(tap);
             VoiceChatService.MixerRunsScripts = true;
             _taps++;
         }
 
         private static readonly List<AudioSource> _sources = new List<AudioSource>(2); // process-scoped: scratch
+        private static readonly List<Tap> _tapList = new List<Tap>(64); // process-scoped: every tap handed out (destroyed ones dropped on the next switch)
+
+        /// <summary>Every tap on (the radio was keyed) or off (it was let go).</summary>
+        private static void EnableTaps(bool on)
+        {
+            for (int i = _tapList.Count - 1; i >= 0; i--)
+            {
+                Tap t = _tapList[i];
+                if (t == null)
+                {
+                    _tapList.RemoveAt(i);
+                    continue;
+                }
+                t.enabled = on;
+            }
+        }
         private static int _taps; // process-scoped: stats
         private static int _sent; // process-scoped: stats
         private static float _peak; // process-scoped: stats

@@ -285,8 +285,8 @@ namespace DWMPHorde.Networking
                 LegFacingY = reader.GetShort(),
                 ReverseLegs = reader.GetBool(),
                 TorsoFacingY = reader.GetShort(),
-                TorsoClip = reader.GetString(),
-                LegsClip = reader.GetString(),
+                TorsoClip = reader.GetClipString(),
+                LegsClip = reader.GetClipString(),
                 CurrentFrame = reader.GetShort(),
                 InBearTrap = reader.GetBool(),
                 HasLightProtection = reader.GetBool(),
@@ -316,7 +316,7 @@ namespace DWMPHorde.Networking
                     msg.FlareColorB = reader.GetFloat();
                 }
                 if (msg.FlareHasItemType)
-                    msg.FlareItemType = reader.GetString();
+                    msg.FlareItemType = reader.GetClipString();
             }
             if (msg.FlashlightActive && msg.FlashHasParams)
             {

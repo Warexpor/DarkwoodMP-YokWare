@@ -363,12 +363,15 @@ namespace DWMPHorde.Patches
     [HarmonyPatch(typeof(Item), "openInventory")]
     public static class ContainerSearchedPatch
     {
+        /// <summary>Vanilla's private Item.inventory.</summary>
+        private static readonly HarmonyLib.AccessTools.FieldRef<Item, Inventory> ItemInventory =
+            HarmonyLib.AccessTools.FieldRefAccess<Item, Inventory>("inventory");
+
         private static void Postfix(Item __instance)
         {
             if (LanNetworkManager.IsApplyingRemoteState) return;
             if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected) return;
-            // Access the private 'inventory' field via Harmony Traverse
-            Inventory inv = HarmonyLib.Traverse.Create(__instance).Field("inventory").GetValue<Inventory>();
+            Inventory inv = ItemInventory(__instance);
             if (inv == null) return;
             // A personal pad's container (a solo dream's cupboard) is this player's alone.
             if (PersonalPads.Contains(inv.transform)) return;

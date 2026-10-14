@@ -371,6 +371,7 @@ namespace DWMPHorde
             // input while a field is typed in.
             YokWare.VanillaMenu.Vm.Translate = Loc.T;
             YokWare.VanillaMenu.Vm.EditLock = held => UiInputLock.Set("menu-edit", held);
+            YokWare.VanillaMenu.Vm.SliderDrag = ModConfig.DeferSaves;
 
             ChatHud.EnsureExists();
             Nameplates.EnsureExists();
@@ -385,6 +386,7 @@ namespace DWMPHorde
         {
             Network?.StopNetwork();
             UiInputLock.ReleaseAll();
+            ModConfig.FlushPendingSave();
             _harmony?.UnpatchSelf();
             if (_runtimeRoot != null)
                 Object.Destroy(_runtimeRoot);

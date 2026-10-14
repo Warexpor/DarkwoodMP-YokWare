@@ -82,6 +82,7 @@ namespace DWMPHorde.Sync
         private static Map.Type _type;
         private static int _chapter;
         private static int _drawnVersion = -1;
+        private static int _drawnPingVersion = -1;
         private static float _lastLmbAt = -10f;
         private static int _lastLmbPinId;
         private static float _lastPingAt = -10f;
@@ -133,6 +134,7 @@ namespace DWMPHorde.Sync
             HoveredId = 0;
             EditingId = 0;
             _drawnVersion = -1;
+            _drawnPingVersion = -1;
             _lastLmbPinId = 0;
             _ghostUntil = -10f;
             GhostShown = false;
@@ -168,6 +170,8 @@ namespace DWMPHorde.Sync
 
             if (_drawnVersion != MapPinBoard.Version)
                 Redraw();
+            else if (_drawnPingVersion != MapPinBoard.PingVersion)
+                AddNewPings();
             AnimatePings();
 
             bool haveCursor = TryCursorWorld(out float cx, out float cz);
@@ -268,7 +272,16 @@ namespace DWMPHorde.Sync
                 };
                 _drawn.Add(d);
             }
-            // Pings live in their own list (pulsing, timed); rebuild the ones that are new.
+            AddNewPings();
+        }
+
+        /// <summary>
+        /// Pings live in their own list (pulsing, timed): only the new ones are made. A ping that
+        /// ran out is taken down by <see cref="AnimatePings"/>, so the pins are not redrawn for it.
+        /// </summary>
+        private static void AddNewPings()
+        {
+            _drawnPingVersion = MapPinBoard.PingVersion;
             for (int i = 0; i < MapPinBoard.Pings.Count; i++)
             {
                 MapPing ping = MapPinBoard.Pings[i];
@@ -353,13 +366,47 @@ namespace DWMPHorde.Sync
             // Where vanilla puts it for a location's icon.
             Vector3 p = d.Icon.transform.position;
             Vector2 at = new Vector2(p.x - 18f, p.z + 40f - Screen.height) / Core.ResolutionWidthModifier;
-            popup.show(PopupKey, at, YokWare.VanillaMenu.Vm.ForMenuFont(desc));
+            string shownDesc = YokWare.VanillaMenu.Vm.ForMenuFont(desc);
+            // Hovered every frame: shown again only when something moved it, hid it or wrote over
+            // it (show rebuilds the popup's texts and layout each call).
+            if (!PopupStillShows(popup, shownDesc, at))
+            {
+                popup.show(PopupKey, at, shownDesc);
+                _shownDesc = shownDesc;
+                _shownAt = at;
+                _shownScreen = new Vector2Int(Screen.width, Screen.height);
+                _shownOffset = PopupPositionRef(popup) != null ? PopupPositionRef(popup).offset : Vector2.zero;
+            }
             string title = YokWare.VanillaMenu.Vm.ForMenuFont(Loc.T(MapPinBoard.KindName(pin.Kind)));
             if (_popupName.text != title)
             {
                 _popupName.text = title;
                 _popupName.Commit();
             }
+        }
+
+        private static readonly AccessTools.FieldRef<ItemPopup, tk2dTextMesh> PopupDescRef =
+            AccessTools.FieldRefAccess<ItemPopup, tk2dTextMesh>("descriptionText");
+        private static readonly AccessTools.FieldRef<ItemPopup, PositionMe> PopupPositionRef =
+            AccessTools.FieldRefAccess<ItemPopup, PositionMe>("positionMe");
+        private static string _shownDesc; // process-scoped: the pin popup as last shown
+        private static Vector2 _shownAt; // process-scoped: its asked-for spot
+        private static Vector2 _shownOffset; // process-scoped: where show (with its clamp) put it
+        private static Vector2Int _shownScreen; // process-scoped: the screen it was clamped to
+
+        /// <summary>The popup is still up exactly as the last show of this text at this spot left it.</summary>
+        private static bool PopupStillShows(ItemPopup popup, string desc, Vector2 at)
+        {
+            if (_shownDesc == null || !popup.gameObject.activeSelf || popup.type != ItemPopup.Type.none)
+                return false;
+            if (!string.Equals(desc, _shownDesc, System.StringComparison.Ordinal) || at != _shownAt
+                || Screen.width != _shownScreen.x || Screen.height != _shownScreen.y)
+                return false;
+            tk2dTextMesh descText = PopupDescRef(popup);
+            PositionMe pos = PopupPositionRef(popup);
+            return descText != null && pos != null
+                && string.Equals(descText.text, desc, System.StringComparison.Ordinal)
+                && pos.offset == _shownOffset;
         }
 
         private static void UpdateGhost(bool show, float x, float z, float fade)
@@ -437,7 +484,22 @@ namespace DWMPHorde.Sync
 
         // ── Cursor ────────────────────────────────────────────────────────────────
 
-        private static Camera UiCamera => Core.CamUI != null ? Core.CamUI.GetComponent<Camera>() : null;
+        private static GameObject _uiCamObj; // process-scoped: Core.CamUI the camera below came from
+        private static Camera _uiCam; // process-scoped: its Camera (read per pin per frame)
+
+        private static Camera UiCamera
+        {
+            get
+            {
+                GameObject camObj = Core.CamUI;
+                if (!ReferenceEquals(camObj, _uiCamObj) || (camObj != null && _uiCam == null))
+                {
+                    _uiCamObj = camObj;
+                    _uiCam = camObj != null ? camObj.GetComponent<Camera>() : null;
+                }
+                return camObj != null ? _uiCam : null;
+            }
+        }
 
         /// <summary>
         /// The world spot under the cursor: the cursor ray meets the icon plane, and the icon holder's

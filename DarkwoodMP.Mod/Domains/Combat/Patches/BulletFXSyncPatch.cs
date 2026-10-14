@@ -51,6 +51,8 @@ namespace DWMPHorde.Patches
         private static float _lastBloodForwardTime = -1f;
         private static Vector3 _lastBloodForwardPos;
         private static string _lastBloodForwardPrefab;
+        private static string _shortPrefab; // process-scoped: last short blood prefab name
+        private static string _shortPrefabFull; // process-scoped: its FX/Bloodsplats/ path
 
         /// <summary>
         /// Inside a player's own getHit run for damage that came over the network (DamagePlayer,
@@ -82,9 +84,19 @@ namespace DWMPHorde.Patches
                 return;
 
             // Full path for Character.getHit; short pool name for projectile Shotsplat1.
-            string fullPrefab = prefab.StartsWith("FX/", System.StringComparison.OrdinalIgnoreCase)
-                ? prefab
-                : "FX/Bloodsplats/" + prefab;
+            string fullPrefab;
+            if (prefab.StartsWith("FX/", System.StringComparison.OrdinalIgnoreCase))
+                fullPrefab = prefab;
+            else
+            {
+                // Made once per short name (it is the same pool name every shot).
+                if (!string.Equals(prefab, _shortPrefab, System.StringComparison.Ordinal))
+                {
+                    _shortPrefab = prefab;
+                    _shortPrefabFull = "FX/Bloodsplats/" + prefab;
+                }
+                fullPrefab = _shortPrefabFull;
+            }
 
             // Dedupe AddPrefab prefix + getHit postfix for the same splat.
             float now = Time.unscaledTime;
@@ -99,14 +111,14 @@ namespace DWMPHorde.Patches
             const float MAX_BLOOD_DISTANCE = GameplayConstants.EntityActivationRange;
             bool nearPlayer = false;
             if (Player.Instance != null
-                && Vector3.Distance(position, Player.Instance.transform.position) <= MAX_BLOOD_DISTANCE)
+                && (position - Player.Instance.transform.position).sqrMagnitude <= MAX_BLOOD_DISTANCE * MAX_BLOOD_DISTANCE)
                 nearPlayer = true;
             if (!nearPlayer)
             {
                 foreach (var proxy in net.GetAllProxies())
                 {
                     if (proxy == null) continue;
-                    if (Vector3.Distance(position, proxy.transform.position) <= MAX_BLOOD_DISTANCE)
+                    if ((position - proxy.transform.position).sqrMagnitude <= MAX_BLOOD_DISTANCE * MAX_BLOOD_DISTANCE)
                     {
                         nearPlayer = true;
                         break;

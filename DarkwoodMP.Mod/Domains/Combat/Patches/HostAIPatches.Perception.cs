@@ -295,14 +295,13 @@ namespace DWMPHorde.Patches
             if (ModRuntime.Network == null || ModRuntime.Network.Role != NetworkRole.Host)
                 return true;
 
-            CharBase cb = _collider.GetComponentInParent<CharBase>();
-            if (cb == null)
-                return true;
-
             // Only the remote body has several child colliders that each fire
             // this swing. Debouncing every character was eating real second hits.
+            // (Tested first: most hits are not on a remote body, and both exits run vanilla.)
             RemotePlayerProxy proxy = _collider.GetComponentInParent<RemotePlayerProxy>();
             if (proxy == null)
+                return true;
+            if (_collider.GetComponentInParent<CharBase>() == null)
                 return true;
 
             Transform attacker = __instance.attackerTransform;

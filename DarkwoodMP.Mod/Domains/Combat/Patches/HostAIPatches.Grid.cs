@@ -50,17 +50,7 @@ namespace DWMPHorde.Patches
             {
                 if (!nodes[i].entered)
                     continue;
-                Vector2 np = nodes[i].position;
-                bool near = false;
-                foreach (Vector3 proxyPos in PlayerPositionManager.GetAllRemotePositions())
-                {
-                    if (Mathf.Abs(proxyPos.x - np.x) <= activationRange && Mathf.Abs(proxyPos.z - np.y) <= activationRange)
-                    {
-                        near = true;
-                        break;
-                    }
-                }
-                if (!near)
+                if (!PlayerPositionManager.AnyFreshRemoteNear(nodes[i].position, activationRange))
                     nodes[i].leave(false);
             }
         }
@@ -96,25 +86,18 @@ namespace DWMPHorde.Patches
     [HarmonyPatch(typeof(WorldGrid.Node), "leave", new[] { typeof(bool) })]
     public static class WorldGridNodeLeavePatch
     {
-        private static bool Prefix(WorldGrid.Node __instance)
+        private static bool Prefix(WorldGrid.Node __instance, bool force)
         {
+            // Vanilla leave is a no-op on a node not entered (unless forced): nothing to keep.
+            if (!force && !__instance.entered)
+                return true;
             if (ModRuntime.Network == null || ModRuntime.Network.Role != NetworkRole.Host)
                 return true;
             if (!PlayerPositionManager.HasRemotePlayer)
                 return true;
 
-            Vector2 np = __instance.position;
-            float activationRange = GameplayConstants.EntityActivationRange;
-
-            foreach (Vector3 proxyPos in PlayerPositionManager.GetAllRemotePositions())
-            {
-                bool proxyNear = Mathf.Abs(proxyPos.x - np.x) <= activationRange
-                              && Mathf.Abs(proxyPos.z - np.y) <= activationRange;
-                if (CoopWorldPresencePolicy.ShouldKeepNodeForRemote(true, proxyNear))
-                    return false;
-            }
-
-            return true;
+            bool proxyNear = PlayerPositionManager.AnyFreshRemoteNear(__instance.position, GameplayConstants.EntityActivationRange);
+            return !CoopWorldPresencePolicy.ShouldKeepNodeForRemote(true, proxyNear);
         }
     }
 

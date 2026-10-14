@@ -280,6 +280,23 @@ namespace DWMPHorde.Networking
         /// Held flare continuous light only while the lit projectile is still parented as heldItem
         /// (aim / pre-throw). Hotbar selection alone must NOT light the proxy (F1/F2).
         /// </summary>
+        private static UnityEngine.Object _flareHeld; // process-scoped: the held item _flare was looked up on
+        private static Flare _flare; // process-scoped: its Flare (null: none)
+
+        /// <summary>The held item's Flare, looked up again only for another held item (both light checks run 30 times a second).</summary>
+        private static Flare HeldFlare(Player local)
+        {
+            var held = local.heldItem;
+            if (!ReferenceEquals(held, _flareHeld) || (_flare is object && _flare == null))
+            {
+                _flareHeld = held;
+                _flare = held.GetComponent<Flare>();
+                if (_flare == null)
+                    _flare = held.GetComponentInChildren<Flare>(true);
+            }
+            return _flare;
+        }
+
         internal static bool TryGetLocalHeldFlareLight(Player local, out Light2D light, out Flare flare)
         {
             light = null;
@@ -291,8 +308,7 @@ namespace DWMPHorde.Networking
             if (ht.parent == null)
                 return false;
 
-            flare = local.heldItem.GetComponent<Flare>()
-                ?? local.heldItem.GetComponentInChildren<Flare>(true);
+            flare = HeldFlare(local);
             if (flare != null && flare.light2D != null)
             {
                 light = flare.light2D;
@@ -330,8 +346,7 @@ namespace DWMPHorde.Networking
             if (ht.parent == null)
                 return false;
             // Flare path owns Flare components.
-            if (local.heldItem.GetComponent<Flare>() != null
-                || local.heldItem.GetComponentInChildren<Flare>(true) != null)
+            if (HeldFlare(local) != null)
                 return false;
 
             string t = local.currentItem != null ? local.currentItem.type : null;

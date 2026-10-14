@@ -77,7 +77,7 @@ namespace DWMPHorde.Audio
             used = 0;
             while (_out.Count - used >= FrameSamples)
             {
-                var frame = new float[FrameSamples];
+                float[] frame = VoiceFramePool.Rent();
                 for (int i = 0; i < FrameSamples; i++)
                 {
                     float v = _out[used + i];
@@ -113,6 +113,39 @@ namespace DWMPHorde.Audio
             _rn.Process(frame, 0);
             for (int i = 0; i < frame.Length; i++)
                 frame[i] *= 1f / ToModelScale;
+        }
+    }
+
+    /// <summary>
+    /// The mic's finished packets, recycled: one is made on the mic's thread every 40 ms for as
+    /// long as voice is on, and the game's frame gives each back once it has sent it (the one
+    /// kept as the next talk's first syllable goes back when a newer one takes its place).
+    /// A packet not given back is only garbage, as before.
+    /// </summary>
+    internal static class VoiceFramePool
+    {
+        private const int Keep = 16;
+        private static readonly Stack<float[]> _free = new Stack<float[]>(Keep); // process-scoped: recycled buffers, any thread under its lock
+
+        internal static float[] Rent()
+        {
+            lock (_free)
+            {
+                if (_free.Count > 0)
+                    return _free.Pop();
+            }
+            return new float[VoiceCodec.PacketSamples];
+        }
+
+        internal static void Return(float[] frame)
+        {
+            if (frame == null || frame.Length != VoiceCodec.PacketSamples)
+                return;
+            lock (_free)
+            {
+                if (_free.Count < Keep)
+                    _free.Push(frame);
+            }
         }
     }
 }

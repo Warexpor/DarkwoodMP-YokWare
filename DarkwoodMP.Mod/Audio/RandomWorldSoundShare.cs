@@ -21,11 +21,17 @@ namespace DWMPHorde.Audio
     /// </summary>
     internal static class RandomWorldSoundShare
     {
+        private static int[] _counts; // process-scoped: scratch (prefix to postfix of one roll step)
+
         internal static int[] PlayedCounts(RandomWorldSounds rws)
         {
             if (rws == null || rws.randomSounds == null)
                 return null;
-            var counts = new int[rws.randomSounds.Count];
+            // One step's snapshot, read back by its postfix before the next step: kept, not made per step.
+            int n = rws.randomSounds.Count;
+            if (_counts == null || _counts.Length != n)
+                _counts = new int[n];
+            int[] counts = _counts;
             for (int i = 0; i < counts.Length; i++)
                 counts[i] = rws.randomSounds[i] != null ? rws.randomSounds[i].timesPlayedToday : 0;
             return counts;

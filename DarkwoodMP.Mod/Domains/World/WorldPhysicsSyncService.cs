@@ -326,6 +326,9 @@ namespace DWMPHorde.Sync
             public Light2D[] Lights;
             /// <summary>Optional sibling (held FlareFx) destroyed after fade completes.</summary>
             public GameObject SiblingDestroy;
+            /// <summary>Flares under <see cref="Go"/> / <see cref="SiblingDestroy"/>, gathered at fade start (dimmed each frame).</summary>
+            public Flare[] Flares;
+            public Flare[] SiblingFlares;
         }
 
         private static readonly List<GeneratorState> _generators = new List<GeneratorState>(); // process-scoped: per-build scratch
@@ -348,6 +351,9 @@ namespace DWMPHorde.Sync
             public float TargetTime;
             public Vector3 PrevRot;
             public Vector3 TargetRot;
+            /// <summary>Quaternion.Euler of <see cref="PrevRot"/> / <see cref="TargetRot"/>, set with them (read every frame).</summary>
+            public Quaternion PrevRotQ;
+            public Quaternion TargetRotQ;
             public Rigidbody CachedRb;
             public Item CachedItem;
             public bool CachedComps;

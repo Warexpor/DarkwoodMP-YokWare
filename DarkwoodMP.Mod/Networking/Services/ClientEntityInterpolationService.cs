@@ -24,6 +24,9 @@ namespace DWMPHorde.Networking
             public bool isFirst;
             public float staleSince;
             public Rigidbody CachedRb;
+            /// <summary>The flier shadow's sprite, cached against the shadow transform it came from.</summary>
+            public Transform ShadowOf;
+            public tk2dBaseSprite ShadowSprite;
             /// <summary>Host-time-stamped poses; rendered <see cref="delay"/> behind the host clock.</summary>
             public readonly EntityTimeline Timeline = new EntityTimeline();
             /// <summary>Current render delay (slews toward this body's target, see <see cref="TargetDelay"/>).</summary>
@@ -54,6 +57,8 @@ namespace DWMPHorde.Networking
 
         /// <summary>Name / prefab per host id; snapshots carry them only on first sends and the 1 s resync.</summary>
         private static readonly Dictionary<short, EntityDescriptor> _descriptors = new Dictionary<short, EntityDescriptor>(64);
+        /// <summary>Each host id's last clip as written on the wire (left out while unchanged, protocol 73).</summary>
+        private static readonly Dictionary<short, string> _clipByIndex = new Dictionary<short, string>(64);
         private static readonly HostClockEstimator _hostClock = new HostClockEstimator(); // reset-in: Reset
         /// <summary>Lateness of each snapshot batch against the clock estimate: the render delay's margin.</summary>
         private static readonly ArrivalJitter _jitter = new ArrivalJitter(); // reset-in: Reset
@@ -149,7 +154,6 @@ namespace DWMPHorde.Networking
         private static readonly HashSet<short> _audioStoppedIds = new HashSet<short>();
         private static readonly HashSet<short> _deathAnimationPlayed = new HashSet<short>();
         private static readonly HashSet<short> _everHostSyncedIds = new HashSet<short>();
-        private static readonly Dictionary<Character, float> _unmatchedSince = new Dictionary<Character, float>(64);
         private static readonly Dictionary<Character, float> _pendingCorpseSince = new Dictionary<Character, float>(16);
         private struct LocalHit
         {
@@ -280,12 +284,7 @@ namespace DWMPHorde.Networking
         /// distance check would reject valid snapshots.
         /// </summary>
         public static bool IsInClientInterest(Vector3 worldPos)
-        {
-            Vector3 listen = LocalAudioService.GetListenPosition();
-            float dx = worldPos.x - listen.x;
-            float dz = worldPos.z - listen.z;
-            return dx * dx + dz * dz <= ClientInterestDistanceSq;
-        }
+            => IsInClientInterest(worldPos, LocalAudioService.GetListenPosition(), false);
 
         /// <summary>
         /// Interest with hysteresis: a body this client drives stays driven out to the leave
@@ -293,8 +292,14 @@ namespace DWMPHorde.Networking
         /// flap between driven and undriven (state wipe, hard snap, loop restart).
         /// </summary>
         private static bool IsInClientInterest(Vector3 worldPos, bool driven)
+            => IsInClientInterest(worldPos, LocalAudioService.GetListenPosition(), driven);
+
+        /// <summary>
+        /// Same test against a listener position the caller read once (a loop over every body or
+        /// snapshot row: the listener does not move inside it).
+        /// </summary>
+        private static bool IsInClientInterest(Vector3 worldPos, Vector3 listen, bool driven)
         {
-            Vector3 listen = LocalAudioService.GetListenPosition();
             float dx = worldPos.x - listen.x;
             float dz = worldPos.z - listen.z;
             return dx * dx + dz * dz <= (driven ? ClientInterestLeaveSq : ClientInterestDistanceSq);
@@ -460,6 +465,7 @@ namespace DWMPHorde.Networking
             _drivenBodyIds = new HashSet<int>();
             _modifiableSet.Clear();
             _descriptors.Clear();
+            _clipByIndex.Clear();
             _hostClock.Reset();
             _jitter.Reset();
             _localEpoch = -1;
@@ -476,7 +482,6 @@ namespace DWMPHorde.Networking
             _nextUnmatchedCleanupTime = 0f;
             _inactiveScanCache = null;
             _inactiveScanCacheTime = -999f;
-            _unmatchedSince.Clear();
             _pendingCorpseSince.Clear();
             _localHitsAwaitingEcho.Clear();
             _localDeathSoundPlayed.Clear();

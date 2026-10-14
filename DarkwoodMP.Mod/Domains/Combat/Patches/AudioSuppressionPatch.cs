@@ -136,16 +136,16 @@ namespace DWMPHorde.Patches
             if (audible)
                 return true;
 
-            LogCreatureCull(audioID, pos, LocalAudioService.AudibleRange(audioID), parentObj);
+            // Gated here: the range lookup and the trace's closure only when the trace is on.
+            if (parentObj != null && EntitySyncLog.On)
+                LogCreatureCull(audioID, pos, LocalAudioService.AudibleRange(audioID), parentObj);
             __result = null;
             return false;
         }
 
-        /// <summary>A creature's sound refused here (the play call returns null): rate-limited trace.</summary>
+        /// <summary>A creature's sound refused here (the play call returns null): rate-limited trace (caller checks EntitySyncLog.On).</summary>
         private static void LogCreatureCull(string audioID, Vector3 pos, float range, Transform parentObj)
         {
-            if (parentObj == null || !EntitySyncLog.On)
-                return;
             Character c = parentObj.GetComponentInParent<Character>();
             if (c == null)
                 return;

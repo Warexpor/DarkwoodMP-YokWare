@@ -84,6 +84,30 @@ namespace DWMPHorde.Sync
             float age = AgeOf(go);
             return fl == null || age >= 0f && age >= fl.longevity + FadeSec;
         }
+
+        /// <summary>A flare object's <see cref="Flare"/> and <see cref="FlareClock"/>, kept for a per-frame test.</summary>
+        internal struct Parts
+        {
+            public Flare Flare;
+            public FlareClock Clock;
+        }
+
+        /// <summary>
+        /// <see cref="BurntOut(GameObject)"/> with the parts kept between calls: a part still
+        /// unset (or destroyed) is looked up again, so the answer is the same as the lookup's.
+        /// </summary>
+        internal static bool BurntOut(GameObject go, ref Parts parts)
+        {
+            if (go == null)
+                return true;
+            if (parts.Flare == null)
+                parts.Flare = go.GetComponentInChildren<Flare>(true);
+            if (parts.Clock == null)
+                parts.Clock = go.GetComponentInChildren<FlareClock>(true);
+            Flare fl = parts.Flare;
+            float age = parts.Clock != null ? parts.Clock.Age : -1f;
+            return fl == null || age >= 0f && age >= fl.longevity + FadeSec;
+        }
     }
 
     /// <summary>

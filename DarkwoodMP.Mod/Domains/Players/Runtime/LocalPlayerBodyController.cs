@@ -82,7 +82,8 @@ namespace DWMPHorde.Players
         {
             float yPos = Core.getYpos(PosType.player, randomize: false);
             Vector3 pos = _transform.position;
-            _transform.position = new Vector3(pos.x, yPos, pos.z);
+            if (pos.y != yPos)
+                _transform.position = new Vector3(pos.x, yPos, pos.z);
         }
     }
 }

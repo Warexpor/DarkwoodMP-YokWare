@@ -187,8 +187,54 @@ namespace DWMPHorde.Config
             return LogLevel.Trace;
         }
 
+        private static ModConfigStore _store; // process-scoped: the one cfg file, bound once
+        private static bool _quitHooked; // process-scoped: one-time Application.quitting hook
+
+        /// <summary>
+        /// Holds (true) or releases (false) the cfg file write while a menu slider is dragged, so
+        /// the file is written once on release instead of every frame. Values update in memory
+        /// either way.
+        /// </summary>
+        public static void DeferSaves(bool held)
+        {
+            if (_store == null)
+                return;
+            try
+            {
+                if (held)
+                    _store.BeginDeferredSave();
+                else
+                    _store.EndDeferredSave();
+            }
+            catch (System.Exception ex)
+            {
+                ModRuntime.Log?.LogWarning("Config save failed (" + _store.ConfigFilePath + "): " + ex.Message);
+            }
+        }
+
+        /// <summary>Writes a held change (quit, mod stop). Safe when nothing is held.</summary>
+        public static void FlushPendingSave()
+        {
+            if (_store == null)
+                return;
+            try
+            {
+                _store.FlushPending();
+            }
+            catch (System.Exception ex)
+            {
+                ModRuntime.Log?.LogWarning("Config save failed (" + _store.ConfigFilePath + "): " + ex.Message);
+            }
+        }
+
         public static void Bind(ModConfigStore config)
         {
+            _store = config;
+            if (!_quitHooked)
+            {
+                _quitHooked = true;
+                UnityEngine.Application.quitting += FlushPendingSave;
+            }
             ConnectAddress = config.Bind("Network", "ConnectAddress", "127.0.0.1", "Default IP address shown in the connect field.");
             ConnectPort = config.Bind("Network", "ConnectPort", PluginInfo.DefaultPort,
                 "Default UDP port for LAN connections (1-65535; out-of-range values are clamped with a warning).");

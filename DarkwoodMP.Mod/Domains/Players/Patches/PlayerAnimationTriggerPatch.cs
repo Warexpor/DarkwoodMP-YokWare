@@ -63,8 +63,8 @@ namespace DWMPHorde.Patches
                 TorsoClip = isTorso ? name : null,
                 LegsClip = isLegs ? name : null
             });
-            EntitySyncLog.Anim("player",
-                "[PlayerAnim] TX " + (isTorso ? "torso=" : "legs=") + name, 0.4f);
+            if (EntitySyncLog.AnimDue("anim:player", 0.4f, out string animSfx))
+                EntitySyncLog.AnimWrite("[PlayerAnim] TX " + (isTorso ? "torso=" : "legs=") + name + animSfx);
         }
     }
 }

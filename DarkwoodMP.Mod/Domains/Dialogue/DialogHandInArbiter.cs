@@ -200,8 +200,25 @@ namespace DWMPHorde.Sync
             return ClientClaim(net, dw, mine);
         }
 
+        private static NPC _keyNpc; // process-scoped: the talk TalkKey last built a key for
+        private static CharacterDialogue.Dialogue _keyDialogue; // process-scoped: its dialogue
+        private static string _keyDialogueName; // process-scoped: that dialogue's fullName then
+        private static string _key; // process-scoped: the key (asked every frame while a granted talk is up)
+
         private static string TalkKey(DialogueWindow dw)
-            => (dw.npc != null ? dw.npc.name : "") + "|" + (dw.currentDialogue != null ? dw.currentDialogue.fullName : "");
+        {
+            NPC npc = dw.npc;
+            CharacterDialogue.Dialogue d = dw.currentDialogue;
+            string dName = d != null ? d.fullName : null;
+            if (_key != null && ReferenceEquals(npc, _keyNpc) && ReferenceEquals(d, _keyDialogue)
+                && ReferenceEquals(dName, _keyDialogueName) && (npc == null) == (_keyNpc == null))
+                return _key;
+            _keyNpc = npc;
+            _keyDialogue = d;
+            _keyDialogueName = dName;
+            _key = (npc != null ? npc.name : "") + "|" + (dName ?? "");
+            return _key;
+        }
 
         /// <summary>Client: true once the host granted this talk the items; otherwise asks (once) and holds the board.</summary>
         private static bool ClientClaim(LanNetworkManager net, DialogueWindow dw, List<string> types)

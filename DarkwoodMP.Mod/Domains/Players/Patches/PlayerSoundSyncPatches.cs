@@ -20,6 +20,11 @@ namespace DWMPHorde.Patches
             if (net == null || net.Role == NetworkRole.Offline) return;
             if (!net.IsConnected) return;
             if (TraverseHack.ApplyingFromNetwork) return;
+            // Dream: host world one-shots go DreamAudio (host-only). Enemy AI → EntitySound.
+            // Player-origin still needs PlayerAudio so peers hear client guns/equip in dream.
+            // Non-player one-shots during dream: leave to EntitySound / host DreamAudio.
+            if (!fromPlayer && !allowObjectLoop && Dreams.Instance != null && Dreams.Instance.dreaming)
+                return; // checked first: it only drops, and the id lookups below cost more
             // A step from the player's torso clip (window-jump landing, dodge) goes out: the
             // stand-in replays only its legs' steps, and its legs are hidden through those clips.
             bool torsoStep = fromPlayer && PlayerTorsoFrameTriggerScope.Active
@@ -30,12 +35,6 @@ namespace DWMPHorde.Patches
             // Never network menu / BGM tracks (5.3).
             if (!allowObjectLoop && AudioSuppressionLogic.IsNeverCullSound(audioID)) return;
             if (!allowObjectLoop && LocalAudioService.IsWorldAmbientLocalOnly(audioID)) return;
-
-            // Dream: host world one-shots go DreamAudio (host-only). Enemy AI → EntitySound.
-            // Player-origin still needs PlayerAudio so peers hear client guns/equip in dream.
-            // Non-player one-shots during dream: leave to EntitySound / host DreamAudio.
-            if (!allowObjectLoop && Dreams.Instance != null && Dreams.Instance.dreaming && !fromPlayer)
-                return;
 
             // Torso steps come only from clip frames, a few per jump or dodge; the per-id limit
             // would drop a jump's second landing step.

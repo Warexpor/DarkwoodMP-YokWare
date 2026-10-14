@@ -18,13 +18,14 @@ namespace DWMPHorde.Sync
 
         private static readonly ConditionalWeakTable<Character, Holder> _cache = new ConditionalWeakTable<Character, Holder>(); // process-scoped: per-body component lookup
 
-        private static readonly AccessTools.FieldRef<InSightOfPlayer, float> _timeIn =
+        // Also the host's InSightOfPlayer.checkSight replacement (HostInSightOfPlayerCheckSightPatch).
+        internal static readonly AccessTools.FieldRef<InSightOfPlayer, float> TimeIn =
             AccessTools.FieldRefAccess<InSightOfPlayer, float>("timeInSightOfPlayer");
-        private static readonly AccessTools.FieldRef<InSightOfPlayer, float> _timeOut =
+        internal static readonly AccessTools.FieldRef<InSightOfPlayer, float> TimeOut =
             AccessTools.FieldRefAccess<InSightOfPlayer, float>("timeOutOfSightOfPlayer");
-        private static readonly Action<InSightOfPlayer> _doInSight =
+        internal static readonly Action<InSightOfPlayer> DoInSight =
             AccessTools.MethodDelegate<Action<InSightOfPlayer>>(AccessTools.Method(typeof(InSightOfPlayer), "doInSight"));
-        private static readonly Action<InSightOfPlayer> _doOutOfSight =
+        internal static readonly Action<InSightOfPlayer> DoOutOfSight =
             AccessTools.MethodDelegate<Action<InSightOfPlayer>>(AccessTools.Method(typeof(InSightOfPlayer), "doOutOfSight"));
 
         internal static InSightOfPlayer Of(Character c)
@@ -57,13 +58,13 @@ namespace DWMPHorde.Sync
             isp.inSightOfPlayer = seen;
             if (seen)
             {
-                _timeIn(isp) = past;
-                _doInSight(isp);
+                TimeIn(isp) = past;
+                DoInSight(isp);
             }
             else
             {
-                _timeOut(isp) = past;
-                _doOutOfSight(isp);
+                TimeOut(isp) = past;
+                DoOutOfSight(isp);
             }
         }
     }

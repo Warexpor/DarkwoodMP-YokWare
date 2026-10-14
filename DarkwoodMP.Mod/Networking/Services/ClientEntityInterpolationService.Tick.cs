@@ -28,6 +28,8 @@ namespace DWMPHorde.Networking
             float hostNow = haveClock ? _hostClock.ToHost(LocalNow()) : 0f;
             float margin = _jitter.Margin;
             float blendKeep = dt > 0f ? Mathf.Exp(-dt / BlendTau) : 1f;
+            // The listener does not move while the bodies are posed: read it once per frame.
+            Vector3 listen = LocalAudioService.GetListenPosition();
 
             for (int si = 0; si < _stateKeys.Count; si++)
             {
@@ -75,7 +77,7 @@ namespace DWMPHorde.Networking
                 float shownRot;
                 if (state.Timeline.Count > 0 && haveClock)
                 {
-                    bool near = IsNearBand(state.targetPosition);
+                    bool near = IsNearBand(state.targetPosition, listen);
                     float want = TargetDelay(state, near, margin);
                     float slew = (want > state.delay ? DelayGrowPerSec : DelayShrinkPerSec) * Time.unscaledDeltaTime;
                     state.delay = state.delay <= 0f ? want : Mathf.MoveTowards(state.delay, want, slew);
@@ -153,7 +155,7 @@ namespace DWMPHorde.Networking
                     state.CachedRb = rbPos;
                 }
                 WriteShownPose(tracked, rbPos, shownPos, shownRot);
-                PresentCharacterFrame(tracked, rbPos, dt);
+                PresentCharacterFrame(tracked, state, rbPos, dt);
             }
 
             for (int i = 0; i < _staleKeys.Count; i++)
@@ -177,15 +179,14 @@ namespace DWMPHorde.Networking
             for (int i = 0; i < nChars; i++)
             {
                 Character c = allChars[i];
-                if (c == null) continue;
-
-                // Never destroy the local player or phantoms
-                if (c == localPlayer || c.name.Contains("RemotePlayer"))
+                // Never the local player. The cheap tests come first: Unity's name getter
+                // allocates per read, so a body's name is read once, and only when needed.
+                if (c == null || c == localPlayer)
                     continue;
+                bool hasId = CharacterTracker.TryGetStableId(c, out short sid);
 
-                if (!IsInClientInterest(c.transform.position))
+                if (!IsInClientInterest(c.transform.position, listen, false))
                 {
-                    _unmatchedSince.Remove(c);
                     // Outside interest: hide unmapped / never-host-synced locals (look like roamers).
                     // A resident of a dream or location scene is not a roamer: the scene shows and
                     // puts away its own characters (Location.activateCharacters), and one beyond this
@@ -193,48 +194,29 @@ namespace DWMPHorde.Networking
                     // (whose death starts the chompers and the music), their ravens, the bunker
                     // dream's talking door and the Doctor dream's chickens were gone for the whole
                     // dream on every client.
-                    if ((!CharacterTracker.TryGetStableId(c, out short farSid)
-                        || !_everHostSyncedIds.Contains(farSid))
-                        && !OnLocationPad(c.transform))
+                    if ((!hasId || !_everHostSyncedIds.Contains(sid))
+                        && c.gameObject.activeSelf
+                        && !OnLocationPad(c.transform)
+                        && (Player.Instance == null || c.gameObject != Player.Instance.gameObject)
+                        && !c.name.Contains("RemotePlayer"))
                     {
-                        if (c.gameObject != null && c.gameObject.activeSelf
-                            && (Player.Instance == null || c.gameObject != Player.Instance.gameObject)
-                            && !c.name.Contains("RemotePlayer"))
-                        {
-                            c.gameObject.SetActive(false);
-                        }
+                        c.gameObject.SetActive(false);
                     }
                     continue;
                 }
+
+                // A body with a host id is the host's to show or put away.
+                if (hasId)
+                    continue;
 
                 // Save bodies with no host id stay in the world. If the host is
                 // already driving another body of the same name, hide this twin
-                // so the player sees one enemy. Do not delete it.
-                if (!CharacterTracker.TryGetStableId(c, out short sid))
-                {
-                    if (HasSyncedTwin(c, allChars, nChars))
-                    {
-                        if (c.gameObject != null && c.gameObject.activeSelf)
-                            c.gameObject.SetActive(false);
-                    }
-                    _unmatchedSince.Remove(c);
+                // so the player sees one enemy. Do not delete it. Never a remote player's stand-in.
+                string name = c.name;
+                if (name.Contains("RemotePlayer"))
                     continue;
-                }
-
-                // Skip if ever synced by the host (even if currently stale)
-                if (_everHostSyncedIds.Contains(sid))
-                {
-                    _unmatchedSince.Remove(c);
-                    continue;
-                }
-
-                if (_hostSyncedIds.Contains(sid))
-                {
-                    _unmatchedSince.Remove(c);
-                    continue;
-                }
-
-                _unmatchedSince.Remove(c);
+                if (c.gameObject.activeSelf && HasSyncedTwin(c, name, allChars, nChars))
+                    c.gameObject.SetActive(false);
             }
         }
 
@@ -300,8 +282,10 @@ namespace DWMPHorde.Networking
                 rb.rotation = rot;
                 if (!rb.isKinematic)
                 {
-                    rb.velocity = Vector3.zero;
-                    rb.angularVelocity = Vector3.zero;
+                    if (rb.velocity != Vector3.zero)
+                        rb.velocity = Vector3.zero;
+                    if (rb.angularVelocity != Vector3.zero)
+                        rb.angularVelocity = Vector3.zero;
                 }
             }
             t.SetPositionAndRotation(pos, rot);
@@ -343,39 +327,36 @@ namespace DWMPHorde.Networking
 
         private const float TwinRadiusSq = 600f * 600f;
 
-        private static bool HasSyncedTwin(Character c, Character[] allChars, int count)
+        /// <summary><paramref name="name"/>: <paramref name="c"/>'s name, read once by the caller.</summary>
+        private static bool HasSyncedTwin(Character c, string name, Character[] allChars, int count)
         {
-            if (c == null || allChars == null) return false;
-            string name = StripCloneName(c.name);
-            if (string.IsNullOrEmpty(name)) return false;
+            if (c == null || allChars == null || string.IsNullOrEmpty(name)) return false;
+            if (name.Length == CloneSuffixLength && name.EndsWith("(Clone)", System.StringComparison.Ordinal))
+                return false;
+            Vector3 cPos = c.transform.position;
             for (int i = 0; i < count; i++)
             {
                 Character other = allChars[i];
                 if (other == null || other == c) continue;
-                if (!string.Equals(StripCloneName(other.name), name, System.StringComparison.OrdinalIgnoreCase))
-                    continue;
                 // A twin is a second body of the same thing at the same place. By name alone a
                 // dream pad's residents were "twins" of the world's (its ravens, the grave and
                 // church corpses, the bunker's talking door all have namesakes in the overworld),
-                // and each client hid them for the whole dream.
-                Vector3 d = other.transform.position - c.transform.position;
+                // and each client hid them for the whole dream. Place and host id before the name:
+                // Unity's name getter allocates per read.
+                Vector3 d = other.transform.position - cPos;
                 if (d.x * d.x + d.z * d.z > TwinRadiusSq)
                     continue;
                 if (!CharacterTracker.TryGetStableId(other, out short sid))
                     continue;
-                if (_hostSyncedIds.Contains(sid) || _spawnedPhantomIds.Contains(sid))
+                if (!_hostSyncedIds.Contains(sid) && !_spawnedPhantomIds.Contains(sid))
+                    continue;
+                if (CharacterTracker.BaseNameEquals(other.name, name))
                     return true;
             }
             return false;
         }
 
-        private static string StripCloneName(string name)
-        {
-            if (string.IsNullOrEmpty(name)) return "";
-            if (name.EndsWith("(Clone)", System.StringComparison.Ordinal))
-                return name.Substring(0, name.Length - 7);
-            return name;
-        }
+        private const int CloneSuffixLength = 7; // "(Clone)"
 
     }
 }

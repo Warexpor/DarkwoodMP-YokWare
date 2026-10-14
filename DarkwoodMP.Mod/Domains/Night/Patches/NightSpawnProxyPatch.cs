@@ -231,12 +231,21 @@ namespace DWMPHorde.Patches
             return false;
         }
 
+        private static string _chapterScene; // process-scoped: scene name _chapterLoc was found for
+        private static Location _chapterLoc; // process-scoped: that scene's Location (GameObject.Find walks the hierarchy)
+
         private static bool ChapterAboveOne()
         {
             if (Core.randomGeneration)
                 return Singleton<WorldGenerator>.Instance != null && Singleton<WorldGenerator>.Instance.chapterID > 1;
-            GameObject scene = GameObject.Find(Helpers.GetSceneName());
-            Location loc = scene != null ? scene.GetComponent<Location>() : null;
+            string sceneName = Helpers.GetSceneName();
+            if (_chapterLoc == null || !string.Equals(sceneName, _chapterScene, System.StringComparison.Ordinal))
+            {
+                GameObject scene = GameObject.Find(sceneName);
+                _chapterLoc = scene != null ? scene.GetComponent<Location>() : null;
+                _chapterScene = _chapterLoc != null ? sceneName : null;
+            }
+            Location loc = _chapterLoc;
             return loc != null && loc.chapterId > 1;
         }
     }

@@ -23,6 +23,9 @@ namespace DWMPHorde.Patches
             Player host = Player.Instance;
             if (host == null)
                 return false;
+            // No other bodies: nothing to find (the host's own test is a raycast).
+            if (net.RemoteProxies.Count == 0)
+                return false;
             if (Location.getAtPos(host.transform.position) == loc)
                 return false;
             foreach (RemotePlayerProxy proxy in net.GetAllProxies())

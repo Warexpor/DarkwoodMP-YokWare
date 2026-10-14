@@ -53,6 +53,8 @@ namespace DWMPHorde.Players
                 {
                     _firstState = false;
                 }
+                _timeline.Add(state.Sequence, Time.unscaledTime, state.Position.x, state.Position.y, state.Position.z,
+                    state.Velocity.x, state.Velocity.z);
             }
 
             _anim?.ApplyNetworkSnapshot(
@@ -68,12 +70,14 @@ namespace DWMPHorde.Players
                 // re-enable when vault ends.
                 foreach (var col in _cachedColliders)
                     col.enabled = !nowVaulting;
+                // Unity dropped the pushables' ignores with the colliders: set again next step.
+                _ignoreDirty = true;
 
                 if (!nowVaulting)
                 {
-                    // Vault just ended — teleport to exact final position so we don't
-                    // accumulate lag from the lerp.
-                    PlaceAt(_targetPosition);
+                    // The body follows the played-back path through the window (no jump to the
+                    // newest spot); the bodies it comes out inside of are let through until apart.
+                    IgnoreBodiesInside(Vector3.zero);
                 }
             }
         }
@@ -236,6 +240,18 @@ namespace DWMPHorde.Players
             _rb.position = pos;
             _rb.velocity = Vector3.zero;
             _pushOffset = Vector3.zero;
+            // A jump: the path before it is not played back (the next positions start anew).
+            _timeline.Clear();
+            _ignoreDirty = true;
+            IgnoreBodiesInside(shift);
+        }
+
+        /// <summary>
+        /// Bodies the stand-in's colliders are inside of (moved by <paramref name="shift"/>, not
+        /// yet stepped) do not collide with it until apart (<see cref="ReleaseSeparatedBodies"/>).
+        /// </summary>
+        private void IgnoreBodiesInside(Vector3 shift)
+        {
             if (_cachedColliders == null)
                 return;
             Rigidbody localBody = Player.Instance != null ? Player.Instance.Rigidbody : null;
@@ -288,8 +304,14 @@ namespace DWMPHorde.Players
             }
         }
 
-        private static readonly Collider[] _nearBuf = new Collider[32]; // process-scoped: scratch
+        private static Collider[] _nearBuf = new Collider[64]; // process-scoped: scratch (grows while a scan fills it)
         private float _ignoreRadius = -1f;
+        /// <summary>The pushables' ignores need setting again now (a collider of the stand-in was switched).</summary>
+        private bool _ignoreDirty = true;
+        private int _ignoreStep;
+        private long _ignoreEnabledMask = -1;
+        /// <summary>Physics steps between scans: 0.1 s, well inside what the 60 m margin covers.</summary>
+        private const int IgnoreScanSteps = 5;
 
         /// <summary>
         /// The stand-in passes through pushable things (an Item on its own rigidbody: furniture,
@@ -306,6 +328,24 @@ namespace DWMPHorde.Players
         {
             if (_cachedColliders == null || _cachedColliders.Length == 0)
                 return;
+            // Every few steps, and at once after the stand-in's colliders were switched (Unity
+            // drops a disabled collider's ignores: the vault, a death, a revive, from wherever it
+            // was switched). A body parked out of the world meets nothing.
+            long enabledMask = 0;
+            for (int i = 0; i < _cachedColliders.Length && i < 64; i++)
+                if (_cachedColliders[i] != null && _cachedColliders[i].enabled)
+                    enabledMask |= 1L << i;
+            if (enabledMask != _ignoreEnabledMask)
+            {
+                _ignoreEnabledMask = enabledMask;
+                _ignoreDirty = true;
+            }
+            if (!_ignoreDirty && ++_ignoreStep < IgnoreScanSteps)
+                return;
+            _ignoreStep = 0;
+            _ignoreDirty = false;
+            if (_rb.position.y < AbsentPosition.y * 0.5f)
+                return;
             if (_ignoreRadius < 0f)
             {
                 float r = 0f;
@@ -315,7 +355,14 @@ namespace DWMPHorde.Players
                 // Body size plus more than a step's travel at a run.
                 _ignoreRadius = r + 60f;
             }
+            // A full buffer may have left bodies out (in a village the walls alone filled 32,
+            // and the pushables past them were shoved): look again with a bigger one.
             int n = Physics.OverlapSphereNonAlloc(_rb.position, _ignoreRadius, _nearBuf);
+            while (n == _nearBuf.Length && _nearBuf.Length < 4096)
+            {
+                _nearBuf = new Collider[_nearBuf.Length * 2];
+                n = Physics.OverlapSphereNonAlloc(_rb.position, _ignoreRadius, _nearBuf);
+            }
             for (int i = 0; i < n; i++)
             {
                 Collider other = _nearBuf[i];
@@ -350,47 +397,48 @@ namespace DWMPHorde.Players
             if (_coHeld)
                 return;
 
+            // The played-back position at the end of this step (smooth: the timeline interpolates
+            // between the player's states) is where the body is sent, all of the way, as a
+            // velocity so physics still meets what is in between. The old exponential chase of
+            // the newest state ran about 60 ms behind and stalled then lurched on a late packet.
+            Vector3 shown = _targetPosition;
+            if (_timeline.Sample(Time.fixedUnscaledTime + Time.fixedUnscaledDeltaTime,
+                    out float sx, out float sy, out float sz, out _, out _))
+                shown = new Vector3(sx, sy, sz);
+
             if (_isVaulting)
             {
-                // During vault: teleport directly to target position.
-                // Colliders are disabled so we pass through the window.
-                _rb.position = _targetPosition;
-                _rb.velocity = Vector3.zero;
+                // Colliders are off for the window: the path through it, nothing pushes.
                 _pushOffset = Vector3.zero;
+                _rb.velocity = (shown - _rb.position) / Time.fixedDeltaTime;
                 return;
             }
 
-            Vector3 target = _targetPosition + _pushOffset;
+            Vector3 target = shown + _pushOffset;
 
             // Clamp horizontal drift so proxy can't be launched away by chain-reaction pushes.
             // Keep network Y — old code locked target.y to rb.y while FreezePositionY was set,
             // so a bad first place (Y=-12k under bunker) made the host permanently invisible.
-            Vector3 drift = target - _targetPosition;
+            Vector3 drift = target - shown;
             drift.y = 0f;
             float maxDrift = 50f;
             if (drift.magnitude > maxDrift)
                 target = new Vector3(
-                    _targetPosition.x + drift.normalized.x * maxDrift,
-                    _targetPosition.y,
-                    _targetPosition.z + drift.normalized.z * maxDrift);
+                    shown.x + drift.normalized.x * maxDrift,
+                    shown.y,
+                    shown.z + drift.normalized.z * maxDrift);
 
-            float t = 18f * Time.fixedDeltaTime;
-            Vector3 next = Vector3.Lerp(_rb.position, target, t);
+            Vector3 delta = target - _rb.position;
             // Snap Y when network height diverges (teleport / dream pad / bunker floor).
-            if (Mathf.Abs(_rb.position.y - _targetPosition.y) > 40f)
-                next.y = _targetPosition.y;
-
-            Vector3 delta = next - _rb.position;
-            // Y via position (constraint FreezePositionY otherwise ignores velocity.y).
-            if (Mathf.Abs(delta.y) > 0.001f)
+            if (Mathf.Abs(delta.y) > 40f)
             {
                 Vector3 p = _rb.position;
-                p.y = next.y;
+                p.y = target.y;
                 _rb.position = p;
                 delta.y = 0f;
             }
 
-            // Use velocity so Unity physics naturally handles entity pushing (XZ only)
+            // Velocity (Y too: only rotation is frozen), so Unity physics handles pushing.
             _rb.velocity = delta / Time.fixedDeltaTime;
 
             // The player's own game already walked this position. A stand-in held back by
@@ -398,7 +446,7 @@ namespace DWMPHorde.Players
             // short teleport, a respawn under the snap distance) stayed behind for as long as the
             // player stood still: creatures fought the wrong spot and the player's blows were
             // refused as out of range.
-            Vector3 behind = _rb.position - _targetPosition;
+            Vector3 behind = _rb.position - shown;
             behind.y = 0f;
             if (behind.sqrMagnitude > BlockedLagDistance * BlockedLagDistance)
             {
@@ -448,6 +496,10 @@ namespace DWMPHorde.Players
     {
         /// <summary>World position.</summary>
         public Vector3 Position;
+        /// <summary>The sender's ground velocity (x, z) at the send, for the short coast past the newest state.</summary>
+        public Vector3 Velocity;
+        /// <summary>The sender's PlayerState sequence (0: none, e.g. a teleport), places the state on its beat.</summary>
+        public uint Sequence;
         /// <summary>Locomotion state (Idle/Walk/Run).</summary>
         public SecondPlayerAnimController.LocomotionState Locomotion;
         /// <summary>Whether the sprite is flipped horizontally.</summary>

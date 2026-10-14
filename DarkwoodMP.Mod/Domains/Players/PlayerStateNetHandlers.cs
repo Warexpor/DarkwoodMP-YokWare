@@ -122,6 +122,8 @@ namespace DWMPHorde.Networking
                     var netState = new PlayerStateNet
                     {
                         Position = new Vector3(state.PosX, state.PosY, state.PosZ),
+                        Velocity = new Vector3(state.VelX, 0f, state.VelZ),
+                        Sequence = state.Sequence,
                         Locomotion = (SecondPlayerAnimController.LocomotionState)state.LocomotionState,
                         FlipX = state.FlipX,
                         LegFacingY = state.LegFacingY,
@@ -226,6 +228,8 @@ namespace DWMPHorde.Networking
                 var remoteState = new PlayerStateNet
                 {
                     Position = new Vector3(state.PosX, state.PosY, state.PosZ),
+                    Velocity = new Vector3(state.VelX, 0f, state.VelZ),
+                    Sequence = state.Sequence,
                     Locomotion = (SecondPlayerAnimController.LocomotionState)state.LocomotionState,
                     FlipX = state.FlipX,
                     LegFacingY = state.LegFacingY,

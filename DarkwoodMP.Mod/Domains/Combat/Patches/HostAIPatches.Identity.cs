@@ -20,14 +20,15 @@ namespace DWMPHorde.Patches
             if (sniffer != null && sniffer.radius > range)
                 range = sniffer.radius;
             float threshold = range + 50f;
+            // A negative threshold: no distance is within it (squared, it would be).
+            if (threshold < 0f)
+                return true;
+            float thresholdSq = threshold * threshold;
+            Vector3 at = c.transform.position;
             foreach (var proxy in net.GetAllProxies())
             {
-                if (proxy != null)
-                {
-                    float dist = (c.transform.position - proxy.transform.position).magnitude;
-                    if (dist <= threshold)
-                        return false;
-                }
+                if (proxy != null && (at - proxy.transform.position).sqrMagnitude <= thresholdSq)
+                    return false;
             }
             return true;
         }
@@ -73,7 +74,48 @@ namespace DWMPHorde.Patches
             if (dest == null)
                 return false;
 
-            return NearestViewer(dest, canBeFarAway, radius) != null;
+            return AnyViewer(dest, canBeFarAway, radius);
+        }
+
+        /// <summary>
+        /// <see cref="NearestViewer"/> != null without the nearest search: true at the first living
+        /// body that sees <paramref name="dest"/> (same tests, so the same answer; vanilla
+        /// <c>Player.isInSight</c> has no side effects, so fewer calls change nothing).
+        /// </summary>
+        internal static bool AnyViewer(Transform dest, bool canBeFarAway, int radius = 0)
+        {
+            if (dest == null)
+                return false;
+            Player player = Player.Instance;
+            if (player == null)
+                return false;
+            if (player.alive && !DeathStateTracker.LocalDown && player.isInSight(dest, canBeFarAway, radius))
+                return true;
+
+            var net = ModRuntime.Network;
+            if (net == null)
+                return false;
+
+            Transform saved = player._transform;
+            try
+            {
+                foreach (var proxy in net.GetAllProxies())
+                {
+                    if (proxy == null)
+                        continue;
+                    CharBase cb = proxy.CachedCharBase;
+                    if ((cb != null && !cb.alive) || DeathStateTracker.IsRemoteDown(proxy.PlayerId))
+                        continue;
+                    player._transform = proxy.transform;
+                    if (player.isInSight(dest, canBeFarAway, radius))
+                        return true;
+                }
+            }
+            finally
+            {
+                player._transform = saved;
+            }
+            return false;
         }
 
         /// <summary>

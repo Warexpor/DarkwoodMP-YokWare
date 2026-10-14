@@ -212,21 +212,34 @@ namespace DWMPHorde.Audio
             // As loud as the signal was: at the end of the range the tail is lost in the static too.
             float gain = TailGain * Mathf.Lerp(0.2f, 1f, speaker.VoiceShare);
             float boost = speaker.Boost;
+            // Worked out off the speaker's lock, as a packet is (WriteVoice); only the copy is under it.
+            int buffered, room;
             lock (speaker.Lock)
             {
-                // The listener's radio keeps playing until the tail is out (Speaker.RadioHoldUntil).
-                int tailLen = tail != null ? tail.Length : 0;
-                int fadeLen = (int)(StaticFadeSec * VoiceCodec.SampleRate);
-                int total = Math.Max(tailLen, fadeLen);
-                int toPlay = speaker.Buffered + total;
-                speaker.RadioHoldUntil = Time.unscaledTime + toPlay / (float)VoiceCodec.SampleRate + TailHoldSlackSec;
-                for (int i = 0; i < total; i++)
+                buffered = speaker.Buffered;
+                room = speaker.Ring.Length - speaker.Buffered;
+            }
+            // The listener's radio keeps playing until the tail is out (Speaker.RadioHoldUntil).
+            int tailLen = tail != null ? tail.Length : 0;
+            int fadeLen = (int)(StaticFadeSec * VoiceCodec.SampleRate);
+            int total = Math.Max(tailLen, fadeLen);
+            speaker.RadioHoldUntil = Time.unscaledTime + (buffered + total) / (float)VoiceCodec.SampleRate + TailHoldSlackSec;
+            int n = Math.Min(total, room);
+            float[] post = Scratch(ref _writePost, n);
+            for (int i = 0; i < n; i++)
+            {
+                float fade = i < fadeLen ? 0.5f + 0.5f * Mathf.Cos(Mathf.PI * i / fadeLen) : 0f;
+                float v = (i < tailLen ? tail[i] * gain : 0f) + (fade > 0f ? StaticSample(speaker) * fade : 0f);
+                post[i] = SoftLimit(v * boost);
+            }
+            Wake(speaker);
+            lock (speaker.Lock)
+            {
+                for (int i = 0; i < n; i++)
                 {
                     if (speaker.Buffered >= speaker.Ring.Length)
                         break;
-                    float fade = i < fadeLen ? 0.5f + 0.5f * Mathf.Cos(Mathf.PI * i / fadeLen) : 0f;
-                    float v = (i < tailLen ? tail[i] * gain : 0f) + (fade > 0f ? StaticSample(speaker) * fade : 0f);
-                    speaker.Ring[speaker.WritePos] = SoftLimit(v * boost);
+                    speaker.Ring[speaker.WritePos] = post[i];
                     speaker.WritePos = (speaker.WritePos + 1) % speaker.Ring.Length;
                     speaker.Buffered++;
                 }

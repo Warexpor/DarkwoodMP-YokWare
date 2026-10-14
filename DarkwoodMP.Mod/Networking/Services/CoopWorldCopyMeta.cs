@@ -163,9 +163,44 @@ namespace DWMPHorde.Networking
             if (Core.currentProfile == null) return null;
             int pid = Core.currentProfile.id;
             if (pid < 1 || pid > 5) return null;
+            // Asked every few seconds (the map board's seed check): the file is parsed again only
+            // when it changed on disk (path, write time, size), whoever wrote it.
+            string path = PathForProfile(pid);
+            DateTime written;
+            long length;
+            try
+            {
+                var info = new FileInfo(path);
+                if (!info.Exists)
+                {
+                    _idPath = null;
+                    return null;
+                }
+                written = info.LastWriteTimeUtc;
+                length = info.Length;
+            }
+            catch
+            {
+                _idPath = null;
+                string direct = TryLoad(pid)?.CampaignId;
+                return string.IsNullOrEmpty(direct) ? null : direct;
+            }
+            if (_idPath != null && string.Equals(path, _idPath, StringComparison.Ordinal)
+                && written == _idWritten && length == _idLength)
+                return _id;
             string id = TryLoad(pid)?.CampaignId;
-            return string.IsNullOrEmpty(id) ? null : id;
+            id = string.IsNullOrEmpty(id) ? null : id;
+            _idPath = path;
+            _idWritten = written;
+            _idLength = length;
+            _id = id;
+            return id;
         }
+
+        private static string _idPath; // process-scoped: meta file _id was read from
+        private static DateTime _idWritten; // process-scoped: its write time then
+        private static long _idLength; // process-scoped: its size then
+        private static string _id; // process-scoped: its campaign id
 
         /// <summary>
         /// Ensure active profile has a CampaignId (mint if missing). Host + client use this

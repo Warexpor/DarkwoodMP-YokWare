@@ -118,6 +118,8 @@ namespace DWMPHorde.Audio
             public float RadioOcclusion;
             public bool RadioOccludedNow;
             public float NextRadioOcclusionCheck;
+            /// <summary>The source is paused while it has nothing to play (<see cref="IdlePause"/>).</summary>
+            public bool Paused;
         }
 
         private sealed class VoiceSpeakerBehaviour : MonoBehaviour
@@ -125,6 +127,8 @@ namespace DWMPHorde.Audio
             internal Speaker S;
             public int SrcRate;
             public volatile float Volume;
+            /// <summary>Set as the paused source plays again: its volume starts where it is now, not where it was.</summary>
+            public volatile bool Resumed;
             private double _step;
             private double _frac;
             private readonly VoiceInterpolator _interp = new VoiceInterpolator();
@@ -147,6 +151,11 @@ namespace DWMPHorde.Audio
                     _step = (double)SrcRate / OutputRate;
 
                 int frames = data.Length / channels;
+                if (Resumed)
+                {
+                    Resumed = false;
+                    _vol = Volume;
+                }
                 // Volume ramps across the buffer: a step from one frame to the next clicks.
                 float from = _vol;
                 float to = Volume;
@@ -272,6 +281,7 @@ namespace DWMPHorde.Audio
             _walkieTx = false;
             _walkieTxWas = false;
             _transmitting = false;
+            VoiceFramePool.Return(_preroll);
             _preroll = null;
             ResetEncoder();
             _radioHolder = 0;
@@ -332,6 +342,10 @@ namespace DWMPHorde.Audio
                 _transmitting = false;
                 _walkieTxWas = false;
                 WorldSoundPickup.SetActive(false);
+                // Recorded for the Voice screen's meter only: nothing keeps them.
+                for (int i = 0; i < _frames.Count; i++)
+                    VoiceFramePool.Return(_frames[i]);
+                _frames.Clear();
                 return;
             }
 
@@ -397,17 +411,23 @@ namespace DWMPHorde.Audio
             if (send && !_transmitting && _preroll != null)
                 SendFrame(net, _preroll);
             _transmitting = send;
+            // A sent frame is copied on its way (SendFrame): each goes back to the mic's pool
+            // once a newer one is the kept pre-roll.
             for (int i = 0; i < _frames.Count; i++)
             {
                 if (send)
                     SendFrame(net, _frames[i]);
+                if (_preroll != null && !ReferenceEquals(_preroll, _frames[i]))
+                    VoiceFramePool.Return(_preroll);
                 _preroll = _frames[i];
             }
+            _frames.Clear();
         }
 
         private static float _toneUntil; // process-scoped: test pilot tone
         private static bool _toneWalkie; // process-scoped: test pilot tone
         private static double _tonePhase; // process-scoped: test pilot tone
+        private static readonly float[] _toneFrame = new float[VoiceCodec.PacketSamples]; // process-scoped: scratch (SendFrame copies it)
         private static float _toneNext; // process-scoped: test pilot tone pacing
 
         /// <summary>Test pilot: send a 440 Hz tone for <paramref name="seconds"/>, at the mic's own pace, as if talking.</summary>
@@ -424,7 +444,7 @@ namespace DWMPHorde.Audio
             while (Time.unscaledTime < _toneUntil && _toneNext <= Time.unscaledTime)
             {
                 _toneNext += frameSec;
-                var frame = new float[VoiceCodec.PacketSamples];
+                float[] frame = _toneFrame;
                 for (int i = 0; i < frame.Length; i++)
                 {
                     frame[i] = 0.1f * (float)Math.Sin(_tonePhase);
@@ -661,17 +681,19 @@ namespace DWMPHorde.Audio
                 byte levelByte = (byte)Mathf.RoundToInt(level * 255f);
                 if (net.Role == NetworkRole.Host)
                     VoiceHearing.Heard(net.LocalPlayerId, level, walkie);
-                // Encoded off this thread; the bytes go out on the next frame (SendEncoded).
-                float[] worldCopy = null;
+                // Encoded off this thread; the bytes go out on the next frame (SendEncoded). The
+                // job has its own copy of the samples: the frame goes back to the mic's pool.
+                TxJob job = RentTxJob(frame.Length);
+                Array.Copy(frame, job.Voice, frame.Length);
+                job.VoiceCount = frame.Length;
+                job.HasWorld = world;
                 if (world)
-                {
-                    worldCopy = new float[VoiceCodec.PacketSamples];
-                    Array.Copy(_worldTx, worldCopy, VoiceCodec.PacketSamples);
-                }
-                QueueEncode(new TxJob
-                {
-                    Voice = frame, World = worldCopy, PlayerId = playerId, Seq = seq, Flags = flags, Level = levelByte
-                });
+                    Array.Copy(_worldTx, job.World, VoiceCodec.PacketSamples);
+                job.PlayerId = playerId;
+                job.Seq = seq;
+                job.Flags = flags;
+                job.Level = levelByte;
+                QueueEncode(job);
                 if (walkie)
                 {
                     float[] heard = frame;
@@ -847,34 +869,137 @@ namespace DWMPHorde.Audio
             if (radioMode)
                 RadioPacket(speaker, buf, samples);
 
+            // Worked out off the speaker's lock (the sound card's thread takes it every block):
+            // only the copy into its buffer is under it. Everything here is the game thread's.
+            bool fresh;
+            int room;
             lock (speaker.Lock)
             {
-                // Nothing buffered and not playing: a new stretch of talk.
-                if (speaker.Buffered == 0 && speaker.Priming)
+                fresh = speaker.Buffered == 0 && speaker.Priming;
+                room = speaker.Ring.Length - speaker.Buffered;
+            }
+            // The buffer only empties meanwhile: what fits now fits then (and all of it fits, RingSamples).
+            int n = Math.Min(samples, room);
+            float[] pre = Scratch(ref _writePre, n);
+            float[] post = Scratch(ref _writePost, n);
+            for (int i = 0; i < n; i++)
+            {
+                float sample = buf[i] * gain;
+                if (radioMode)
+                    sample = RadioSample(speaker, sample);
+                pre[i] = sample * boost;
+            }
+            // Nothing buffered and not playing: a new stretch of talk.
+            if (fresh)
+                speaker.Limiter.Reset();
+            Limit(speaker, pre, post, n);
+
+            Wake(speaker);
+            lock (speaker.Lock)
+            {
+                // It ran dry in between: this is a new stretch after all, as if it had come a moment later.
+                if (!fresh && speaker.Buffered == 0 && speaker.Priming)
+                {
                     speaker.Limiter.Reset();
-                for (int i = 0; i < samples; i++)
+                    Limit(speaker, pre, post, n);
+                }
+
+                // Fell behind (a burst after a stall): skip ahead rather than lag for the rest of
+                // the talk, to the last 0.2 s. What is skipped is dropped before it is written,
+                // so the buffer never holds more than MaxBufferedSamples after a packet.
+                int skip = 0;
+                if (speaker.Buffered + n > MaxBufferedSamples)
+                {
+                    int drop = speaker.Buffered + n - (int)(_sampleRate * 0.2f);
+                    int dropOld = Math.Min(drop, speaker.Buffered);
+                    speaker.ReadPos = (speaker.ReadPos + dropOld) % speaker.Ring.Length;
+                    speaker.Buffered -= dropOld;
+                    skip = drop - dropOld;
+                }
+                for (int i = skip; i < n; i++)
                 {
                     if (speaker.Buffered >= speaker.Ring.Length)
                         break;
-                    float sample = buf[i] * gain;
-                    if (radioMode)
-                        sample = RadioSample(speaker, sample);
-                    sample *= boost;
-                    // Turned down ahead of a peak; the soft limit only catches what is left.
-                    speaker.Ring[speaker.WritePos] = SoftLimit(speaker.Limiter.Process(sample));
+                    speaker.Ring[speaker.WritePos] = post[i];
                     speaker.WritePos = (speaker.WritePos + 1) % speaker.Ring.Length;
                     speaker.Buffered++;
                 }
-
-                // Fell behind (a burst after a stall): skip ahead rather than lag for the rest of the talk.
-                int maxBuf = (int)(_sampleRate * 0.6f);
-                if (speaker.Buffered > maxBuf)
-                {
-                    int drop = speaker.Buffered - (int)(_sampleRate * 0.2f);
-                    speaker.ReadPos = (speaker.ReadPos + drop) % speaker.Ring.Length;
-                    speaker.Buffered -= drop;
-                }
             }
+        }
+
+        /// <summary>Turned down ahead of a peak; the soft limit only catches what is left.</summary>
+        private static void Limit(Speaker speaker, float[] pre, float[] post, int n)
+        {
+            VoiceLimiter limiter = speaker.Limiter;
+            for (int i = 0; i < n; i++)
+                post[i] = SoftLimit(limiter.Process(pre[i]));
+        }
+
+        /// <summary>A speaker's buffer is skipped ahead past this much (0.6 s) after a packet.</summary>
+        private static int MaxBufferedSamples => (int)(_sampleRate * 0.6f);
+
+        /// <summary>
+        /// A speaker's buffer: as much as it can ever hold. A packet leaves it at most
+        /// <see cref="MaxBufferedSamples"/> (<see cref="WriteVoice"/> skips ahead before it
+        /// writes), and only a squelch tail (<see cref="WriteSquelchTail"/>, which always follows
+        /// a packet) goes over that, by its own length. 20000 samples with the shipped tail: it
+        /// never truncates, and stays clear of the large object heap.
+        /// </summary>
+        private static int RingSamples()
+        {
+            EnsureStatic();
+            int tail = _releaseTail != null ? _releaseTail.Length : 0;
+            return MaxBufferedSamples + Math.Max(tail, (int)(StaticFadeSec * VoiceCodec.SampleRate));
+        }
+
+        private static float[] _writePre = new float[0]; // process-scoped: scratch (game thread)
+        private static float[] _writePost = new float[0]; // process-scoped: scratch (game thread)
+
+        private static float[] Scratch(ref float[] buf, int n)
+        {
+            if (buf.Length < n)
+                buf = new float[Math.Max(n, 4096)];
+            return buf;
+        }
+
+        private const float IdlePauseSec = 1f;
+
+        /// <summary>
+        /// A speaker with nothing to play for a while is paused: its sound card work (the voice
+        /// filter, the muffle and the panning) stops until the next packet. Only once its
+        /// filters have long been fed silence and the room's reverb is off, so nothing of a tail
+        /// is left in them; it plays again (<see cref="Wake"/>) before anything is written, and
+        /// starts by priming its buffer as any new talk does. Game thread only.
+        /// </summary>
+        private static void IdlePause(Speaker s)
+        {
+            if (s == null || s.Src == null)
+                return;
+            bool idle;
+            lock (s.Lock)
+                idle = s.Buffered == 0 && s.Priming;
+            idle = idle && Time.unscaledTime - s.LastData > IdlePauseSec && (s.Reverb == null || !s.Reverb.enabled);
+            if (idle && !s.Paused)
+            {
+                s.Src.Pause();
+                s.Paused = true;
+            }
+            else if (!idle && s.Paused)
+            {
+                Wake(s);
+            }
+        }
+
+        /// <summary>A paused speaker plays again (game thread).</summary>
+        private static void Wake(Speaker s)
+        {
+            if (!s.Paused)
+                return;
+            s.Paused = false;
+            if (s.Beh != null)
+                s.Beh.Resumed = true;
+            if (s.Src != null)
+                s.Src.UnPause();
         }
 
         /// <summary>A looping clip of ones: the speaker's filter multiplies its voice into it.</summary>

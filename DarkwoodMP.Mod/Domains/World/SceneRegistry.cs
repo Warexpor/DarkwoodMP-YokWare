@@ -22,6 +22,7 @@ namespace DWMPHorde.Sync
         private static T[] _snapshot = Array.Empty<T>(); // process-scoped: rebuilt from _list only after it changed
         private static bool _dirty; // process-scoped: _list changed since _snapshot
         private static int _pruneAt = 256; // process-scoped: Add prunes destroyed members once the list reaches this
+        private static int _prunedFrame = -1; // process-scoped: Time.frameCount of Snapshot's last prune
 
         /// <summary>Set once by <see cref="SceneRegistries"/> for every type it keeps.</summary>
         internal static bool Tracked; // process-scoped: fixed type table
@@ -47,10 +48,18 @@ namespace DWMPHorde.Sync
         /// The live members (destroyed ones dropped). The array is a snapshot: it is replaced, not
         /// changed, when the set changes, so a caller can keep iterating it while objects wake
         /// (and callers can key caches on its identity, as the GameEvents soft index does).
+        /// Destroyed members are dropped once per frame (Object.Destroy lands at the frame's end);
+        /// one destroyed later in the frame (DestroyImmediate, a scene unload) shows as fake-null
+        /// until the next frame, as in the scan cache's arrays: callers null-check.
         /// </summary>
         internal static T[] Snapshot()
         {
-            Prune();
+            int frame = Time.frameCount;
+            if (frame != _prunedFrame)
+            {
+                _prunedFrame = frame;
+                Prune();
+            }
             if (_dirty)
             {
                 _snapshot = _list.Count > 0 ? _list.ToArray() : Array.Empty<T>();
@@ -69,6 +78,7 @@ namespace DWMPHorde.Sync
             _snapshot = Array.Empty<T>();
             _dirty = false;
             _pruneAt = 256;
+            _prunedFrame = -1;
         }
 
         private static void Prune()
@@ -165,6 +175,9 @@ namespace DWMPHorde.Sync
             Track<QuestItemReference>();
             // Read by StackedLightProbe (its own scene scan was a hitch every 5 s on both peers).
             Track<Light2D>();
+            // Client ObjectSpawnerFired apply and the party gate's flag-locks test.
+            Track<ObjectSpawner>();
+            Track<EventTriggers>();
             // Host trap ledger: every world trap is watched as it is registered (no 10 s rescan).
             SceneRegistry<Trigger>.Added = TrapLedger.OnTriggerRegistered;
         }
@@ -362,6 +375,9 @@ namespace DWMPHorde.Sync
                 PatchTargets.Find(typeof(UniqueObject), "Awake", Type.EmptyTypes),
                 PatchTargets.Find(typeof(ItemSounds), "Awake", Type.EmptyTypes),
                 PatchTargets.Find(typeof(Light2D), "Awake", Type.EmptyTypes),
+                PatchTargets.Find(typeof(EventTriggers), "Awake", Type.EmptyTypes),
+                // No Awake / OnEnable: Start (an active spawner has run it before it can fire).
+                PatchTargets.Find(typeof(ObjectSpawner), "Start", Type.EmptyTypes),
                 // No Awake: OnEnable on activation, Start as well (OnEnable skips a disabled component).
                 PatchTargets.Find(typeof(CutsceneManager), "OnEnable", Type.EmptyTypes),
                 PatchTargets.Find(typeof(CutsceneManager), "Start", Type.EmptyTypes));

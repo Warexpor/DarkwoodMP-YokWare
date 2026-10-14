@@ -39,11 +39,25 @@ namespace DWMPHorde.Sync
         /// </summary>
         internal static string LocalName()
         {
-            string name = Clean(ModConfig.PlayerName != null ? ModConfig.PlayerName.Value : null);
-            if (string.IsNullOrEmpty(name) || name == "Player")
+            string raw = ModConfig.PlayerName != null ? ModConfig.PlayerName.Value : null;
+            if (_localName != null && ReferenceEquals(raw, _localRaw))
+                return _localName;
+            string name = Clean(raw);
+            bool fromSteam = string.IsNullOrEmpty(name) || name == "Player";
+            if (fromSteam)
                 name = SteamName();
-            return string.IsNullOrEmpty(name) ? "Player" : name;
+            string result = string.IsNullOrEmpty(name) ? "Player" : name;
+            // Kept until the config value changes; a Steam name not known yet (Steam not up) is asked again.
+            if (!fromSteam || _steamName != null)
+            {
+                _localRaw = raw;
+                _localName = result;
+            }
+            return result;
         }
+
+        private static string _localRaw; // process-scoped: the config value _localName was built from
+        private static string _localName; // process-scoped: rebuilt when the config value changes
 
         private static string SteamName()
         {

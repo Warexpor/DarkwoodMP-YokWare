@@ -146,6 +146,13 @@ namespace DWMPHorde.Networking
         /// standing where it was last seen while the real one walks on.
         /// </summary>
         public const byte Flag2LeftRange = 32;
+        /// <summary>
+        /// Wire only: <see cref="Clip"/> is the one this id last sent and is left out (protocol 73).
+        /// The host writes the clip on every change, for a few sends after it, and with every
+        /// descriptor (first sends and the 1 s resync); the client keeps each id's last clip.
+        /// </summary>
+        public const byte Flag2ClipSame = 64;
+        public bool ClipSame => (Flags2 & Flag2ClipSame) != 0;
 
         public bool Sleeping => (Flags & FlagSleeping) != 0;
         public bool Eating => (Flags & FlagEating) != 0;
@@ -194,13 +201,14 @@ namespace DWMPHorde.Networking
             w.Put(Index);
             w.Put(PosX); w.Put(PosY); w.Put(PosZ);
             w.Put(RotY);
-            w.Put(Clip ?? "");
             w.Put(ClipFrame);
             w.Put(Alive);
             w.Put(HealthPct);
             w.Put(Flags);
             w.Put(Flags2);
             w.Put(Loop);
+            if (!ClipSame)
+                w.Put(Clip ?? "");
             if (HasPrevClip)
             {
                 w.Put(PrevClip ?? "");
@@ -225,7 +233,6 @@ namespace DWMPHorde.Networking
                 PosY = r.GetFloat(),
                 PosZ = r.GetFloat(),
                 RotY = r.GetFloat(),
-                Clip = r.GetString(),
                 ClipFrame = r.GetShort(),
                 Alive = r.GetBool(),
                 HealthPct = r.GetByte(),
@@ -233,6 +240,9 @@ namespace DWMPHorde.Networking
                 Flags2 = r.GetByte(),
                 Loop = r.GetByte()
             };
+            // Left out: the client fills in this id's last clip (ClientEntityInterpolationService).
+            if (!e.ClipSame)
+                e.Clip = r.GetClipString();
             if (e.HasPrevClip)
             {
                 e.PrevClip = r.GetString();

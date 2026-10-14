@@ -26,6 +26,9 @@ namespace DWMPHorde.Sync
         private readonly List<tk2dTextMesh> _labels = new List<tk2dTextMesh>(32);
         private tk2dTextMesh _hint, _draftText;
         private string _draft = "";
+        private string _draftShownFrom; // the draft _draftShown was made from
+        private bool _draftShownCaret;
+        private string _draftShown; // draft plus caret, made on change (not per frame)
         private int _openedFrame = -1;
 
         internal static void EnsureExists()
@@ -165,7 +168,13 @@ namespace DWMPHorde.Sync
             if (_draftText == null)
                 _draftText = Create("YokWare_MapPinDraft", 2f);
             bool caret = ((int)(Time.unscaledTime * 2f) & 1) == 0;
-            Show(_draftText, _draft + (caret ? "_" : " "), DraftColor, at.x, at.y - LabelDrop * s, depth);
+            if (_draftShown == null || !ReferenceEquals(_draft, _draftShownFrom) || caret != _draftShownCaret)
+            {
+                _draftShownFrom = _draft;
+                _draftShownCaret = caret;
+                _draftShown = _draft + (caret ? "_" : " ");
+            }
+            Show(_draftText, _draftShown, DraftColor, at.x, at.y - LabelDrop * s, depth);
         }
 
         private void DrawHint(float depth, float s)

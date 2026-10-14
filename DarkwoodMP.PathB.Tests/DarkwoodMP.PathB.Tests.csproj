@@ -26,6 +26,7 @@
     <Compile Include="..\DarkwoodMP.Mod\Core\CoopPolicy.CombatDream.cs" Link="Shipped\CoopPolicy.CombatDream.cs" />
     <Compile Include="..\DarkwoodMP.Mod\Core\CoopPolicy.Targeting.cs" Link="Shipped\CoopPolicy.Targeting.cs" />
     <Compile Include="..\DarkwoodMP.Mod\Core\EntityTimeline.cs" Link="Shipped\EntityTimeline.cs" />
+    <Compile Include="..\DarkwoodMP.Mod\Domains\Players\RemotePoseTimeline.cs" Link="Shipped\RemotePoseTimeline.cs" />
     <Compile Include="..\DarkwoodMP.Mod\Core\CosmeticKey.cs" Link="Shipped\CosmeticKey.cs" />
     <Compile Include="..\DarkwoodMP.Mod\Core\Loc.cs" Link="Shipped\Loc.cs" />
     <Compile Include="..\DarkwoodMP.Mod\Core\Loc.Ru.cs" Link="Shipped\Loc.Ru.cs" />

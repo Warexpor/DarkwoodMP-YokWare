@@ -407,19 +407,36 @@ namespace DWMPHorde.Patches
     internal static class SightViewers
     {
         private static readonly Dictionary<int, int> _viewerByTriggers = new Dictionary<int, int>(); // reset-in: Reset
+        // The viewer transform each trigger's entry above was worked out from: the sight check runs
+        // every frame, and the same viewer gives the same player (no parent walk again).
+        private static readonly Dictionary<int, Transform> _lastViewer = new Dictionary<int, Transform>(); // reset-in: Reset
 
-        internal static void Reset() => _viewerByTriggers.Clear();
+        internal static void Reset()
+        {
+            _viewerByTriggers.Clear();
+            _lastViewer.Clear();
+        }
 
         internal static void Note(EventTriggers et, Transform viewer)
         {
+            int key = et.GetInstanceID();
+            if (viewer == null)
+            {
+                _lastViewer.Remove(key);
+                _viewerByTriggers.Remove(key);
+                return;
+            }
+            if (_lastViewer.TryGetValue(key, out Transform last) && ReferenceEquals(last, viewer))
+                return;
+            _lastViewer[key] = viewer;
             int id = 0;
-            RemotePlayerProxy proxy = viewer != null ? viewer.GetComponentInParent<RemotePlayerProxy>() : null;
+            RemotePlayerProxy proxy = viewer.GetComponentInParent<RemotePlayerProxy>();
             if (proxy != null)
                 id = proxy.PlayerId;
             if (id > 0)
-                _viewerByTriggers[et.GetInstanceID()] = id;
+                _viewerByTriggers[key] = id;
             else
-                _viewerByTriggers.Remove(et.GetInstanceID());
+                _viewerByTriggers.Remove(key);
         }
 
         internal static int ViewerOf(EventTriggers et)

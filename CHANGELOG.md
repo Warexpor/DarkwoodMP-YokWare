@@ -3,12 +3,14 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.292**. The current Horde wire protocol is **72**. Every install in a session
+**0.8.293**. The current Horde wire protocol is **73**. Every install in a session
 needs the same DLL; the protocol is checked on join.
 
 Protocol history (newest first):
 
-- **72**, 0.8.286: new `PartyCharacter` (177), host to clients: another player's stored character.
+- **73**, 0.8.293: the entity snapshot leaves out an entity's clip name while it is unchanged
+  (`Flag2ClipSame`, 64); the clip now follows the loop flag on the wire.
+- **72**, 0.8.286 to 0.8.292: new `PartyCharacter` (177), host to clients: another player's stored character.
 - **71**, 0.8.285: `SaveSync` (was empty) carries `ShowIndicator`, whether the Save behind it showed the
   corner "Saving" indicator.
 - **70**, 0.8.282 to 0.8.283: `ScenarioEventFired` gains `AnchorActors` (the player each anchor's scene played for);
@@ -89,6 +91,79 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.293 — performance and smoothness pass: a peer moves smoothly, less garbage everywhere
+
+Found by eight read-only audits of the whole mod; every change keeps what the game shows and
+does the same, except the two marked as lossy.
+
+**Another player's movement**
+- **A peer's body moved in a 30 Hz staircase about 60 ms behind, and stalled then lurched on a
+  late packet.** It chased the newest position with an exponential lerp. Their positions are now
+  played back on the sender's own beat (from the PlayerState sequence), a short measured delay
+  behind (send interval plus how late packets come), linear between samples, coasting along the
+  sent velocity for up to 0.1 s past the newest. A pause or a teleport starts a new stream
+  (`Players/RemotePoseTimeline.cs`, unit tested; `RemotePlayerProxy.Apply.cs`).
+- The sender's PlayerState timer carries its remainder (it drifted by up to a frame per send), and
+  the velocity it sends is measured over the real gap.
+- A peer's body ignored at most 32 colliders around it for the push-through overlap; a crowded
+  spot (a barricaded house) left the rest pushing. The buffer now grows, and the scan runs every
+  5 physics steps or when the body moved (it ran every step), skipped while parked.
+- The torso frame is corrected only when it is 2 behind or more than 4 ahead (it snapped back on
+  every small lead); a repeated clip name skips the clip lookup.
+- Snapshot of the local player: the legs child and the reverse-legs field read without a search or
+  boxing each send.
+
+**Lossy on purpose**
+- **DragSync** goes reliable only once, on the first quiet tick of a drag (it was reliable every
+  quiet tick). The live samples stay unreliable; a lost final pose is still sent reliably.
+- **Entity clip names** are left out of the snapshot while unchanged (protocol **73**): sent inline
+  for the first 3 sends and after a descriptor, then a flag. A client that has not got the clip yet
+  skips that entity for the snapshot. Clip strings are decoded through a small cache (no new
+  string per entity per snapshot).
+
+**Networking**
+- Packets are built in pooled writers (one per nesting depth) instead of a new byte array each;
+  relay, PlayerState and DragSync writes use cached delegates. The physics chunked send serializes
+  once instead of once per chunk. Proxy lists are enumerated without boxing.
+- Character and item trackers keep a set beside the list (no list scan on add/contains); entity
+  interpolation reorders its cheap checks first.
+- Snapshot and broadcast log lines no longer build closures when they do not log.
+
+**Voice**
+- Voice send jobs and frames are pooled; the mic ring is 3 s and read in power-of-two pieces;
+  playout keeps precomputed resampler tables. Encoding runs off the lock. The voice loop idles
+  when nobody talks.
+
+**World, combat, night**
+- Creature sight casts use a non-allocating raycast (same mask and order as vanilla
+  `Core.canSee`). Host AI grid checks stop early when nothing is near; far-proxy checks use
+  squared distances.
+- Object spawners and event triggers are tracked in scene registries instead of searched;
+  registries prune once a frame. Door sync checks range first. Flare parts and night-spawn
+  chapter checks are cached. World sound taps are switched on and off with the pickup.
+
+**UI, map, inventory, dialogue, config**
+- Config writes during a slider drag are saved once when the drag ends (and on quit / mod stop).
+- Chat and HUD text measure through a size cache; menu art, VM root, nameplates, the voice screen
+  and map pins rewrite only on change (the map popup no longer rebuilds every frame). The status
+  and meter text caches follow a language switch.
+- Container diffs, desync collectors, light probes and dialogue hand-in keys reuse their buffers.
+- Trace lines are formatted only when Trace is on, and hot animation lines only when due.
+- Player name, held-flare, peer flashlight and campaign-id lookups are cached; a peer's
+  flashlight writes its light only on a change (each write rebuilt the light mesh).
+
+**Not changed, on purpose**
+- Body and creature names are not cached: vanilla renames bodies at runtime.
+- `NetworkApplyGuard` stays a class (as a struct its constructor would never run).
+- Item-moving sound names are not cached (names and parents change at runtime).
+- The stand-up stepping of a proxy stays as designed.
+
+- Files: `Domains/Players/*` (timeline, proxy apply, anim, held lights, names),
+  `Networking/LanNetworkManager.*` (transport, tick, relay, physics, late join),
+  `Networking/Messages/WorldMessages.cs`, `Core/NetReader.cs`/`NetWriter.cs`, `Audio/Voice*`,
+  entity snapshot / broadcast, `Logging/ModLog.cs`, `Logging/TraceLogHandler.cs`, UI and map files.
+- Status: builds, 517 unit tests pass. Not playtested yet.
 
 ## 0.8.292 — a night body's bag never shows on the ground, and is named after its player
 

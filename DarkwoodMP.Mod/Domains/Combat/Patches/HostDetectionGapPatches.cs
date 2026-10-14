@@ -4,6 +4,7 @@ using System.Reflection;
 using System.Reflection.Emit;
 using DWMPHorde.Networking;
 using DWMPHorde.Players;
+using DWMPHorde.Sync;
 using HarmonyLib;
 using UnityEngine;
 
@@ -376,26 +377,25 @@ namespace DWMPHorde.Patches
                 return true;
 
             bool seen = HostPlayerIdentity.AnyInSight(__instance.transform, __instance.playerCanBeFarAway);
-            var t = Traverse.Create(__instance);
             if (seen)
             {
                 if (!__instance.inSightOfPlayer || force)
                 {
                     __instance.inSightOfPlayer = true;
-                    t.Field("timeInSightOfPlayer").SetValue(Time.time);
+                    CreatureSightState.TimeIn(__instance) = Time.time;
                 }
                 if (!__instance.firedInSight)
-                    t.Method("doInSight").GetValue();
+                    CreatureSightState.DoInSight(__instance);
             }
             else
             {
                 if (__instance.inSightOfPlayer || force)
                 {
                     __instance.inSightOfPlayer = false;
-                    t.Field("timeOutOfSightOfPlayer").SetValue(Time.time);
+                    CreatureSightState.TimeOut(__instance) = Time.time;
                 }
                 if (!__instance.firedOutOfSight)
-                    t.Method("doOutOfSight").GetValue();
+                    CreatureSightState.DoOutOfSight(__instance);
             }
             return false;
         }
@@ -423,6 +423,9 @@ namespace DWMPHorde.Patches
     [HarmonyPatch(typeof(Shooter), "shoot")]
     public static class HostShooterShootPatch
     {
+        private static readonly AccessTools.FieldRef<Shooter, float> LastTimeShot =
+            AccessTools.FieldRefAccess<Shooter, float>("lastTimeShot");
+
         private static void HitIfSeen(Shooter shooter, Transform body)
         {
             CharBase cb = body != null ? body.GetComponent<CharBase>() : null;
@@ -455,7 +458,7 @@ namespace DWMPHorde.Patches
             Transform targetT = __instance.target.transform;
             Vector3 vector = new Vector3(__instance.transform.position.x, 0f, __instance.transform.position.z);
             Vector3 vector2 = new Vector3(targetT.position.x, 0f, targetT.position.z);
-            Traverse.Create(__instance).Field("lastTimeShot").SetValue(Time.time);
+            LastTimeShot(__instance) = Time.time;
             if (!string.IsNullOrEmpty(__instance.shootSound))
                 AudioController.Play(__instance.shootSound, __instance.transform);
 

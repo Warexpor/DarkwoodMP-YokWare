@@ -96,6 +96,9 @@ namespace DWMPHorde.Networking
 
         private static readonly AccessTools.FieldRef<Character, string> DeathAnimRef =
             AccessTools.FieldRefAccess<Character, string>("deathAnim");
+        /// <summary>Vanilla's private idle clip name (Character.idleAni).</summary>
+        private static readonly AccessTools.FieldRef<Character, string> IdleAniRef =
+            AccessTools.FieldRefAccess<Character, string>("idleAni");
         private static readonly System.Action<Character> GetDeathAnims =
             AccessTools.MethodDelegate<System.Action<Character>>(AccessTools.Method(typeof(Character), "getDeathAnims"));
         private static readonly System.Action<Character> DestroyComponents =
@@ -271,7 +274,7 @@ namespace DWMPHorde.Networking
                 try
                 {
                     if (ch != null)
-                        idleClip = Traverse.Create(ch).Field("idleAni").GetValue<string>();
+                        idleClip = IdleAniRef(ch);
                 }
                 catch { /* ignore */ }
 
@@ -316,7 +319,10 @@ namespace DWMPHorde.Networking
         /// flier's altitude (processAnims), scale, in-flight fade and sky shadow. Run after the
         /// shown pose is written, so they follow the body this frame.
         /// </summary>
-        private static void PresentCharacterFrame(Character c, Rigidbody rb, float dt)
+        /// <summary>Vanilla's flat shadow (eulerAngles 90, 0, 0), as the rotation it sets.</summary>
+        private static readonly Quaternion ShadowFlatRotation = Quaternion.Euler(90f, 0f, 0f);
+
+        private static void PresentCharacterFrame(Character c, EntityInterpState state, Rigidbody rb, float dt)
         {
             // Vanilla Update's own gate (a corpse is inactive).
             if (!c.isActive || c.dummy)
@@ -331,8 +337,8 @@ namespace DWMPHorde.Networking
             Transform shadow = c.shadow;
             if (shadow != null)
             {
-                if (!c.rotateShadow)
-                    shadow.eulerAngles = new Vector3(90f, 0f, 0f);
+                if (!c.rotateShadow && shadow.rotation != ShadowFlatRotation)
+                    shadow.rotation = ShadowFlatRotation;
                 Vector3 ground = tr.position + new Vector3(c.shadowOffset.x, 0f, c.shadowOffset.z);
                 shadow.position = Core.getYPos(ground, c.dying || !c.alive ? PosType.low1 : PosType.characterShadow,
                     randomize: false) + c.posSeed;
@@ -363,7 +369,12 @@ namespace DWMPHorde.Networking
             if (shadow != null)
             {
                 shadow.position = bodyPos + new Vector3(alt * 2f, 5f, -alt * 2f);
-                tk2dBaseSprite shadowSprite = shadow.GetComponent<tk2dBaseSprite>();
+                if (!ReferenceEquals(state.ShadowOf, shadow) || state.ShadowSprite == null)
+                {
+                    state.ShadowOf = shadow;
+                    state.ShadowSprite = shadow.GetComponent<tk2dBaseSprite>();
+                }
+                tk2dBaseSprite shadowSprite = state.ShadowSprite;
                 if (shadowSprite != null)
                     shadowSprite.color = new Color(1f, 1f, 1f, 1f - alt / 10f);
             }
@@ -625,6 +636,7 @@ namespace DWMPHorde.Networking
             // A recycled id is a different body; the host re-sends its descriptor.
             ForgetSaveIdOwner(entityId);
             _descriptors.Remove(entityId);
+            _clipByIndex.Remove(entityId);
 
             // Drop pending match rows for this host id (would otherwise claim a twin).
             for (int i = _pendingMatches.Count - 1; i >= 0; i--)

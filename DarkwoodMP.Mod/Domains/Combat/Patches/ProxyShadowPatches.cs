@@ -24,12 +24,20 @@ namespace DWMPHorde.Patches
         public int OwnerPlayerId;
 
         private ShadowCreature _shadow;
+        // The owner's proxy, looked up again only when TargetProxy changes (asked every frame).
+        private Transform _ownerOf;
+        private RemotePlayerProxy _owner;
 
         internal bool OwnerGone()
         {
             if (TargetProxy == null)
                 return true;
-            RemotePlayerProxy owner = TargetProxy.GetComponent<RemotePlayerProxy>();
+            if (!ReferenceEquals(_ownerOf, TargetProxy) || _owner == null)
+            {
+                _ownerOf = TargetProxy;
+                _owner = TargetProxy.GetComponent<RemotePlayerProxy>();
+            }
+            RemotePlayerProxy owner = _owner;
             if (owner == null)
                 return true;
             CharBase cb = owner.CachedCharBase;

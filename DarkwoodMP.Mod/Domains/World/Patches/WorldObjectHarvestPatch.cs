@@ -14,6 +14,9 @@ namespace DWMPHorde.Patches
     [HarmonyPatch(typeof(UnityEngine.Object), "Destroy", new[] { typeof(UnityEngine.Object) })]
     public static class ObjectDestroyTrapPatch
     {
+        private static bool Has(string name, string token)
+            => name.IndexOf(token, System.StringComparison.OrdinalIgnoreCase) >= 0;
+
         private static void Prefix(UnityEngine.Object obj)
         {
             // Offline (mod loaded, no session) must stay vanilla; Network is non-null there.
@@ -27,15 +30,16 @@ namespace DWMPHorde.Patches
             GameObject go = obj as GameObject;
             if (go == null) return;
 
-            string name = go.name.ToLowerInvariant();
+            // Case-insensitive token tests on the name as is (no lowered copy per destroy).
+            string name = go.name;
 
             // Group name checks by component type to reduce false positives
-            bool isTrap = name.Contains("trap") || name.Contains("bear") || name.Contains("snap") || name.Contains("animal");
+            bool isTrap = Has(name, "trap") || Has(name, "bear") || Has(name, "snap") || Has(name, "animal");
             Trigger trigComp = go.GetComponent<Trigger>();
             if (trigComp != null && (trigComp.isBearTrap || trigComp.isChainTrap || trigComp.isMutatedTrap))
                 isTrap = true;
-            bool isDestructible = name.Contains("barrel") || name.Contains("tank") || name.Contains("glass") || name.Contains("chain");
-            bool isHarvestable = name.Contains("mushroom") || name.Contains("_exp") || name.Contains("bio_");
+            bool isDestructible = Has(name, "barrel") || Has(name, "tank") || Has(name, "glass") || Has(name, "chain");
+            bool isHarvestable = Has(name, "mushroom") || Has(name, "_exp") || Has(name, "bio_");
 
             if (!isTrap && !isDestructible && !isHarvestable)
                 return;
@@ -48,7 +52,7 @@ namespace DWMPHorde.Patches
             if (isHarvestable && go.GetComponent<Item>() == null)
                 return;
 
-            if (name.Contains("audioobject"))
+            if (Has(name, "audioobject"))
                 return;
 
             // Skip ProxyItem (placement preview) destruction; it is not a real world trap.

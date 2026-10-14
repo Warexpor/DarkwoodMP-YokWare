@@ -101,9 +101,7 @@ namespace DWMPHorde.Sync
                     // Catch up the previous state to the current render-time lerp position
                     float t = Mathf.Clamp01((now - state.PrevTime) / dur);
                     state.PrevPos = Vector3.Lerp(state.PrevPos, state.TargetPos, t);
-                    Quaternion prevRotQ = Quaternion.Euler(state.PrevRot);
-                    Quaternion targetRotQ = Quaternion.Euler(state.TargetRot);
-                    state.PrevRot = Quaternion.Slerp(prevRotQ, targetRotQ, t).eulerAngles;
+                    state.PrevRot = Quaternion.Slerp(state.PrevRotQ, state.TargetRotQ, t).eulerAngles;
                 }
                 else
                 {
@@ -157,6 +155,8 @@ namespace DWMPHorde.Sync
 
             state.TargetPos = targetPos;
             state.TargetRot = targetRot;
+            state.PrevRotQ = Quaternion.Euler(state.PrevRot);
+            state.TargetRotQ = Quaternion.Euler(targetRot);
             state.PrevTime = now;
             state.TargetTime = now + duration;
             _s.ObjectInterp[id] = state;

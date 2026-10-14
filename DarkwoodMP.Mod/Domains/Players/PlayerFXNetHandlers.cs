@@ -66,10 +66,10 @@ namespace DWMPHorde.Networking
             var animComp = proxy.GetComponent<SecondPlayerAnimController>();
             if (animComp == null) return;
 
-            EntitySyncLog.Anim("player:rx",
-                "[PlayerAnim] RX p" + playerId
-                + (string.IsNullOrEmpty(msg.TorsoClip) ? "" : " torso=" + msg.TorsoClip)
-                + (string.IsNullOrEmpty(msg.LegsClip) ? "" : " legs=" + msg.LegsClip), 0.4f);
+            if (EntitySyncLog.AnimDue("anim:player:rx", 0.4f, out string animSfx))
+                EntitySyncLog.AnimWrite("[PlayerAnim] RX p" + playerId
+                    + (string.IsNullOrEmpty(msg.TorsoClip) ? "" : " torso=" + msg.TorsoClip)
+                    + (string.IsNullOrEmpty(msg.LegsClip) ? "" : " legs=" + msg.LegsClip) + animSfx);
 
             var prev = Sync.WorldPhysicsSyncService._suppressBroadcast;
             Sync.WorldPhysicsSyncService._suppressBroadcast = true;

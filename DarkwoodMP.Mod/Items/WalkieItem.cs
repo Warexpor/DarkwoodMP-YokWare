@@ -30,6 +30,11 @@ namespace DWMPHorde.Items
         private static bool _warnedNoDb; // process-scoped: one-time injection state
         /// <summary>True after icon sprite is in a collection (or texture load failed permanently).</summary>
         private static bool _iconSettled; // process-scoped: one-time injection state
+        /// <summary>Wait before the next sprite-collection scan: doubles per miss up to <see cref="IconRetryMaxSec"/>.</summary>
+        private static float _iconRetrySec = 1f; // process-scoped: one-time injection state
+        private static float _nextIconScan; // process-scoped: one-time injection state
+        private static bool _sceneHooked; // process-scoped: one-time sceneLoaded hook
+        private const float IconRetryMaxSec = 30f;
 
         public static void Tick()
         {
@@ -53,6 +58,19 @@ namespace DWMPHorde.Items
             }
             if (Player.Instance == null || _template == null)
                 return;
+            // FindObjectsOfTypeAll costs ~50 ms: a miss backs off (1, 2, 4 ... 30 s), and a new
+            // scene, which is what brings new sprite collections in, scans again at once.
+            if (!_sceneHooked)
+            {
+                _sceneHooked = true;
+                UnityEngine.SceneManagement.SceneManager.sceneLoaded += (scene, mode) =>
+                {
+                    _iconRetrySec = 1f;
+                    _nextIconScan = 0f;
+                };
+            }
+            if (Time.unscaledTime < _nextIconScan)
+                return;
             try { InjectIcon(); }
             catch (Exception ex)
             {
@@ -60,6 +78,11 @@ namespace DWMPHorde.Items
             }
             if (_template != null && _template.iconType == ItemType)
                 _iconSettled = true;
+            if (!_iconSettled)
+            {
+                _nextIconScan = Time.unscaledTime + _iconRetrySec;
+                _iconRetrySec = Mathf.Min(IconRetryMaxSec, _iconRetrySec * 2f);
+            }
         }
 
         /// <summary>
