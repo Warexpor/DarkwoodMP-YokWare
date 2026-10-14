@@ -407,7 +407,8 @@ namespace DWMPHorde.Networking
     }
 
     /// <summary>
-    /// Shared drag and two-player push (<c>SharedDrag</c>, <c>CoPush</c>). Protocol 58.
+    /// Shared drag, two-player push and players pushing each other (<c>SharedDrag</c>, <c>CoPush</c>,
+    /// <c>PeerPush</c>). Protocol 58.
     /// </summary>
     public struct CoHoldMessage
     {
@@ -421,11 +422,13 @@ namespace DWMPHorde.Networking
         public const byte ModeRefuse = 3;
         /// <summary>A player walking into a body another machine moves (to whichever machine runs it).</summary>
         public const byte ModePush = 4;
+        /// <summary>A player walking into another player (to the pushed player; <c>Sync.PeerPush</c>). Protocol 75.</summary>
+        public const byte ModePlayerPush = 5;
 
         public byte Mode;
         /// <summary>Who sent it (the host stamps it from the transport).</summary>
         public int SenderId;
-        /// <summary>Who it is for: the dragger, or the co-holder for a refusal; 0 for a push.</summary>
+        /// <summary>Who it is for: the dragger, the co-holder for a refusal, the pushed player; 0 for a push on a body.</summary>
         public int TargetId;
         public string ObjectName;
         /// <summary>The body's position on the sender (which copy is meant).</summary>

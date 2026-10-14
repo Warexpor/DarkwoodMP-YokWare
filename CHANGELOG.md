@@ -3,11 +3,13 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.296**. The current Horde wire protocol is **74**. Every install in a session
+**0.8.297**. The current Horde wire protocol is **75**. Every install in a session
 needs the same DLL; the protocol is checked on join.
 
 Protocol history (newest first):
 
+- **75**, 0.8.297: `CoHold` (170) gains mode 5, `ModePlayerPush`: a player walking into another
+  player, sent to the pushed player.
 - **74**, 0.8.294 to 0.8.296: `PlayerEffectSync` with `MovedHome` carries the home it left (`FromX/Y/Z`);
   new `PartyHomeMoves` (178), host to a joiner: the party's home moves kept with the world.
 - **73**, 0.8.293: the entity snapshot leaves out an entity's clip name while it is unchanged
@@ -93,6 +95,24 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.297 — players push each other smoothly (protocol 75)
+
+- **Pushing another player was hard and shook.** Each player's body is run by that player's own
+  game; the others are stand-ins. Walking into a stand-in only moved it a few units on the
+  pusher's screen, by an offset taken from each contact's speed that changed every physics step
+  (the shake), and it never moved the pushed player: a push got through only as the pusher's
+  stand-in crept into the pushed player on that player's screen, one round trip at a time.
+- Now the pusher's game sends its walk force (30 a second, `CoHold` mode 5) to the pushed
+  player's game, which adds 0.6 of it to that player's body (plain physics for two bodies of the
+  same weight would be 0.5; a bit more so a push gets through). The pushed player can walk
+  against it. On the pusher's screen the stand-in moves ahead by what the push does before its
+  own positions show it (its playback delay plus a round trip), eased in and out, so it gives
+  way at once and evenly. Not while either player is dead, vaulting, dragging or in a shared
+  drag; a push from a player more than 200 units away is ignored.
+- A stand-in pushed ahead no longer counts as held back (it snapped back after half a second).
+- Files: `Domains/Players/PeerPush.cs` (new), `RemotePlayerProxy.Apply.cs`, `SharedDrag.Handle`,
+  `LanNetworkManager.Tick.Drag.cs`, `CoHoldMessage`.
 
 ## 0.8.296 — a manual save slot keeps every player's character of its own save
 
