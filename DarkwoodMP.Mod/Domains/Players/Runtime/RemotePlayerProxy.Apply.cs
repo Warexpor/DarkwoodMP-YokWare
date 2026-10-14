@@ -199,6 +199,9 @@ namespace DWMPHorde.Players
         /// <summary>Where the body is (physics position).</summary>
         internal Vector3 BodyPosition => _rb != null ? _rb.position : transform.position;
 
+        /// <summary>How far ahead the local player's push puts the body (<c>Sync.PeerPush.LeadOffset</c>).</summary>
+        internal Vector3 PushLead => _pushOffset;
+
         /// <summary>
         /// The local player can push this body now (<c>Sync.PeerPush</c>): it is in this world,
         /// its colliders are on, and it is not hinged to a shared drag here.

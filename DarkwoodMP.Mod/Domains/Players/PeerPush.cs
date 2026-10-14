@@ -22,15 +22,21 @@ namespace DWMPHorde.Sync
     /// </summary>
     internal static class PeerPush
     {
-        /// <summary>The share of the pusher's walk force the pushed player gets (0.5 is plain physics for two equal bodies).</summary>
-        internal const float Share = 0.6f;
+        /// <summary>
+        /// The share of the pusher's walk force the pushed player gets: a standing player gives
+        /// way at this share of a walk, and one walking against it holds its ground. 0.6 (about
+        /// two equal bodies sharing one walker's force) let a player be shoved around at once.
+        /// </summary>
+        internal const float Share = 0.3f;
         private const float SendInterval = 1f / 30f;
         /// <summary>A push not refreshed within this has stopped (a few sends' worth of loss).</summary>
         private const float PushHold = 0.15f;
         /// <summary>Walking into them: input this close to the direction of their body (cosine).</summary>
         private const float IntoBodyCos = 0.3f;
-        /// <summary>Gap between the two bodies still counted as touching (the stand-in gives way ahead of the pusher).</summary>
+        /// <summary>Gap between the two bodies still counted as touching.</summary>
         private const float ContactMargin = 14f;
+        /// <summary>Extra gap a push already going keeps (so it does not drop and resume on a hair's breadth).</summary>
+        private const float KeepMargin = 12f;
         /// <summary>A push from a player whose stand-in is further than this from the local player is stale (a teleport).</summary>
         private const float MaxPusherRange = 200f;
         private const float MinIntentSq = 0.01f;
@@ -52,6 +58,7 @@ namespace DWMPHorde.Sync
         private static readonly List<int> _done = new List<int>(4); // process-scoped: scratch buffer, cleared before each use
         /// <summary>Stand-ins the local player pushes now: their id and the speed the push gives them.</summary>
         private static readonly Dictionary<int, Vector3> _pushing = new Dictionary<int, Vector3>(4);
+        private static readonly HashSet<int> _wasPushing = new HashSet<int>(); // process-scoped: scratch buffer, cleared before each use
 
         /// <summary>LateUpdate: the local player walking into another player's stand-in sends its push there.</summary>
         internal static void TickSend(LanNetworkManager net)
@@ -62,6 +69,9 @@ namespace DWMPHorde.Sync
             if (now < _nextSendAt)
                 return;
             _nextSendAt = now + SendInterval;
+            _wasPushing.Clear();
+            foreach (int id in _pushing.Keys)
+                _wasPushing.Add(id);
             _pushing.Clear();
             Player p = Player.Instance;
             if (p == null || p.Rigidbody == null || p.dragging || p.startingDragging || p.dying || p.immobilised)
@@ -77,10 +87,13 @@ namespace DWMPHorde.Sync
             {
                 if (proxy == null || proxy.PlayerId <= 0 || !proxy.CanBePushed)
                     continue;
-                Vector3 to = proxy.BodyPosition - me;
+                // Measured to where the body would be without the push's lead: the lead moves it
+                // ahead of the pusher, and measured to the led body the push ended, the lead
+                // eased back, the bodies touched and it began again, several times a second.
+                Vector3 to = proxy.BodyPosition - proxy.PushLead - me;
                 to.y = 0f;
                 float d = to.magnitude;
-                if (d > touch || d < 0.01f || Vector3.Dot(dir, to / d) < IntoBodyCos)
+                if (d > touch + (_wasPushing.Contains(proxy.PlayerId) ? KeepMargin : 0f) || d < 0.01f || Vector3.Dot(dir, to / d) < IntoBodyCos)
                     continue;
                 _pushing[proxy.PlayerId] = intent * (Share * WalkSpeedPerIntent(p.Rigidbody));
                 var msg = new CoHoldMessage

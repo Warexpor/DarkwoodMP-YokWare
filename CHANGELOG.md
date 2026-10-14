@@ -3,12 +3,12 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.297**. The current Horde wire protocol is **75**. Every install in a session
+**0.8.298**. The current Horde wire protocol is **75**. Every install in a session
 needs the same DLL; the protocol is checked on join.
 
 Protocol history (newest first):
 
-- **75**, 0.8.297: `CoHold` (170) gains mode 5, `ModePlayerPush`: a player walking into another
+- **75**, 0.8.297 to 0.8.298: `CoHold` (170) gains mode 5, `ModePlayerPush`: a player walking into another
   player, sent to the pushed player.
 - **74**, 0.8.294 to 0.8.296: `PlayerEffectSync` with `MovedHome` carries the home it left (`FromX/Y/Z`);
   new `PartyHomeMoves` (178), host to a joiner: the party's home moves kept with the world.
@@ -95,6 +95,19 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.298 — pushing another player: harder, no flicker
+
+- **Playtest of 0.8.297: far too easy to shove another player, and still shaky.** The logs showed
+  the pusher's push reaching the host at about 15 a second instead of 30, in bursts: the push
+  was switching on and off. The pusher counted as touching only within a body's width of the
+  stand-in, but the push itself moves the stand-in ahead of the pusher (its lead), so the gap
+  opened, the push stopped, the lead eased back, the bodies touched and the push began again,
+  several times a second. Contact is now measured to where the stand-in would be without the
+  lead, and a push already going keeps 12 more units of gap before it ends.
+- The pushed player now gets 0.3 of the pusher's walk force (was 0.6): a standing player gives
+  way at about a third of a walk, and one who walks against it holds their ground.
+- Files: `PeerPush.cs`, `RemotePlayerProxy.Apply.cs` (`PushLead`).
 
 ## 0.8.297 — players push each other smoothly (protocol 75)
 
