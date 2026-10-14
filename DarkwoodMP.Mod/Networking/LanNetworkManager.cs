@@ -47,6 +47,7 @@ namespace DWMPHorde.Networking
         private float _proxyMaintenanceTimer;
         private float _effectSyncTimer;
         private Vector3 _lastSentPosition;
+        private float _lastSentAt; // unscaled time of the last PlayerState (velocity over the real gap)
         private bool _wasDragging;
         private string _lastDraggedItemName;
 

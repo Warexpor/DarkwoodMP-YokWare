@@ -68,6 +68,24 @@ namespace DWMPHorde.Networking
             }
         }
 
+        /// <summary>
+        /// Any fresh remote (the <see cref="GetAllRemotePositions"/> set) within <paramref name="range"/>
+        /// of <paramref name="at"/> on both axes: x against x, z against the grid's y (WorldGrid node
+        /// positions are XZ in a Vector2). No iterator: called per grid node.
+        /// </summary>
+        public static bool AnyFreshRemoteNear(Vector2 at, float range)
+        {
+            float now = Time.time;
+            foreach (var kvp in _remotePlayers)
+            {
+                if (now - kvp.Value.LastUpdateTime >= 3f) continue;
+                Vector3 p = kvp.Value.Position;
+                if (Mathf.Abs(p.x - at.x) <= range && Mathf.Abs(p.z - at.y) <= range)
+                    return true;
+            }
+            return false;
+        }
+
         public static Vector3 GetNearestPlayerPosition(Vector3 fromPos)
         {
             Vector3 nearest = _hostPos;

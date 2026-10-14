@@ -241,7 +241,7 @@ namespace DWMPHorde.Networking
         public RemotePlayerProxy GetProxy(int playerId) =>
             WorldProxyLifecycleHandlers.GetProxy(playerId);
 
-        public IEnumerable<RemotePlayerProxy> GetAllProxies() =>
+        public Dictionary<int, RemotePlayerProxy>.ValueCollection GetAllProxies() =>
             WorldProxyLifecycleHandlers.GetAllProxies();
 
         public void TeleportRemoteProxyTo(Vector3 position, float rotY = 0f, int playerId = -1) =>
@@ -255,7 +255,7 @@ namespace DWMPHorde.Networking
 
         public int RemotePlayerCount => WorldProxyLifecycleHandlers.RemotePlayerCount;
 
-        public IEnumerable<RemotePlayerProxy> EnumerateRemoteProxies() =>
+        public Dictionary<int, RemotePlayerProxy>.ValueCollection EnumerateRemoteProxies() =>
             WorldProxyLifecycleHandlers.GetAllProxies();
 
         internal void ResyncWorldLightsForPeer(int targetPlayerId) =>

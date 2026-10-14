@@ -28,6 +28,12 @@ namespace YokWare.VanillaMenu
         /// <summary>Holds the owning mod's gameplay-input lock while a text field is being typed in.</summary>
         public static Action<bool> EditLock; // process-scoped: set once by the owning mod
 
+        /// <summary>
+        /// Held (true) while a slider is dragged and released (false) when the drag ends, so the
+        /// owning mod can write its settings file once instead of every frame.
+        /// </summary>
+        public static Action<bool> SliderDrag; // process-scoped: set once by the owning mod
+
         public static string T(string english) => string.IsNullOrEmpty(english) ? english : Translate(english);
 
         /// <summary>A word from the game's own UI sheet ("Back", "Return", "Yes", "No", "Profile", "Day").</summary>
@@ -538,11 +544,18 @@ namespace YokWare.VanillaMenu
             float m = Mathf.Min(Core.ResolutionHeightModifier, Core.ResolutionWidthModifier);
             if (m <= 0f)
                 m = 1f;
-            transform.localScale = new Vector3(m, m, m);
-            Transform parent = transform.parent;
+            Transform t = transform;
+            Transform parent = t.parent;
             float y = (parent != null ? parent.position.y : 0f) + depth;
-            transform.position = new Vector3(UnityEngine.Screen.width / 2f, y, UnityEngine.Screen.height / 2f);
-            transform.rotation = Quaternion.identity;
+            var scale = new Vector3(m, m, m);
+            var pos = new Vector3(UnityEngine.Screen.width / 2f, y, UnityEngine.Screen.height / 2f);
+            // Every frame: write only what moved (a transform write is a hierarchy change).
+            if (!t.localScale.Equals(scale))
+                t.localScale = scale;
+            if (!t.position.Equals(pos))
+                t.position = pos;
+            if (!t.rotation.Equals(Quaternion.identity))
+                t.rotation = Quaternion.identity;
         }
 
         private void LateUpdate()
@@ -1220,6 +1233,7 @@ namespace YokWare.VanillaMenu
         private Func<float> _get;
         private Action<float> _set;
         private BoxCollider _col;
+        private bool _dragging;
 
         public void Init(Transform knob, float xSize, Func<float> get, Action<float> set)
         {
@@ -1241,20 +1255,39 @@ namespace YokWare.VanillaMenu
 
         private void Update()
         {
+            if (!Input.GetMouseButton(0))
+            {
+                EndDrag();
+                return;
+            }
             if (_col == null || Core.CamUI == null)
                 return;
-            if (Input.GetMouseButton(0))
+            Ray ray = Core.CamUI.GetComponent<Camera>().ScreenPointToRay(Input.mousePosition);
+            if (_col.Raycast(ray, out RaycastHit hit, 2000f))
             {
-                Ray ray = Core.CamUI.GetComponent<Camera>().ScreenPointToRay(Input.mousePosition);
-                if (_col.Raycast(ray, out RaycastHit hit, 2000f))
+                if (!_dragging)
                 {
-                    float lx = transform.InverseTransformPoint(hit.point).x;
-                    float t = Mathf.Clamp01((lx + _xSize / 2f) / _xSize);
-                    _set?.Invoke(t);
-                    PlaceKnob(t);
+                    _dragging = true;
+                    try { Vm.SliderDrag?.Invoke(true); }
+                    catch (Exception ex) { Debug.LogError("[YokWare menu] slider: " + ex); }
                 }
+                float lx = transform.InverseTransformPoint(hit.point).x;
+                float t = Mathf.Clamp01((lx + _xSize / 2f) / _xSize);
+                _set?.Invoke(t);
+                PlaceKnob(t);
             }
         }
+
+        private void EndDrag()
+        {
+            if (!_dragging)
+                return;
+            _dragging = false;
+            try { Vm.SliderDrag?.Invoke(false); }
+            catch (Exception ex) { Debug.LogError("[YokWare menu] slider: " + ex); }
+        }
+
+        private void OnDisable() => EndDrag();
     }
 
     /// <summary>Esc / gamepad B in the menu goes back through this mod's screens first.</summary>

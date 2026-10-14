@@ -443,5 +443,32 @@ namespace DWMPHorde
         public static bool SurvivedNight(int nightDay, int localNightDeathDay)
             => localNightDeathDay != nightDay;
     }
-}
 
+    /// <summary>
+    /// A walk-in trigger that shuts the way behind the party (LockBehindPartyGate) counts a player
+    /// who walked into it. One who then goes back the way it came (the wedding's groom room back
+    /// into the yard) would be shut in there, so it counts again only once it walks in again.
+    /// </summary>
+    public static class LockGatePolicy
+    {
+        /// <summary>How far past where it walked in a player has to be to count as gone back.</summary>
+        public const float BackMargin = 100f;
+
+        /// <summary>Walked in this close to the centre (put there, not walked): no side to go back to.</summary>
+        public const float NoSide = 20f;
+
+        /// <summary>
+        /// <paramref name="cameX"/>/<paramref name="cameZ"/>: where the player stood as it walked in,
+        /// from the trigger's centre; <paramref name="nowX"/>/<paramref name="nowZ"/>: where it is now.
+        /// True when it is out again on the side it came from, further out than where it walked in.
+        /// </summary>
+        public static bool WentBack(float cameX, float cameZ, float nowX, float nowZ)
+        {
+            float came = (float)System.Math.Sqrt(cameX * cameX + cameZ * cameZ);
+            if (came < NoSide)
+                return false;
+            float along = (nowX * cameX + nowZ * cameZ) / came;
+            return along > came + BackMargin;
+        }
+    }
+}

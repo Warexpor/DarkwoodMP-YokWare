@@ -287,6 +287,8 @@ namespace DWMPHorde.Patches
         internal static bool InsideSighting; // process-scoped: call-scoped, unwound by its Finalizer
 
         private static System.Reflection.MethodInfo _checkSight; // process-scoped: reflection cache
+        private static readonly System.Action<Character> BansheeAgitated =
+            AccessTools.MethodDelegate<System.Action<Character>>(AccessTools.Method(typeof(Character), "bansheeAgitated"));
 
         private static bool Prefix(Character __instance)
         {
@@ -305,7 +307,7 @@ namespace DWMPHorde.Patches
             __instance.stopRoutine("checkIfInSightOfPlayer", all: true);
             __instance.startRoutine((System.Action)System.Delegate.CreateDelegate(typeof(System.Action), __instance, _checkSight), 0.5f);
             InsideSighting = true;
-            try { Traverse.Create(__instance).Method("bansheeAgitated").GetValue(); }
+            try { BansheeAgitated(__instance); }
             finally { InsideSighting = false; }
             if (__instance.behaviour != Character.Behaviour.defensive)
                 __instance.goToPos(victim);

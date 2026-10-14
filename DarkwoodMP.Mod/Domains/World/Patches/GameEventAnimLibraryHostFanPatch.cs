@@ -21,6 +21,7 @@ namespace DWMPHorde.Patches
     public static class GameEventAnimLibraryHostFanPatch
     {
         private static FieldInfo _gameEventField; // process-scoped: reflection cache
+        private static System.Func<object, object> _gameEventGet; // process-scoped: compiled reader of _gameEventField
 
         // Per-MoveNext state travels in __state (null = not tracked): a GameEvent step can start
         // another GameEvent coroutine whose MoveNext runs inside this one, and statics would be
@@ -41,10 +42,14 @@ namespace DWMPHorde.Patches
         {
             if (stateMachine == null) return null;
             if (_gameEventField == null)
+            {
                 _gameEventField = HarmonyCoroutineUtil.FindThisField(stateMachine.GetType(), typeof(GameEvent));
-            return _gameEventField != null
-                ? _gameEventField.GetValue(stateMachine) as GameEvent
-                : null;
+                try { _gameEventGet = HarmonyCoroutineUtil.FieldGetter(_gameEventField); }
+                catch { _gameEventGet = null; }
+            }
+            if (_gameEventField == null)
+                return null;
+            return (_gameEventGet != null ? _gameEventGet(stateMachine) : _gameEventField.GetValue(stateMachine)) as GameEvent;
         }
 
         private static void Prefix(object __instance, out State __state)

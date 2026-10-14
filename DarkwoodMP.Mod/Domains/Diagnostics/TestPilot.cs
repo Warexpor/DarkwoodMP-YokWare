@@ -1713,6 +1713,55 @@ namespace DWMPHorde.Sync
                     Out("  looted " + c.name + "@" + Pos(c.transform.position) + " [" + before + "] → [" + Contents(c.GetComponent<Inventory>()) + "]");
                     return;
                 }
+                case "spectate":
+                    // Same as pressing F4.
+                    Spectator.SpectatorModeController.EnsureExists();
+                    Spectator.SpectatorModeController.Instance.PressSpectateKey();
+                    Out("  spectating=" + Spectator.SpectatorModeController.Instance.IsSpectating);
+                    return;
+                case "vision":
+                {
+                    // The vision lights (cone, circle, dot, flashlight) on this player and on the
+                    // body the spectator follows: active, drawn, mesh, shape.
+                    var spec = Spectator.SpectatorModeController.Instance;
+                    Transform target = spec != null && spec.IsSpectating ? spec.FollowTarget : null;
+                    Out("  spectating=" + (target != null ? target.name : "no"));
+                    if (ModRuntime.Network != null)
+                        foreach (var proxy in ModRuntime.Network.GetAllProxies())
+                            if (proxy != null)
+                            {
+                                tk2dBaseSprite sp = proxy.GetComponent<tk2dBaseSprite>();
+                                Out("  p" + proxy.PlayerId + " invisible=" + (proxy.CachedCharBase != null && proxy.CachedCharBase.invisible)
+                                    + " alpha=" + (sp != null ? sp.color.a.ToString("0.##", CultureInfo.InvariantCulture) : "-")
+                                    + " at " + Pos(proxy.transform.position));
+                            }
+                    foreach (var root in new[] { p.transform, target })
+                    {
+                        if (root == null) continue;
+                        foreach (string n in new[] { "PlayerFOVLogic", "PlayerFOVLight", "PlayerFOVLightDot", "PlayerLightDot", "Flashlight" })
+                        {
+                            Transform t = null;
+                            for (int i = 0; i < root.childCount && t == null; i++)
+                                if (root.GetChild(i).name == n) t = root.GetChild(i);
+                            Light2D l = t != null ? t.GetComponent<Light2D>() : null;
+                            MeshRenderer mr = t != null ? t.GetComponent<MeshRenderer>() : null;
+                            MeshFilter mf = t != null ? t.GetComponent<MeshFilter>() : null;
+                            Out("  " + root.name + "/" + n + (t == null ? " missing" :
+                                " active=" + t.gameObject.activeInHierarchy
+                                + " light=" + (l != null && l.enabled)
+                                + " drawn=" + (mr != null && mr.enabled)
+                                + " visible=" + (mr != null && mr.isVisible)
+                                + " verts=" + (mf != null && mf.sharedMesh != null ? mf.sharedMesh.vertexCount : -1)
+                                + " r=" + (l != null ? l.LightRadius.ToString("0.#", CultureInfo.InvariantCulture) : "-")
+                                + " ang=" + (l != null ? l.LightConeAngle.ToString("0", CultureInfo.InvariantCulture) : "-")
+                                + " layer=" + t.gameObject.layer
+                                + " rot=" + t.eulerAngles.ToString("0")
+                                + " pos=" + Pos(t.position) + " y=" + t.position.y.ToString("0", CultureInfo.InvariantCulture)
+                                + " lightsPlayer=" + (l != null && l.lightsPlayer)));
+                        }
+                    }
+                    return;
+                }
                 case "corpses":
                     // Bodies left by players down until morning or the dream's end, and their bags.
                     foreach (string line in Players.PlayerCorpses.Describe())

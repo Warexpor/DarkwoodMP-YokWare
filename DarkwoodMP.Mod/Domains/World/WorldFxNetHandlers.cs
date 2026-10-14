@@ -432,8 +432,8 @@ namespace DWMPHorde.Networking
             }
             else if (!LocalAudioService.WorldSoundAudible(msg.SoundId, pos))
                 return;
-            else
-                RandomWorldSoundShare.OnPeerSoundHeard(msg.SoundId);
+            else if (RandomWorldSoundShare.TryPlayPeerStinger(msg.SoundId, pos, msg.Volume))
+                return;
 
             // Explicit flag saved and restored: an outer apply scope must survive this replay.
             bool prevNet = TraverseHack.GetExplicitFlag();
@@ -473,7 +473,8 @@ namespace DWMPHorde.Networking
                     // the same range the hear gate above used.
                     configure = src => WorldProxyEffectNetHandlers.ApplyStandInRolloff(src, id);
                 }
-                float vol = Mathf.Clamp01(msg.Volume) * (step ? WorldProxyEffectNetHandlers.PeerMovementVolume : 1f);
+                float vol = Mathf.Clamp01(msg.Volume)
+                    * (step && !Spectator.SpectatorModeController.IsFollowing(standIn) ? WorldProxyEffectNetHandlers.PeerMovementVolume : 1f);
                 PeerSpatialPlay.Play(() => AudioController.Play(id, pos, standIn, vol), configure);
             }
             finally { TraverseHack.SetExplicitFlag(prevNet); }

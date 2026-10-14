@@ -145,6 +145,8 @@ namespace DWMPHorde.Patches
             // Not the host's home: setExperienceMachine would put that one out.
             p.experienceMachine = null;
             p.setExperienceMachine(home, doEnable: false);
+            // A new character has chosen nothing yet: it follows the party.
+            PartyHomeMoves.ChooseHome(null);
             ModLog.Event(LogCat.Session, "[Prologue] fresh character's home oven: " + home.name + " at " + home.transform.position
                 + " lit=" + (home.light2D != null && home.light2D.activeSelf) + " (was " + was + ")");
         }

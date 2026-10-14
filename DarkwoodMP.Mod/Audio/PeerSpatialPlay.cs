@@ -49,6 +49,11 @@ namespace DWMPHorde.Audio
         {
             if (_pending == null || ao == null)
                 return;
+            // The player a spectator follows is heard the way that player hears itself: the
+            // game's own settings (its steps, swings and gear are 2D), not a peer's 3D falloff
+            // at a body the listener is chasing a frame behind, which panned them side to side.
+            if (Spectator.SpectatorModeController.IsFollowing(ao.transform))
+                return;
             AudioSource src = ao.primaryAudioSource;
             if (src == null)
                 return;

@@ -11,17 +11,24 @@ namespace DWMPHorde.Sync
     public static class ListTracker<T> where T : Component
     {
         private static readonly List<T> _items = new List<T>(64);
+        /// <summary>
+        /// Same members as <see cref="_items"/>, kept in step with every change: Add runs on every
+        /// Door.OnEnable, and a list scan per call grew with the scene. Unity objects hash by
+        /// instance id, so a destroyed entry still finds (and removes) itself.
+        /// </summary>
+        private static readonly HashSet<T> _itemSet = new HashSet<T>();
+        private static readonly System.Predicate<T> IsDestroyed = item => item == null;
         private static float _lastCleanupTime; // process-scoped: prune throttle
         private const float CleanupInterval = 30f;
 
-        /// <summary>Returns the tracked list (may contain nulls between cleanups).</summary>
+        /// <summary>Returns the tracked list (may contain nulls between cleanups). Read only: change it through Add / Remove.</summary>
         public static IList<T> GetAll() => _items;
 
         /// <summary>Registers an instance for tracking.</summary>
         public static void Add(T item)
         {
             if (item == null) return;
-            if (!_items.Contains(item))
+            if (_itemSet.Add(item))
                 _items.Add(item);
         }
 
@@ -29,7 +36,8 @@ namespace DWMPHorde.Sync
         public static void Remove(T item)
         {
             if (item == null) return;
-            _items.Remove(item);
+            if (_itemSet.Remove(item))
+                _items.Remove(item);
         }
 
         /// <summary>
@@ -70,7 +78,8 @@ namespace DWMPHorde.Sync
             if (now - _lastCleanupTime < CleanupInterval)
                 return;
             _lastCleanupTime = now;
-            _items.RemoveAll(item => item == null);
+            _items.RemoveAll(IsDestroyed);
+            _itemSet.RemoveWhere(IsDestroyed);
         }
 
         /// <summary>
@@ -83,6 +92,7 @@ namespace DWMPHorde.Sync
         public static void Clear()
         {
             _items.Clear();
+            _itemSet.Clear();
             T[] scene = WorldQueryHelper.GetCachedSceneComponents<T>();
             for (int i = 0; i < scene.Length; i++)
                 Add(scene[i]);

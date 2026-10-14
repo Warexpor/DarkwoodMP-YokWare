@@ -23,7 +23,7 @@ namespace DWMPHorde.Networking
             On(NetMessageType.DesyncReport, DesyncReportMessage.Deserialize,
                 m => Sync.DesyncCheck.HostOnReport(this, _currentReceivePlayerId, m));
             On(NetMessageType.WorldSession, WorldSessionMessage.Deserialize, m => HandleWorldSession(m));
-            OnRaw(NetMessageType.SaveSync, _ => HandleSaveSync());
+            On(NetMessageType.SaveSync, SaveSyncMessage.Deserialize, m => HandleSaveSync(m));
             On(NetMessageType.TimeSync, TimeSyncMessage.Deserialize, m => WorldWeatherTimeHandlers.HandleTimeSync(m));
             On(NetMessageType.SleepEndRequest, SleepEndRequestMessage.Deserialize, m => NightHandlers.HandleSleepEndRequest(m));
             On(NetMessageType.AfterNightEndRequest, AfterNightEndRequestMessage.Deserialize, m => NightHandlers.HandleAfterNightEndRequest(m));
@@ -34,6 +34,7 @@ namespace DWMPHorde.Networking
             On(NetMessageType.FlagSync, FlagSyncMessage.Deserialize, m => FlagHandlers.HandleFlagSync(m));
             On(NetMessageType.DreamSessionBulk, DreamSessionBulkMessage.Deserialize, m => DreamHandlers.HandleDreamSessionBulk(m));
             On(NetMessageType.ClientStateBackup, ClientStateBackupMessage.Deserialize, m => HandleClientStateBackup(m));
+            On(NetMessageType.PartyCharacter, PartyCharacterMessage.Deserialize, m => SaveHandlers.HandlePartyCharacter(m));
             On(NetMessageType.GameEventsBulk, GameEventsBulkMessage.Deserialize, m => GameEventHandlers.HandleGameEventsBulk(m));
             On(NetMessageType.HideoutUpgrade, HideoutUpgradeMessage.Deserialize, m => ContainerLootHandlers.HandleHideoutUpgrade(m));
             On(NetMessageType.JournalBulkSync, JournalBulkSyncMessage.Deserialize, m => JournalHandlers.HandleJournalBulkSync(m));

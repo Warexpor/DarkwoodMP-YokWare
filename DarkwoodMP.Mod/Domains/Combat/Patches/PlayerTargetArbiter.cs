@@ -385,8 +385,14 @@ namespace DWMPHorde.Patches
 
         private static void TraceSwitch(Character c, Transform from, Transform to, string source, PlayerTargetReason reason)
         {
-            if (!ModLog.IsTrace(LogCat.AI))
-                return;
+            // The trace's closure captures the arguments, so it is built in its own method: here
+            // it would be allocated on entry, before this check.
+            if (ModLog.IsTrace(LogCat.AI))
+                TraceSwitchOn(c, from, to, source, reason);
+        }
+
+        private static void TraceSwitchOn(Character c, Transform from, Transform to, string source, PlayerTargetReason reason)
+        {
             Vector3 at = c.transform.position;
             ModLog.TraceRate(LogCat.AI, "tgtswitch:" + c.GetInstanceID(), () =>
                 $"[TargetSwitch] {c.name} {BodyName(from)}→{BodyName(to)} "
@@ -398,8 +404,13 @@ namespace DWMPHorde.Patches
         /// <summary>Vanilla wanted another player body and the arbiter kept this one (rate-limited).</summary>
         internal static void TraceHold(Character c, Transform kept, Transform vanillaPick, string where, PlayerTargetReason reason)
         {
-            if (!ModLog.IsTrace(LogCat.AI) || kept == null || vanillaPick == null)
-                return;
+            // As TraceSwitch: the closure lives in its own method.
+            if (ModLog.IsTrace(LogCat.AI) && kept != null && vanillaPick != null)
+                TraceHoldOn(c, kept, vanillaPick, where, reason);
+        }
+
+        private static void TraceHoldOn(Character c, Transform kept, Transform vanillaPick, string where, PlayerTargetReason reason)
+        {
             Vector3 at = c.transform.position;
             ModLog.TraceRate(LogCat.AI, "tgthold:" + c.GetInstanceID(), () =>
                 $"[TargetHold] {c.name} on {BodyName(kept)} (d={Core.trueDistance(at, kept.position):F0}) "

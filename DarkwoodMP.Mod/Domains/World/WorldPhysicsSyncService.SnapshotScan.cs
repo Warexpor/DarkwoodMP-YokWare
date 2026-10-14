@@ -12,6 +12,8 @@ namespace DWMPHorde.Sync
 {
     public static partial class WorldPhysicsSyncService
     {
+        private static readonly List<Vector3> _scanActiveDoorPositions = new List<Vector3>(); // process-scoped: scratch (filled per scan)
+
         private static void SyncDoors()
         {
             if (ModRuntime.Network == null || ModRuntime.Network.Role != NetworkRole.Host)
@@ -28,28 +30,54 @@ namespace DWMPHorde.Sync
             List<Vector3> allProxyPositions = FillProxyScanPositions();
 
             IList<Door> allDoors = ListTracker<Door>.GetAll();
+            // Active door positions, filled on the first in-range inactive door (twin test below).
+            _scanActiveDoorPositions.Clear();
+            bool activeDoorPositionsFilled = false;
+            float scanRadiusSq = _scanRadius * _scanRadius;
             for (int i = 0; i < allDoors.Count; i++)
             {
                 Door door = allDoors[i];
                 if (door == null) continue;
-                // Its live twin at the same key owns the state (flapping open/closed otherwise).
-                if (WorldQueryHelper.IsInactiveTwin(door, allDoors)) continue;
 
-                float distToHost = Vector3.Distance(door.transform.position, center);
-                bool nearAnyProxy = false;
-                foreach (Vector3 pp in allProxyPositions)
+                Vector3 dp = door.transform.position;
+                bool inRange = (dp - center).sqrMagnitude <= scanRadiusSq;
+                for (int pi = 0; !inRange && pi < allProxyPositions.Count; pi++)
                 {
-                    if (Vector3.Distance(door.transform.position, pp) <= _scanRadius)
-                    {
-                        nearAnyProxy = true;
-                        break;
-                    }
+                    if ((dp - allProxyPositions[pi]).sqrMagnitude <= scanRadiusSq)
+                        inRange = true;
                 }
-                if (distToHost > _scanRadius && !nearAnyProxy) continue;
+                if (!inRange) continue;
+
+                // Its live twin at the same key owns the state (flapping open/closed otherwise).
+                // Same test as WorldQueryHelper.IsInactiveTwin, against the active positions
+                // gathered once per scan instead of every door per inactive door.
+                if (!door.gameObject.activeInHierarchy)
+                {
+                    if (!activeDoorPositionsFilled)
+                    {
+                        activeDoorPositionsFilled = true;
+                        for (int j = 0; j < allDoors.Count; j++)
+                        {
+                            Door o = allDoors[j];
+                            if (o != null && o.gameObject.activeInHierarchy)
+                                _scanActiveDoorPositions.Add(o.transform.position);
+                        }
+                    }
+                    bool twin = false;
+                    for (int j = 0; j < _scanActiveDoorPositions.Count; j++)
+                    {
+                        if ((_scanActiveDoorPositions[j] - dp).sqrMagnitude < 0.25f)
+                        {
+                            twin = true;
+                            break;
+                        }
+                    }
+                    if (twin) continue;
+                }
+
                 // Personal pads (the host's prologue, a solo dream) are not the world.
                 if (PersonalPads.Contains(door.transform)) continue;
 
-                Vector3 dp = door.transform.position;
                 Vector3 key = new Vector3((float)Math.Round(dp.x, 1), (float)Math.Round(dp.y, 1), (float)Math.Round(dp.z, 1));
 
                 bool opened = TraverseHack.ReadDoorOpened(door);

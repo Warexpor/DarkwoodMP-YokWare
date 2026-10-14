@@ -38,31 +38,58 @@ namespace DWMPHorde.Audio
             _half = (int)Math.Ceiling(Zeros / scale);
             _taps = 2 * _half;
             DelaySec = _half / (float)inRate;
+            _table = TableFor(inRate, outRate, scale);
+            _buf = new float[_taps + 4096];
+            _count = _half - 1;
+            _pos = _half - 1;
+        }
+
+        /// <summary>
+        /// The low-pass tables, one per pair of rates: a table is 257 rows of up to 96 taps,
+        /// each a Bessel series, and the mic starts a resampler (or two) every time it starts.
+        /// A table is only read once built, from any thread.
+        /// </summary>
+        private static readonly Dictionary<long, float[]> _tables = new Dictionary<long, float[]>(); // process-scoped: immutable cache per rate pair
+
+        private static float[] TableFor(int inRate, int outRate, double scale)
+        {
+            long key = ((long)inRate << 32) | (uint)outRate;
+            lock (_tables)
+            {
+                if (_tables.TryGetValue(key, out float[] cached))
+                    return cached;
+            }
+            int half = (int)Math.Ceiling(Zeros / scale);
+            int taps = 2 * half;
             double c = scale * Cutoff;
-            _table = new float[(Phases + 1) * _taps];
+            var table = new float[(Phases + 1) * taps];
             double i0Beta = BesselI0(KaiserBeta);
             for (int p = 0; p <= Phases; p++)
             {
                 double f = (double)p / Phases;
                 double sum = 0;
-                int row = p * _taps;
-                for (int j = 0; j < _taps; j++)
+                int row = p * taps;
+                for (int j = 0; j < taps; j++)
                 {
-                    double t = f + _half - 1 - j;
-                    double u = t / _half;
+                    double t = f + half - 1 - j;
+                    double u = t / half;
                     double w = Math.Abs(u) >= 1.0 ? 0.0 : BesselI0(KaiserBeta * Math.Sqrt(1.0 - u * u)) / i0Beta;
                     double arg = Math.PI * c * t;
                     double h = c * (Math.Abs(arg) < 1e-9 ? 1.0 : Math.Sin(arg) / arg) * w;
-                    _table[row + j] = (float)h;
+                    table[row + j] = (float)h;
                     sum += h;
                 }
                 // Every position passes a steady level unchanged.
-                for (int j = 0; j < _taps; j++)
-                    _table[row + j] = (float)(_table[row + j] / sum);
+                for (int j = 0; j < taps; j++)
+                    table[row + j] = (float)(table[row + j] / sum);
             }
-            _buf = new float[_taps + 4096];
-            _count = _half - 1;
-            _pos = _half - 1;
+            lock (_tables)
+            {
+                if (_tables.TryGetValue(key, out float[] raced))
+                    return raced;
+                _tables[key] = table;
+            }
+            return table;
         }
 
         /// <summary>Take <paramref name="n"/> input samples and add what they complete to <paramref name="output"/>, times <paramref name="gain"/>.</summary>

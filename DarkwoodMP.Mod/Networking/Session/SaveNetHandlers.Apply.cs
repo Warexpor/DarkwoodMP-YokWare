@@ -11,10 +11,11 @@ namespace DWMPHorde.Networking
     {
 
         /// <summary>
-        /// Host-broadcast SaveSync → clients run full local Save with vanilla Saving UI.
+        /// Host-broadcast SaveSync → clients run full local Save, showing the Saving indicator
+        /// only when the Save that raised it did (<see cref="SaveSyncMessage.ShowIndicator"/>).
         /// Client-originated SaveSync is host-only (debounced fan-out). Flag blocks loops.
         /// </summary>
-        internal void HandleSaveSync()
+        internal void HandleSaveSync(SaveSyncMessage msg)
         {
             if (_net.Role == NetworkRole.Offline)
                 return;
@@ -45,7 +46,7 @@ namespace DWMPHorde.Networking
                 }
                 ModLog.Event(LogCat.Save,
                     "SaveSync request from p" + _net.CurrentReceivePlayerId + " → host debounce");
-                HostScheduleSaveSyncBroadcast(hostAlreadySavedLocally: false);
+                HostScheduleSaveSyncBroadcast(hostAlreadySavedLocally: false, showIndicator: msg.ShowIndicator);
                 return;
             }
 
@@ -57,10 +58,10 @@ namespace DWMPHorde.Networking
                 return;
             }
 
-            ApplySaveSyncLocalSave("host broadcast");
+            ApplySaveSyncLocalSave("host broadcast", msg.ShowIndicator);
         }
 
-        private void ApplySaveSyncLocalSave(string reason)
+        private void ApplySaveSyncLocalSave(string reason, bool showIndicator)
         {
             if (LanNetworkManager.RemoteSaveInProgress)
                 return;
@@ -91,7 +92,7 @@ namespace DWMPHorde.Networking
             try
             {
                 ModLog.Event(LogCat.Save,
-                    "SaveSync " + reason + " → local coordinated Save (force + Saving indicator) role="
+                    "SaveSync " + reason + " → local coordinated Save (force, indicator=" + showIndicator + ") role="
                     + _net.Role);
 
                 sm.Save(
@@ -99,10 +100,11 @@ namespace DWMPHorde.Networking
                     doSaveProfile: true,
                     force: true,
                     forceSaveStatic: false,
-                    showSavingIndicator: true);
+                    showSavingIndicator: showIndicator);
 
                 if (_net.Role == NetworkRole.Client)
                 {
+                    _lastLocalWorldSaveAt = Time.unscaledTime;
                     try { SendClientStateBackup(); }
                     catch { /* non-fatal */ }
                 }
@@ -456,6 +458,97 @@ namespace DWMPHorde.Networking
             ModLog.Event(LogCat.Save, "[ClientBackup] stored backup from p" + playerId + " ("
                 + ((parsed.InventoryItems?.Count ?? 0) + (parsed.HotbarItems?.Count ?? 0)) + " items, level "
                 + parsed.CurrentLevel + ")");
+            // The other clients keep it with their copy of this save: any of them can host the world later.
+            if (steamId != 0 || !string.IsNullOrEmpty(stableKey))
+                _net.SendToAllExcept(playerId, NetMessageType.PartyCharacter,
+                    w => new PartyCharacterMessage { Kind = PartyCharacterKind.SaveRound, JsonData = json }.Serialize(w),
+                    LiteNetLib.DeliveryMethod.ReliableOrdered);
+        }
+
+        /// <summary>
+        /// Host, late join (after the joiner's load): every character this world stores, the host's
+        /// own included, except the joiner's. They match the world the joiner just downloaded.
+        /// </summary>
+        internal void SendPartyCharactersTo(int playerId)
+        {
+            if (_net.Role != NetworkRole.Host || playerId <= 0)
+                return;
+            _net.TryGetSteamIdForPlayer(playerId, out ulong steamId);
+            _net.TryGetStableClientKeyForPlayer(playerId, out string stableKey);
+            var joiner = new ClientStateBackupData { SteamId = steamId != 0 ? steamId.ToString() : null, StableClientKey = stableKey };
+            int sent = 0;
+            foreach (var data in ClientStateBackup.CollectStoredPartyCharacters())
+            {
+                if (ClientStateBackup.IsSamePlayer(data, joiner))
+                    continue;
+                string json = ClientStateBackup.SerializeToJson(data);
+                if (string.IsNullOrEmpty(json))
+                    continue;
+                _net.SendToPlayer(playerId, NetMessageType.PartyCharacter,
+                    w => new PartyCharacterMessage { Kind = PartyCharacterKind.Roster, JsonData = json }.Serialize(w),
+                    LiteNetLib.DeliveryMethod.ReliableOrdered);
+                sent++;
+            }
+            ModLog.Event(LogCat.Save, "[PartyCharacter] sent " + sent + " stored character(s) → p" + playerId);
+        }
+
+        /// <summary>
+        /// Host, before a world download: the joiner's own character as this world stores it. The
+        /// joiner's load uses it to tell a returning player from a new one even when the joiner's
+        /// own files are missing (another machine, a reinstall).
+        /// </summary>
+        internal void SendOwnCharacterBeforeShare(int playerId)
+        {
+            if (_net.Role != NetworkRole.Host || playerId <= 0)
+                return;
+            try
+            {
+                _net.TryGetSteamIdForPlayer(playerId, out ulong steamId);
+                _net.TryGetStableClientKeyForPlayer(playerId, out string stableKey);
+                if (steamId == 0 && string.IsNullOrEmpty(stableKey))
+                    return;
+                var data = ClientStateBackup.LoadBackupFileForPlayer(playerId, steamId, stableKey, allowPlayerIdFallback: false);
+                if (data == null)
+                    return;
+                string json = ClientStateBackup.SerializeToJson(data);
+                if (string.IsNullOrEmpty(json))
+                    return;
+                _net.SendToPlayer(playerId, NetMessageType.PartyCharacter,
+                    w => new PartyCharacterMessage { Kind = PartyCharacterKind.Own, JsonData = json }.Serialize(w),
+                    LiteNetLib.DeliveryMethod.ReliableOrdered);
+            }
+            catch (Exception ex)
+            {
+                ModRuntime.Log?.LogWarning("[PartyCharacter] own character → p" + playerId + " failed: " + ex.Message);
+            }
+        }
+
+        /// <summary>Client: a character the host sent (see <see cref="PartyCharacterKind"/>).</summary>
+        internal void HandlePartyCharacter(PartyCharacterMessage msg)
+        {
+            if (_net.Role != NetworkRole.Client || string.IsNullOrEmpty(msg.JsonData))
+                return;
+            ClientStateBackupData data;
+            try { data = ClientStateBackup.DeserializeFromJson(msg.JsonData); }
+            catch { data = null; }
+            if (data == null)
+            {
+                ModRuntime.Log?.LogWarning("[PartyCharacter] unreadable character from the host ignored");
+                return;
+            }
+            if (msg.Kind == PartyCharacterKind.Own)
+            {
+                ClientStateBackup.HoldOwnFromHost(data);
+                return;
+            }
+            // Written into the loaded copy of the world only (the profile slot it lives in).
+            if (GameScreen.AtTitle || Core.loadingGame || Player.Instance == null)
+            {
+                ModLog.Event(LogCat.Save, "[PartyCharacter] not stored — not in the world (" + msg.Kind + ")");
+                return;
+            }
+            float since = _lastLocalWorldSaveAt < 0f ? -1f : Time.unscaledTime - _lastLocalWorldSaveAt;
+            ClientStateBackup.StorePartyCharacter(data, msg.Kind, since);
         }
     }
 }

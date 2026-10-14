@@ -26,6 +26,8 @@ namespace DWMPHorde.Audio
         private const float GateOverFloorDb = 12f;
         private const float GateMinDb = -52f;
         private const float GateHoldSec = 0.45f;
+        /// <summary>Seconds the looping recording holds.</summary>
+        private const int RingSec = 3;
 
         private static AudioClip _clip; // process-scoped: the running recording
         private static string _device; // process-scoped: device the recording runs on ("" default)
@@ -133,7 +135,9 @@ namespace DWMPHorde.Audio
                 int rate = VoiceMicChain.ModelRate;
                 if (min > 0 || max > 0)
                     rate = Mathf.Clamp(rate, min > 0 ? min : rate, max > 0 ? max : rate);
-                AudioClip clip = Microphone.Start(DeviceArg(device), true, 1, rate);
+                // A looping recording of RingSec: the frame reads what came since the last one,
+                // so a stall longer than that (a load, a hitch) would lose what was said.
+                AudioClip clip = Microphone.Start(DeviceArg(device), true, RingSec, rate);
                 if (clip == null)
                     return false;
                 _clip = clip;
@@ -163,16 +167,15 @@ namespace DWMPHorde.Audio
             int n = (pos - _readPos + len) % len;
             if (n <= 0)
                 return;
-            // The worker keeps the array: a new one for each hand-over.
-            var read = new float[n];
-            // GetData wraps around the end of the looping clip by itself.
-            _clip.GetData(read, _readPos);
+            // The worker gets a recycled buffer and the count; it gives the buffer back.
+            float[] read = _worker.Rent(n);
+            ReadClip(read, n, _readPos, len);
             _readPos = pos;
 
             float gain = VolumeScale.Clamp(ModConfig.VoiceMicVolume?.Value ?? 1f);
             bool suppress = ModConfig.VoiceNoiseSuppression == null || ModConfig.VoiceNoiseSuppression.Value;
             float strength = ModConfig.VoiceNoiseSuppressionStrength?.Value ?? ModConfig.DefaultNoiseSuppressionStrength;
-            _worker.Push(read, gain, suppress, strength);
+            _worker.Push(read, n, gain, suppress, strength);
 
             _done.Clear();
             _worker.Take(_done);
@@ -201,6 +204,30 @@ namespace DWMPHorde.Audio
             }
         }
 
+        /// <summary>Power-of-two scratch for <see cref="ReadClip"/>, by size (main thread).</summary>
+        private static readonly float[][] _pieces = new float[31][]; // process-scoped: scratch
+
+        /// <summary>
+        /// <paramref name="n"/> samples of the looping clip from <paramref name="from"/> into
+        /// <paramref name="dst"/>. <c>GetData</c> fills the whole array it is given, and the count
+        /// changes every frame: read in power-of-two pieces into kept arrays instead of a new
+        /// array a frame. GetData wraps around the end of the looping clip by itself.
+        /// </summary>
+        private static void ReadClip(float[] dst, int n, int from, int len)
+        {
+            int at = 0;
+            for (int bit = 30; bit >= 0 && at < n; bit--)
+            {
+                int size = 1 << bit;
+                if ((n & size) == 0)
+                    continue;
+                float[] piece = _pieces[bit] ?? (_pieces[bit] = new float[size]);
+                _clip.GetData(piece, (from + at) % len);
+                Array.Copy(piece, 0, dst, at, size);
+                at += size;
+            }
+        }
+
         /// <summary>
         /// The recording's processing on its own thread: the game's frame pushes what the
         /// microphone recorded and takes the packets that are ready.
@@ -210,6 +237,7 @@ namespace DWMPHorde.Audio
             private struct Chunk
             {
                 internal float[] Data;
+                internal int Count;
                 internal float Gain;
                 internal bool Suppress;
                 internal float Strength;
@@ -219,6 +247,8 @@ namespace DWMPHorde.Audio
             private readonly Queue<Chunk> _in = new Queue<Chunk>();
             private readonly List<float[]> _ready = new List<float[]>();
             private readonly AutoResetEvent _wake = new AutoResetEvent(false);
+            /// <summary>Hand-over buffers the worker is done with, for the next frames to fill.</summary>
+            private readonly Stack<float[]> _free = new Stack<float[]>(4);
             private volatile bool _stop;
             private volatile string _error;
             private volatile string _suppressionError;
@@ -232,10 +262,29 @@ namespace DWMPHorde.Audio
                 new Thread(Run) { IsBackground = true, Name = "YokWare voice mic" }.Start();
             }
 
-            internal void Push(float[] data, float gain, bool suppress, float strength)
+            /// <summary>A buffer for at least <paramref name="n"/> samples.</summary>
+            internal float[] Rent(int n)
+            {
+                float[] buf = null;
+                lock (_free)
+                {
+                    if (_free.Count > 0)
+                        buf = _free.Pop();
+                }
+                if (buf == null || buf.Length < n)
+                {
+                    int size = 1024;
+                    while (size < n)
+                        size <<= 1;
+                    buf = new float[size];
+                }
+                return buf;
+            }
+
+            internal void Push(float[] data, int count, float gain, bool suppress, float strength)
             {
                 lock (_in)
-                    _in.Enqueue(new Chunk { Data = data, Gain = gain, Suppress = suppress, Strength = strength });
+                    _in.Enqueue(new Chunk { Data = data, Count = count, Gain = gain, Suppress = suppress, Strength = strength });
                 _wake.Set();
             }
 
@@ -272,7 +321,12 @@ namespace DWMPHorde.Audio
                                 chunk = _in.Dequeue();
                             }
                             _chain.Strength = chunk.Strength;
-                            _chain.Process(chunk.Data, chunk.Data.Length, chunk.Gain, chunk.Suppress, frames);
+                            _chain.Process(chunk.Data, chunk.Count, chunk.Gain, chunk.Suppress, frames);
+                            lock (_free)
+                            {
+                                if (_free.Count < 4)
+                                    _free.Push(chunk.Data);
+                            }
                             if (_chain.SuppressionError != null)
                                 _suppressionError = _chain.SuppressionError;
                             if (frames.Count > 0)

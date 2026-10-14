@@ -30,6 +30,12 @@ namespace DWMPHorde.Sync
                 _set.Add(c);
         }
 
+        /// <summary>
+        /// A list kept for <see cref="Snapshot"/> (a check's collectors each fill and read it in one
+        /// go, on the main thread): no list of the whole registry made per section per check.
+        /// </summary>
+        internal static readonly List<T> Scratch = new List<T>(256); // process-scoped: scratch
+
         /// <summary>The live members (destroyed ones dropped) copied into <paramref name="into"/>.</summary>
         internal static void Snapshot(List<T> into)
         {

@@ -1,7 +1,6 @@
 using System.Collections.Generic;
 using DWMPHorde.Logging;
 using DWMPHorde.Sync;
-using HarmonyLib;
 using UnityEngine;
 
 namespace DWMPHorde.Networking
@@ -41,8 +40,13 @@ namespace DWMPHorde.Networking
                 Character c = all[i];
                 if (c == null) continue;
 
-                // Skip the local player and remote proxy
-                if (c.name.Contains("Player"))
+                // Place and ids before the name: the registry holds every body of the scene, and
+                // Unity's name getter allocates per read.
+                Vector3 cp = c.transform.position;
+                float dx = cp.x - position.x;
+                float dz = cp.z - position.z;
+                float dSq = dx * dx + dz * dz;
+                if (dSq >= radiusSq || dSq >= bestDistSq)
                     continue;
 
                 // Skip if already host-synced or a phantom
@@ -52,20 +56,18 @@ namespace DWMPHorde.Networking
                         continue;
                 }
 
-                if (!CharacterTracker.BaseNameEquals(c.name, entityName))
+                // Skip the local player and remote proxies ("RemotePlayer" contains "Player").
+                string cname = c.name;
+                if (cname.Contains("Player"))
+                    continue;
+                if (!CharacterTracker.BaseNameEquals(cname, entityName))
                     continue;
                 // Another host body's save twin (its own pending row finds it by id).
                 if (RejectOtherSaveTwin(c))
                     continue;
 
-                float dx = c.transform.position.x - position.x;
-                float dz = c.transform.position.z - position.z;
-                float dSq = dx * dx + dz * dz;
-                if (dSq < radiusSq && dSq < bestDistSq)
-                {
-                    bestDistSq = dSq;
-                    best = c;
-                }
+                bestDistSq = dSq;
+                best = c;
             }
             return best;
         }
@@ -170,7 +172,7 @@ namespace DWMPHorde.Networking
                 tk2dSpriteAnimator anim = c.GetComponent<tk2dSpriteAnimator>();
                 if (anim != null)
                 {
-                    string idleClip = Traverse.Create(c).Field("idleAni").GetValue<string>();
+                    string idleClip = IdleAniRef(c);
                     if (!string.IsNullOrEmpty(idleClip) && anim.GetClipByName(idleClip) != null)
                     {
                         if (anim.CurrentClip == null || anim.CurrentClip.name != idleClip)

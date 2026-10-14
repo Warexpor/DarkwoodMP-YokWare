@@ -44,6 +44,10 @@ namespace DWMPHorde
             public string Name;
             public string Text;
             public float At;
+            /// <summary>"Name: " as measured for the name column, made once.</summary>
+            public string LabelPadded;
+            public string Label;
+            public HudText.SizeCache LabelSize;
             /// <summary>Shown alpha: up at once, down smoothly (<see cref="LineAlpha"/>).</summary>
             public float Alpha;
         }
@@ -52,6 +56,8 @@ namespace DWMPHorde
         {
             public tk2dTextMesh Name;
             public tk2dTextMesh Text;
+            public Renderer TextRenderer;
+            public HudText.SizeCache LineHeight;
         }
 
         private static ChatHud _instance; // process-scoped: one HUD component
@@ -63,6 +69,14 @@ namespace DWMPHorde
         private int _openedFrame = -1;
         private string _draft = "";
         private float _lastLocalSend;
+        private Renderer _sayRenderer;
+        private HudText.SizeCache _sayLineHeight;
+        private HudText.SizeCache _sayWidth;
+        private string _say; // Loc "Say:" the padded copy was made from
+        private string _sayPadded;
+        private string _draftShownFrom;
+        private bool _draftShownCaret;
+        private string _draftShown;
 
         public static bool IsInputOpen => Enabled && _instance != null && _instance._inputOpen;
 
@@ -206,24 +220,38 @@ namespace DWMPHorde
             float x = Left * s;
             float z = InputBottom * s;
             float now = Time.unscaledTime;
+            GameObject src = HudText.Source; // read once a frame for every follow and place
 
             // The "Say:" line.
             bool typing = show && _inputOpen;
             if (typing && EnsureInput())
             {
                 bool caret = ((int)(now * 2f) & 1) == 0;
-                HudText.FollowScale(_sayLabel);
-                HudText.FollowScale(_sayText);
+                HudText.FollowScale(_sayLabel, src);
+                HudText.FollowScale(_sayText, src);
                 string say = Loc.T("Say:");
+                if (!ReferenceEquals(say, _say))
+                {
+                    _say = say;
+                    _sayPadded = say + " ";
+                }
                 HudText.Set(_sayLabel, say, NameColor);
-                HudText.Place(_sayLabel, x, z);
-                float textX = x + HudText.Size(_sayLabel, say + " ").x;
+                HudText.Place(_sayLabel, src, x, z);
+                float textX = x + _sayWidth.Get(_sayLabel, _sayPadded).x;
                 Wrap(_sayText, Width * s - (textX - x));
-                HudText.Set(_sayText, _draft + (caret ? "_" : " "), TextColor);
-                HudText.Place(_sayText, textX, z);
+                if (_draftShown == null || !ReferenceEquals(_draft, _draftShownFrom) || caret != _draftShownCaret)
+                {
+                    _draftShownFrom = _draft;
+                    _draftShownCaret = caret;
+                    _draftShown = _draft + (caret ? "_" : " ");
+                }
+                HudText.Set(_sayText, _draftShown, TextColor);
+                HudText.Place(_sayText, src, textX, z);
                 SetActive(_sayLabel, true);
                 SetActive(_sayText, true);
-                z += Height(_sayText) + LineGap * 2f * s;
+                if (_sayRenderer == null)
+                    _sayRenderer = _sayText.GetComponent<Renderer>();
+                z += Height(_sayText, _sayRenderer, ref _sayLineHeight) + LineGap * 2f * s;
             }
             else
             {
@@ -243,27 +271,33 @@ namespace DWMPHorde
                 if (r == null)
                     break;
                 row++;
-                HudText.FollowScale(r.Name);
-                HudText.FollowScale(r.Text);
+                HudText.FollowScale(r.Name, src);
+                HudText.FollowScale(r.Text, src);
 
                 float textX = x;
                 bool named = !string.IsNullOrEmpty(line.Name);
                 if (named)
                 {
-                    string label = line.Name + ":";
-                    HudText.Set(r.Name, label, Fade(NameColor, alpha));
-                    textX = x + HudText.Size(r.Name, label + " ").x;
+                    if (line.Label == null)
+                    {
+                        line.Label = line.Name + ":";
+                        line.LabelPadded = line.Label + " ";
+                    }
+                    HudText.Set(r.Name, line.Label, Fade(NameColor, alpha));
+                    textX = x + line.LabelSize.Get(r.Name, line.LabelPadded).x;
                 }
                 SetActive(r.Name, named);
                 // Wrapped under its own start, so a long line reads as one block beside the name.
                 Wrap(r.Text, Width * s - (textX - x));
                 HudText.Set(r.Text, line.Text, Fade(named ? TextColor : SystemColor, alpha));
                 SetActive(r.Text, true);
-                float h = Height(r.Text);
+                if (r.TextRenderer == null)
+                    r.TextRenderer = r.Text.GetComponent<Renderer>();
+                float h = Height(r.Text, r.TextRenderer, ref r.LineHeight);
                 float top = z + h;
                 if (named)
-                    HudText.Place(r.Name, x, top);
-                HudText.Place(r.Text, textX, top);
+                    HudText.Place(r.Name, src, x, top);
+                HudText.Place(r.Text, src, textX, top);
                 z = top + LineGap * s;
             }
             for (int i = row; i < _rows.Length; i++)
@@ -311,11 +345,10 @@ namespace DWMPHorde
         }
 
         /// <summary>Height of a laid-out text in UI pixels (one line at least).</summary>
-        private static float Height(tk2dTextMesh tm)
+        private static float Height(tk2dTextMesh tm, Renderer rend, ref HudText.SizeCache oneLine)
         {
-            Renderer rend = tm.GetComponent<Renderer>();
             float h = rend != null && rend.enabled && tm.gameObject.activeInHierarchy ? rend.bounds.size.z : 0f;
-            float one = HudText.Size(tm, "Ay").y;
+            float one = oneLine.Get(tm, "Ay").y;
             return Mathf.Max(h, one);
         }
 

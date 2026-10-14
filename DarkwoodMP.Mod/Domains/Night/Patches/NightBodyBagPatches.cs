@@ -71,7 +71,10 @@ namespace DWMPHorde.Patches
             if (__instance == null || !NightBodyBag.Applies())
                 return;
             NightBodyBag.Dropped = true;
-            NightBodyBag.MoveRest(__instance, DeathBagDropSyncPatch.FindDeathDropAt(destPos));
+            DeathDrop drop = DeathBagDropSyncPatch.FindDeathDropAt(destPos);
+            // Hidden under the body before its first frame is drawn.
+            Players.PlayerCorpses.ClaimNewBag(drop);
+            NightBodyBag.MoveRest(__instance, drop);
         }
     }
 

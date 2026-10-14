@@ -476,6 +476,48 @@ namespace DWMPHorde.Networking
         }
     }
 
+    /// <summary>Host→joiner: the party's home moves (chapter, old oven, new oven).</summary>
+    public struct PartyHomeMovesMessage
+    {
+        public const int MaxMoves = 16;
+
+        public int[] Chapter;
+        public float[] FX, FY, FZ;
+        public float[] TX, TY, TZ;
+
+        public void Serialize(NetWriter w)
+        {
+            int n = Chapter != null ? System.Math.Min(Chapter.Length, MaxMoves) : 0;
+            w.Put((byte)n);
+            for (int i = 0; i < n; i++)
+            {
+                w.Put((byte)Chapter[i]);
+                w.Put(FX[i]); w.Put(FY[i]); w.Put(FZ[i]);
+                w.Put(TX[i]); w.Put(TY[i]); w.Put(TZ[i]);
+            }
+        }
+
+        public static PartyHomeMovesMessage Deserialize(NetReader r)
+        {
+            int n = r.GetByte();
+            if (n > MaxMoves)
+                throw new System.IO.InvalidDataException("PartyHomeMoves count " + n);
+            var m = new PartyHomeMovesMessage
+            {
+                Chapter = new int[n],
+                FX = new float[n], FY = new float[n], FZ = new float[n],
+                TX = new float[n], TY = new float[n], TZ = new float[n]
+            };
+            for (int i = 0; i < n; i++)
+            {
+                m.Chapter[i] = r.GetByte();
+                m.FX[i] = r.GetFloat(); m.FY[i] = r.GetFloat(); m.FZ[i] = r.GetFloat();
+                m.TX[i] = r.GetFloat(); m.TY[i] = r.GetFloat(); m.TZ[i] = r.GetFloat();
+            }
+            return m;
+        }
+    }
+
     public struct OxygenTankSetMessage
     {
         /// <summary>Which tank source (<c>Sync.OxygenTankParty</c> Source*).</summary>
@@ -807,8 +849,10 @@ namespace DWMPHorde.Networking
 
     public struct SaveSyncMessage
     {
-        public void Serialize(NetWriter w) { }
-        public static SaveSyncMessage Deserialize(NetReader r) => new SaveSyncMessage();
+        /// <summary>The Save that raised this fan-out showed the corner "Saving" indicator (vanilla's showSavingIndicator): peers show it too, or not.</summary>
+        public bool ShowIndicator;
+        public void Serialize(NetWriter w) { w.Put(ShowIndicator); }
+        public static SaveSyncMessage Deserialize(NetReader r) => new SaveSyncMessage { ShowIndicator = r.GetBool() };
     }
 
     public struct TimeSyncMessage
@@ -992,6 +1036,32 @@ namespace DWMPHorde.Networking
         // Put(string), which wrapped the length and corrupted the packet.
         public void Serialize(NetWriter w) { w.PutLongString(JsonData); w.Put(NightDeath); }
         public static ClientStateBackupMessage Deserialize(NetReader r) => new ClientStateBackupMessage { JsonData = r.GetLongString(), NightDeath = r.GetBool() };
+    }
+
+    /// <summary>Why the host sends a <see cref="PartyCharacterMessage"/>.</summary>
+    public enum PartyCharacterKind : byte
+    {
+        /// <summary>Taken at the world save that just ran (relayed client snapshot or the host's own).</summary>
+        SaveRound = 0,
+        /// <summary>To a joiner, after its load: the characters stored with the world it downloaded.</summary>
+        Roster = 1,
+        /// <summary>To a joiner, before the download: its own character as this world stores it.</summary>
+        Own = 2,
+    }
+
+    public struct PartyCharacterMessage
+    {
+        public PartyCharacterKind Kind;
+        /// <summary>A <c>ClientStateBackupData</c> JSON, identity fields stamped by the host.</summary>
+        public string JsonData;
+        public void Serialize(NetWriter w) { w.Put((byte)Kind); w.PutLongString(JsonData); }
+        public static PartyCharacterMessage Deserialize(NetReader r)
+        {
+            byte k = r.GetByte();
+            if (k > (byte)PartyCharacterKind.Own)
+                throw new System.IO.InvalidDataException("PartyCharacter kind " + k);
+            return new PartyCharacterMessage { Kind = (PartyCharacterKind)k, JsonData = r.GetLongString() };
+        }
     }
 
     public struct ReputationSyncMessage

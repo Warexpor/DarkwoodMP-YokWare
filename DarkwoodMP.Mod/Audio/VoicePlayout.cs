@@ -23,18 +23,44 @@ namespace DWMPHorde.Audio
 
         private static readonly float[] Table = BuildTable();
 
-        private readonly float[] _hist = new float[Taps];
+        /// <summary>
+        /// The only positions a voice at a third of the sound card's rate (16 kHz voice, 48 kHz
+        /// out) is ever read at besides 0, with the two table rows around each already blended:
+        /// one pass over the history instead of two. Any other position goes the long way.
+        /// </summary>
+        private static readonly float ThirdKey = (float)(1.0 / 3.0);
+        private static readonly float TwoThirdsKey = (float)(2.0 / 3.0);
+        private static readonly float[] ThirdKernel = Blend(ThirdKey);
+        private static readonly float[] TwoThirdsKernel = Blend(TwoThirdsKey);
+
+        /// <summary>
+        /// The history twice over: each sample is written at its place and <see cref="Taps"/>
+        /// further on, so the last <see cref="Taps"/> samples always lie in one run from
+        /// <see cref="_oldest"/> and nothing is moved on a push.
+        /// </summary>
+        private readonly float[] _hist = new float[2 * Taps];
+        private int _oldest;
 
         /// <summary>The next sample of the stream.</summary>
         internal void Push(float sample)
         {
-            Array.Copy(_hist, 1, _hist, 0, Taps - 1);
-            _hist[Taps - 1] = sample;
+            _hist[_oldest] = sample;
+            _hist[_oldest + Taps] = sample;
+            if (++_oldest == Taps)
+                _oldest = 0;
         }
 
         /// <summary>The stream at <paramref name="frac"/> (0..1) between the two samples in the middle of what was pushed.</summary>
         internal float At(float frac)
         {
+            float[] hist = _hist;
+            int o = _oldest;
+            if (frac == ThirdKey)
+                return Dot(hist, o, ThirdKernel, 0);
+            if (frac == TwoThirdsKey)
+                return Dot(hist, o, TwoThirdsKernel, 0);
+            if (frac == 0f)
+                return Dot(hist, o, Table, 0);
             float fp = frac * Phases;
             int p = (int)fp;
             if (p >= Phases)
@@ -45,14 +71,40 @@ namespace DWMPHorde.Audio
             float s0 = 0f, s1 = 0f;
             for (int j = 0; j < Taps; j++)
             {
-                float h = _hist[j];
+                float h = hist[o + j];
                 s0 += h * Table[r0 + j];
                 s1 += h * Table[r1 + j];
             }
             return s0 + (s1 - s0) * a;
         }
 
-        internal void Clear() => Array.Clear(_hist, 0, Taps);
+        private static float Dot(float[] hist, int o, float[] kernel, int k0)
+        {
+            float s = 0f;
+            for (int j = 0; j < Taps; j++)
+                s += hist[o + j] * kernel[k0 + j];
+            return s;
+        }
+
+        internal void Clear()
+        {
+            Array.Clear(_hist, 0, _hist.Length);
+            _oldest = 0;
+        }
+
+        /// <summary>The two table rows around <paramref name="frac"/>, blended as <see cref="At"/> blends their sums.</summary>
+        private static float[] Blend(float frac)
+        {
+            float fp = frac * Phases;
+            int p = (int)fp;
+            float a = fp - p;
+            int r0 = p * Taps;
+            int r1 = r0 + Taps;
+            var k = new float[Taps];
+            for (int j = 0; j < Taps; j++)
+                k[j] = Table[r0 + j] + (Table[r1 + j] - Table[r0 + j]) * a;
+            return k;
+        }
 
         private static float[] BuildTable()
         {

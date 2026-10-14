@@ -73,6 +73,12 @@ namespace DWMPHorde.Networking
         /// <summary>Bytes written since the last <see cref="Reset"/>.</summary>
         public int Length => _inner.Length;
 
+        /// <summary>The written bytes in place (the first <see cref="Length"/>); valid until the next write or reset.</summary>
+        internal byte[] RawBuffer => _inner.Data;
+
+        /// <summary>Bytes the writer holds on to (it grows, never shrinks).</summary>
+        internal int Capacity => _inner.Capacity;
+
         public void Reset() => _inner.Reset();
         public byte[] CopyData() => _inner.CopyData();
 
@@ -126,6 +132,61 @@ namespace DWMPHorde.Networking
                 throw new InvalidDataException("Malformed or truncated string.", ex);
             }
         }
+        /// <summary>
+        /// <see cref="GetString"/> for a short name that repeats packet after packet (animation
+        /// clips, item types): the same bytes give back the same string object instead of a new
+        /// one per read. The bytes are read as <see cref="NetWriter.Put(string)"/> wrote them
+        /// (LiteNetLib: a ushort of size + 1, 0 for empty, then UTF-8).
+        /// </summary>
+        public string GetClipString()
+        {
+            Require(2, "string");
+            int size = _inner.GetUShort();
+            if (size == 0)
+                return string.Empty;
+            int n = size - 1;
+            if (n < 0 || _inner.AvailableBytes < n)
+                throw new InvalidDataException("Malformed or truncated string.");
+            byte[] data = _inner.RawData;
+            int at = _inner.Position;
+            if (n > MaxCachedStringBytes)
+            {
+                string longer = System.Text.Encoding.UTF8.GetString(data, at, n);
+                _inner.SkipBytes(n);
+                return longer;
+            }
+            uint hash = 2166136261;
+            for (int i = 0; i < n; i++)
+                hash = (hash ^ data[at + i]) * 16777619;
+            int slot = (int)(hash & (StringSlots - 1));
+            byte[][] slotBytes = _slotBytes ?? (_slotBytes = new byte[StringSlots][]);
+            string[] slotStrings = _slotStrings ?? (_slotStrings = new string[StringSlots]);
+            byte[] known = slotBytes[slot];
+            if (known != null && known.Length == n)
+            {
+                int i = 0;
+                while (i < n && known[i] == data[at + i])
+                    i++;
+                if (i == n)
+                {
+                    _inner.SkipBytes(n);
+                    return slotStrings[slot];
+                }
+            }
+            string s = System.Text.Encoding.UTF8.GetString(data, at, n);
+            var copy = new byte[n];
+            Buffer.BlockCopy(data, at, copy, 0, n);
+            slotBytes[slot] = copy;
+            slotStrings[slot] = s;
+            _inner.SkipBytes(n);
+            return s;
+        }
+
+        private const int MaxCachedStringBytes = 128;
+        private const int StringSlots = 256;
+        [ThreadStatic] private static byte[][] _slotBytes; // process-scoped: decoded-name cache per thread, by hash
+        [ThreadStatic] private static string[] _slotStrings; // process-scoped: its strings
+
         /// <summary>Counterpart of <see cref="NetWriter.PutLongString"/>.</summary>
         public string GetLongString()
         {

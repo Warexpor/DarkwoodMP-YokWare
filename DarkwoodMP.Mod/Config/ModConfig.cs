@@ -187,8 +187,54 @@ namespace DWMPHorde.Config
             return LogLevel.Trace;
         }
 
+        private static ModConfigStore _store; // process-scoped: the one cfg file, bound once
+        private static bool _quitHooked; // process-scoped: one-time Application.quitting hook
+
+        /// <summary>
+        /// Holds (true) or releases (false) the cfg file write while a menu slider is dragged, so
+        /// the file is written once on release instead of every frame. Values update in memory
+        /// either way.
+        /// </summary>
+        public static void DeferSaves(bool held)
+        {
+            if (_store == null)
+                return;
+            try
+            {
+                if (held)
+                    _store.BeginDeferredSave();
+                else
+                    _store.EndDeferredSave();
+            }
+            catch (System.Exception ex)
+            {
+                ModRuntime.Log?.LogWarning("Config save failed (" + _store.ConfigFilePath + "): " + ex.Message);
+            }
+        }
+
+        /// <summary>Writes a held change (quit, mod stop). Safe when nothing is held.</summary>
+        public static void FlushPendingSave()
+        {
+            if (_store == null)
+                return;
+            try
+            {
+                _store.FlushPending();
+            }
+            catch (System.Exception ex)
+            {
+                ModRuntime.Log?.LogWarning("Config save failed (" + _store.ConfigFilePath + "): " + ex.Message);
+            }
+        }
+
         public static void Bind(ModConfigStore config)
         {
+            _store = config;
+            if (!_quitHooked)
+            {
+                _quitHooked = true;
+                UnityEngine.Application.quitting += FlushPendingSave;
+            }
             ConnectAddress = config.Bind("Network", "ConnectAddress", "127.0.0.1", "Default IP address shown in the connect field.");
             ConnectPort = config.Bind("Network", "ConnectPort", PluginInfo.DefaultPort,
                 "Default UDP port for LAN connections (1-65535; out-of-range values are clamped with a warning).");
@@ -229,7 +275,7 @@ namespace DWMPHorde.Config
             SoloHomeDream = config.Bind("Gameplay", "SoloHomeDream", true,
                 "Host: the home dream (the flat, dream_home) is played alone. Everyone goes in together and wakes by their own way out, but each player has their own copy of the flat and does not see the others there. Off: the party plays it together like the other dreams.");
             MaxPeerDamage = config.Bind("Gameplay", "MaxPeerDamage", 200,
-                "Host clamps peer-reported attack/FF damage to this max per hit (anti-grief). A per-peer budget (20 hits/s, burst 40; 1000 damage/s, burst 3000) caps sustained spam while multi-hit bursts like shotgun pellets still apply in full.");
+                "Host clamps peer-reported attack/FF damage to this max per hit (anti-grief). A per-peer budget (250 hits/s, burst 500; 4500 damage/s, burst 9000) caps sustained spam while a flamethrower on a pack or shotgun pellets still apply in full.");
             NightMonsterMultiplier = config.Bind("Gameplay", "NightMonsterMultiplier", 1f,
                 "Host: how many night monsters come to each hideout compared with vanilla (1 = vanilla, up to 10). Raises how many of each kind may be out at once and how fast they come. Also in Host settings, mid-game too.");
             PeerMovementVolume = config.Bind("Gameplay", "PeerMovementVolume", 0.85f,
@@ -291,10 +337,10 @@ namespace DWMPHorde.Config
                 "Host: creatures hear players talk. Normal speech carries about as far as a walking step, a shout farther than running; a whisper is not heard.");
             // Entity spawner moved to standalone plugin YokWare.EntitySpawner.
 
-            // Support = join/session/combat Events without Legacy flood ([Perf] via Debug.PerfProbe).
-            // Dev = LegacyInfo dumps. Trace = max capture (LegacyInfo + VerboseLogging gates).
-            LogPresetSetting = config.Bind("Logging", "LogPreset", "Support",
-                "Public=quiet. Support=session/join/combat (default; [Perf] needs Debug.PerfProbe). Dev=LegacyInfo dumps + [Perf]. Trace=max capture (Legacy + high-freq Verbose). Dual-box bug packs: Trace on both. Restart after change.");
+            // Dev = every category + LegacyInfo dumps + [Perf], and the least any install logs
+            // (ModLog.MinPreset: Public/Support are raised to it). Trace = max capture.
+            LogPresetSetting = config.Bind("Logging", "LogPreset", "Dev",
+                "Dev (default and minimum: Public or Support log as Dev)=every category + LegacyInfo dumps + [Perf]. Trace=max capture (Legacy + high-freq Verbose; costs frame time). Restart after change.");
             LogMinLevelSetting = config.Bind("Logging", "LogMinLevel", "Event",
                 "Error | Warn | Event | Info | Trace. LegacyInfo runs on LogPreset=Dev or Trace.");
             LogExtraCategories = config.Bind("Logging", "LogExtraCategories", "",
@@ -313,7 +359,7 @@ namespace DWMPHorde.Config
                 "Include full exception stacks on Error (also on for Dev/Trace).");
 
             VerboseLogging = config.Bind("Debug", "VerboseLogging", false,
-                "If true and LogPreset=Public, forces Trace. Prefer LogPreset=Support for join tests (not Trace/Dev).");
+                "If true and LogPreset=Public, forces Trace.");
             VerboseLightSync = config.Bind("Debug", "VerboseLightSync", false,
                 "Transition light sync logs. Leave false unless debugging lights.");
             VerboseEntitySync = config.Bind("Debug", "VerboseEntitySync", false,

@@ -69,7 +69,38 @@ namespace DWMPHorde
             }
         }
 
-        private static string VoiceSignature() => VoiceIndex() + "/" + string.Join("\n", VoiceMic.Devices);
+        private static string _voiceSig; // process-scoped: last Voice signature, rebuilt when its inputs change
+        private static int _voiceSigIndex = -1; // process-scoped: voice mode it was built from
+        private static string[] _voiceSigDevices; // process-scoped: device list it was built from
+        private static int _voiceSigFrame = -1; // process-scoped: frame _voiceSigDevices was read
+
+        /// <summary>Mode and device list. Unity's device list is read once a frame (TickVoice reuses it).</summary>
+        private static string VoiceSignature()
+        {
+            int index = VoiceIndex();
+            string[] devices = VoiceMic.Devices;
+            _voiceSigFrame = Time.frameCount;
+            if (_voiceSig == null || index != _voiceSigIndex || !SameStrings(devices, _voiceSigDevices))
+                _voiceSig = index + "/" + string.Join("\n", devices);
+            _voiceSigIndex = index;
+            _voiceSigDevices = devices;
+            return _voiceSig;
+        }
+
+        private static string[] DevicesThisFrame() =>
+            _voiceSigFrame == Time.frameCount && _voiceSigDevices != null ? _voiceSigDevices : VoiceMic.Devices;
+
+        private static bool SameStrings(string[] a, string[] b)
+        {
+            if (a == null || b == null || a.Length != b.Length)
+                return false;
+            for (int i = 0; i < a.Length; i++)
+            {
+                if (!string.Equals(a[i], b[i], StringComparison.Ordinal))
+                    return false;
+            }
+            return true;
+        }
 
         private static readonly string[] OffOn = { "Off", "On" };
         private static readonly string[] PadTalkChoices = { "Off", "D-pad left", "D-pad right", "Left stick click", "Right stick click" };
@@ -145,25 +176,53 @@ namespace DWMPHorde
             _voicePage.Buttons(b);
         }
 
+        // process-scoped: what the meter text was made from (state 0 off, 1 no mic, 2 starting, 3 level)
+        private static int _meterState = -1; // process-scoped: meter cache (rebuilt on change)
+        private static int _meterLevel; // process-scoped: filled slots it was made from
+        private static bool _meterOn; // process-scoped: talking flag it was made from
+        private static string _meterLang; // process-scoped: Loc.Language it was made in
+        private static readonly StringBuilder _meterSb = new StringBuilder(MeterSlots + 16); // process-scoped: reused meter text buffer
+
         /// <summary>Every frame on the Voice screen: keep the mic on and redraw the meter.</summary>
         private static void TickVoice()
         {
             VoiceChatService.MeterWantedUntil = Time.unscaledTime + 0.5f;
             if (_meter == null)
                 return;
-            string shown;
-            if (VoiceIndex() == 0)
-                shown = Loc.T("Voice chat is off");
+            int mode = VoiceIndex();
+            int state, n = 0;
+            bool on = false;
+            if (mode == 0)
+                state = 0;
             else if (!VoiceMic.Running)
-                shown = VoiceMic.Devices.Length == 0 ? Loc.T("No microphone found") : Loc.T("Starting...");
+                state = DevicesThisFrame().Length == 0 ? 1 : 2;
             else
             {
-                int n = Mathf.RoundToInt(VoiceMic.Level * MeterSlots);
-                var sb = new StringBuilder(MeterSlots + 16);
+                state = 3;
+                n = Mathf.Clamp(Mathf.RoundToInt(VoiceMic.Level * MeterSlots), 0, MeterSlots);
+                // Always on: whether the gate hears speech; push to talk: whether the key is down.
+                on = mode == 2 ? VoiceMic.GateOpen : VoiceChatService.Transmitting;
+            }
+            if (_meterShown != null && state == _meterState && n == _meterLevel && on == _meterOn
+                && ReferenceEquals(Loc.Language, _meterLang))
+                return;
+            _meterLang = Loc.Language;
+            _meterState = state;
+            _meterLevel = n;
+            _meterOn = on;
+            string shown;
+            if (state == 0)
+                shown = Loc.T("Voice chat is off");
+            else if (state == 1)
+                shown = Loc.T("No microphone found");
+            else if (state == 2)
+                shown = Loc.T("Starting...");
+            else
+            {
+                StringBuilder sb = _meterSb;
+                sb.Length = 0;
                 for (int i = 0; i < MeterSlots; i++)
                     sb.Append(i < n ? '|' : '.');
-                // Always on: whether the gate hears speech; push to talk: whether the key is down.
-                bool on = VoiceIndex() == 2 ? VoiceMic.GateOpen : VoiceChatService.Transmitting;
                 if (on)
                     sb.Append("  ").Append(Loc.T("talking"));
                 shown = sb.ToString();
@@ -202,24 +261,53 @@ namespace DWMPHorde
         private static List<int> OtherPlayerIds()
         {
             var ids = new List<int>();
+            FillOtherPlayerIds(ids);
+            return ids;
+        }
+
+        private static void FillOtherPlayerIds(List<int> ids)
+        {
+            ids.Clear();
             LanNetworkManager net = Net;
             if (net == null || !net.IsConnected)
-                return ids;
+                return;
             foreach (RemotePlayerProxy p in net.EnumerateRemoteProxies())
             {
                 if (p != null && p.PlayerId > 0 && p.PlayerId != net.LocalPlayerId && !ids.Contains(p.PlayerId))
                     ids.Add(p.PlayerId);
             }
             ids.Sort();
-            return ids;
         }
+
+        private static readonly List<int> _sigIds = new List<int>(8); // process-scoped: reused per-frame id list
+        private static readonly List<string> _sigNames = new List<string>(8); // process-scoped: names the signature was built from
+        private static readonly List<int> _sigBuiltIds = new List<int>(8); // process-scoped: ids the signature was built from
+        private static readonly StringBuilder _sigSb = new StringBuilder(128); // process-scoped: reused signature buffer
+        private static string _voicePlayersSig; // process-scoped: last Players signature
 
         private static string VoicePlayersSignature()
         {
-            var sb = new StringBuilder();
-            foreach (int id in OtherPlayerIds())
-                sb.Append(id).Append(':').Append(Sync.PlayerNames.Shown(id)).Append('\n');
-            return sb.ToString();
+            List<int> ids = _sigIds;
+            FillOtherPlayerIds(ids);
+            bool same = _voicePlayersSig != null && ids.Count == _sigBuiltIds.Count;
+            for (int i = 0; same && i < ids.Count; i++)
+                same = ids[i] == _sigBuiltIds[i]
+                    && string.Equals(Sync.PlayerNames.Shown(ids[i]), _sigNames[i], StringComparison.Ordinal);
+            if (same)
+                return _voicePlayersSig;
+            _sigBuiltIds.Clear();
+            _sigNames.Clear();
+            StringBuilder sb = _sigSb;
+            sb.Length = 0;
+            foreach (int id in ids)
+            {
+                string name = Sync.PlayerNames.Shown(id);
+                _sigBuiltIds.Add(id);
+                _sigNames.Add(name);
+                sb.Append(id).Append(':').Append(name).Append('\n');
+            }
+            _voicePlayersSig = sb.ToString();
+            return _voicePlayersSig;
         }
 
         /// <summary>Seven rows at most (eight players, this one aside), as many as a vanilla Options page.</summary>

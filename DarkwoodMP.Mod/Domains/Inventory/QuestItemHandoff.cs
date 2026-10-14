@@ -283,9 +283,12 @@ namespace DWMPHorde.Sync
             // After a restart the saved drop carries no id: find it by type near where it was left.
             Item found = null;
             float best = FindRadius * FindRadius;
-            foreach (Item it in UnityEngine.Object.FindObjectsOfType<Item>())
+            // The scene's items from the registry (no scene scan); active ones, as the scan found.
+            Item[] items = Sync.WorldQueryHelper.GetCachedSceneComponents<Item>();
+            for (int ii = 0; ii < items.Length; ii++)
             {
-                if (it == null || !it.isDroppedItem)
+                Item it = items[ii];
+                if (it == null || !it.isDroppedItem || !it.gameObject.activeInHierarchy)
                     continue;
                 Inventory inv = it.GetComponent<Inventory>();
                 InvItemClass held = inv != null && inv.slots != null && inv.slots.Count > 0 ? inv.slots[0].invItem : null;
@@ -489,6 +492,7 @@ namespace DWMPHorde.Sync
                 return;
             QuestItemHandoff.OnHostSaved();
             OxygenTankParty.OnHostSaved();
+            Patches.PartyHomeMoves.OnHostSaved();
         }
     }
 
@@ -500,6 +504,7 @@ namespace DWMPHorde.Sync
         {
             QuestItemHandoff.OnWorldLoaded();
             OxygenTankParty.OnWorldLoaded();
+            Patches.PartyHomeMoves.OnWorldLoaded();
         }
     }
 }

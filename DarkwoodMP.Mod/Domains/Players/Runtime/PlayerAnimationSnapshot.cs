@@ -10,6 +10,25 @@ namespace DWMPHorde.Players
     {
         private static readonly FieldInfo WantToReverseLegsField =
             typeof(Player).GetField("wantToReverseLegs", BindingFlags.Instance | BindingFlags.NonPublic);
+        /// <summary>The same field without boxing (read 30 times a second).</summary>
+        private static readonly HarmonyLib.AccessTools.FieldRef<Player, bool> WantToReverseLegsRef =
+            WantToReverseLegsField != null ? HarmonyLib.AccessTools.FieldRefAccess<Player, bool>(WantToReverseLegsField) : null;
+
+        private static Player _legsOf; // process-scoped: the player _legs / _legsAnim were found on
+        private static Transform _legs; // process-scoped: its PlayerLegs child
+        private static tk2dSpriteAnimator _legsAnim; // process-scoped: that child's animator
+
+        /// <summary>The player's PlayerLegs child, looked up again only for another body or a lost child.</summary>
+        private static Transform Legs(Player player)
+        {
+            if (!ReferenceEquals(player, _legsOf) || _legs == null)
+            {
+                _legsOf = player;
+                _legs = player.transform.Find("PlayerLegs");
+                _legsAnim = _legs != null ? _legs.GetComponent<tk2dSpriteAnimator>() : null;
+            }
+            return _legs;
+        }
 
         // Vanilla default legs threshold (Player.legsAnimatorMagnitude when not dragging).
         private const float LegAnimThresholdNormal = 55f;
@@ -66,7 +85,7 @@ namespace DWMPHorde.Players
             if (player == null)
                 return 0;
 
-            Transform legs = player.transform.Find("PlayerLegs");
+            Transform legs = Legs(player);
             float y = legs != null ? legs.eulerAngles.y : player.transform.eulerAngles.y;
             return (short)Mathf.RoundToInt(y);
         }
@@ -79,8 +98,7 @@ namespace DWMPHorde.Players
             if (player == null || WantToReverseLegsField == null)
                 return false;
 
-            object value = WantToReverseLegsField.GetValue(player);
-            return value is bool b && b;
+            return WantToReverseLegsRef(player);
         }
 
         /// <summary>
@@ -129,10 +147,10 @@ namespace DWMPHorde.Players
                     return null;
             }
 
-            Transform legsT = player.transform.Find("PlayerLegs");
+            Transform legsT = Legs(player);
             if (legsT == null)
                 return null;
-            tk2dSpriteAnimator legsAnim = legsT.GetComponent<tk2dSpriteAnimator>();
+            tk2dSpriteAnimator legsAnim = _legsAnim != null ? _legsAnim : legsT.GetComponent<tk2dSpriteAnimator>();
             if (legsAnim == null)
                 return null;
             var clip = legsAnim.CurrentClip;

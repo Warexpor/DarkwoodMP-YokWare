@@ -21,10 +21,17 @@ namespace DWMPHorde.Sync
         {
             TickThrownLightFades();
             var flares = _s.Thrown.ThrownFlares;
+            var parts = _s.Thrown.ThrownFlareParts;
             for (int i = flares.Count - 1; i >= 0; i--)
             {
-                if (flares[i] == null || FlareClock.BurntOut(flares[i]))
+                FlareClock.Parts p = parts[i];
+                if (flares[i] == null || FlareClock.BurntOut(flares[i], ref p))
+                {
                     flares.RemoveAt(i);
+                    parts.RemoveAt(i);
+                }
+                else
+                    parts[i] = p;
             }
         }
 
@@ -32,7 +39,10 @@ namespace DWMPHorde.Sync
         public static void NoteThrownFlare(GameObject go)
         {
             if (go != null && !_s.Thrown.ThrownFlares.Contains(go))
+            {
                 _s.Thrown.ThrownFlares.Add(go);
+                _s.Thrown.ThrownFlareParts.Add(default);
+            }
         }
 
         /// <summary>Vanilla waitToDie: ramp intensity to 0 over fadeSec, then kill lights/particles/lightFlare.</summary>
@@ -106,7 +116,9 @@ namespace DWMPHorde.Sync
                 Duration = fadeSec,
                 StartIntensity = startI,
                 Lights = lights,
-                SiblingDestroy = siblingDestroy
+                SiblingDestroy = siblingDestroy,
+                Flares = go.GetComponentsInChildren<Flare>(true),
+                SiblingFlares = siblingDestroy != null ? siblingDestroy.GetComponentsInChildren<Flare>(true) : null
             });
         }
 
@@ -137,9 +149,9 @@ namespace DWMPHorde.Sync
                     }
                 }
                 // Dim lightFlare sprites with the light (vanilla waitToDie fades then destroys).
-                DimFlareSprites(f.Go, alphaScale);
+                DimFlareSprites(f.Flares, alphaScale);
                 if (f.SiblingDestroy != null)
-                    DimFlareSprites(f.SiblingDestroy, alphaScale);
+                    DimFlareSprites(f.SiblingFlares, alphaScale);
 
                 if (now >= f.EndTime)
                 {
@@ -154,11 +166,13 @@ namespace DWMPHorde.Sync
             }
         }
 
-        private static void DimFlareSprites(GameObject go, float alphaScale)
+        /// <summary>The fade's own flares, gathered when it began (destroyed ones skipped).</summary>
+        private static void DimFlareSprites(Flare[] flares, float alphaScale)
         {
-            if (go == null) return;
-            foreach (var fl in go.GetComponentsInChildren<Flare>(true))
+            if (flares == null) return;
+            for (int i = 0; i < flares.Length; i++)
             {
+                Flare fl = flares[i];
                 if (fl != null && fl.lightFlare != null)
                 {
                     Color c = fl.lightFlare.color;

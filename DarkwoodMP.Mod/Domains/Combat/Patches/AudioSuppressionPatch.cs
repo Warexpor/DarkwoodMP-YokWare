@@ -23,12 +23,24 @@ namespace DWMPHorde.Patches
         }
     }
 
+    /// <summary>Marks the play calls a sound area makes for its own loop (see <see cref="AudioSuppressionLogic.SoundAreaStarting"/>).</summary>
+    [OptionalPatch]
+    [HarmonyPatch(typeof(SoundArea), "playSound")]
+    public static class SoundAreaPlayScopePatch
+    {
+        private static void Prefix() => AudioSuppressionLogic.SoundAreaStarting++;
+        private static void Finalizer() => AudioSuppressionLogic.SoundAreaStarting--;
+    }
+
     /// <summary>
     /// Music and ambience are global; never distance-cull them.
     /// (Previously shared SuppressFarAudio and killed menu/BGM tracks.)
     /// </summary>
     internal static class AudioSuppressionLogic
     {
+        /// <summary>Inside <c>SoundArea.playSound</c> (main thread): its play call is the area's own loop.</summary>
+        internal static int SoundAreaStarting; // process-scoped: call depth, balanced by the finalizer
+
         /// <summary>
         /// Returns true to allow play, false to suppress.
         /// </summary>
@@ -43,6 +55,17 @@ namespace DWMPHorde.Patches
             // spot in the world, out of range, and refused: whoever loaded the dream the vanilla
             // way (the host, a player starting a dream alone) dreamed without it.
             if (IsDreamMusic(audioID))
+                return true;
+
+            // A sound area's own loop (the village's music and env, fires, water, banshee ambience),
+            // started by SoundArea.playSound. The area plays it only when the local player walks
+            // into its trigger, or comes within its source distance, and stops it on the way out:
+            // that is the vanilla gate (a remote player's stand-in has no Player component and
+            // never trips it). Judged by distance instead, a loop on the area's transform, often at
+            // the location's origin thousands of units from where the player came in, was refused
+            // for the whole visit; a spectator's onlyOneInstance loop, played on the local body,
+            // was muted by the body rule below.
+            if (SoundAreaStarting > 0)
                 return true;
 
             // Title / main menu — no distance culling at all.
@@ -113,16 +136,16 @@ namespace DWMPHorde.Patches
             if (audible)
                 return true;
 
-            LogCreatureCull(audioID, pos, LocalAudioService.AudibleRange(audioID), parentObj);
+            // Gated here: the range lookup and the trace's closure only when the trace is on.
+            if (parentObj != null && EntitySyncLog.On)
+                LogCreatureCull(audioID, pos, LocalAudioService.AudibleRange(audioID), parentObj);
             __result = null;
             return false;
         }
 
-        /// <summary>A creature's sound refused here (the play call returns null): rate-limited trace.</summary>
+        /// <summary>A creature's sound refused here (the play call returns null): rate-limited trace (caller checks EntitySyncLog.On).</summary>
         private static void LogCreatureCull(string audioID, Vector3 pos, float range, Transform parentObj)
         {
-            if (parentObj == null || !EntitySyncLog.On)
-                return;
             Character c = parentObj.GetComponentInParent<Character>();
             if (c == null)
                 return;

@@ -13,16 +13,44 @@ namespace DWMPHorde.Networking
     public sealed partial class LanNetworkManager
     {
         /// <summary>
-        /// Build a complete packet with a stack-local writer so nested Send/Broadcast
-        /// from writeBody callbacks cannot corrupt a shared buffer.
+        /// Build a complete packet in a recycled writer of its own nesting depth, so a nested
+        /// Send/Broadcast from a writeBody callback writes into the next one and cannot corrupt
+        /// this. The bytes are sent from the writer itself (every peer send copies them) and the
+        /// writer is given back with <see cref="ReturnPacket"/> once they are out.
         /// </summary>
-        private static byte[] BuildPacket(NetMessageType type, Action<NetWriter> writeBody)
+        private static NetWriter BuildPacket(NetMessageType type, Action<NetWriter> writeBody)
         {
-            var writer = new NetWriter();
-            writer.Put((byte)type);
-            writeBody(writer);
-            return writer.CopyData();
+            List<NetWriter> writers = _packetWriters ?? (_packetWriters = new List<NetWriter>(4));
+            if (_packetDepth == writers.Count)
+                writers.Add(new NetWriter());
+            NetWriter writer = writers[_packetDepth++];
+            try
+            {
+                writer.Reset();
+                writer.Put((byte)type);
+                writeBody(writer);
+            }
+            catch
+            {
+                ReturnPacket(writer);
+                throw;
+            }
+            return writer;
         }
+
+        /// <summary>Gives the innermost <see cref="BuildPacket"/> writer back (a very large one is let go).</summary>
+        private static void ReturnPacket(NetWriter writer)
+        {
+            if (_packetDepth <= 0)
+                return;
+            _packetDepth--;
+            if (writer.Capacity > MaxKeptPacketBytes)
+                _packetWriters[_packetDepth] = new NetWriter();
+        }
+
+        private const int MaxKeptPacketBytes = 64 * 1024;
+        [ThreadStatic] private static List<NetWriter> _packetWriters; // process-scoped: per-thread writers by nesting depth
+        [ThreadStatic] private static int _packetDepth; // process-scoped: BuildPacket nesting on this thread
 
         private static readonly NetWriter _hotPacketWriter = new NetWriter();
         private static byte[] _hotPacketBuf = Array.Empty<byte>(); // process-scoped: scratch buffer, cleared before each use
@@ -106,22 +134,34 @@ namespace DWMPHorde.Networking
         /// <summary>Client: the only peer is the host.</summary>
         private void SendFramedToFirstPeer(byte[] data, int length, DeliveryMethod method, int excludePlayerId)
         {
-            foreach (int peerId in EnumeratePeerIds())
+            if (data == null || length <= 0)
+                return;
+            // EnumeratePeerIds' gates, by index (no iterator per send).
+            IPeerTable peers = Peers;
+            IReadOnlyList<int> ids = peers.Ids;
+            for (int i = 0; i < ids.Count; i++)
             {
+                int peerId = ids[i];
+                if (!peers.IsRoutable(peerId) || IsRejectedPeer(peerId))
+                    continue;
                 if (excludePlayerId > 0 && peerId == excludePlayerId)
                     continue;
-                SendRawToPlayer(peerId, data, length, method);
+                peers.Send(peerId, data, Math.Min(length, data.Length), method);
                 return;
             }
         }
+
+        private bool IsRejectedPeer(int peerId)
+            => _session.Link.Rejected.Count > 0 && _session.Link.Rejected.Contains(peerId);
 
         /// <summary>Send a message to a specific peer by PlayerId (LAN or Steam).</summary>
         public void SendToPlayer(int playerId, NetMessageType type, Action<NetWriter> writeBody,
             DeliveryMethod method = DeliveryMethod.Unreliable)
         {
             if (Sync.PersonalPads.BlocksSend(type, _role)) return;
-            byte[] data = BuildPacket(type, writeBody);
-            SendRawToPlayer(playerId, data, method);
+            NetWriter packet = BuildPacket(type, writeBody);
+            try { SendRawToPlayer(playerId, packet.RawBuffer, packet.Length, method); }
+            finally { ReturnPacket(packet); }
         }
 
         /// <summary>Raw bytes already framed with message type byte (entity snapshot path).</summary>
@@ -152,8 +192,13 @@ namespace DWMPHorde.Networking
             int excludePlayerId = 0)
         {
             int min = int.MaxValue;
-            foreach (int peerId in EnumeratePeerIds())
+            IPeerTable peers = Peers;
+            IReadOnlyList<int> ids = peers.Ids;
+            for (int i = 0; i < ids.Count; i++)
             {
+                int peerId = ids[i];
+                if (!peers.IsRoutable(peerId) || IsRejectedPeer(peerId))
+                    continue;
                 if (excludePlayerId > 0 && peerId == excludePlayerId)
                     continue;
                 if (gameplayReadyOnly && !IsPeerReadyForGameplay(peerId))
@@ -255,9 +300,13 @@ namespace DWMPHorde.Networking
             // The host's own prologue and a solo dream happen on private pads, not in the shared world.
             if (Sync.PersonalPads.BlocksSend(type, _role)) return;
             // Built before the loop: a body writer that itself sends must not run mid-iteration.
-            byte[] data = BuildPacket(type, writeBody);
-            SendFramedToPeers(data, data.Length, method,
-                skipLoadingPeers ? FanOutFilter.SkipLoading : FanOutFilter.All, excludePlayerId);
+            NetWriter packet = BuildPacket(type, writeBody);
+            try
+            {
+                SendFramedToPeers(packet.RawBuffer, packet.Length, method,
+                    skipLoadingPeers ? FanOutFilter.SkipLoading : FanOutFilter.All, excludePlayerId);
+            }
+            finally { ReturnPacket(packet); }
         }
 
         /// <summary>
@@ -285,8 +334,9 @@ namespace DWMPHorde.Networking
         {
             if (_role != NetworkRole.Host || PeerCount == 0) return;
             if (Sync.PersonalPads.BlocksSend(type, _role)) return;
-            byte[] data = BuildPacket(type, writeBody);
-            SendFramedToPeers(data, data.Length, method, FanOutFilter.InWorld, 0);
+            NetWriter packet = BuildPacket(type, writeBody);
+            try { SendFramedToPeers(packet.RawBuffer, packet.Length, method, FanOutFilter.InWorld, 0); }
+            finally { ReturnPacket(packet); }
         }
 
         /// <summary>Host: joiner is downloading, applying, or loading a scene.</summary>
@@ -377,8 +427,9 @@ namespace DWMPHorde.Networking
         {
             if (PeerCount == 0) return;
             if (Sync.PersonalPads.BlocksSend(type, _role)) return;
-            byte[] data = BuildPacket(type, writeBody);
-            SendFramedToFirstPeer(data, data.Length, method, 0);
+            NetWriter packet = BuildPacket(type, writeBody);
+            try { SendFramedToFirstPeer(packet.RawBuffer, packet.Length, method, 0); }
+            finally { ReturnPacket(packet); }
         }
     }
 }

@@ -32,6 +32,30 @@ public class NetWriterTests
     }
 
     [Fact]
+    public void GetClipString_ReadsWhatGetStringReads_AndReusesTheString()
+    {
+        var w = new NetWriter();
+        w.Put("Walk");
+        w.Put("");
+        w.Put("Ходьба");
+        w.Put("Walk");
+        w.Put(7);
+        byte[] data = w.CopyData();
+
+        var plain = new NetReader(data);
+        var cached = new NetReader(data);
+        for (int i = 0; i < 4; i++)
+            Assert.Equal(plain.GetString(), cached.GetClipString());
+        Assert.Equal(7, cached.GetInt());
+        Assert.Equal(0, cached.AvailableBytes);
+
+        // The same bytes again: the same string object, not a new one.
+        string a = new NetReader(data).GetClipString();
+        string b = new NetReader(data).GetClipString();
+        Assert.Same(a, b);
+    }
+
+    [Fact]
     public void PutRaw_AppendsWithoutLengthPrefix()
     {
         // Host Forwardable Direct path must rebroadcast already-framed payloads raw.

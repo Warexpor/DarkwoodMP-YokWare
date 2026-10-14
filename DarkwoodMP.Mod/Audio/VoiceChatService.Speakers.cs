@@ -55,10 +55,30 @@ namespace DWMPHorde.Audio
             var proxy = playerId > 0 && net != null ? net.GetProxy(playerId) : null;
             if (proxy == null)
                 return false;
+            // Asked again in the same frame from the same spot (every talker heard through this
+            // player's radio asks it), the ground is what it was: two rays, once.
+            Vector3 at = proxy.transform.position;
+            int frame = Time.frameCount;
+            if (_insideMemo.TryGetValue(playerId, out InsideMemo memo) && memo.Frame == frame && memo.At == at && memo.Proxy == proxy)
+                return memo.Inside;
             WorldProxyEffectNetHandlers.RefreshStandInGround(proxy);
             CharBase cb = proxy.CachedCharBase;
-            return cb != null && cb.isInside;
+            bool inside = cb != null && cb.isInside;
+            if (_insideMemo.Count > 64)
+                _insideMemo.Clear();
+            _insideMemo[playerId] = new InsideMemo { Frame = frame, At = at, Proxy = proxy, Inside = inside };
+            return inside;
         }
+
+        private struct InsideMemo
+        {
+            public int Frame;
+            public Vector3 At;
+            public Players.RemotePlayerProxy Proxy;
+            public bool Inside;
+        }
+
+        private static readonly Dictionary<int, InsideMemo> _insideMemo = new Dictionary<int, InsideMemo>(); // process-scoped: answers of this frame only (keyed by frame and spot)
 
         private static Speaker EnsureSpeaker(int id)
         {
@@ -82,7 +102,7 @@ namespace DWMPHorde.Audio
             var s = new Speaker
             {
                 Id = id,
-                Ring = new float[Math.Max((int)_sampleRate * 4, 44100)]
+                Ring = new float[RingSamples()]
             };
             s.Go = new GameObject("YokWare_Voice_" + id);
             s.Go.transform.SetParent(_root.transform, false);
@@ -385,6 +405,7 @@ namespace DWMPHorde.Audio
                         : IsInside(net, nearRadioId);
                 }
                 RoomReverb.Drive(r.Reverb, r.ReverbInside, dt);
+                IdlePause(r);
                 if (r.Beh != null)
                     r.Beh.Volume = Mathf.Clamp(radioVol * share * VoiceOutLevel, 0f, 2f);
                 if (r.Muffle != null)
@@ -417,6 +438,7 @@ namespace DWMPHorde.Audio
                 RoomReverb.Drive(s.ClickReverb, talkerInside, dt);
             }
             RoomReverb.Drive(s.Reverb, talkerInside, dt);
+            IdlePause(s);
 
             if (s.Beh != null)
                 s.Beh.Volume = Mathf.Clamp(proxVol * share * VoiceOutLevel, 0f, 2f);

@@ -26,7 +26,7 @@ namespace DWMPHorde.Networking
 
             if (msg.Entities == null || msg.Entities.Length == 0)
             {
-                if (_lastApplyCount > 0)
+                if (_lastApplyCount > 0 && EntitySyncLog.On)
                     EntitySyncLog.Interp("empty",
                         "[ClientSnap] empty snapshot (had applied=" + _lastApplyCount + ")", 2f);
                 _lastApplyCount = 0;
@@ -47,9 +47,11 @@ namespace DWMPHorde.Networking
             if (wasFirst)
             {
                 _firstSnapshotTime = Time.time;
-                EntitySyncLog.Event(() =>
-                    "[ClientSnap] FIRST snapshot seq=" + msg.Sequence
-                    + " entities=" + msg.Entities.Length);
+                // No lambdas over this method's locals in here: one would be allocated on every
+                // call (and per entity in the loop) whether the log is on or not.
+                if (EntitySyncLog.On || ModLog.IsEvent(LogCat.Entity))
+                    EntitySyncLog.Event("[ClientSnap] FIRST snapshot seq=" + msg.Sequence
+                        + " entities=" + msg.Entities.Length);
             }
 
             int applied = 0;
@@ -66,6 +68,19 @@ namespace DWMPHorde.Networking
             {
                 EntitySnapshotNet e = msg.Entities[i];
                 float batchHostTime = msg.HostTime;
+                // A clip left out is the one this id last carried (the host writes each change
+                // a few times, and with every descriptor).
+                if (e.ClipSame)
+                {
+                    if (!_clipByIndex.TryGetValue(e.Index, out string lastClip))
+                    {
+                        skipped++;
+                        continue;
+                    }
+                    e.Clip = lastClip;
+                }
+                else
+                    _clipByIndex[e.Index] = e.Clip ?? "";
                 if (e.HasDescriptor)
                 {
                     _descriptors[e.Index] = new EntityDescriptor
@@ -188,8 +203,7 @@ namespace DWMPHorde.Networking
 
                     // The stable ID matched a different local entity.
                     if (EntitySyncLog.On)
-                        EntitySyncLog.Event(() =>
-                            "[ClientMatch] ID COLLISION id=" + e.Index + " found=" + c.name
+                        EntitySyncLog.Event("[ClientMatch] ID COLLISION id=" + e.Index + " found=" + c.name
                             + " expected=" + e.EntityName);
                     CharacterTracker.ClearId(c);
                 }
@@ -203,8 +217,7 @@ namespace DWMPHorde.Networking
                     if (phantomExcludeBuilt)
                         _phantomReplaceExclude.Add(e.Index);
                     if (EntitySyncLog.On)
-                        EntitySyncLog.Event(() =>
-                            "[ClientMatch] by-save-id " + e.EntityName + "(id=" + e.Index + " save=" + e.SaveId + ")");
+                        EntitySyncLog.Event("[ClientMatch] by-save-id " + e.EntityName + "(id=" + e.Index + " save=" + e.SaveId + ")");
                     UpdateInterpolation(c, e, targetPos, msg.HostTime, ref applied);
                     continue;
                 }
@@ -219,8 +232,7 @@ namespace DWMPHorde.Networking
                     if (phantomExcludeBuilt)
                         _phantomReplaceExclude.Add(e.Index);
                     if (EntitySyncLog.On)
-                        EntitySyncLog.Event(() =>
-                            "[ClientMatch] by-position " + e.EntityName + "(id=" + e.Index
+                        EntitySyncLog.Event("[ClientMatch] by-position " + e.EntityName + "(id=" + e.Index
                             + ") at (" + targetPos.x.ToString("F0") + "," + targetPos.z.ToString("F0") + ")");
                     UpdateInterpolation(c, e, targetPos, msg.HostTime, ref applied);
                     continue;
@@ -268,7 +280,7 @@ namespace DWMPHorde.Networking
             _snapshotCount++;
             if (dump)
             {
-                EntitySyncLog.Interp("snap:sum", () =>
+                EntitySyncLog.Interp("snap:sum",
                     "[ClientSnap] seq=" + msg.Sequence
                     + " n=" + msg.Entities.Length
                     + " applied=" + applied
@@ -303,6 +315,7 @@ namespace DWMPHorde.Networking
             }
             // Its ids name its own bodies; its first sends of each id carry the descriptor.
             _descriptors.Clear();
+            _clipByIndex.Clear();
             _saveIdOwners.Clear();
         }
 
@@ -373,6 +386,16 @@ namespace DWMPHorde.Networking
                 if (hostFleeing || _spawnedPhantomIds.Contains(hostId))
                     driven.gameObject.SetActive(false);
             }
+        }
+
+        /// <summary>
+        /// Its own method: a lambda in <see cref="UpdateInterpolation"/> over its parameters would
+        /// be allocated (with a copy of the whole row) on every call, log on or off.
+        /// </summary>
+        private static void LogHp(Character c, short id, byte healthPct, string clip)
+        {
+            EntitySyncLog.Interp("hp:" + id,
+                () => "[ClientHP] id=" + id + " " + c.name + " hp%=" + healthPct + " clip=" + (clip ?? ""), 0.75f);
         }
 
         private static void UpdateInterpolation(Character c, EntitySnapshotNet e, Vector3 targetPos, float hostTime, ref int applied)
@@ -514,11 +537,7 @@ namespace DWMPHorde.Networking
             if (!clipOnTimeline)
                 state.Timeline.HoldClipsThrough(hostTime);
             if (EntitySyncLog.On && e.Alive && wasAlive && e.HealthPct > 0)
-            {
-                EntitySyncLog.Interp("hp:" + e.Index,
-                    () => "[ClientHP] id=" + e.Index + " " + c.name
-                        + " hp%=" + e.HealthPct + " clip=" + (e.Clip ?? ""), 0.75f);
-            }
+                LogHp(c, e.Index, e.HealthPct, e.Clip);
 
             ApplySleepEatFlags(c, e);
             Audio.EntityLoopSync.Apply(c, e.Loop);
@@ -526,9 +545,10 @@ namespace DWMPHorde.Networking
         }
 
         /// <summary>Inside the host's 20 Hz band as seen from this listener.</summary>
-        private static bool IsNearBand(Vector3 pos)
+        private static bool IsNearBand(Vector3 pos) => IsNearBand(pos, LocalAudioService.GetListenPosition());
+
+        private static bool IsNearBand(Vector3 pos, Vector3 listen)
         {
-            Vector3 listen = LocalAudioService.GetListenPosition();
             float dx = pos.x - listen.x;
             float dz = pos.z - listen.z;
             return dx * dx + dz * dz <= NearBandDistance * NearBandDistance;

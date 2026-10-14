@@ -26,6 +26,10 @@ namespace DWMPHorde
             public tk2dTextMesh Text;
             public float Alpha;
             public int Style = -1;
+            /// <summary>Text shown for <see cref="ShownName"/> in <see cref="ShownStyle"/>, made on change.</summary>
+            public string ShownText;
+            public string ShownName;
+            public int ShownStyle = -1;
         }
 
         /// <summary>A look for the names, from the game's own fonts (<c>FontsDB</c>).</summary>
@@ -118,6 +122,7 @@ namespace DWMPHorde
                 if (mode != Mode.Off && net != null && net.IsConnected && CanShow(p))
                 {
                     Vector3 cursor = mode == Mode.Pointed ? Core.mouseWorldPosition(playerY: true) : Vector3.zero;
+                    GameObject src = p.MouseText; // HudText.Source, read once a frame
                     foreach (RemotePlayerProxy proxy in net.EnumerateRemoteProxies())
                     {
                         if (proxy == null || !proxy.isActiveAndEnabled || proxy.PlayerId <= 0)
@@ -150,10 +155,18 @@ namespace DWMPHorde
                         float far = 1f - Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(NearDistance, FarDistance, dist));
                         float a = Mathf.SmoothStep(0f, 1f, plate.Alpha) * far * st.Alpha;
                         Vector3 ui = Core.worldToUIPos(t.position + new Vector3(0f, 0f, OverHead));
-                        HudText.FollowScale(plate.Text);
+                        HudText.FollowScale(plate.Text, src);
                         // Whole pixels: a bitmap font between two pixels goes soft and shimmers as either player moves.
-                        HudText.Place(plate.Text, Mathf.Round(ui.x), Mathf.Round(ui.z));
-                        HudText.Set(plate.Text, Shown(st, PlayerNames.Shown(proxy.PlayerId)), new Color(st.Grey, st.Grey, st.Grey, a));
+                        HudText.Place(plate.Text, src, Mathf.Round(ui.x), Mathf.Round(ui.z));
+                        string name = PlayerNames.Shown(proxy.PlayerId);
+                        if (plate.ShownText == null || plate.ShownStyle != plate.Style
+                            || !string.Equals(name, plate.ShownName, StringComparison.Ordinal))
+                        {
+                            plate.ShownName = name;
+                            plate.ShownStyle = plate.Style;
+                            plate.ShownText = Shown(st, name);
+                        }
+                        HudText.Set(plate.Text, plate.ShownText, new Color(st.Grey, st.Grey, st.Grey, a));
                     }
                 }
             }

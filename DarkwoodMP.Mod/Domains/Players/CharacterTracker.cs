@@ -12,6 +12,12 @@ namespace DWMPHorde.Sync
     public static class CharacterTracker
     {
         private static readonly List<Character> _characters = new List<Character>(64);
+        /// <summary>
+        /// Same members as <see cref="_characters"/> (kept in step with every list change): O(1)
+        /// membership for Add / AssignId instead of a list scan per call. Unity objects hash by
+        /// instance id, so a destroyed body still finds (and removes) its own entry.
+        /// </summary>
+        private static readonly HashSet<Character> _characterSet = new HashSet<Character>();
         private static readonly Dictionary<Character, short> _stableIdCache = new Dictionary<Character, short>(64);
         /// <summary>Reverse map for O(1) FindByStableId (client LateUpdate walks every driven id every frame).</summary>
         private static readonly Dictionary<short, Character> _byId = new Dictionary<short, Character>(64);
@@ -81,7 +87,7 @@ namespace DWMPHorde.Sync
             _stableIdCache[c] = id;
             _byId[id] = c;
             _activeIds.Add(id);
-            if (!_characters.Contains(c))
+            if (_characterSet.Add(c))
                 _characters.Add(c);
             MaybePruneDestroyed();
             return id;
@@ -165,14 +171,16 @@ namespace DWMPHorde.Sync
                 if (excludeIds != null && _stableIdCache.TryGetValue(c, out short sid) && excludeIds.Contains(sid))
                     continue;
 
-                if (!BaseNameEquals(c.name, name))
-                    continue;
-
+                // Distance before the name: Unity's name getter allocates a new string per read.
                 Vector3 cp = c.transform.position;
                 float dx = cp.x - pos.x;
                 float dz = cp.z - pos.z;
                 float dSq = dx * dx + dz * dz;
-                if (dSq < maxDistSq && dSq < bestDistSq && (reject == null || !reject(c)))
+                if (dSq >= maxDistSq || dSq >= bestDistSq)
+                    continue;
+                if (!BaseNameEquals(c.name, name))
+                    continue;
+                if (reject == null || !reject(c))
                 {
                     bestDistSq = dSq;
                     best = c;
@@ -211,7 +219,7 @@ namespace DWMPHorde.Sync
             _stableIdCache[c] = id;
             _byId[id] = c;
             _activeIds.Add(id);
-            if (!_characters.Contains(c))
+            if (_characterSet.Add(c))
                 _characters.Add(c);
 
             MaybePruneDestroyed();
@@ -232,11 +240,7 @@ namespace DWMPHorde.Sync
 
         private static void PruneDestroyed()
         {
-            for (int i = _characters.Count - 1; i >= 0; i--)
-            {
-                if (_characters[i] == null)
-                    _characters.RemoveAt(i);
-            }
+            RemoveDestroyedFromList();
 
             _pruneKeys.Clear();
             foreach (var kv in _stableIdCache)
@@ -260,24 +264,32 @@ namespace DWMPHorde.Sync
             _despawnSent.RemoveWhere(c => c == null);
         }
 
-        /// <summary>Finds a character by its stable network ID.</summary>
+        /// <summary>
+        /// Finds a character by its stable network ID. Every write keeps <see cref="_stableIdCache"/>
+        /// and <see cref="_byId"/> as exact mirrors (body → id and id → body), so a miss here is a
+        /// miss everywhere: no list scan. A destroyed body's entry stays until Remove / the prune /
+        /// the next AssignId of that id drop it from every map together (dropping only the reverse
+        /// entry here left its forward entry behind, which a later prune turned into freeing the id
+        /// of the body that got it next).
+        /// </summary>
         public static Character FindByStableId(short id)
         {
             if (id == 0) return null;
-            if (_byId.TryGetValue(id, out Character c) && c != null)
-                return c;
-            // Stale reverse entry or pre-map list; fall back once and repair.
-            for (int i = 0; i < _characters.Count; i++)
+            return _byId.TryGetValue(id, out Character c) && c != null ? c : null;
+        }
+
+        /// <summary>Destroyed bodies leave the list and its membership set together.</summary>
+        private static void RemoveDestroyedFromList()
+        {
+            for (int i = _characters.Count - 1; i >= 0; i--)
             {
-                Character ch = _characters[i];
-                if (ch != null && _stableIdCache.TryGetValue(ch, out short sid) && sid == id)
+                Character dead = _characters[i];
+                if (dead == null)
                 {
-                    _byId[id] = ch;
-                    return ch;
+                    _characters.RemoveAt(i);
+                    _characterSet.Remove(dead);
                 }
             }
-            _byId.Remove(id);
-            return null;
         }
 
         private static Character[] _copyBuf = new Character[64]; // process-scoped: scratch
@@ -308,7 +320,7 @@ namespace DWMPHorde.Sync
         public static void Add(Character c)
         {
             if (c == null) return;
-            if (!_characters.Contains(c))
+            if (_characterSet.Add(c))
             {
                 _characters.Add(c);
                 Sync.DreamSyncManager.NoteCharacterAppeared(c);
@@ -390,7 +402,8 @@ namespace DWMPHorde.Sync
                     _byId.Remove(sid);
                 HoldRecycledId(sid);
             }
-            _characters.Remove(c);
+            if (_characterSet.Remove(c))
+                _characters.Remove(c);
             _stableIdCache.Remove(c);
             _despawnSent.Remove(c);
         }
@@ -425,6 +438,7 @@ namespace DWMPHorde.Sync
         public static void Clear()
         {
             _characters.Clear();
+            _characterSet.Clear();
             _stableIdCache.Clear();
             _byId.Clear();
             _activeIds.Clear();
@@ -442,11 +456,7 @@ namespace DWMPHorde.Sync
         {
             Patches.StoryDeactivatedCharacters.Clear();
             // Drop destroyed refs
-            for (int i = _characters.Count - 1; i >= 0; i--)
-            {
-                if (_characters[i] == null)
-                    _characters.RemoveAt(i);
-            }
+            RemoveDestroyedFromList();
             _stableIdCache.Clear();
             _byId.Clear();
             _activeIds.Clear();

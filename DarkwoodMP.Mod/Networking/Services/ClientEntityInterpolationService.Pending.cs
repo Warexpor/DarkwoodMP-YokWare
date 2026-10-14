@@ -1,3 +1,4 @@
+using DWMPHorde.Audio;
 using DWMPHorde.Logging;
 using DWMPHorde.Sync;
 using UnityEngine;
@@ -15,9 +16,10 @@ namespace DWMPHorde.Networking
             if (pendingCount > 0)
             {
                 // Cheap cull first (no tracker walk).
+                Vector3 listen = LocalAudioService.GetListenPosition();
                 for (int i = pendingCount - 1; i >= 0; i--)
                 {
-                    if (!IsInClientInterest(_pendingMatches[i].Position))
+                    if (!IsInClientInterest(_pendingMatches[i].Position, listen, false))
                         _pendingMatches.RemoveAt(i);
                 }
                 pendingCount = _pendingMatches.Count;
@@ -48,9 +50,10 @@ namespace DWMPHorde.Networking
 
                 if (_hostSyncedIds.Contains(p.HostId))
                 {
-                    EntitySyncLog.Trace("pend:drop",
-                        "[ClientPending] drop already-synced " + p.EntityName
-                        + "(id=" + p.HostId + ")", 2f);
+                    if (EntitySyncLog.On)
+                        EntitySyncLog.Trace("pend:drop",
+                            "[ClientPending] drop already-synced " + p.EntityName
+                            + "(id=" + p.HostId + ")", 2f);
                     _pendingMatches.RemoveAt(idx);
                     continue;
                 }
@@ -166,9 +169,7 @@ namespace DWMPHorde.Networking
             _spawnedPhantomIds.Add(p.HostId);
             EnsureEntityAwake(spawned);
             spawned.transform.position = p.Position;
-            EntitySyncLog.Event(() =>
-                "[ClientPending] phantom spawn " + p.EntityName + "(id=" + p.HostId
-                + ") save=" + p.SaveId + " clip=" + (p.Clip ?? ""));
+            LogPending("phantom spawn", p, " clip=" + (p.Clip ?? ""));
             StartDrivingPending(spawned, p, now, p.Position, p.RotY);
         }
 
@@ -180,8 +181,7 @@ namespace DWMPHorde.Networking
         private static void AdoptPending(Character c, PendingEntry p, float now, bool snapToHost, string how)
         {
             BindHostId(c, p.HostId);
-            EntitySyncLog.Event(() =>
-                "[ClientPending] " + how + " " + p.EntityName + "(id=" + p.HostId + " save=" + p.SaveId + ")");
+            LogPending(how, p, null);
             if (snapToHost)
             {
                 c.transform.position = p.Position;
@@ -194,6 +194,15 @@ namespace DWMPHorde.Networking
             {
                 StartDrivingPending(c, p, now, c.transform.position, c.transform.eulerAngles.y);
             }
+        }
+
+        /// <summary>Kept apart so the callers allocate no closure over the row when the log is off.</summary>
+        private static void LogPending(string how, PendingEntry p, string tail)
+        {
+            if (!EntitySyncLog.On && !ModLog.IsEvent(LogCat.Entity))
+                return;
+            EntitySyncLog.Event("[ClientPending] " + how + " " + p.EntityName + "(id=" + p.HostId
+                + " save=" + p.SaveId + ")" + tail);
         }
 
         private static void StartDrivingPending(Character c, PendingEntry p, float now, Vector3 shownPos, float shownRotY)
@@ -227,27 +236,24 @@ namespace DWMPHorde.Networking
         {
             if (chars == null || count <= 0 || string.IsNullOrEmpty(entityName))
                 return null;
-            string search = entityName;
-            if (search.EndsWith("(Clone)"))
-                search = search.Substring(0, search.Length - 7);
 
             Character sole = null;
             for (int i = 0; i < count; i++)
             {
                 Character c = chars[i];
                 if (c == null) continue;
-                if (c.name.Contains("Player") || c.name.Contains("RemotePlayer"))
-                    continue;
+                // A body the host already tagged (any id) is not unmapped. Checked before the
+                // name: Unity's name getter allocates per read, so it is read once, last.
                 if (CharacterTracker.TryGetStableId(c, out short sid)
                     && (_hostSyncedIds.Contains(sid) || sid != 0))
                     continue;
-                if (RejectOtherSaveTwin(c))
-                    continue;
-
+                // The local player and remote proxies ("RemotePlayer" contains "Player").
                 string cname = c.name;
-                if (cname.EndsWith("(Clone)"))
-                    cname = cname.Substring(0, cname.Length - 7);
-                if (!string.Equals(cname, search, System.StringComparison.OrdinalIgnoreCase))
+                if (cname.Contains("Player"))
+                    continue;
+                if (!CharacterTracker.BaseNameEquals(cname, entityName))
+                    continue;
+                if (RejectOtherSaveTwin(c))
                     continue;
                 if (sole != null)
                     return null;

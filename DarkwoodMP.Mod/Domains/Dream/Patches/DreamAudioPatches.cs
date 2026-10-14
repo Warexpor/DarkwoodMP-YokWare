@@ -86,23 +86,34 @@ namespace DWMPHorde.Patches
         private static void Prefix(string audioID, float volume, Vector3 worldPosition, Transform parentObj)
         {
             if (!DreamAudioForwarding.ShouldForward(audioID, worldPosition, parentObj)) return;
-            if (!LocalAudioService.TryAllowForward("dream:" + audioID)) return;
+            if (!_keys.TryGetValue(audioID, out string key))
+            {
+                key = "dream:" + audioID;
+                if (_keys.Count < 512)
+                    _keys[audioID] = key;
+            }
+            if (!LocalAudioService.TryAllowForward(key)) return;
 
             var net = ModRuntime.Network;
+            if (net == null) return;
             float vol = Mathf.Clamp01(volume);
             if (vol <= 0f) vol = 1f;
+            _msg = new DreamAudioMessage
+            {
+                AudioID = audioID,
+                PosX = worldPosition.x,
+                PosY = worldPosition.y,
+                PosZ = worldPosition.z,
+                Volume = vol,
+                Pitch = 1f
+            };
             // Broadcast so host-originated dream SFX reach all clients (Send = first peer only).
-            net?.Broadcast(NetMessageType.DreamAudio,
-                w => new DreamAudioMessage
-                {
-                    AudioID = audioID,
-                    PosX = worldPosition.x,
-                    PosY = worldPosition.y,
-                    PosZ = worldPosition.z,
-                    Volume = vol,
-                    Pitch = 1f
-                }.Serialize(w),
-                LiteNetLib.DeliveryMethod.ReliableOrdered);
+            // It writes the message before it returns: one kept writer, no closure per sound.
+            net.Broadcast(NetMessageType.DreamAudio, WriteMsg, LiteNetLib.DeliveryMethod.ReliableOrdered);
         }
+
+        private static readonly System.Collections.Generic.Dictionary<string, string> _keys = new System.Collections.Generic.Dictionary<string, string>(); // process-scoped: rate-limit key per sound id
+        private static DreamAudioMessage _msg; // process-scoped: the message Broadcast is writing
+        private static readonly System.Action<DWMPHorde.Networking.NetWriter> WriteMsg = w => _msg.Serialize(w); // process-scoped: cached writer
     }
 }

@@ -111,6 +111,18 @@ namespace DWMPHorde.Logging
             ModLog.TraceRate(LogCat.Entity, "anim:" + key, factory, intervalSec);
         }
 
+        /// <summary>
+        /// A hot Anim line: true when it is due, so the caller builds it only then; then
+        /// <see cref="AnimWrite"/>. <paramref name="fullKey"/> is the whole rate key ("anim:" + key).
+        /// </summary>
+        public static bool AnimDue(string fullKey, float intervalSec, out string suffix)
+        {
+            suffix = null;
+            return On && ModLog.TraceRateDue(LogCat.Entity, fullKey, intervalSec, out suffix);
+        }
+
+        public static void AnimWrite(string message) => ModLog.Trace(LogCat.Entity, message);
+
         public static void Interp(string key, string message, float intervalSec = 1f)
         {
             if (!On) return;

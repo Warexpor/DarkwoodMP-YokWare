@@ -2,6 +2,7 @@ using System;
 using System.Reflection;
 using DWMPHorde.Logging;
 using DWMPHorde.Networking;
+using DWMPHorde.Sync;
 using HarmonyLib;
 using UnityEngine;
 
@@ -20,11 +21,17 @@ namespace DWMPHorde.Audio
     /// </summary>
     internal static class RandomWorldSoundShare
     {
+        private static int[] _counts; // process-scoped: scratch (prefix to postfix of one roll step)
+
         internal static int[] PlayedCounts(RandomWorldSounds rws)
         {
             if (rws == null || rws.randomSounds == null)
                 return null;
-            var counts = new int[rws.randomSounds.Count];
+            // One step's snapshot, read back by its postfix before the next step: kept, not made per step.
+            int n = rws.randomSounds.Count;
+            if (_counts == null || _counts.Length != n)
+                _counts = new int[n];
+            int[] counts = _counts;
             for (int i = 0; i < counts.Length; i++)
                 counts[i] = rws.randomSounds[i] != null ? rws.randomSounds[i].timesPlayedToday : 0;
             return counts;
@@ -66,14 +73,21 @@ namespace DWMPHorde.Audio
         }
 
         /// <summary>
-        /// A peer's world sound is about to play here (it passed the hear gate). When it is one of
-        /// the game's random stingers, it counts as this player's roll.
+        /// A peer's world sound passed the hear gate here. When it is one of the game's random
+        /// stingers it is handled here (true): played only when this player's own roll could have
+        /// picked it right now (vanilla <c>waitToPlayRandomSound</c> / <c>getEligibleSound</c>:
+        /// not underground, not dreaming or in the credits, indoors for house_noises and outdoors
+        /// for forest_noises, requirements met, under its daily cap), and then played the vanilla
+        /// way: the game's own falloff, following this player at the offset it arrived at. Played
+        /// at a fixed spot, it faded as the listener walked off (steps dying away out of nowhere),
+        /// and a player outdoors heard the house footsteps a peer indoors rolled. A played one
+        /// counts as this player's roll.
         /// </summary>
-        internal static void OnPeerSoundHeard(string audioID)
+        internal static bool TryPlayPeerStinger(string audioID, Vector3 pos, float volume)
         {
             RandomWorldSounds rws = Singleton<RandomWorldSounds>.Instance;
             if (rws == null || rws.randomSounds == null || string.IsNullOrEmpty(audioID))
-                return;
+                return false;
             RandomWorldSounds.RandomSound hit = null;
             foreach (RandomWorldSounds.RandomSound s in rws.randomSounds)
             {
@@ -84,12 +98,48 @@ namespace DWMPHorde.Audio
                 }
             }
             if (hit == null)
-                return;
+                return false;
+            Player p = Player.Instance;
+            if (p == null || p._transform == null || !CouldRollNow(p, hit))
+            {
+                ModRuntime.LegacyInfo("[RandomWorldSound] RX " + audioID + " dropped (not rollable here now)");
+                return true;
+            }
             hit.timesPlayedToday++;
+            bool prevNet = TraverseHack.GetExplicitFlag();
+            TraverseHack.SetExplicitFlag(true);
+            AudioObject ao;
+            try { ao = AudioController.Play(audioID, pos, null, Mathf.Clamp01(volume)); }
+            finally { TraverseHack.SetExplicitFlag(prevNet); }
+            if (ao != null)
+            {
+                rws.audioObj = ao;
+                AlignToObject align = ao.gameObject.AddComponent<AlignToObject>();
+                if (align != null)
+                    align.transformToAlign = p._transform;
+            }
             // Vanilla's init: the wait for the next stinger starts over.
             if (rws.isActiveAndEnabled)
                 rws.init();
             ModRuntime.LegacyInfo("[RandomWorldSound] RX " + audioID + " (own timer restarted)");
+            return true;
+        }
+
+        private static bool CouldRollNow(Player p, RandomWorldSounds.RandomSound s)
+        {
+            if (p.whereAmI != null && p.whereAmI.bigLocation != null && p.whereAmI.bigLocation.isUnderground)
+                return false;
+            Dreams dreams = Singleton<Dreams>.Instance;
+            if (dreams != null && dreams.dreaming)
+                return false;
+            Controller ctrl = Singleton<Controller>.Instance;
+            if (ctrl != null && ctrl.inCredits)
+                return false;
+            if (s.disabled || !(p.isInside ? s.canBeInside : s.canBeOutside))
+                return false;
+            if (s.maxTimesPerDay != 0 && s.timesPlayedToday >= s.maxTimesPerDay)
+                return false;
+            return s.requirementsMet();
         }
     }
 

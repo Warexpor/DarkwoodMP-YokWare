@@ -126,6 +126,7 @@ namespace DWMPHorde.Networking
             LateJoinStep(playerId, "dialogTrees", () => DWMPHorde.Sync.DialogTreeSync.SendBulkTo(this, playerId));
             LateJoinStep(playerId, "reputation", () => BulkSyncHandlers.SendReputationBulkSyncTo(playerId));
             LateJoinStep(playerId, "hideoutState", () => BulkSyncHandlers.SendHideoutStateSyncTo(playerId));
+            LateJoinStep(playerId, "partyHomeMoves", () => Patches.PartyHomeMoves.ShareTo(this, playerId));
             LateJoinStep(playerId, "workbenchLevel", () => BulkSyncHandlers.SendWorkbenchLevelSyncTo(playerId));
             LateJoinStep(playerId, "mapState", () => BulkSyncHandlers.SendMapStateSyncTo(playerId));
             LateJoinStep(playerId, "timeSync", () => SendTimeSyncTo(playerId));
@@ -138,6 +139,7 @@ namespace DWMPHorde.Networking
             LateJoinStep(playerId, "worldBurn", () => WorldBurnHandlers.SendWorldBurnStatesTo(playerId));
             LateJoinStep(playerId, "dreamSession", () => DreamHandlers.SendDreamSessionBulkTo(playerId));
             LateJoinStep(playerId, "clientBackup", () => SendStoredClientBackupTo(playerId));
+            LateJoinStep(playerId, "partyCharacters", () => SaveHandlers.SendPartyCharactersTo(playerId));
             LateJoinStep(playerId, "hostLight", () => SyncCurrentLightState());
             LateJoinStep(playerId, "hostAnimLibrary", () => SyncCurrentAnimLibrary());
             // Other clients' light state / anim library (the host's own went out just above).
@@ -194,13 +196,18 @@ namespace DWMPHorde.Networking
         /// <summary>
         /// Host: one heavy late-join phase per frame total (not one per peer).
         /// </summary>
+        private readonly List<int> _heavyPeers = new List<int>(4);
+
         private void TickHeavyLateJoinBulk()
         {
             if (_role != NetworkRole.Host || _session.Link.PendingHeavyLateJoinBulk.Count == 0)
                 return;
 
-            // Copy keys because the dictionary changes as peers finish.
-            var peers = new List<int>(_session.Link.PendingHeavyLateJoinBulk.Keys);
+            // Copy keys because the dictionary changes as peers finish (a kept list: this runs
+            // every frame while a join is pending).
+            List<int> peers = _heavyPeers;
+            peers.Clear();
+            peers.AddRange(_session.Link.PendingHeavyLateJoinBulk.Keys);
             for (int p = 0; p < peers.Count; p++)
             {
                 int playerId = peers[p];

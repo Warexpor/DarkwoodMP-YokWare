@@ -110,5 +110,20 @@ namespace DWMPHorde.Harmony
             }
             return null;
         }
+
+        /// <summary>
+        /// A compiled reader for <paramref name="field"/> (an instance field of a state machine):
+        /// the same value as <c>field.GetValue(obj)</c> without reflection on every coroutine step.
+        /// </summary>
+        internal static Func<object, object> FieldGetter(FieldInfo field)
+        {
+            if (field == null)
+                return null;
+            var obj = System.Linq.Expressions.Expression.Parameter(typeof(object), "obj");
+            var read = System.Linq.Expressions.Expression.Field(
+                System.Linq.Expressions.Expression.Convert(obj, field.DeclaringType), field);
+            return System.Linq.Expressions.Expression.Lambda<Func<object, object>>(
+                System.Linq.Expressions.Expression.Convert(read, typeof(object)), obj).Compile();
+        }
     }
 }

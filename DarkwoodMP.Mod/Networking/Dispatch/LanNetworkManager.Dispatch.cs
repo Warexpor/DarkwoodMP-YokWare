@@ -258,21 +258,31 @@ namespace DWMPHorde.Networking
             if (!_forwardableMap.TryGetValue(type, out var fwdKind))
                 return;
             DeliveryMethod method = RelayMethodFor(inboundMethod);
+            // The body is written by kept delegates from these fields (no closure per relay): the
+            // packet is built before anything is sent, and a writer here never sends itself.
             if (fwdKind == ForwardableKind.Direct)
             {
                 // PutRaw is already the message body; a length prefix would break deserializers.
-                SendToAllExcept(sender, type, w => w.PutRaw(body), method);
+                _relayRaw = body;
+                try { SendToAllExcept(sender, type, WriteRelayRaw, method); }
+                finally { _relayRaw = null; }
             }
             else
             {
-                var fwd = new RemotePlayerForwardMessage
+                _relayForward = new RemotePlayerForwardMessage
                 {
                     OriginalPlayerId = sender,
                     InnerType = (byte)type,
                     InnerPayload = body
                 };
-                SendToAllExcept(sender, NetMessageType.RemotePlayerForward, w => fwd.Serialize(w), method);
+                try { SendToAllExcept(sender, NetMessageType.RemotePlayerForward, WriteRelayForward, method); }
+                finally { _relayForward = default; }
             }
         }
+
+        private static byte[] _relayRaw; // process-scoped: body RelayToOtherClients is writing
+        private static RemotePlayerForwardMessage _relayForward; // process-scoped: forward it is writing
+        private static readonly Action<NetWriter> WriteRelayRaw = w => w.PutRaw(_relayRaw); // process-scoped: cached writer
+        private static readonly Action<NetWriter> WriteRelayForward = w => _relayForward.Serialize(w); // process-scoped: cached writer
     }
 }

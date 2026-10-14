@@ -34,8 +34,9 @@ namespace DWMPHorde.Patches
                 "Client world Save blocked — host owns Flags/DynamicSave; backup + SaveSync only");
             // Vanilla shows the corner "Saving" indicator at the end of every save that asks for
             // it (SaveManager.finishSaving). Blocked here, the client never saw it where the host
-            // did: the dream entry, a level-up, a sleep.
-            if (showSavingIndicator)
+            // did: the dream entry, a level-up, a sleep. Not for a death held until morning: no
+            // save is made for it on any machine.
+            if (showSavingIndicator && !NightDeathSavePatch.IsHeld())
             {
                 try
                 {
@@ -280,21 +281,31 @@ namespace DWMPHorde.Patches
 
     /// <summary>
     /// Co-op coordinated save: local <see cref="SaveManager.Save"/> notifies the host;
-    /// host rate-limits then broadcasts SaveSync so clients run full Save with Saving UI.
+    /// host rate-limits then broadcasts SaveSync so clients run full Save, with the Saving
+    /// indicator only when this Save asked for it (vanilla's new day Save does not).
     /// <see cref="LanNetworkManager.RemoteSaveInProgress"/> prevents rebroadcast loops.
     /// </summary>
     [HarmonyPatch(typeof(SaveManager), "Save")]
     public static class SaveSyncPatch
     {
-        private static void Postfix()
+        private static void Postfix(bool showSavingIndicator, bool __runOriginal)
         {
             if (LanNetworkManager.RemoteSaveInProgress)
                 return;
             // Host applying client dialog must never fan out Saving UI (see DialogHostSilentClose).
             if (HostApplyGuard.Active)
                 return;
-            if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected)
+            if (ModRuntime.Network == null)
                 return;
+            if (!ModRuntime.Network.IsConnected)
+            {
+                // A host saving alone: its character goes with this save all the same (the world a
+                // later joiner downloads, and whoever hosts that copy next, pair it with this bag).
+                if (__runOriginal && ModRuntime.Network.Role == NetworkRole.Host && !NightDeathSavePatch.IsHeld()
+                    && !IsDreamEntrySaveWindow() && !DreamSyncManager.IsLocalMidDream)
+                    ModRuntime.Network.SaveHandlers.HostKeepOwnCharacter();
+                return;
+            }
             if (ModRuntime.Network.Role == NetworkRole.Offline)
                 return;
 
@@ -326,7 +337,7 @@ namespace DWMPHorde.Patches
             ModLog.Event(LogCat.Save,
                 "Local Save path (" + ModRuntime.Network.Role
                 + ") → SaveSync request/broadcast (host debounced fan-out)");
-            ModRuntime.Network.SendSaveSync(hostAlreadySavedLocally: true);
+            ModRuntime.Network.SendSaveSync(hostAlreadySavedLocally: true, showIndicator: showSavingIndicator);
 
             // After the first post-death Save fans out, suppress the peer Save storm.
             if (DeathStateTracker.ConsumeDeathSaveSuppressArm()

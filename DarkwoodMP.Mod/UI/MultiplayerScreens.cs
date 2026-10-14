@@ -96,6 +96,11 @@ namespace DWMPHorde
 
         private static tk2dTextMesh _status; // process-scoped: the shown screen's status label
         private static string _statusShown; // process-scoped: menu status line
+        private static string _statusLine; // process-scoped: untranslated line _statusShown was made from
+        private static string _statusLang; // process-scoped: Loc.Language _statusShown was made in
+        private static string _hostLine; // process-scoped: last host status line
+        private static string _hostLineWhere; // process-scoped: its session kind
+        private static int _hostLineOthers = -1; // process-scoped: its player count
 
         /// <summary>The status line sits between a screen's entries and its Back.</summary>
         private static void StatusLabel(VmBuilder b, float z = -125f)
@@ -110,6 +115,11 @@ namespace DWMPHorde
             if (_status == null)
                 return;
             string line = StatusText();
+            if (_statusShown != null && string.Equals(line, _statusLine, StringComparison.Ordinal)
+                && ReferenceEquals(Loc.Language, _statusLang))
+                return;
+            _statusLine = line;
+            _statusLang = Loc.Language;
             string shown = string.IsNullOrEmpty(line) ? "" : Loc.T(line);
             if (shown == _statusShown)
                 return;
@@ -136,7 +146,13 @@ namespace DWMPHorde
                 string share = net.WorldSaveShare != null ? net.WorldSaveShare.ProgressText : null;
                 if (!string.IsNullOrEmpty(share) && net.WorldSaveShare.IsBusy)
                     return share;
-                return others == 1 ? where + " — 1 player joined" : where + " — " + others + " players joined";
+                if (_hostLine == null || others != _hostLineOthers || !ReferenceEquals(where, _hostLineWhere))
+                {
+                    _hostLineOthers = others;
+                    _hostLineWhere = where;
+                    _hostLine = others == 1 ? where + " — 1 player joined" : where + " — " + others + " players joined";
+                }
+                return _hostLine;
             }
             return MainMenuMultiplayerInject.JoinStatusLine();
         }
@@ -791,7 +807,7 @@ namespace DWMPHorde
             if (Time.realtimeSinceStartup - _peekBackupAt >= 1f)
             {
                 _peekBackupAt = Time.realtimeSinceStartup;
-                _peekBackup = ClientStateBackup.LoadLocalSelfBackupFile();
+                _peekBackup = ClientStateBackup.PeekLocalSelfBackupFile();
             }
             data = _peekBackup;
             return data != null;

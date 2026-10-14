@@ -3,12 +3,19 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.282**. The current Horde wire protocol is **70**. Every install in a session
+**0.8.295**. The current Horde wire protocol is **74**. Every install in a session
 needs the same DLL; the protocol is checked on join.
 
 Protocol history (newest first):
 
-- **70**, 0.8.282: `ScenarioEventFired` gains `AnchorActors` (the player each anchor's scene played for);
+- **74**, 0.8.294 to 0.8.295: `PlayerEffectSync` with `MovedHome` carries the home it left (`FromX/Y/Z`);
+  new `PartyHomeMoves` (178), host to a joiner: the party's home moves kept with the world.
+- **73**, 0.8.293: the entity snapshot leaves out an entity's clip name while it is unchanged
+  (`Flag2ClipSame`, 64); the clip now follows the loop flag on the wire.
+- **72**, 0.8.286 to 0.8.292: new `PartyCharacter` (177), host to clients: another player's stored character.
+- **71**, 0.8.285: `SaveSync` (was empty) carries `ShowIndicator`, whether the Save behind it showed the
+  corner "Saving" indicator.
+- **70**, 0.8.282 to 0.8.283: `ScenarioEventFired` gains `AnchorActors` (the player each anchor's scene played for);
   `ShadowArmorState` gains the wearing creature's `EntityId`.
 - **69**, 0.8.281: `MeleeWorldHit` gains the struck item's furniture save id and name.
 - **68**, 0.8.278 to 0.8.280: new `ObjectSpawnerFired` (175) and `OxygenTankRecords` (176); `PeerRoster`
@@ -84,6 +91,352 @@ Protocol history (newest first):
 This file is a public ship log. Code-only status and runtime status are called
 out separately. A runtime item is not considered verified until it has been
 tested in the game.
+
+---
+
+## 0.8.295 — the party can split into different hideouts
+
+- **Players who once shared a home could never live apart.** Lighting a new hideout's oven took
+  along everyone living at the oven left, so a second player lighting a third hideout dragged the
+  first one with it, and going back dragged everyone back. Four players in four hideouts was not
+  reachable.
+- A player standing in its own home hideout when the party moves out of it now stays: it keeps
+  that home, and later party moves (and the moves recorded for players who were away) leave it
+  there. A player away from home at that moment (with the mover, out in the world) still goes
+  along, so whoever led an earlier move is not left behind. A catch-up for a player who was not
+  there never stays (a new character wakes in the first hideout, its home, and still follows).
+  Lighting another oven itself, or following a move, ends the stay.
+- The stay is this install's own, per campaign: `own_home_choice_<campaign>.json` next to the
+  client backups. No wire change.
+- Files: `World/Patches/HideoutUpgradePatch.cs` (`FollowNow`, `StandsInHome`),
+  `World/PartyHomeMoves.cs` (`ChooseHome`, `IsChosenHome`), `World/Patches/PersonalProloguePatches.cs`,
+  `docs/HOW_COOP_WORKS.md`.
+- Docs: `HOW_COOP_WORKS.md` brought up to date with what shipped (hit budget, shared stingers
+  only where they could happen, host migration election, joins during a dream, the morning
+  clock, doors that lock behind the party, the morning release, F4 targets, voice dB sliders,
+  joining during the prologue or on another version, trading on close, location popups).
+  `COOP_COVERAGE.md` gained the prologue, night death, party homes and oxygen tank rows;
+  `ARCHITECTURE.md` the pooled packet rule. The `MaxPeerDamage` description gives the real
+  hit budget (250 hits/s, 4500 damage/s).
+- Status: builds, unit tests pass. Not playtested.
+
+## 0.8.294 — a player who missed the party's move home no longer wakes in the old hideout
+
+- **A night-dead client woke in the Dry Meadow hideout while the party lived in the next one.**
+  A player respawns at their own home oven (vanilla `Player.experienceMachine`). When someone
+  lights a new hideout's oven, everyone living in the old hideout moves with them, but only on
+  the live message: a player not connected at that moment (joined or came back later), or a new
+  character (its home is the world's first hideout), kept the old home. The receiving side also
+  needed the mover's previous home from an earlier message, so a peer whose copy of the mover was
+  new missed the move as well. Not seen in a log (the session's logs were gone); these are the
+  code paths that leave exactly one player behind.
+- A move now says which home it left. Every player records the party's moves (old oven to new
+  oven, per chapter); the host writes them with its world save (`party_home_moves_<campaign>.json`
+  next to the client backups) and sends them to a joiner. A player whose home is an oven the
+  party moved out of follows on its next 2 s effect keepalive (not during a load, a backup
+  restore, a prologue, an epilogue or a dream). Moving back to an old hideout is a move too, so
+  that oven is a home again and nobody is pulled away from it.
+- Moves made before this build were never recorded: a player still living in the old hideout
+  moves by talking to the new hideout's oven once, as before.
+- Files: `World/PartyHomeMoves.cs` (new), `World/Patches/HideoutUpgradePatch.cs`,
+  `World/WorldProxyEffectNetHandlers.cs`, `Messages/PlayerMessages.cs`, `Messages/SyncMessages.cs`,
+  `NetMessageType.cs`, late join, `docs/HOW_COOP_WORKS.md`.
+- Status: builds, unit tests pass (wire round trips). Not playtested.
+
+## 0.8.293 — performance and smoothness pass: a peer moves smoothly, less garbage everywhere
+
+Found by eight read-only audits of the whole mod; every change keeps what the game shows and
+does the same, except the two marked as lossy.
+
+**Another player's movement**
+- **A peer's body moved in a 30 Hz staircase about 60 ms behind, and stalled then lurched on a
+  late packet.** It chased the newest position with an exponential lerp. Their positions are now
+  played back on the sender's own beat (from the PlayerState sequence), a short measured delay
+  behind (send interval plus how late packets come), linear between samples, coasting along the
+  sent velocity for up to 0.1 s past the newest. A pause or a teleport starts a new stream
+  (`Players/RemotePoseTimeline.cs`, unit tested; `RemotePlayerProxy.Apply.cs`).
+- The sender's PlayerState timer carries its remainder (it drifted by up to a frame per send), and
+  the velocity it sends is measured over the real gap.
+- A peer's body ignored at most 32 colliders around it for the push-through overlap; a crowded
+  spot (a barricaded house) left the rest pushing. The buffer now grows, and the scan runs every
+  5 physics steps or when the body moved (it ran every step), skipped while parked.
+- The torso frame is corrected only when it is 2 behind or more than 4 ahead (it snapped back on
+  every small lead); a repeated clip name skips the clip lookup.
+- Snapshot of the local player: the legs child and the reverse-legs field read without a search or
+  boxing each send.
+
+**Lossy on purpose**
+- **DragSync** goes reliable only once, on the first quiet tick of a drag (it was reliable every
+  quiet tick). The live samples stay unreliable; a lost final pose is still sent reliably.
+- **Entity clip names** are left out of the snapshot while unchanged (protocol **73**): sent inline
+  for the first 3 sends and after a descriptor, then a flag. A client that has not got the clip yet
+  skips that entity for the snapshot. Clip strings are decoded through a small cache (no new
+  string per entity per snapshot).
+
+**Networking**
+- Packets are built in pooled writers (one per nesting depth) instead of a new byte array each;
+  relay, PlayerState and DragSync writes use cached delegates. The physics chunked send serializes
+  once instead of once per chunk. Proxy lists are enumerated without boxing.
+- Character and item trackers keep a set beside the list (no list scan on add/contains); entity
+  interpolation reorders its cheap checks first.
+- Snapshot and broadcast log lines no longer build closures when they do not log.
+
+**Voice**
+- Voice send jobs and frames are pooled; the mic ring is 3 s and read in power-of-two pieces;
+  playout keeps precomputed resampler tables. Encoding runs off the lock. The voice loop idles
+  when nobody talks.
+
+**World, combat, night**
+- Creature sight casts use a non-allocating raycast (same mask and order as vanilla
+  `Core.canSee`). Host AI grid checks stop early when nothing is near; far-proxy checks use
+  squared distances.
+- Object spawners and event triggers are tracked in scene registries instead of searched;
+  registries prune once a frame. Door sync checks range first. Flare parts and night-spawn
+  chapter checks are cached. World sound taps are switched on and off with the pickup.
+
+**UI, map, inventory, dialogue, config**
+- Config writes during a slider drag are saved once when the drag ends (and on quit / mod stop).
+- Chat and HUD text measure through a size cache; menu art, VM root, nameplates, the voice screen
+  and map pins rewrite only on change (the map popup no longer rebuilds every frame). The status
+  and meter text caches follow a language switch.
+- Container diffs, desync collectors, light probes and dialogue hand-in keys reuse their buffers.
+- Trace lines are formatted only when Trace is on, and hot animation lines only when due.
+- Player name, held-flare, peer flashlight and campaign-id lookups are cached; a peer's
+  flashlight writes its light only on a change (each write rebuilt the light mesh).
+
+**Not changed, on purpose**
+- Body and creature names are not cached: vanilla renames bodies at runtime.
+- `NetworkApplyGuard` stays a class (as a struct its constructor would never run).
+- Item-moving sound names are not cached (names and parents change at runtime).
+- The stand-up stepping of a proxy stays as designed.
+
+- Files: `Domains/Players/*` (timeline, proxy apply, anim, held lights, names),
+  `Networking/LanNetworkManager.*` (transport, tick, relay, physics, late join),
+  `Networking/Messages/WorldMessages.cs`, `Core/NetReader.cs`/`NetWriter.cs`, `Audio/Voice*`,
+  entity snapshot / broadcast, `Logging/ModLog.cs`, `Logging/TraceLogHandler.cs`, UI and map files.
+- Status: builds, 517 unit tests pass. Not playtested yet.
+
+## 0.8.292 — a night body's bag never shows on the ground, and is named after its player
+
+- **The death bag showed on the ground for a moment before the body covered it.** The body looked
+  for its bag once a second, so the bag was drawn until the next look (and on a peer the bag can
+  arrive before the death). A bag made where a player went down for the night (vanilla dropBody
+  here, or a peer's bag arriving) is now hidden on the spot, before its first frame; one that comes
+  before the body is held hidden and handed to it. If no body ever claims it, it shows again.
+- **Pointing at the body said "Backpack".** The bag under a night body is now named after its
+  player ("<name>'s body", "Тело: <name>" in Russian), which is also the loot window's title. At
+  morning the name goes back with the bag.
+- Pilot `corpses` shows the bag's name.
+- Files: `Players/Runtime/PlayerCorpses.cs`, `Night/Patches/NightBodyBagPatches.cs`,
+  `Combat/CombatDeathBagNetHandlers.cs`.
+- Status: bag hidden and named on both machines in a pilot run; the hover text not seen by eye.
+
+## 0.8.291 — night-dead player: one body, lying under the living, real spectator view and sound
+
+- **A pile of standing "ghost" copies where a client fell, on the host.** The host dresses the
+  body in the dead player's own look (`ApplyTorsoLibrary`); on a freshly cloned body the animator
+  has no clip yet and reading its frame threw. The body was not registered yet, so every tick
+  (4 a second) cloned another, standing. The library swap now reads the frame only when there is a
+  clip, and the body is registered before it is dressed, so a failure can never clone again.
+- **The body drew over a living player walking across it.** It lay at the player's height; it now
+  lies on the ground layer vanilla gives a dead creature (`Character.setYPosAfterDeath`, lowItems2).
+- **The death animation played twice.** The body started the fall over once it took over from the
+  player's own body (or its stand-in); it now goes on from the frame that body was showing.
+- **Spectating a living player showed no circle of light around them.** The stand-in's light dot is
+  shrunk to nothing (it would be a second lantern on every peer); spectated, it is now vanilla's
+  120. The stand-in's `PlayerFOVLogic` stays off, as on the player (on, it drew a bright wedge).
+- **A dead player's screen showed "DRY MEADOW" and the saving indicator.** Vanilla's death sequence
+  names the biome you wake up in and saves; a player down until morning wakes nowhere and nothing
+  is saved for it. The biome name is skipped while down, and the client's blocked save no longer
+  shows the indicator for a held death. No machine saves until the whole party is down or morning.
+- **Spectating, the followed player's sounds panned side to side.** They were played as a peer's:
+  3D at a body the listener follows a frame behind. They now play with the game's own settings and
+  full step volume, as that player hears itself.
+- **Spectating while alive (F4) faded the player on everyone else's screen** (it is made invisible
+  here so the game leaves the body alone). The others now get the player's real invisibility.
+- Lootable body: a night body holds a bag only when the player carried something (the test runs
+  that showed no bag were a fresh, empty-handed character). Checked: with items, the bag drops and
+  sits hidden under the body on both machines.
+- Pilot: `vision` (vision lights of the player and the spectated body, stand-in visibility),
+  `spectate` (F4).
+- Files: `Players/Runtime/PlayerCorpses.cs`, `SecondPlayerAnimController.Apply.cs`,
+  `PlayerVisionController.cs`, `Night/Patches/NightDeathPatches.cs`, `Patches/SaveSyncPatches.cs`,
+  `Audio/PeerSpatialPlay.cs`, `World/WorldProxyEffectNetHandlers.cs`, `World/WorldFxNetHandlers.cs`,
+  `UI/SpectatorModeController.cs`, `Diagnostics/TestPilot.cs`.
+- Status: ghosts, body layer, single fall, circle and no banner seen in pilot runs; spectator
+  sound and the F4 look for others are code only.
+
+## 0.8.290 — a peer's random house / forest noise plays the vanilla way (no steps dying away out of nowhere)
+
+- **Players heard footsteps out of nowhere that slowly faded away.** These are the game's random
+  stingers (`RandomWorldSounds`): `house_noises` is all footstep clips, rolled every 50 to 150 s
+  while indoors, 300 to 500 units away; `forest_noises` the same outdoors. Vanilla keeps the sound
+  beside the player (`AlignToObject`), at the game's own falloff. The share sent each roll to nearby
+  peers, who played it fixed at that spot with the stand-in falloff: walking off faded it away. A
+  peer also played it whatever its own state was, so a player outdoors heard the house footsteps a
+  peer indoors rolled.
+- Now a received stinger plays only when this player's own roll could have picked it right then
+  (not underground, not dreaming or in the credits, indoors / outdoors as the sound needs, its
+  requirements and daily cap), with the game's falloff, following this player at the offset it
+  arrived at; otherwise it is dropped. A played one still counts as this player's roll.
+- Files: `Audio/RandomWorldSoundShare.cs`, `Domains/World/WorldFxNetHandlers.cs`.
+- Status: code only, not tested in the game.
+
+## 0.8.289 — every install logs at Dev detail, whatever its config says
+
+- **Bug reports came in without the steps that show what happened.** The default `Support`
+  preset (and `Public`) drops the `LegacyInfo` lines and most categories: a playtester's
+  log from a missing wedding invitation had no trace of the knocking scene, its door trigger or
+  the note's spawn, and asking players to edit the config first meant most reports came as
+  they were. Now `Dev` is the least any install logs (`ModLog.MinPreset`): a config left at
+  `Public` or `Support` is read as `Dev` (every Event category, `LegacyInfo` dumps
+  rate-limited to about 2 lines a second per message, and the `[Perf]` frame probe). A fresh
+  config writes `LogPreset = Dev`. `Trace` stays opt-in (its high-frequency dumps cost frame
+  time). The startup banner's "quiet logs" hint now points to Trace for maximum capture.
+  Files: `ModLog.cs`, `ModConfig.cs`, `docs/LOGGING.md`, `docs/CONFIG.md`.
+
+## 0.8.288 — another player's stand-in no longer shoves you when it is set down on you
+
+- **The host was pushed through the shut overworld bunker door and sent to the swamp tunnel;
+  players blocked or shifted each other (Discord report, 0.8.281, host log).** At 01:42:03 the
+  host talked to `door_underground`; 3 s later it was in `outside_bunker_underground_part2_01`,
+  sent there by `goThroughDoor`, the area trigger behind the shut door. The host's own body
+  got past the door. Another player's stand-in is a physics body that jumps to that player's
+  position when it falls behind (a wall, a vault's end, a teleport, a dream pad). The player
+  walked there on its own screen, where nobody stood; on this screen this player or a creature
+  can stand on that spot. Physics then pushed the two apart in one step, and this player went
+  with it, through a thin door collider or out of where it stood. Now a stand-in set down inside
+  this player, another stand-in or a creature does not collide with it until they are apart;
+  from then on they meet as before (bodies still block each other). The dream and location
+  teleports of a stand-in go the same way. Not checked in a game run. A savage that kept
+  restarting its window climb may have been the same push (a stand-in set down in its landing
+  spot); not confirmed from this log. Files: `RemotePlayerProxy.Apply.cs` (`PlaceAt`),
+  `WorldProxyLifecycleNetHandlers.cs`.
+
+## 0.8.287 — a morning split between hideouts and the village stays frozen
+
+- **What broke.** Some players spent the night in their hideout, others in the village. At dawn the
+  clock started running at once, though nobody was out in the forest: a hideout morning should hold
+  the clock until someone walks out, and the village stops it anyway.
+- **Why.** The host releases the held morning clock for a living player "outside every hideout"
+  (someone who spent the night in the forest never walks out of one). That check only looked at
+  hideouts, so a player in the village counted as outside.
+- **Now.** Only a player out in the open world (the same `InOpenWorld` the shared clock uses, not
+  under a personal hold, ready for gameplay) releases it. Players in hideouts and villages keep the
+  morning frozen; the first one to step out into the forest starts the clock for everyone.
+- Files: `DayNightTransitionPatches.cs` (`MorningHideoutHold.ReleaseIfSomeoneOutside`),
+  `HOW_COOP_WORKS.md` section 6. No protocol change.
+
+---
+
+## 0.8.286 — every copy of a co-op world keeps every player's character: anyone can host it next
+
+Protocol **72** (new `PartyCharacter`, 177).
+
+- **What changes for players.** Three friends play, the host gets busy: any of the others loads their
+  own copy of the world (the slot their game saved it in), hosts it, and everyone joins as they were,
+  the old host included, with their bag, skills, level, upgrades and position from the last world save
+  they were in. No handing saves around.
+- **Why it did not quite work before.** Only the host kept every player's character
+  (`client_backup_s…/k…_{campaign}.json` in its profile). A client kept its own only. A client
+  hosting its copy had nobody else's: each joiner fell back on the file on its own machine, so a
+  player on another machine (or after a reinstall) came back as a new character, and the new host
+  had nothing of its own to give anyone.
+- **Now every machine keeps every character, in the same files the host keeps.**
+  - At each world save the host relays each client's fresh character to the other clients, and sends
+    its own (stamped with its Steam id and LAN key) right after the save broadcast. A client stores
+    them only if it took part in that save (its coordinated save ran within the last 2 minutes): a
+    copy that skipped the save (in a dream) would pair an older world with a newer bag.
+  - A joiner gets, after its load, every character the host's copy stores (the host's own included,
+    not the joiner's): they match the world it just downloaded.
+  - Before the download the host sends the joiner its own character as the host's copy has it. The
+    join load uses it when the joiner's machine has none or an older one, so a returning player on
+    another machine is not taken for a new one (fresh character, prologue).
+  - A file is never replaced by an older copy of the same player (timestamps of one player's
+    snapshots all come from that player's clock), never with another campaign's, never with the
+    receiving player's own.
+- **A host saving alone keeps its character too.** It was stored only at saves with clients
+  connected, so a joiner downloaded a world newer than the host's stored character; whoever hosted
+  that copy next handed the old host an older bag.
+- **Steam and LAN keys.** A Steam player's character is also written under its LAN key, and a lookup
+  takes the newer of the two files, so a GOG copy hosting over LAN finds a player who was stored on a
+  Steam session.
+- Files: `ClientStateBackup.Party.cs` (new: store, roster, held own character),
+  `ClientStateBackup.Paths.cs` (LAN key file next to the Steam one, newer-of-two lookup),
+  `SaveNetHandlers.cs` / `SaveNetHandlers.Apply.cs` (relay, host's own, roster, `HandlePartyCharacter`),
+  `SaveSyncPatches.cs` (host alone), `WorldSaveShareService.HostShare.cs` (own character before the
+  download), `PersonalPrologue.cs` (join load takes it), `LanNetworkManager.SessionHandlers.LateJoin.cs`,
+  `SyncMessages.cs` / `NetMessageType.cs`, `CoopPolicy.Session.cs` (`PartyCharacterPolicy`); tests in
+  `CoopPolicyTests` and `MessageRoundTripTests`.
+- Not run in game yet.
+
+## 0.8.285 — no "Saving" notice at a new day on a client; villagers come back in the morning; exact sound-area exemption
+
+On top of 0.8.284. Protocol **71** (`SaveSync` gains `ShowIndicator`).
+
+- **A client showed the "Saving" corner notice when a new day began; the host did not.** Vanilla's new
+  day Save (`Controller.startDay`) asks for no indicator. The host's SaveSync fan-out then ran a
+  Save on every peer with the indicator forced on. The message now says whether the Save that raised
+  it showed the indicator, and the peer's Save follows it: the new day's is silent on every machine,
+  a manual or sleep Save still shows. Saves the host's 3 s debounce merges show it if any of them
+  asked; a session reset clears the pending choice. Files: `SyncMessages.cs` (`SaveSyncMessage`),
+  `SaveSyncPatches.cs` (`SaveSyncPatch` takes `showSavingIndicator`), `SaveNetHandlers.cs`,
+  `SaveNetHandlers.Apply.cs`; round trip in `MessageRoundTripTests`.
+- **A client standing in the village saw none of the villagers come back at daybreak.** The host
+  flips the villagers back only while nobody in the village has one in sight or within 1000 units
+  (checked at their spots, hidden or not). In the open village someone standing in it nearly always
+  has, so the flip waited for ever (no `[NightVillage] ... back for the day` in the host log all
+  morning). The return now happens at once at daybreak, seen or not: the clock reaches `dayTime`
+  under vanilla's daybreak fade (`startBeforeDay`, one game minute earlier, mirrored on clients),
+  and each client's `TimeSync.VillagersAway` turns them back on. Leaving for the night is unchanged
+  (never in front of a player). The host log line gains `seen=`. Files: `CoopPolicy.NpcNight.cs`
+  (`VillageNightPolicy.ShouldFlip`), `NightVillage.cs`; unit-tested in `CoopPolicyTests`.
+- **Sound-area loops: the 0.8.284 exemption is exact now, and a spectator hears single-instance
+  areas.** 0.8.284 let through any sound parented to a `SoundArea`. It now lets through the play
+  calls the area's own `playSound` makes (`SoundAreaPlayScopePatch` marks them), which is the vanilla
+  gate (the local player in its trigger or source range; a stand-in has no `Player` and never trips
+  it), and nothing else played on that object. An `onlyOneInstance` area (fire, banshee ambience)
+  plays on the local body, which the spectator rule mutes: a spectating player, whose body follows
+  the watched player through those areas, heard none of them. File: `AudioSuppressionPatch.cs`.
+- Not run in game yet: all read from the 0.8.284 playtest logs (host: new day Save; no return flip
+  while the client was in the village) and the vanilla code.
+
+---
+
+## 0.8.284 — the village's ambient music plays for a client again
+
+On top of 0.8.283. Protocol **70** (unchanged; client-side audio).
+
+- **A client heard no ambient music in the village until night.** A sound area (`SoundArea`) starts its
+  loop when the local player walks into its trigger. The audio cull (`AudioSuppressionLogic`) then
+  judged that loop by where the area's transform stands against the player: the village's music
+  (`baba_1`) and env areas sit at the location's origin, 3888 units from where the player comes in
+  (`PlayerSpawn`), a 2D loop is only kept within the awake box around the listener, so the play call
+  was refused and the loop (started once per visit) never came back. Night's ambience goes through
+  another path, which is why it was the only thing heard. Sounds parented to a `SoundArea` now
+  skip the distance test, as in vanilla (the area's trigger is the gate). File:
+  `AudioSuppressionPatch.cs`.
+- Not run in game yet: found from the decompile, the scene data (`outside_village_ch1_01`) and the
+  cull code; needs the village visit by a client in daylight.
+
+---
+
+## 0.8.283 — a party gate counts again a player who went back the way it came
+
+On top of 0.8.282. Protocol **70** (unchanged; host-only logic).
+
+- **A player could still be shut in the wedding's yard.** The party gate (0.8.280) holds a walk-in
+  trigger that shuts the way behind the party until every player there has walked into it. It
+  remembered anyone who had ever walked in: one player could reach the groom room, step back into
+  the yard, and the other two walking in then plugged the doorway and armed the bride attack with
+  that player still in the yard. The gate now notes the side each player came in from, and one who is
+  out again on that side, past where it walked in, counts as not through until it walks in again
+  (host logs `[PartyGate] <trigger>: pN went back the way it came`). Same for the acid dream's studio
+  and the maw in the doctor's dream. Files: `LockBehindPartyGate.cs`, `CoopPolicy.cs`
+  (`LockGatePolicy.WentBack`).
+- Verified in game (3 players, 0.8.282): the wedding's switch, the acid dream's studio and the maw each
+  held until the last player walked in, then the plug turned on for all three; a two-player wedding
+  playtest by hand went through. The gone-back case itself is unit-tested only.
 
 ---
 

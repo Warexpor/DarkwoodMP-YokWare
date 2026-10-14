@@ -22,7 +22,19 @@ namespace DWMPHorde.Logging
         private static float _nextScan; // reset-in: Reset
         private static float _nextSummary; // reset-in: Reset
 
-        private static readonly Dictionary<string, List<Light2D>> _byShape = new Dictionary<string, List<Light2D>>();
+        private static readonly Dictionary<Shape, List<Light2D>> _byShape = new Dictionary<Shape, List<Light2D>>();
+        /// <summary>The lists of the last scan, handed out again (each scan groups every drawn light).</summary>
+        private static readonly Stack<List<Light2D>> _freeLists = new Stack<List<Light2D>>();
+
+        /// <summary>A light's spot and shape, whole units (no string made per light per scan).</summary>
+        private struct Shape : System.IEquatable<Shape>
+        {
+            public int X, Z, R, A, Y;
+            public bool Equals(Shape o) => X == o.X && Z == o.Z && R == o.R && A == o.A && Y == o.Y;
+            public override bool Equals(object obj) => obj is Shape o && Equals(o);
+            public override int GetHashCode() => (((X * 397 ^ Z) * 397 ^ R) * 397 ^ A) * 397 ^ Y;
+            public override string ToString() => X + "," + Z + "|r" + R + "|a" + A + "|y" + Y;
+        }
         private static readonly Dictionary<int, List<Light2D>> _byMesh = new Dictionary<int, List<Light2D>>();
 
         public static void Reset()
@@ -54,8 +66,8 @@ namespace DWMPHorde.Logging
 
         private static void Scan(LanNetworkManager net, float now)
         {
-            _byShape.Clear();
-            _byMesh.Clear();
+            Recycle(_byShape);
+            Recycle(_byMesh);
             // Registry-backed once the world is seeded: no scene scan (it cost 20-40 ms per pass).
             Light2D[] lights = Sync.WorldQueryHelper.GetCachedSceneComponents<Light2D>();
             int drawn = 0;
@@ -66,10 +78,14 @@ namespace DWMPHorde.Logging
                     continue;
                 drawn++;
                 Vector3 p = l.transform.position;
-                string shape = Mathf.RoundToInt(p.x) + "," + Mathf.RoundToInt(p.z)
-                    + "|r" + Mathf.RoundToInt(l.LightRadius)
-                    + "|a" + Mathf.RoundToInt(l.LightConeAngle)
-                    + "|y" + Mathf.RoundToInt(l.transform.eulerAngles.y);
+                var shape = new Shape
+                {
+                    X = Mathf.RoundToInt(p.x),
+                    Z = Mathf.RoundToInt(p.z),
+                    R = Mathf.RoundToInt(l.LightRadius),
+                    A = Mathf.RoundToInt(l.LightConeAngle),
+                    Y = Mathf.RoundToInt(l.transform.eulerAngles.y)
+                };
                 Add(_byShape, shape, l);
                 if (l._mesh != null)
                     Add(_byMesh, l._mesh.GetInstanceID(), l);
@@ -111,10 +127,20 @@ namespace DWMPHorde.Logging
         {
             if (!map.TryGetValue(key, out List<Light2D> list))
             {
-                list = new List<Light2D>(2);
+                list = _freeLists.Count > 0 ? _freeLists.Pop() : new List<Light2D>(2);
                 map[key] = list;
             }
             list.Add(l);
+        }
+
+        private static void Recycle<TKey>(Dictionary<TKey, List<Light2D>> map)
+        {
+            foreach (var kv in map)
+            {
+                kv.Value.Clear();
+                _freeLists.Push(kv.Value);
+            }
+            map.Clear();
         }
 
         private static string Describe(List<Light2D> lights)

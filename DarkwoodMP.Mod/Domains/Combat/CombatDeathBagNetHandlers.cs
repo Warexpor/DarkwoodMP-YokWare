@@ -273,6 +273,8 @@ namespace DWMPHorde.Networking
             }
 
             DeathDrop deathDrop = bagGO.GetComponent<DeathDrop>();
+            // A night body's bag is hidden under the body before its first frame is drawn.
+            Players.PlayerCorpses.ClaimNewBag(deathDrop);
             if (deathDrop != null)
             {
                 deathDrop.expAmount = msg.ExpAmount;

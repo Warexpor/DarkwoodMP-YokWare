@@ -510,7 +510,18 @@ namespace DWMPHorde.Networking
         /// promoted host keeps them. Protocol 68.
         /// </summary>
         [HostOnly] OxygenTankRecords = 176,
+        /// <summary>
+        /// Host→clients: another player's stored character (bag, skills, level, position), so every
+        /// copy of the world holds every player's character and any player can host it later
+        /// (<c>PartyCharacterStore</c>). Protocol 72.
+        /// </summary>
+        [HostOnly] PartyCharacter = 177,
+        /// <summary>
+        /// Host→joiner: the party's home moves kept with the world (<c>Patches.PartyHomeMoves</c>),
+        /// so a player who missed a move follows it. Protocol 74.
+        /// </summary>
+        [HostOnly] PartyHomeMoves = 178,
         /// <summary>Highest used message type ID.</summary>
-        _Highest = 176
+        _Highest = 178
     }
 }

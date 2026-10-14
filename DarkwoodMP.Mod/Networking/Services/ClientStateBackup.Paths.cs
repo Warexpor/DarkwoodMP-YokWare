@@ -131,6 +131,7 @@ namespace DWMPHorde.Networking
                 if (best == null)
                     return;
                 File.Copy(best, selfPath, false);
+                InvalidateSelfPeek();
                 if (!string.IsNullOrEmpty(markerSuffix) && File.Exists(best + markerSuffix)
                     && !File.Exists(selfPath + markerSuffix))
                     File.Copy(best + markerSuffix, selfPath + markerSuffix, false);
@@ -151,6 +152,7 @@ namespace DWMPHorde.Networking
         /// </summary>
         public static void DiscardAllForChapterReload()
         {
+            InvalidateSelfPeek();
             // The party wipe marked every peer's profile dead (vanilla PreparePermadeathVideo); only
             // the player who pressed "start over" had it cleared by vanilla. The profile menu deletes
             // a dead profile's slot on its next visit.
@@ -373,7 +375,18 @@ namespace DWMPHorde.Networking
                 }
 
                 CoopWorldCopyMeta.WriteAllTextAtomic(path, json);
+                InvalidateSelfPeek();
                 ModRuntime.LegacyInfo($"[ClientBackup] saved{keyTag} → {path}");
+                // A Steam player's LAN key file too: a later host of this world on LAN (a GOG copy)
+                // finds the character by the key alone.
+                if (steamId != 0 && !string.IsNullOrEmpty(stableKey))
+                {
+                    string keyPath = GetBackupFilePathForStableKey(stableKey);
+                    string c = SanitizeCampaignIdForPath(parsed?.CampaignId);
+                    if (!string.IsNullOrEmpty(c))
+                        keyPath = GetProfileBackupDirectory() + "/client_backup_k" + stableKey + "_" + c + ".json";
+                    CoopWorldCopyMeta.WriteAllTextAtomic(keyPath, json);
+                }
             }
             catch (Exception ex)
             {
@@ -422,6 +435,7 @@ namespace DWMPHorde.Networking
                 catch { /* default path */ }
 
                 CoopWorldCopyMeta.WriteAllTextAtomic(path, json);
+                InvalidateSelfPeek();
                 ModRuntime.LegacyInfo($"[ClientBackup] saved local self → {path}");
             }
             catch (Exception ex)
@@ -449,18 +463,8 @@ namespace DWMPHorde.Networking
                     + (steamId != 0 ? " s" + steamId : "")
                     + (stableKey != null ? " k" + stableKey.Substring(0, Math.Min(8, stableKey.Length)) : "");
 
-                if (steamId != 0)
-                {
-                    data = TryReadBackup(GetBackupFilePathForSteam(steamId));
-                    if (data == null)
-                        data = TryReadBackup(GetLegacySteamBackupPath(steamId));
-                }
-                if (data == null && !string.IsNullOrEmpty(stableKey))
-                {
-                    data = TryReadBackup(GetBackupFilePathForStableKey(stableKey));
-                    if (data == null)
-                        data = TryReadBackup(GetLegacyStableBackupPath(stableKey));
-                }
+                if (steamId != 0 || !string.IsNullOrEmpty(stableKey))
+                    data = ReadStoredCharacter(steamId, stableKey);
                 if (data == null && allowPlayerIdFallback && playerId > 0)
                 {
                     data = TryReadBackup(GetBackupFilePathForPlayer(playerId));
@@ -533,17 +537,32 @@ namespace DWMPHorde.Networking
         }
 
         /// <summary>Load local self backup for the current campaign; legacy fallback if unscoped.</summary>
-        public static ClientStateBackupData LoadLocalSelfBackupFile()
+        public static ClientStateBackupData LoadLocalSelfBackupFile() => LoadLocalSelfBackupFile(peek: false);
+
+        /// <summary>
+        /// <see cref="LoadLocalSelfBackupFile()"/> for a once-a-second menu check: a file is parsed
+        /// again only when it changed (path, write time, size). The same checks run on every call;
+        /// the result is for showing, not for restoring (it may be the same object as last time).
+        /// </summary>
+        public static ClientStateBackupData PeekLocalSelfBackupFile() => LoadLocalSelfBackupFile(peek: true);
+
+        private static ClientStateBackupData LoadLocalSelfBackupFile(bool peek)
         {
             try
             {
-                ClientStateBackupData data = TryReadBackup(GetLocalSelfBackupPath());
+                string path = GetLocalSelfBackupPath();
+                ClientStateBackupData data = ReadSelfCandidate(path, peek);
                 if (data == null)
-                    data = TryReadBackup(GetLegacySelfBackupPath());
+                    data = ReadSelfCandidate(path = GetLegacySelfBackupPath(), peek);
                 if (data == null)
-                    data = TryReadBackup(GetLegacyBackupFilePath());
+                    data = ReadSelfCandidate(path = GetLegacyBackupFilePath(), peek);
                 if (data == null) return null;
+                string campaignBefore = data.CampaignId;
                 data = MigrateLegacyCampaignIfNeeded(data, 0);
+                // A migrate stamps the parsed object: the next peek parses the file again, as a
+                // fresh load would (and retries the migrate if its write failed).
+                if (peek && (data == null || !string.Equals(campaignBefore, data.CampaignId, StringComparison.Ordinal)))
+                    _peekReads.Remove(path);
                 if (data == null)
                 {
                     ModRuntime.LegacyInfo(
@@ -568,6 +587,42 @@ namespace DWMPHorde.Networking
                 ModRuntime.Log?.LogError("[ClientBackup] failed to load local self: " + ex);
                 return null;
             }
+        }
+
+        private sealed class PeekRead
+        {
+            public DateTime WrittenUtc;
+            public long Length;
+            public ClientStateBackupData Data;
+        }
+
+        // Parse cache for PeekLocalSelfBackupFile, keyed by the file's stamp.
+        private static readonly System.Collections.Generic.Dictionary<string, PeekRead> _peekReads = new System.Collections.Generic.Dictionary<string, PeekRead>(StringComparer.Ordinal); // process-scoped: file-stamped parse cache
+
+        /// <summary>A self-backup file was written or removed here: the next peek reads from disk.</summary>
+        private static void InvalidateSelfPeek() => _peekReads.Clear();
+
+        private static ClientStateBackupData ReadSelfCandidate(string path, bool peek)
+        {
+            if (!peek)
+                return TryReadBackup(path);
+            if (string.IsNullOrEmpty(path))
+                return null;
+            var info = new FileInfo(path);
+            if (!info.Exists)
+            {
+                _peekReads.Remove(path);
+                return null;
+            }
+            DateTime written = info.LastWriteTimeUtc;
+            long length = info.Length;
+            if (_peekReads.TryGetValue(path, out PeekRead read) && read.WrittenUtc == written && read.Length == length)
+                return read.Data;
+            ClientStateBackupData data = DeserializeFromJson(File.ReadAllText(path));
+            if (_peekReads.Count >= 8)
+                _peekReads.Clear();
+            _peekReads[path] = new PeekRead { WrittenUtc = written, Length = length, Data = data };
+            return data;
         }
 
         private static ClientStateBackupData TryReadBackup(string path)

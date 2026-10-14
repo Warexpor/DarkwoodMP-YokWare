@@ -57,6 +57,8 @@ public class CoopPolicyTests
         Assert.False(VillageNightPolicy.ShouldFlip(false, true, occupied: true, anyoneSees: true));
         Assert.True(VillageNightPolicy.ShouldFlip(false, true, occupied: true, anyoneSees: false));
         Assert.False(VillageNightPolicy.ShouldFlip(true, true, occupied: false, anyoneSees: false));
+        // The return at daybreak is at once, seen or not; leaving is never in front of someone.
+        Assert.True(VillageNightPolicy.ShouldFlip(true, false, occupied: true, anyoneSees: true));
         Assert.True(CoopTimePolicy.LiveStepCrossedMinute(1068, 1071, 1070));
         Assert.False(CoopTimePolicy.LiveStepCrossedMinute(100, 500, 1070));
         Assert.True(CoopTimePolicy.LiveStepCrossedMinute(1438, 2, 0));
@@ -537,4 +539,55 @@ public class CoopPolicyTests
         Assert.False(ImpactFxPolicy.IsAllowedBulletImpact("", "FX/Bloodsplats/"));
         Assert.False(ImpactFxPolicy.IsAllowedBulletImpact("", ""));
     }
+
+    [Fact]
+    public void LockGate_PlayerBackOnTheSideItCameFromCountsAgainOnlyAfterWalkingIn()
+    {
+        // Walked into the wedding's switch from the yard side (+z), 140 from its centre.
+        Assert.False(LockGatePolicy.WentBack(0f, 140f, 0f, 0f));      // standing in it
+        Assert.False(LockGatePolicy.WentBack(0f, 140f, 30f, -400f));  // on, deeper in the groom room
+        Assert.False(LockGatePolicy.WentBack(0f, 140f, 300f, 100f));  // off to the side, in the room
+        Assert.False(LockGatePolicy.WentBack(0f, 140f, 0f, 230f));    // just outside where it came in
+        Assert.True(LockGatePolicy.WentBack(0f, 140f, 0f, 300f));     // back through the doorway, in the yard
+        Assert.True(LockGatePolicy.WentBack(0f, 140f, 80f, 400f));
+        // Put in the middle (teleported): no side to go back to.
+        Assert.False(LockGatePolicy.WentBack(5f, 5f, 0f, 2000f));
+    }
+
+    [Fact]
+    public void PartyCharacter_StoredOnlyWhenItBelongsWithThisCopy()
+    {
+        var t0 = new System.DateTime(2026, 10, 14, 12, 0, 0);
+        var t1 = t0.AddMinutes(10);
+        // Save round, this copy saved a moment ago, nothing stored yet / an older copy stored.
+        Assert.True(PartyCharacterPolicy.ShouldStore(0, true, false, true, t1, default, false, 3f));
+        Assert.True(PartyCharacterPolicy.ShouldStore(0, true, false, true, t1, t0, true, 3f));
+        Assert.True(PartyCharacterPolicy.ShouldStore(0, true, false, true, t1, t1, true, 3f));
+        // This copy skipped that save (never saved, or long ago): its world is older than the bag.
+        Assert.False(PartyCharacterPolicy.ShouldStore(0, true, false, true, t1, default, false, -1f));
+        Assert.False(PartyCharacterPolicy.ShouldStore(0, true, false, true, t1, default, false, PartyCharacterPolicy.SaveRoundWindowSec + 1f));
+        // A join's roster matches the world just downloaded: no save needed.
+        Assert.True(PartyCharacterPolicy.ShouldStore(1, true, false, true, t1, default, false, -1f));
+        // Never an older one over a newer, another campaign's, this player's own, an empty one.
+        Assert.False(PartyCharacterPolicy.ShouldStore(1, true, false, true, t0, t1, true, -1f));
+        Assert.False(PartyCharacterPolicy.ShouldStore(1, false, false, true, t1, default, false, -1f));
+        Assert.False(PartyCharacterPolicy.ShouldStore(1, true, true, true, t1, default, false, -1f));
+        Assert.False(PartyCharacterPolicy.ShouldStore(1, true, false, false, t1, default, false, -1f));
+        // Own is held for the load, never stored as another player's.
+        Assert.False(PartyCharacterPolicy.ShouldStore(2, true, false, true, t1, default, false, 3f));
+    }
+
+    [Fact]
+    public void PartyCharacter_HeldOwnReplacesOnlyAMissingOrOlderLocalFile()
+    {
+        var t0 = new System.DateTime(2026, 10, 14, 12, 0, 0);
+        var t1 = t0.AddMinutes(10);
+        Assert.True(PartyCharacterPolicy.ShouldAdoptHeldOwn(true, true, t1, default, false));
+        Assert.True(PartyCharacterPolicy.ShouldAdoptHeldOwn(true, true, t1, t0, true));
+        Assert.False(PartyCharacterPolicy.ShouldAdoptHeldOwn(true, true, t1, t1, true));
+        Assert.False(PartyCharacterPolicy.ShouldAdoptHeldOwn(true, true, t0, t1, true));
+        Assert.False(PartyCharacterPolicy.ShouldAdoptHeldOwn(false, true, t1, default, false));
+        Assert.False(PartyCharacterPolicy.ShouldAdoptHeldOwn(true, false, t1, default, false));
+    }
 }
+

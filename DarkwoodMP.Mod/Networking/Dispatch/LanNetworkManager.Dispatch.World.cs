@@ -30,6 +30,7 @@ namespace DWMPHorde.Networking
             On(NetMessageType.ObjectSpawnerFired, ObjectSpawnerFiredMessage.Deserialize, m => Patches.ObjectSpawnerSync.ClientApply(this, m));
             On(NetMessageType.OxygenTankSet, OxygenTankSetMessage.Deserialize, m => OxygenTankParty.Handle(this, m));
             On(NetMessageType.OxygenTankRecords, OxygenTankRecordsMessage.Deserialize, m => OxygenTankParty.ApplyRecords(this, m));
+            On(NetMessageType.PartyHomeMoves, PartyHomeMovesMessage.Deserialize, m => Patches.PartyHomeMoves.Apply(this, m));
             On(NetMessageType.QuestHandoff, QuestHandoffMessage.Deserialize, m => QuestItemHandoff.HandleOnClient(this, m));
             On(NetMessageType.DialogHandInGone, DialogHandInGoneMessage.Deserialize, m => DialogHandInArbiter.HandleOnClient(this, m));
             On(NetMessageType.DialogMirror, DialogMirrorMessage.Deserialize, m => DialogMirror.Handle(this, m));

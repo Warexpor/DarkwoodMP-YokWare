@@ -91,9 +91,15 @@ namespace DWMPHorde.Patches
             Vector3 sp = new Vector3(msg.SpawnerX, msg.SpawnerY, msg.SpawnerZ);
             ObjectSpawner found = null;
             float best = SameSpawnerSq;
-            foreach (ObjectSpawner s in Object.FindObjectsOfType<ObjectSpawner>())
+            // Active spawners only (the registry also keeps inactive ones; the scan before the
+            // world seed is the active-only one this always used).
+            ObjectSpawner[] spawners = SceneRegistries.Covers<ObjectSpawner>()
+                ? SceneRegistry<ObjectSpawner>.Snapshot()
+                : Object.FindObjectsOfType<ObjectSpawner>();
+            for (int i = 0; i < spawners.Length; i++)
             {
-                if (s == null || s.gameObject.name != msg.SpawnerName)
+                ObjectSpawner s = spawners[i];
+                if (s == null || !s.gameObject.activeInHierarchy || s.gameObject.name != msg.SpawnerName)
                     continue;
                 float d = (s.transform.position - sp).sqrMagnitude;
                 if (d < best)

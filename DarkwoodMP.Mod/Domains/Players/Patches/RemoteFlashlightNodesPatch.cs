@@ -22,6 +22,23 @@ namespace DWMPHorde.Patches
         /// <summary>Lights of a dream pad this player is no longer in, held out of the pass.</summary>
         private static readonly List<Light2D> PadStash = new List<Light2D>(8); // process-scoped: call-scoped, emptied by the Finalizer
 
+        private static readonly Dictionary<RemotePlayerProxy, Light2D> FlashOf = new Dictionary<RemotePlayerProxy, Light2D>(); // process-scoped: keys checked for null on read, pruned when it grows
+
+        /// <summary>The proxy's "Flashlight" Light2D, found once (this runs every frame).</summary>
+        private static Light2D FlashlightOf(RemotePlayerProxy proxy)
+        {
+            if (FlashOf.TryGetValue(proxy, out Light2D lt) && lt != null)
+                return lt;
+            Transform flashT = proxy.transform.Find("Flashlight");
+            lt = flashT != null ? flashT.GetComponent<Light2D>() : null;
+            if (lt == null)
+                return null;
+            if (FlashOf.Count >= 16)
+                FlashOf.Clear();
+            FlashOf[proxy] = lt;
+            return lt;
+        }
+
         private static void Prefix(Controller __instance)
         {
             Stash.Clear();
@@ -34,12 +51,10 @@ namespace DWMPHorde.Patches
             {
                 if (proxy == null)
                     continue;
-                Transform flashT = proxy.transform.Find("Flashlight");
-                Light2D lt = flashT != null ? flashT.GetComponent<Light2D>() : null;
-                if (lt == null || !__instance.logicLights.Contains(lt))
+                Light2D lt = FlashlightOf(proxy);
+                if (lt == null || !__instance.logicLights.Remove(lt))
                     continue;
                 lt.unlightGraphNodes();
-                __instance.logicLights.Remove(lt);
                 Stash.Add(lt);
             }
         }

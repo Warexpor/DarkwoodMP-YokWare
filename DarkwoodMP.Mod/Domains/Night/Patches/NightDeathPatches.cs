@@ -164,6 +164,22 @@ namespace DWMPHorde.Patches
     }
 
     /// <summary>
+    /// Vanilla's death sequence names the biome the player wakes up in (Player.onDeath, right
+    /// before its Save). A player down until morning wakes up nowhere yet: the name ("DRY MEADOW")
+    /// came up over the dead player's screen as they started spectating.
+    /// </summary>
+    [HarmonyPatch(typeof(Core), "displayBiomeMessage")]
+    public static class NightDeathBiomeMessagePatch
+    {
+        private static bool Prefix()
+        {
+            if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected)
+                return true;
+            return !DeathStateTracker.LocalNightDeath;
+        }
+    }
+
+    /// <summary>
     /// Postfix on onDeath: if the local player died at night and both are now dead,
     /// notify the remote that morning should advance. If only the remote died,
     /// mark the state and trigger bag spawn.

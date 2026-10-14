@@ -12,22 +12,25 @@ bug report.
    game folder of **every** player, before anyone starts the game again: the file is
    overwritten on each launch.
 
-`Trace` logs are large and cost some frame time; set `LogPreset = Support` again for
+`Trace` logs are large and cost some frame time; set `LogPreset = Dev` again for
 normal play.
+
+Every install logs at **Dev** at least: a config left at `Public` or `Support` is read
+as `Dev`, so a log sent as it is already has the detail (`ModLog.MinPreset`).
 
 ## Defaults
 
 | Setting | Default | Meaning |
 |---------|---------|---------|
-| `LogPreset` | **Support** | Session/join/combat Events without Legacy flood (`[Perf]` needs `PerfProbe`) |
-| `LogMinLevel` | Event | Drop Info/Trace under Support |
+| `LogPreset` | **Dev** | Every Event category + `LegacyInfo` dumps + `[Perf]`; also the minimum (Public/Support are read as Dev) |
+| `LogMinLevel` | Event | Drop Info/Trace below the Trace preset |
 | `LogRedactIPs` | **true** | Mask IPv4 in log lines (privacy-safe for shared packs; set false to see full IPs on your own LAN) |
 | `LogRedactPaths` | false (local dual-box) | Absolute paths → filename only |
 | `LogIncludeStacks` | true | Full stacks on Error |
 | `VerboseLogging` | false | Deprecated compatibility switch; forces Trace when the preset is Public |
 | `VerboseLightSync` | false | Extra light-transition logs (optional) |
 | `VerboseEntitySync` | false | Deep entity anim/interp/reaction/damage Trace+Event (rate-limited). Turn on for dual-box diagnosis |
-| `PerfProbe` | false | Co-op frame-cost probe and the `[Perf]` lines. Always on under Dev/Trace; turn on to get them under Support/Public |
+| `PerfProbe` | false | Co-op frame-cost probe and the `[Perf]` lines. Always on (every install logs at Dev or Trace) |
 
 Config file (section **`[Logging]`**, plus **`[Debug]`** for the `Verbose*` and `PerfProbe` switches):
 
@@ -41,9 +44,9 @@ Every key is listed in [`CONFIG.md`](CONFIG.md).
 
 | Preset | Who | What you get |
 |--------|-----|----------------|
-| **Public** | Quiet play | Core, Network, Session, Dream, Death, Save Events |
-| **Support** | **Default** playtest / bug packs | Public + Combat, Entity, World, Container (+ **`[Perf]`** with `PerfProbe=true`) |
-| **Dev** | Dual-box deep debug | All Event cats + **`LegacyInfo`** dumps + **`[Perf]`** (large logs) |
+| **Public** | Not used | Read as Dev (minimum) |
+| **Support** | Not used | Read as Dev (minimum) |
+| **Dev** | **Default**: every install, bug reports | All Event cats + **`LegacyInfo`** dumps + **`[Perf]`** |
 | **Trace** | **Max capture** | All categories + Trace + **`LegacyInfo`** + **`VerboseLogging` gates** (largest logs; dual-box FPS cost) |
 
 **Important:** `ModRuntime.LegacyInfo` runs on `LogPreset=Dev` or **`Trace`**
@@ -52,7 +55,7 @@ for maximum dual-box capture.
 
 ## Stutter / hitch triage (dual-box)
 
-1. Prefer **Trace** (max), or **Support** with `PerfProbe = true`, on **both** installs, same mod build.  
+1. Prefer **Trace** (max), or the default **Dev**, on **both** installs, same mod build.  
 2. Reproduce; quit cleanly.  
 3. Attach **both** `BepInEx/LogOutput.log` files.  
 4. Or run the gate script (defaults to a Steam install plus a `SecondDarkwood` copy; see the script for its paths):
@@ -103,7 +106,7 @@ for maximum dual-box capture.
 ## How to file a bug
 
 1. Same mod version on host + client.  
-2. Support for join bugs; **Trace** for maximum capture (Legacy + Verbose).  
+2. Dev (the default) for join bugs; **Trace** for maximum capture (Legacy + Verbose).  
 3. Quit cleanly.  
 4. Attach both LogOutput.log files + steps.
 
@@ -178,5 +181,5 @@ Host creature targeting (AI category, Trace level, host with remote players only
 
 - Prefer `ModLog.Event/Warn/Error/Trace(LogCat, …)`.  
 - `LegacyInfo` = Dev or Trace.  
-- Join bulk one-shots should use `ModLog.Event(LogCat.Session, …)` so Support packs still work.  
+- Join bulk one-shots should use `ModLog.Event(LogCat.Session, …)` so every log has them.  
 - Perf probe: `CoopPerfProbe` / `ClientPerfProbe` alias on both roles when connected.

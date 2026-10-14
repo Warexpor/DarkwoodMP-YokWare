@@ -43,6 +43,7 @@ namespace DWMPHorde.Networking
             _lastDraggedItemName = null;
             _dragScrapeActive = false;
             _dragScrapeQuietSince = -1f;
+            _dragQuietReliableSent = false;
 
             if (!string.IsNullOrEmpty(endedName)
                 && PlayerInteractHandlers.DragClaims.TryGetValue(endedName, out int cid)

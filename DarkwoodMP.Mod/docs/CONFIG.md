@@ -71,7 +71,7 @@ changes are kept without asking.
 | `NamedNpcScaleEnabled` | `true` | Host: multiply allowlisted dream NPC presence by the party multiplier. |
 | `NamedNpcAllowlist` | `ChomperBlack` | Comma-separated character short names scaled in dreams only (not night hideout trash). |
 | `SoloHomeDream` | `true` | Host. The home dream (the flat, `dream_home`) is played alone: everyone goes in together and wakes by their own way out, but each player has their own copy of the flat and does not see the others there. Off: the party plays it together like the other dreams. Clients follow the host's value. |
-| `MaxPeerDamage` | `200` | The host clamps peer-reported attack / friendly-fire damage to this maximum per hit (anti-grief). Separately, each peer has a fixed hit budget (20 hits/s with a burst of 40, 1000 damage/s with a burst of 3000): bursts such as shotgun pellets apply in full, sustained spam is rejected. |
+| `MaxPeerDamage` | `200` | The host clamps peer-reported attack / friendly-fire damage to this maximum per hit (anti-grief). Separately, each peer has a fixed hit budget (250 hits/s with a burst of 500, 4500 damage/s with a burst of 9000): a flamethrower on a pack or shotgun pellets apply in full, sustained spam is rejected. |
 | `NightMonsterMultiplier` | `1` | Host: how many night monsters come to each hideout compared with vanilla (1 = vanilla, up to 10; Host settings offers x1, x1.5, x2, x3, x4, x5, x7 and x10). Raises how many of each kind may be out at once and how fast they come. Applies at once, also mid-night; works in a solo game too. Worms, shadows and night events are not changed. |
 | `SharedDrag` | `true` | Experimental: other players can take hold of a body another player is dragging (E on it), up to four in all, and move it together: walking the same way, 1.75 times a lone player's speed for two, about 2.33 for three, 2.8 for four; held still pulling apart. When the dragger lets go, the first co-holder drags on and the others let go. Everyone holding needs it on; with it off here, this machine neither joins nor accepts co-holders. |
 | `PeerMovementVolume` | `0.85` | Volume of other players' movement on this machine: footsteps, clothes rustle, dodge and landing steps (0..1). Their other sounds (shots, hits, tools) are not affected. |
@@ -112,7 +112,7 @@ See [`LOGGING.md`](LOGGING.md) for what each preset prints.
 
 | Key | Default | Meaning |
 |-----|---------|---------|
-| `LogPreset` | `Support` | `Public` is quiet; `Support` adds session/join/combat (`[Perf]` only with `Debug.PerfProbe`); `Dev` adds `LegacyInfo` dumps and `[Perf]`; `Trace` is maximum capture. Restart after changing it. |
+| `LogPreset` | `Dev` | `Dev` logs every category plus `LegacyInfo` dumps and `[Perf]`, and is the minimum: `Public` and `Support` are read as `Dev`. `Trace` is maximum capture. Restart after changing it. |
 | `LogMinLevel` | `Event` | `Error`, `Warn`, `Event`, `Info` or `Trace`. `LegacyInfo` runs on `LogPreset` Dev or Trace. |
 | `LogExtraCategories` | empty | Extra Event categories on top of the preset, comma separated: Core, Network, Session, Combat, Entity, Physics, Container, World, AI, Dream, Death, Audio, UI, Save. |
 | `LogTraceCategories` | `none` | Categories allowed to emit Trace when the preset is not full Trace, or `none`. |
@@ -125,10 +125,10 @@ See [`LOGGING.md`](LOGGING.md) for what each preset prints.
 
 | Key | Default | Meaning |
 |-----|---------|---------|
-| `VerboseLogging` | `false` | Legacy switch: with `LogPreset=Public` it forces Trace. Prefer `LogPreset=Support` for join tests. |
+| `VerboseLogging` | `false` | Legacy switch: with `LogPreset=Public` it forces Trace. |
 | `VerboseLightSync` | `false` | Transition-only light sync logs (flare/flash on/off, join bulk). |
-| `VerboseEntitySync` | `false` | Deep entity sync logs (anim, interpolation, hit reaction, damage, spawn/despawn), rate-limited. Also enables Entity/Combat/AI Trace under Support. Turn on for dual-box diagnosis. |
+| `VerboseEntitySync` | `false` | Deep entity sync logs (anim, interpolation, hit reaction, damage, spawn/despawn), rate-limited. Also enables Entity/Combat/AI Trace below the Trace preset. Turn on for dual-box diagnosis. |
 | `FreeCursorForDualBox` | `false` | Force `Cursor.lockState = None` (skip vanilla Confined). Linux dual-box testers on Hyprland/Wayland with a Wine/Proton SecondDarkwood set this to `true`: Confined ClipCursor traps the mouse and the blur-release can freeze the Wine window. The game's own cursor (camera look, aim, throws) is still held inside the window as the confine would, so the camera cannot run past vanilla's look distance. Leave false for normal single-window play. |
-| `PerfProbe` | `false` | Co-op frame-cost probe: per-frame timing plus a `[Perf]` line every 2 s while connected. Always on under `LogPreset` Dev/Trace; set `true` to capture it under Support/Public. |
+| `PerfProbe` | `false` | Co-op frame-cost probe: per-frame timing plus a `[Perf]` line every 2 s while connected. Always on (every install logs at Dev or Trace). |
 | `DesyncCheck` | `true` | Desync checker: the host sends each client a fingerprint of the world state they should share (clock, flags, doors, containers, nearby creatures and items, players...). The client compares it with its own and logs a difference that lasts two checks in a row as a `DESYNC` line, and `resolved` when it goes away; the host log gets the same lines tagged with the client. Needs the host's setting on; a client with it off ignores the digests. |
 | `DesyncCheckIntervalSec` | `15` | Seconds between desync checks (clamped 5..300). |

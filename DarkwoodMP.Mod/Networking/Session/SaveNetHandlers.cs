@@ -14,6 +14,8 @@ namespace DWMPHorde.Networking
         private float _lastSaveSyncBroadcastAt = -999f;
         private bool _saveSyncBroadcastPending;
         private bool _saveSyncHostNeedsApply;
+        /// <summary>Host: the Save behind the pending broadcast asked for the corner indicator (any of the debounced requests).</summary>
+        private bool _saveSyncShowIndicator;
         private const float SaveSyncHostCooldownSec = 3f;
         /// <summary>After a peer day/night death save cascade, drop redundant SaveSync.</summary>
         private float _deathSaveSyncSuppressUntil = -999f;
@@ -33,6 +35,8 @@ namespace DWMPHorde.Networking
         private Coroutine _clientBackupRestoreCo;
         /// <summary>Wait for host late-join backup before falling back to local self file.</summary>
         private const float ClientBackupHostWaitSec = 12f;
+        /// <summary>Client: when this machine last wrote the world at a coordinated save (party characters of that save are stored only after one).</summary>
+        private float _lastLocalWorldSaveAt = -1f;
 
         internal SaveNetHandlers(LanNetworkManager net)
         {
@@ -49,6 +53,8 @@ namespace DWMPHorde.Networking
             _clientBackupRestoreCo = null;
             _saveSyncBroadcastPending = false;
             _saveSyncHostNeedsApply = false;
+            _saveSyncShowIndicator = false;
+            _lastLocalWorldSaveAt = -1f;
         }
 
         /// <summary>Arm after local/remote death so vanilla Save spam does not re-Save the host.</summary>
@@ -60,7 +66,7 @@ namespace DWMPHorde.Networking
         /// <summary>
         /// After a local Save: host debounces broadcast; client requests host fan-out only.
         /// </summary>
-        internal void SendSaveSync(bool hostAlreadySavedLocally = false)
+        internal void SendSaveSync(bool hostAlreadySavedLocally = false, bool showIndicator = true)
         {
             if (!_net.IsConnected) return;
             if (LanNetworkManager.RemoteSaveInProgress) return;
@@ -75,17 +81,18 @@ namespace DWMPHorde.Networking
 
             if (_net.Role == NetworkRole.Host)
             {
-                HostScheduleSaveSyncBroadcast(hostAlreadySavedLocally);
+                HostScheduleSaveSyncBroadcast(hostAlreadySavedLocally, showIndicator);
                 return;
             }
 
             ModRuntime.LegacyInfo("[SaveSync] client → host save-sync request");
-            _net.Send(NetMessageType.SaveSync, w => new SaveSyncMessage().Serialize(w),
+            _net.Send(NetMessageType.SaveSync, w => new SaveSyncMessage { ShowIndicator = showIndicator }.Serialize(w),
                 LiteNetLib.DeliveryMethod.ReliableOrdered);
         }
 
-        private void HostScheduleSaveSyncBroadcast(bool hostAlreadySavedLocally)
+        private void HostScheduleSaveSyncBroadcast(bool hostAlreadySavedLocally, bool showIndicator)
         {
+            _saveSyncShowIndicator |= showIndicator;
             if (!hostAlreadySavedLocally)
                 _saveSyncHostNeedsApply = true;
             _saveSyncBroadcastPending = true;
@@ -111,6 +118,8 @@ namespace DWMPHorde.Networking
                 return;
 
             _saveSyncBroadcastPending = false;
+            bool showIndicator = _saveSyncShowIndicator;
+            _saveSyncShowIndicator = false;
             _lastSaveSyncBroadcastAt = Time.unscaledTime;
 
             if (_saveSyncHostNeedsApply)
@@ -124,18 +133,38 @@ namespace DWMPHorde.Networking
                     ModLog.Event(LogCat.Save, "SaveSync request declined — " + blocked);
                     return;
                 }
-                ApplySaveSyncLocalSave("host debounced client request");
+                ApplySaveSyncLocalSave("host debounced client request", showIndicator);
             }
 
             // The host's character lives in the world save, which a client taking the host over
             // does not load it from: the snapshot is what brings it back when this player joins
             // that world later as a client.
-            try { PersistClientBackupSnapshot(sendToHost: false); }
+            string hostCharacter = null;
+            try { hostCharacter = PersistClientBackupSnapshot(sendToHost: false); }
             catch (Exception ex) { ModRuntime.Log?.LogWarning("[ClientBackup] host self snapshot: " + ex.Message); }
 
             ModRuntime.LegacyInfo("[SaveSync] host broadcast coordinated Save to peers");
-            _net.SendToAll(NetMessageType.SaveSync, w => new SaveSyncMessage().Serialize(w),
+            _net.SendToAll(NetMessageType.SaveSync, w => new SaveSyncMessage { ShowIndicator = showIndicator }.Serialize(w),
                 LiteNetLib.DeliveryMethod.ReliableOrdered);
+            // After the SaveSync on the same channel: each client has written its copy of the world
+            // when the host's character arrives, and keeps it with that save.
+            if (!string.IsNullOrEmpty(hostCharacter))
+                _net.SendToAll(NetMessageType.PartyCharacter,
+                    w => new PartyCharacterMessage { Kind = PartyCharacterKind.SaveRound, JsonData = hostCharacter }.Serialize(w),
+                    LiteNetLib.DeliveryMethod.ReliableOrdered);
+        }
+
+        /// <summary>
+        /// Host saving with nobody connected: its character still goes with that save. Otherwise
+        /// the world a later joiner downloads would be newer than the host's stored character, and
+        /// the player who hosts that copy next would hand the old host an older bag.
+        /// </summary>
+        internal void HostKeepOwnCharacter()
+        {
+            if (_net.Role != NetworkRole.Host)
+                return;
+            try { PersistClientBackupSnapshot(sendToHost: false); }
+            catch (Exception ex) { ModRuntime.Log?.LogWarning("[ClientBackup] host self snapshot (alone): " + ex.Message); }
         }
 
         /// <summary>
@@ -194,8 +223,8 @@ namespace DWMPHorde.Networking
             }
         }
 
-        /// <summary>Collect → local self file; optionally push to host.</summary>
-        private void PersistClientBackupSnapshot(bool sendToHost)
+        /// <summary>Collect → local self file; optionally push to host. Returns the stored JSON (null when skipped).</summary>
+        private string PersistClientBackupSnapshot(bool sendToHost)
         {
             var data = ClientStateBackup.CollectBackupData();
             // Mid-dream omission leaves 0,0,0; keep the prior exit pose from the existing self file.
@@ -218,16 +247,17 @@ namespace DWMPHorde.Networking
             if (!ClientStateBackup.HasMeaningfulProgress(data))
             {
                 ModRuntime.LegacyInfo("[ClientBackup] skip persist — empty snapshot");
-                return;
+                return null;
             }
             string json = ClientStateBackup.SerializeToJson(data);
             ClientStateBackup.SaveLocalSelfBackupFile(json);
             if (!sendToHost || !_net.IsConnected)
-                return;
+                return json;
             _net.Broadcast(NetMessageType.ClientStateBackup,
                 w => new ClientStateBackupMessage { JsonData = json }.Serialize(w),
                 LiteNetLib.DeliveryMethod.ReliableOrdered);
             ModRuntime.LegacyInfo($"[ClientBackup] sent backup to host ({(data.InventoryItems?.Count ?? 0) + (data.HotbarItems?.Count ?? 0)} items, {(data.Skills?.Count ?? 0)} skills, pos=({data.PosX.ToString("F0")},{data.PosZ.ToString("F0")})");
+            return json;
         }
     }
 }

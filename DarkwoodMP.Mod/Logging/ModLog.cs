@@ -67,6 +67,9 @@ namespace DWMPHorde.Logging
             ApplyConfig();
         }
 
+        /// <summary>The least detail any install logs (a lower configured preset is raised to it).</summary>
+        public const LogPreset MinPreset = LogPreset.Dev;
+
         /// <summary>Re-read config values into live filters.</summary>
         public static void ApplyConfig()
         {
@@ -85,6 +88,13 @@ namespace DWMPHorde.Logging
             {
                 _preset = LogPreset.Trace;
             }
+
+            // Every install logs at Dev at least, whatever its config says: a player's bug report
+            // arrives as the log they already have, and Public/Support left out the steps that
+            // show what happened (a scripted spawn, a night scene's trigger). Trace stays opt-in
+            // (high-frequency dumps that cost frame time).
+            if (_preset < MinPreset)
+                _preset = MinPreset;
 
             // Bridge old gates that still check ModRuntime.VerboseLogging.
             // Dev + LogMinLevel=Trace used to flip this on and flood Entity dumps on
@@ -233,6 +243,67 @@ namespace DWMPHorde.Logging
             Write(cat, LogLevel.Trace, messageFactory() + SuppressedSuffix(suppressed));
         }
 
+        /// <summary>Trace line from an interpolated string, formatted only when Trace is on for <paramref name="cat"/>.</summary>
+        public static void Trace(LogCat cat,
+            [System.Runtime.CompilerServices.InterpolatedStringHandlerArgument("cat")] TraceLogHandler message)
+        {
+            if (!message.Enabled) return;
+            Write(cat, LogLevel.Trace, message.ToStringAndClear());
+        }
+
+        /// <summary>Rate-limited trace from an interpolated string; nothing is formatted while Trace is off.</summary>
+        public static void TraceRate(LogCat cat, string key,
+            [System.Runtime.CompilerServices.InterpolatedStringHandlerArgument("cat")] TraceLogHandler message,
+            float minIntervalSec = -1f)
+        {
+            if (!message.Enabled) return;
+            if (!PassRate(key, minIntervalSec, out int suppressed)) return;
+            Write(cat, LogLevel.Trace, message.ToStringAndClear() + SuppressedSuffix(suppressed));
+        }
+
+        /// <summary>
+        /// Rate-limited trace keyed by <paramref name="keyPrefix"/> + <paramref name="keyId"/> (one key per
+        /// entity); the key is only built while Trace is on.
+        /// </summary>
+        public static void TraceRate(LogCat cat, string keyPrefix, long keyId, string message, float minIntervalSec = -1f)
+        {
+            if (!IsEnabled(cat, LogLevel.Trace)) return;
+            if (!PassRate(keyPrefix + keyId, minIntervalSec, out int suppressed)) return;
+            Write(cat, LogLevel.Trace, message + SuppressedSuffix(suppressed));
+        }
+
+        /// <inheritdoc cref="TraceRate(LogCat, string, long, string, float)"/>
+        public static void TraceRate(LogCat cat, string keyPrefix, long keyId, Func<string> messageFactory, float minIntervalSec = -1f)
+        {
+            if (!IsEnabled(cat, LogLevel.Trace) || messageFactory == null) return;
+            if (!PassRate(keyPrefix + keyId, minIntervalSec, out int suppressed)) return;
+            Write(cat, LogLevel.Trace, messageFactory() + SuppressedSuffix(suppressed));
+        }
+
+        /// <inheritdoc cref="TraceRate(LogCat, string, long, string, float)"/>
+        public static void TraceRate(LogCat cat, string keyPrefix, long keyId,
+            [System.Runtime.CompilerServices.InterpolatedStringHandlerArgument("cat")] TraceLogHandler message,
+            float minIntervalSec = -1f)
+        {
+            if (!message.Enabled) return;
+            if (!PassRate(keyPrefix + keyId, minIntervalSec, out int suppressed)) return;
+            Write(cat, LogLevel.Trace, message.ToStringAndClear() + SuppressedSuffix(suppressed));
+        }
+
+        /// <summary>
+        /// For a hot call site: true when a rate-limited trace under <paramref name="key"/> would be
+        /// written now, so the line is only built then. <paramref name="suffix"/> carries the
+        /// suppressed count to append (see <see cref="TraceRate(LogCat, string, string, float)"/>).
+        /// </summary>
+        public static bool TraceRateDue(LogCat cat, string key, float minIntervalSec, out string suffix)
+        {
+            suffix = null;
+            if (!IsEnabled(cat, LogLevel.Trace)) return false;
+            if (!PassRate(key, minIntervalSec, out int suppressed)) return false;
+            suffix = SuppressedSuffix(suppressed);
+            return true;
+        }
+
         public static void WarnRate(LogCat cat, string key, string message, float minIntervalSec = 5f)
         {
             if (!IsEnabled(cat, LogLevel.Warn)) return;
@@ -345,7 +416,7 @@ namespace DWMPHorde.Logging
                 Event(LogCat.Core, "  Title/pause: MULTIPLAYER | F4=spectate | add-ons: F3=saves F5=spawner");
                 Event(LogCat.Core, "  Log: " + LoaderLogPath + " in each player's game folder");
                 Event(LogCat.Core, "  Bug report: quit cleanly, send every player's " + LoaderLogPath);
-                Event(LogCat.Core, "  Quiet logs: set [Logging] LogPreset=Public (max capture: Trace)");
+                Event(LogCat.Core, "  Max capture: set [Logging] LogPreset=Trace");
                 Event(LogCat.Core, "  Path B: Horde host-authoritative sync | GPLv3 | " + PluginInfo.Authors);
                 Event(LogCat.Core, "  Docs: DarkwoodMP.Mod/docs/CONFIG.md + LOGGING.md");
                 Event(LogCat.Core, "================================================");
@@ -368,10 +439,14 @@ namespace DWMPHorde.Logging
 
         private static string RedactPaths(string s)
         {
-            if (string.IsNullOrEmpty(s) || (s.IndexOf(':') < 0 && s.IndexOf('\\') < 0 && s.IndexOf('/') < 0))
+            if (string.IsNullOrEmpty(s))
+                return s;
+            int first = FirstDrivePath(s);
+            if (first < 0)
                 return s;
             var sb = new StringBuilder(s.Length);
-            int i = 0;
+            sb.Append(s, 0, first);
+            int i = first;
             while (i < s.Length)
             {
                 if (i + 2 < s.Length && char.IsLetter(s[i]) && s[i + 1] == ':' && (s[i + 2] == '\\' || s[i + 2] == '/'))
@@ -391,13 +466,28 @@ namespace DWMPHorde.Logging
             return sb.ToString();
         }
 
+        /// <summary>Index of the first <c>X:\</c> / <c>X:/</c> drive path in <paramref name="s"/>, or -1.</summary>
+        private static int FirstDrivePath(string s)
+        {
+            for (int i = s.IndexOf(':'); i >= 0 && i + 1 < s.Length; i = s.IndexOf(':', i + 1))
+            {
+                if (i >= 1 && char.IsLetter(s[i - 1]) && (s[i + 1] == '\\' || s[i + 1] == '/'))
+                    return i - 1;
+            }
+            return -1;
+        }
+
+        private static readonly System.Text.RegularExpressions.Regex IpPattern =
+            new System.Text.RegularExpressions.Regex(@"\b(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})\b");
+
         private static string RedactIps(string s)
         {
-            if (string.IsNullOrEmpty(s) || s.IndexOf('.') < 0) return s;
-            return System.Text.RegularExpressions.Regex.Replace(
-                s,
-                @"\b(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})\b",
-                "*.*.*.*");
+            if (string.IsNullOrEmpty(s)) return s;
+            int dots = 0;
+            for (int i = s.IndexOf('.'); i >= 0 && dots < 3; i = s.IndexOf('.', i + 1))
+                dots++;
+            if (dots < 3) return s;
+            return IpPattern.Replace(s, "*.*.*.*");
         }
     }
 }

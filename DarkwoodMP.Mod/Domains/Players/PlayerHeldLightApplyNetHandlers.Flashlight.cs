@@ -54,11 +54,14 @@ namespace DWMPHorde.Networking
                 {
                     if (state.FlashHasParams)
                     {
-                        if (state.FlashRadius > 0f)
+                        // Each Light2D setter flags a mesh or colour rebuild: write only a change.
+                        if (state.FlashRadius > 0f && lt.LightRadius != state.FlashRadius)
                             lt.LightRadius = state.FlashRadius;
-                        if (state.FlashIntensity > 0f)
+                        if (state.FlashIntensity > 0f && lt.LightIntensity != state.FlashIntensity)
                             lt.LightIntensity = state.FlashIntensity;
-                        lt.LightColor = new Color(state.FlashColorR, state.FlashColorG, state.FlashColorB, 0f);
+                        var color = new Color(state.FlashColorR, state.FlashColorG, state.FlashColorB, 0f);
+                        if (lt.LightColor != color)
+                            lt.LightColor = color;
                     }
                     lt.lightsPlayer = true;
                     lt.updateGraph = true;

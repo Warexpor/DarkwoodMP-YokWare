@@ -260,8 +260,12 @@ namespace DWMPHorde.Sync
             if (net == null || !net.IsConnected)
                 return;
             Player p = Player.Instance;
-            if (p != null && p.GetComponent<LocalDoorContact>() == null)
-                p.gameObject.AddComponent<LocalDoorContact>();
+            // Every physics step: looked up again only for another player body (or a lost component).
+            if (p != null && (!ReferenceEquals(p, _contactOn) || _contact == null))
+            {
+                _contactOn = p;
+                _contact = p.GetComponent<LocalDoorContact>() ?? p.gameObject.AddComponent<LocalDoorContact>();
+            }
             float now = Time.fixedUnscaledTime;
 
             ScanIdleDoors(net, now);
@@ -300,6 +304,9 @@ namespace DWMPHorde.Sync
         /// all, makes this machine run it. On a client a door moving with no cause here (a creature
         /// copy brushing it) goes back to where every machine has it at rest.
         /// </summary>
+        private static Player _contactOn; // process-scoped: player body _contact was found on
+        private static LocalDoorContact _contact; // process-scoped: its LocalDoorContact
+
         private static void ScanIdleDoors(LanNetworkManager net, float now)
         {
             IList<Door> all = ListTracker<Door>.GetAll();
@@ -307,7 +314,9 @@ namespace DWMPHorde.Sync
             for (int i = 0; i < all.Count; i++)
             {
                 Door door = all[i];
-                if (door == null || _drives.ContainsKey(door.GetInstanceID()))
+                // A shut, broken or barricaded door is never usable (Usable): out before the lookups.
+                if (door == null || !door.opened || door.destroyed || door.barricaded
+                    || _drives.ContainsKey(door.GetInstanceID()))
                     continue;
                 Rigidbody rb = Body(door);
                 if (!Usable(door, rb) || rb.IsSleeping())

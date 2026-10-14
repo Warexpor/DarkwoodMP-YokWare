@@ -27,7 +27,7 @@ namespace DWMPHorde.Patches
     {
         internal static Dictionary<int, SlotSnapshot> TakeSnapshot(Inventory inv)
         {
-            var dict = new Dictionary<int, SlotSnapshot>();
+            var dict = new Dictionary<int, SlotSnapshot>(inv.slots.Count);
             for (int i = 0; i < inv.slots.Count; i++)
             {
                 var slot = inv.slots[i];
@@ -53,7 +53,12 @@ namespace DWMPHorde.Patches
         internal static void SendDiff(Inventory inv, Dictionary<int, SlotSnapshot> before)
         {
             if (before == null || inv == null) return;
-            var after = TakeSnapshot(inv);
+            SendDiff(inv, before, TakeSnapshot(inv));
+        }
+
+        /// <summary><see cref="SendDiff(Inventory, Dictionary{int, SlotSnapshot})"/> against an after-snapshot already taken.</summary>
+        private static void SendDiff(Inventory inv, Dictionary<int, SlotSnapshot> before, Dictionary<int, SlotSnapshot> after)
+        {
             Vector3 pos = inv.transform.position;
 
             foreach (var kv in after)
@@ -128,7 +133,9 @@ namespace DWMPHorde.Patches
                 }
             }
 
-            SendDiff(inv, before);
+            // The same after: the sends above change no slot here (the host's take hooks put a
+            // dream copy back a frame later), so a second snapshot would read the same slots.
+            SendDiff(inv, before, after);
         }
     }
 

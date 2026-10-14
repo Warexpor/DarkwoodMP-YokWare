@@ -105,8 +105,14 @@ namespace DWMPHorde.Players
             }
         }
 
-        /// <summary>The copy's clip this many frames off its player's is put back on the player's frame.</summary>
+        /// <summary>The copy's clip this many frames behind its player's is put on the player's frame.</summary>
         private const int TorsoFrameDrift = 2;
+        /// <summary>
+        /// Ahead of the player's frame by up to this many is the packet's own age (the frame was
+        /// the player's when it was sent): not corrected. Put back on every packet, an internet
+        /// link's copy was rewound to a stale frame 30 times a second.
+        /// </summary>
+        private const int TorsoFrameAheadMax = 4;
 
         /// <summary>
         /// The copy's torso clip runs on the player's frames. A clip the player starts part-way
@@ -139,7 +145,7 @@ namespace DWMPHorde.Players
                 if (off > len / 2)
                     off -= len;
             }
-            if (Mathf.Abs(off) >= TorsoFrameDrift)
+            if (off <= -TorsoFrameDrift || off > TorsoFrameAheadMax)
                 _torsoAnimator.PlayFromFrame(clip, senderFrame);
         }
 
@@ -287,8 +293,9 @@ namespace DWMPHorde.Players
 
         private static void SwapLibraryKeepClip(tk2dSpriteAnimator anim, tk2dSpriteAnimation lib)
         {
+            // A fresh animator (a body cloned this frame) has no clip yet; CurrentFrame reads it.
             string clip = anim.CurrentClip != null ? anim.CurrentClip.name : null;
-            int frame = anim.CurrentFrame;
+            int frame = anim.CurrentClip != null ? anim.CurrentFrame : 0;
             bool playing = anim.Playing;
             anim.Library = lib;
             tk2dSpriteAnimationClip next = string.IsNullOrEmpty(clip) ? null : lib.GetClipByName(clip);
@@ -314,13 +321,22 @@ namespace DWMPHorde.Players
                 noneLib = "PlayerEpilogueAnims";
         }
 
+        private tk2dSpriteAnimation _torsoKnownLib;
+        private string _torsoKnownClip;
+        private tk2dSpriteAnimation _legsKnownLib;
+        private string _legsKnownClip;
+
         /// <returns>True when the clip was started now (not already playing).</returns>
         internal bool PlayTorso(string clipName)
         {
             if (_torsoAnimator == null || string.IsNullOrEmpty(clipName))
                 return false;
 
-            if (_torsoAnimator.GetClipByName(clipName) == null)
+            // The same clip as the last packet's, in the same library: known to be there (tk2d's
+            // lookup walks every clip by name, 30 times a second otherwise).
+            bool known = ReferenceEquals(_torsoAnimator.Library, _torsoKnownLib)
+                && string.Equals(clipName, _torsoKnownClip, System.StringComparison.Ordinal);
+            if (!known && _torsoAnimator.GetClipByName(clipName) == null)
             {
                 // Fall back to the "None" animation library if the clone doesn't have the clip
                 if (_noneAnimsLib != null && _noneAnimsLib.GetClipByName(clipName) != null)
@@ -332,6 +348,8 @@ namespace DWMPHorde.Players
                     return false;
                 }
             }
+            _torsoKnownLib = _torsoAnimator.Library;
+            _torsoKnownClip = clipName;
 
             // Only skip if the animator is already actively playing this clip.
             // Allows replay when a non-looping clip finishes and restarts
@@ -456,13 +474,20 @@ namespace DWMPHorde.Players
             if (_legsAnimator == null || string.IsNullOrEmpty(clipName))
                 return;
 
-            if (_legsAnimator.GetClipByName(clipName) == null)
+            bool known = ReferenceEquals(_legsAnimator.Library, _legsKnownLib)
+                && string.Equals(clipName, _legsKnownClip, System.StringComparison.Ordinal);
+            if (!known && _legsAnimator.GetClipByName(clipName) == null)
             {
                 // Fall back to normal walk animation if reverse walk clip is missing
                 if (clipName == "LegsWalkReverse" && _legsAnimator.GetClipByName("LegsWalk") != null)
                     clipName = "LegsWalk";
                 else
                     return;
+            }
+            else if (!known)
+            {
+                _legsKnownLib = _legsAnimator.Library;
+                _legsKnownClip = clipName;
             }
 
             // Always call Play: tk2d's already-playing path refreshes clipFps from

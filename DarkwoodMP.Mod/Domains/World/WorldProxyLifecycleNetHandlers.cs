@@ -117,7 +117,8 @@ namespace DWMPHorde.Networking
             }
         }
 
-        public IEnumerable<RemotePlayerProxy> GetAllProxies()
+        /// <summary>The live proxies (a struct enumerator in foreach: nothing allocated per loop).</summary>
+        public Dictionary<int, RemotePlayerProxy>.ValueCollection GetAllProxies()
         {
             return _net.RemoteProxies.Values;
         }
@@ -152,12 +153,7 @@ namespace DWMPHorde.Networking
             // (RemotePlayerProxy.ApplyNetworkState).
             if (Sync.SeparateDream.HidesBody(position) || Sync.DreamExit.HidesLeaverBody(playerId, position))
                 position = RemotePlayerProxy.AbsentPosition;
-            var rb = proxy.GetComponent<Rigidbody>();
-            if (rb != null)
-            {
-                rb.position = position;
-                rb.velocity = Vector3.zero;
-            }
+            proxy.PlaceAt(position);
             proxy.transform.eulerAngles = new Vector3(90f, rotY, 0f);
 
             proxy.ApplyNetworkState(new PlayerStateNet

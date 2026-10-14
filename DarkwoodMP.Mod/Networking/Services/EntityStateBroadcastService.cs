@@ -74,6 +74,7 @@ namespace DWMPHorde.Networking
         /// <summary>Ids that changed last send: one more unchanged send pins the stop pose on clients.</summary>
         private static readonly HashSet<short> _settle = new HashSet<short>();
         private static readonly HashSet<short> _settleNext = new HashSet<short>();
+        private static readonly HashSet<short> _sentNow = new HashSet<short>(); // process-scoped: scratch (ids in this send)
         private static bool _fullResyncTick;
         /// <summary>Round-robin start index so a full tracker list is not starved by the per-packet cap.</summary>
         private static int _scanStart;
@@ -129,7 +130,10 @@ namespace DWMPHorde.Networking
             _bodyWriter.Reset();
             for (int i = 0; i < entityCount; i++)
             {
-                _buffer[i].Serialize(_bodyWriter);
+                EntitySnapshotNet s = _buffer[i];
+                if (ClipLeftOut(s))
+                    s.Flags2 |= EntitySnapshotNet.Flag2ClipSame;
+                s.Serialize(_bodyWriter);
                 _entryEnd[i] = _bodyWriter.Length;
             }
             _bodyWriter.CopyDataInto(ref _bodyBuf, out _);
@@ -160,6 +164,37 @@ namespace DWMPHorde.Networking
                 startOff = endOff;
             }
             net.FlushQueuedSends();
+        }
+
+        /// <summary>A clip is written this many sends of its id in a row before it is left out.</summary>
+        private const int ClipInlineSends = 3;
+
+        private struct ClipWire
+        {
+            public string Clip;
+            public int Sends;
+        }
+
+        /// <summary>Per id: the clip last written for it, and in how many sends in a row.</summary>
+        private static readonly Dictionary<short, ClipWire> _clipWire = new Dictionary<short, ClipWire>(128);
+
+        /// <summary>
+        /// The clip name was most of an entry's bytes and rarely changes: it is written when it
+        /// changes, in the <see cref="ClipInlineSends"/> sends after that (so one lost packet does
+        /// not lose it) and with every descriptor (first sends of an id, the 1 s resync, which
+        /// also mends a client that lost all of them); otherwise the client keeps the last one.
+        /// </summary>
+        private static bool ClipLeftOut(EntitySnapshotNet s)
+        {
+            string clip = s.Clip ?? "";
+            bool known = _clipWire.TryGetValue(s.Index, out ClipWire cw);
+            bool same = known && string.Equals(cw.Clip, clip, StringComparison.Ordinal);
+            if (same && !s.HasDescriptor && cw.Sends >= ClipInlineSends)
+                return true;
+            cw.Clip = clip;
+            cw.Sends = same ? cw.Sends + 1 : 1;
+            _clipWire[s.Index] = cw;
+            return false;
         }
 
         private static void SendSnapshot(LanNetworkManager net)
@@ -207,9 +242,8 @@ namespace DWMPHorde.Networking
                 int i = (_scanStart + n) % nAll;
                 Character c = all[i];
                 if (c == null) continue;
-                // Creatures on a personal pad (the host's prologue, a solo dream) are that machine's only.
-                if (PersonalPads.Contains(c.transform))
-                    continue;
+                // Creatures on a personal pad (the host's prologue, a solo dream) are that machine's
+                // only: GetStableId below gives them no id (it tests the pad itself).
 
                 // During dreams, stream dream NPCs only; skip frozen overworld AI.
                 if (Sync.DreamSyncManager.IsDreamActive
@@ -301,21 +335,23 @@ namespace DWMPHorde.Networking
                 // Did not fit behind the near bodies: not sent, so not the last sent either.
                 _settleNext.Add(_farBuffer[f].Index);
             }
+            _sentNow.Clear();
             for (int k = 0; k < count; k++)
             {
                 EntitySnapshotNet sent = _buffer[k];
                 _lastSent[sent.Index] = sent;
                 MarkClipSent(sent.Index, sent.Clip);
+                _sentNow.Add(sent.Index);
             }
             // Left range: whatever it is when it comes back counts as changed, and one that did
             // not fit behind the near bodies stays in range to be told next tick.
             foreach (short gone in _leftRange)
             {
-                bool told = false;
-                for (int k = 0; k < count && !told; k++)
-                    told = _buffer[k].Index == gone;
-                if (told)
+                if (_sentNow.Contains(gone))
+                {
                     _lastSent.Remove(gone);
+                    _clipWire.Remove(gone);
+                }
                 else
                     _inRange.Add(gone);
                 _settleNext.Remove(gone);
@@ -331,12 +367,7 @@ namespace DWMPHorde.Networking
             {
                 if (!_inRange.Contains(pending) || CharacterTracker.FindByStableId(pending) == null)
                     continue;
-                bool sentNow = false;
-                for (int i = 0; i < count; i++)
-                {
-                    if (_buffer[i].Index == pending) { sentNow = true; break; }
-                }
-                if (!sentNow)
+                if (!_sentNow.Contains(pending))
                     _settleNext.Add(pending);
             }
             _settle.Clear();
@@ -353,6 +384,15 @@ namespace DWMPHorde.Networking
             _sendCount++;
             if (!EntitySyncLog.On)
                 return;
+            LogSend(entityCount, nAll);
+        }
+
+        /// <summary>
+        /// The send's logs, in their own method: a lambda over the send's locals there was
+        /// allocated on every send, log on or off.
+        /// </summary>
+        private static void LogSend(int entityCount, int nAll)
+        {
             // Rate-limited deep dump (not every 10 ticks StringBuilder under VerboseLogging).
             EntitySyncLog.Trace("ent:send", () =>
             {
@@ -419,6 +459,15 @@ namespace DWMPHorde.Networking
             return cull == null || cull.node == null || cull.node.entered;
         }
 
+        /// <summary>Its own method: a lambda over TryBuildSnapshot's parameters was allocated per candidate per tick.</summary>
+        private static void LogWake(Character c, short id)
+        {
+            EntitySyncLog.Trace("ent:wake:" + id,
+                () => "[HostWake] id=" + id + " " + (c.name ?? "")
+                    + " wasActive=" + c.isActive + " animOn="
+                    + (c.animator != null && c.animator.enabled), 2f);
+        }
+
         private static bool TryBuildSnapshot(Character c, short id, Vector3 cPos, bool force, out EntitySnapshotNet snap)
         {
             snap = default;
@@ -447,10 +496,8 @@ namespace DWMPHorde.Networking
                     if (!c.gameObject.activeSelf)
                         c.gameObject.SetActive(true);
                     c.enableComponents(true);
-                    EntitySyncLog.Trace("ent:wake:" + id,
-                        () => "[HostWake] id=" + id + " " + (c.name ?? "")
-                            + " wasActive=" + c.isActive + " animOn="
-                            + (c.animator != null && c.animator.enabled), 2f);
+                    if (EntitySyncLog.On)
+                        LogWake(c, id);
                 }
                 catch { /* dismantled mid-frame */ }
             }
@@ -683,6 +730,7 @@ namespace DWMPHorde.Networking
             _clipLogs.Clear();
             _nextSnapshotSequence = 0;
             _lastSent.Clear();
+            _clipWire.Clear();
             _descriptors.Clear();
             _settle.Clear();
             _settleNext.Clear();

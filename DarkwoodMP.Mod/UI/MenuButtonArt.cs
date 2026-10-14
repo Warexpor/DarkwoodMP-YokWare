@@ -184,26 +184,28 @@ namespace DWMPHorde
         /// sprite definition's trimmed height in texels (the menu atlas has texelSize 1).
         /// </summary>
         private static bool TryVanillaTexel(GameObject go, out float texel)
+            => TryVanillaTexel(go.GetComponent<tk2dBaseSprite>(), go.GetComponent<MeshFilter>(), go.transform, out texel);
+
+        /// <summary><see cref="TryVanillaTexel(GameObject, out float)"/> with the button's components already looked up.</summary>
+        private static bool TryVanillaTexel(tk2dBaseSprite sprite, MeshFilter mf, Transform t, out float texel)
         {
             texel = 0f;
-            tk2dBaseSprite sprite = go.GetComponent<tk2dBaseSprite>();
             tk2dSpriteDefinition def = sprite != null ? sprite.GetCurrentSpriteDef() : null;
             if (def == null || def.boundsData == null || def.boundsData.Length < 2 || def.boundsData[1].y < 1f)
                 return false;
-            if (!TryMeshFace(go, out _, out float meshH))
+            if (!TryMeshFace(mf, t, out _, out float meshH))
                 return false;
             texel = meshH / def.boundsData[1].y;
             return texel > 0f;
         }
 
-        private static bool TryMeshFace(GameObject go, out float faceW, out float faceH)
+        private static bool TryMeshFace(MeshFilter mf, Transform t, out float faceW, out float faceH)
         {
             faceW = faceH = 0f;
-            MeshFilter mf = go.GetComponent<MeshFilter>();
             if (mf == null || mf.sharedMesh == null)
                 return false;
             Vector3 ms = mf.sharedMesh.bounds.size;
-            Vector3 lossy = go.transform.lossyScale;
+            Vector3 lossy = t.lossyScale;
             faceW = Mathf.Abs(ms.x * lossy.x);
             faceH = Mathf.Abs(ms.y * lossy.y);
             if (faceH < 1f && Mathf.Abs(ms.z * lossy.z) > faceH)
@@ -311,6 +313,21 @@ namespace DWMPHorde
             public Collider Col;
             public float Texel;
             private bool _wasHover;
+            private bool _compsCached;
+            private tk2dBaseSprite _sprite;
+            private MeshFilter _mesh;
+            private GameObject _camObj;
+            private Camera _cam;
+            // What the art was last placed from, and the pose it ended up in: unchanged means no
+            // re-place (it re-parents twice, a hierarchy change every frame otherwise).
+            private bool _placed;
+            private Vector3 _fromFollow;
+            private Quaternion _fromRot;
+            private Vector3 _fromForward;
+            private float _fromW, _fromH;
+            private Vector3 _atPos;
+            private Quaternion _atRot;
+            private Vector3 _atScale;
 
             private void LateUpdate()
             {
@@ -327,13 +344,43 @@ namespace DWMPHorde
                     Set = now;
 
                 // The resolution changed: the vanilla rows are another size now, and so is a texel.
-                bool resized = TryVanillaTexel(Follow.gameObject, out float texel) && !Mathf.Approximately(texel, Texel);
+                if (!_compsCached)
+                {
+                    _compsCached = true;
+                    _sprite = Follow.GetComponent<tk2dBaseSprite>();
+                    _mesh = Follow.GetComponent<MeshFilter>();
+                }
+                bool resized = TryVanillaTexel(_sprite, _mesh, Follow, out float texel) && !Mathf.Approximately(texel, Texel);
                 if (resized)
                     Texel = texel;
 
                 GameObject camObj = Core.CamUI;
-                Camera cam = camObj != null ? camObj.GetComponent<Camera>() : null;
-                PlaceFacingCam(transform, Follow, Col, cam, Set.Idle.width * Texel, Set.Idle.height * Texel);
+                if (!ReferenceEquals(camObj, _camObj))
+                {
+                    _camObj = camObj;
+                    _cam = camObj != null ? camObj.GetComponent<Camera>() : null;
+                }
+                Camera cam = _cam != null ? _cam : null;
+                float w = Set.Idle.width * Texel, h = Set.Idle.height * Texel;
+                Vector3 follow = Follow.position;
+                Quaternion rot = cam != null ? cam.transform.rotation : Follow.rotation;
+                Vector3 forward = cam != null ? cam.transform.forward : Vector3.zero;
+                Transform t = transform;
+                if (!_placed || !follow.Equals(_fromFollow) || !rot.Equals(_fromRot) || !forward.Equals(_fromForward)
+                    || w != _fromW || h != _fromH
+                    || !t.position.Equals(_atPos) || !t.rotation.Equals(_atRot) || !t.lossyScale.Equals(_atScale))
+                {
+                    PlaceFacingCam(t, Follow, Col, cam, w, h);
+                    _placed = true;
+                    _fromFollow = follow;
+                    _fromRot = rot;
+                    _fromForward = forward;
+                    _fromW = w;
+                    _fromH = h;
+                    _atPos = t.position;
+                    _atRot = t.rotation;
+                    _atScale = t.lossyScale;
+                }
                 if (relang || resized)
                     MainMenuMultiplayerInject.FitButtonHitbox(Follow.gameObject);
 

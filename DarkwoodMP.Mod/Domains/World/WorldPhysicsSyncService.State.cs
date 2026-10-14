@@ -19,6 +19,8 @@ namespace DWMPHorde.Sync
         {
             /// <summary>Thrown flares burning in this world (each on its own FlareClock); for joiners.</summary>
             public readonly List<GameObject> ThrownFlares = new List<GameObject>(16);
+            /// <summary>Per entry of <see cref="ThrownFlares"/> (same index): its Flare and FlareClock, looked up once.</summary>
+            public readonly List<FlareClock.Parts> ThrownFlareParts = new List<FlareClock.Parts>(16);
             public readonly List<ThrownLightFade> ThrownLightFades = new List<ThrownLightFade>(8);
         }
 

@@ -285,8 +285,8 @@ namespace DWMPHorde.Networking
                 LegFacingY = reader.GetShort(),
                 ReverseLegs = reader.GetBool(),
                 TorsoFacingY = reader.GetShort(),
-                TorsoClip = reader.GetString(),
-                LegsClip = reader.GetString(),
+                TorsoClip = reader.GetClipString(),
+                LegsClip = reader.GetClipString(),
                 CurrentFrame = reader.GetShort(),
                 InBearTrap = reader.GetBool(),
                 HasLightProtection = reader.GetBool(),
@@ -316,7 +316,7 @@ namespace DWMPHorde.Networking
                     msg.FlareColorB = reader.GetFloat();
                 }
                 if (msg.FlareHasItemType)
-                    msg.FlareItemType = reader.GetString();
+                    msg.FlareItemType = reader.GetClipString();
             }
             if (msg.FlashlightActive && msg.FlashHasParams)
             {
@@ -630,6 +630,9 @@ namespace DWMPHorde.Networking
 
         public float HomeX, HomeY, HomeZ;
 
+        /// <summary>The home a <see cref="MovedHome"/> left (sent only with it).</summary>
+        public float FromX, FromY, FromZ;
+
         /// <summary>
         /// The parts of the player that host event requirements read (vanilla
         /// <c>EventTriggerRequirement</c> playerState health, darknessState, haveSkill): the host
@@ -653,6 +656,12 @@ namespace DWMPHorde.Networking
                 w.Put(HomeX);
                 w.Put(HomeY);
                 w.Put(HomeZ);
+                if (MovedHome)
+                {
+                    w.Put(FromX);
+                    w.Put(FromY);
+                    w.Put(FromZ);
+                }
             }
         }
 
@@ -672,6 +681,12 @@ namespace DWMPHorde.Networking
                 m.HomeX = r.GetFloat();
                 m.HomeY = r.GetFloat();
                 m.HomeZ = r.GetFloat();
+                if (m.MovedHome)
+                {
+                    m.FromX = r.GetFloat();
+                    m.FromY = r.GetFloat();
+                    m.FromZ = r.GetFloat();
+                }
             }
             return m;
         }

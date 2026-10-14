@@ -21,6 +21,7 @@ namespace DWMPHorde.Config
             new Dictionary<string, Dictionary<string, string>>(StringComparer.OrdinalIgnoreCase);
         private readonly List<BoundEntry> _bound = new List<BoundEntry>(48);
         private bool _dirty;
+        private int _deferDepth;
 
         private sealed class BoundEntry
         {
@@ -78,7 +79,31 @@ namespace DWMPHorde.Config
         {
             SetRaw(section, key, FormatValue(value));
             _dirty = true;
+            if (_deferDepth > 0)
+                return;
             Save();
+        }
+
+        /// <summary>
+        /// Holds the file write while a value changes every frame (a menu slider being dragged).
+        /// Settings keep their new value in memory; <see cref="EndDeferredSave"/> writes once.
+        /// </summary>
+        public void BeginDeferredSave() => _deferDepth++;
+
+        /// <summary>Ends one <see cref="BeginDeferredSave"/>; the last one writes any held change.</summary>
+        public void EndDeferredSave()
+        {
+            if (_deferDepth > 0)
+                _deferDepth--;
+            if (_deferDepth == 0)
+                FlushPending();
+        }
+
+        /// <summary>Writes the file if a change is still held (quit, mod stop).</summary>
+        public void FlushPending()
+        {
+            if (_dirty)
+                Save();
         }
 
         public void Save()
