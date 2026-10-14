@@ -18,6 +18,8 @@ namespace DWMPHorde.Patches
     /// On a dream's pad "in that location" is "still playing the dream": the pad's ground does not
     /// always have one Location under every part of it, and a dreamer in the corridor outside the
     /// apartment dream's studio did not count, so a client walking in locked the host out for good.
+    /// A player who walked in and then went back out the way it came (the groom room back into the
+    /// wedding's yard) counts again only once it walks in again.
     /// </summary>
     internal static class LockBehindPartyGate
     {
@@ -26,7 +28,8 @@ namespace DWMPHorde.Patches
         private const float TickInterval = 1f;
 
         private static readonly Dictionary<int, bool> _locksDoor = new Dictionary<int, bool>();              // reset-in: Reset
-        private static readonly Dictionary<int, HashSet<int>> _passed = new Dictionary<int, HashSet<int>>(); // reset-in: Reset
+        // trigger -> player -> where the player stood, from the trigger, as it walked in (the side it came from)
+        private static readonly Dictionary<int, Dictionary<int, Vector3>> _passed = new Dictionary<int, Dictionary<int, Vector3>>(); // reset-in: Reset
         private static readonly Dictionary<int, EventTriggers> _waiting = new Dictionary<int, EventTriggers>(); // reset-in: Reset
         private static readonly List<int> _scratch = new List<int>();                                        // reset-in: Reset
         private static float _nextTick;                                                                     // reset-in: Reset
@@ -170,14 +173,14 @@ namespace DWMPHorde.Patches
             return false;
         }
 
-        internal static void NotePassed(EventTriggers et, int playerId)
+        internal static void NotePassed(EventTriggers et, int playerId, Vector3 pos)
         {
             if (playerId <= 0 || !EventTriggersAuth.IsHost() || !Gated(et))
                 return;
             int key = et.GetInstanceID();
-            if (!_passed.TryGetValue(key, out HashSet<int> set))
-                _passed[key] = set = new HashSet<int>();
-            set.Add(playerId);
+            if (!_passed.TryGetValue(key, out Dictionary<int, Vector3> set))
+                _passed[key] = set = new Dictionary<int, Vector3>();
+            set[playerId] = pos - et.transform.position;
         }
 
         /// <summary>
@@ -191,7 +194,7 @@ namespace DWMPHorde.Patches
             LanNetworkManager net = ModRuntime.Network;
             if (net == null)
                 return true;
-            _passed.TryGetValue(et.GetInstanceID(), out HashSet<int> passed);
+            _passed.TryGetValue(et.GetInstanceID(), out Dictionary<int, Vector3> passed);
             Vector3 at = et.transform.position;
             bool dream = DreamSyncManager.IsDreamActive && DreamSyncManager.IsOnDreamPad(et.transform);
             Location here = dream ? null : Location.getAtPos(at);
@@ -213,7 +216,7 @@ namespace DWMPHorde.Patches
         }
 
         private static void Check(int playerId, Vector3 pos, EventTriggers et, bool dream, Location here, Vector3 at, int mask,
-            HashSet<int> passed, ref int inside, ref int missing)
+            Dictionary<int, Vector3> passed, ref int inside, ref int missing)
         {
             bool present = dream
                 || (here != null
@@ -221,8 +224,18 @@ namespace DWMPHorde.Patches
                     : (pos - at).sqrMagnitude < NoLocationRadius * NoLocationRadius);
             if (!present)
                 return;
-            if (passed == null || !passed.Contains(playerId))
+            if (passed == null || !passed.TryGetValue(playerId, out Vector3 came))
             {
+                missing++;
+                return;
+            }
+            // Walked in, then went back the way it came (into the wedding's yard from the groom
+            // room): the lock would shut it in there, so it has to walk in again.
+            Vector3 now = pos - at;
+            if (LockGatePolicy.WentBack(came.x, came.z, now.x, now.z))
+            {
+                passed.Remove(playerId);
+                ModLog.Event(LogCat.World, "[PartyGate] " + et.name + ": p" + playerId + " went back the way it came, it walks in again");
                 missing++;
                 return;
             }
@@ -306,14 +319,14 @@ namespace DWMPHorde.Patches
             LanNetworkManager net = ModRuntime.Network;
             if (Player.Instance != null && other.gameObject == Player.Instance.gameObject)
             {
-                LockBehindPartyGate.NotePassed(__instance, net.LocalPlayerId);
+                LockBehindPartyGate.NotePassed(__instance, net.LocalPlayerId, Player.Instance._transform.position);
                 return;
             }
             // The stand-in's body only, as the player's own collider above (its child colliders
             // reach further than the body: EventTriggersProxyEnterPatch).
             RemotePlayerProxy proxy = other.GetComponent<RemotePlayerProxy>();
             if (proxy != null)
-                LockBehindPartyGate.NotePassed(__instance, proxy.PlayerId);
+                LockBehindPartyGate.NotePassed(__instance, proxy.PlayerId, proxy.transform.position);
         }
 
         [HarmonyPriority(Priority.Last)]

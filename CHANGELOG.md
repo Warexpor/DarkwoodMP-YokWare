@@ -3,12 +3,12 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.282**. The current Horde wire protocol is **70**. Every install in a session
+**0.8.283**. The current Horde wire protocol is **70**. Every install in a session
 needs the same DLL; the protocol is checked on join.
 
 Protocol history (newest first):
 
-- **70**, 0.8.282: `ScenarioEventFired` gains `AnchorActors` (the player each anchor's scene played for);
+- **70**, 0.8.282 to 0.8.283: `ScenarioEventFired` gains `AnchorActors` (the player each anchor's scene played for);
   `ShadowArmorState` gains the wearing creature's `EntityId`.
 - **69**, 0.8.281: `MeleeWorldHit` gains the struck item's furniture save id and name.
 - **68**, 0.8.278 to 0.8.280: new `ObjectSpawnerFired` (175) and `OxygenTankRecords` (176); `PeerRoster`
@@ -84,6 +84,25 @@ Protocol history (newest first):
 This file is a public ship log. Code-only status and runtime status are called
 out separately. A runtime item is not considered verified until it has been
 tested in the game.
+
+---
+
+## 0.8.283 — a party gate counts again a player who went back the way it came
+
+On top of 0.8.282. Protocol **70** (unchanged; host-only logic).
+
+- **A player could still be shut in the wedding's yard.** The party gate (0.8.280) holds a walk-in
+  trigger that shuts the way behind the party until every player there has walked into it. It
+  remembered anyone who had ever walked in: one player could reach the groom room, step back into
+  the yard, and the other two walking in then plugged the doorway and armed the bride attack with
+  that player still in the yard. The gate now notes the side each player came in from, and one who is
+  out again on that side, past where it walked in, counts as not through until it walks in again
+  (host logs `[PartyGate] <trigger>: pN went back the way it came`). Same for the acid dream's studio
+  and the maw in the doctor's dream. Files: `LockBehindPartyGate.cs`, `CoopPolicy.cs`
+  (`LockGatePolicy.WentBack`).
+- Verified in game (3 players, 0.8.282): the wedding's switch, the acid dream's studio and the maw each
+  held until the last player walked in, then the plug turned on for all three; a two-player wedding
+  playtest by hand went through. The gone-back case itself is unit-tested only.
 
 ---
 

@@ -537,4 +537,18 @@ public class CoopPolicyTests
         Assert.False(ImpactFxPolicy.IsAllowedBulletImpact("", "FX/Bloodsplats/"));
         Assert.False(ImpactFxPolicy.IsAllowedBulletImpact("", ""));
     }
+
+    [Fact]
+    public void LockGate_PlayerBackOnTheSideItCameFromCountsAgainOnlyAfterWalkingIn()
+    {
+        // Walked into the wedding's switch from the yard side (+z), 140 from its centre.
+        Assert.False(LockGatePolicy.WentBack(0f, 140f, 0f, 0f));      // standing in it
+        Assert.False(LockGatePolicy.WentBack(0f, 140f, 30f, -400f));  // on, deeper in the groom room
+        Assert.False(LockGatePolicy.WentBack(0f, 140f, 300f, 100f));  // off to the side, in the room
+        Assert.False(LockGatePolicy.WentBack(0f, 140f, 0f, 230f));    // just outside where it came in
+        Assert.True(LockGatePolicy.WentBack(0f, 140f, 0f, 300f));     // back through the doorway, in the yard
+        Assert.True(LockGatePolicy.WentBack(0f, 140f, 80f, 400f));
+        // Put in the middle (teleported): no side to go back to.
+        Assert.False(LockGatePolicy.WentBack(5f, 5f, 0f, 2000f));
+    }
 }
