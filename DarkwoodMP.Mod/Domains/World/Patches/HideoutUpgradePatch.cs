@@ -105,22 +105,28 @@ namespace DWMPHorde.Patches
             var ctrl = Singleton<Controller>.Instance;
             if (ctrl == null)
                 return;
-            ctrl.waitFramesAndRun(() =>
+            ctrl.waitFramesAndRun(() => FollowNow(Player.Instance, from, to, "party moved home"), 1);
+        }
+
+        /// <summary>
+        /// The local player, living at <paramref name="from"/>, moves home to the oven at
+        /// <paramref name="to"/> (not a move of its own). False when no oven stands there.
+        /// </summary>
+        internal static bool FollowNow(Player p, Vector3 from, Vector3 to, string why)
+        {
+            if (!LivesAt(p, from))
+                return true;
+            ExperienceMachine next = Sync.WorldQueryHelper.FindNearest<ExperienceMachine>(to, 2f);
+            if (next == null || next == p.experienceMachine)
             {
-                Player p = Player.Instance;
-                if (!LivesAt(p, from))
-                    return;
-                ExperienceMachine next = Sync.WorldQueryHelper.FindNearest<ExperienceMachine>(to, 2f);
-                if (next == null || next == p.experienceMachine)
-                {
-                    ModRuntime.Log?.LogWarning("[HideoutUpgrade] party moved home but no oven found at " + to);
-                    return;
-                }
-                _following = true;
-                try { p.setExperienceMachine(next, doEnable: true); }
-                finally { _following = false; }
-                ModLog.Event(LogCat.World, "[HideoutUpgrade] party moved home — following to " + next.transform.position);
-            }, 1);
+                ModRuntime.Log?.LogWarning("[HideoutUpgrade] " + why + " but no oven found at " + to);
+                return false;
+            }
+            _following = true;
+            try { p.setExperienceMachine(next, doEnable: true); }
+            finally { _following = false; }
+            ModLog.Event(LogCat.World, "[HideoutUpgrade] " + why + " — following to " + next.transform.position);
+            return true;
         }
 
         private static bool LivesAt(Player p, Vector3 oven)

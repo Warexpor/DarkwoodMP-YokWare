@@ -516,7 +516,12 @@ namespace DWMPHorde.Networking
         /// (<c>PartyCharacterStore</c>). Protocol 72.
         /// </summary>
         [HostOnly] PartyCharacter = 177,
+        /// <summary>
+        /// Host→joiner: the party's home moves kept with the world (<c>Patches.PartyHomeMoves</c>),
+        /// so a player who missed a move follows it. Protocol 74.
+        /// </summary>
+        [HostOnly] PartyHomeMoves = 178,
         /// <summary>Highest used message type ID.</summary>
-        _Highest = 177
+        _Highest = 178
     }
 }

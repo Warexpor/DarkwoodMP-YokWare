@@ -72,6 +72,49 @@ public class MessageRoundTripTests
     }
 
     [Fact]
+    public void PlayerEffectSync_MovedHomeCarriesTheHomeItLeft()
+    {
+        var msg = new PlayerEffectSyncMessage
+        {
+            HasHome = true, MovedHome = true,
+            HomeX = 10f, HomeY = 2f, HomeZ = -30f,
+            FromX = -500f, FromY = 2f, FromZ = 700f
+        };
+        var r = new NetReader(Bytes(msg.Serialize));
+        var back = PlayerEffectSyncMessage.Deserialize(r);
+        Assert.True(back.MovedHome);
+        Assert.Equal(10f, back.HomeX);
+        Assert.Equal(-500f, back.FromX);
+        Assert.Equal(700f, back.FromZ);
+        Assert.Equal(0, r.AvailableBytes);
+
+        // No move: no From on the wire.
+        var still = new PlayerEffectSyncMessage { HasHome = true, HomeX = 1f, FromX = 99f };
+        r = new NetReader(Bytes(still.Serialize));
+        back = PlayerEffectSyncMessage.Deserialize(r);
+        Assert.False(back.MovedHome);
+        Assert.Equal(0f, back.FromX);
+        Assert.Equal(0, r.AvailableBytes);
+    }
+
+    [Fact]
+    public void PartyHomeMoves_RoundTrips()
+    {
+        var msg = new PartyHomeMovesMessage
+        {
+            Chapter = new[] { 1, 2 },
+            FX = new[] { 1f, 2f }, FY = new[] { 3f, 4f }, FZ = new[] { 5f, 6f },
+            TX = new[] { 7f, 8f }, TY = new[] { 9f, 10f }, TZ = new[] { 11f, 12f }
+        };
+        var r = new NetReader(Bytes(msg.Serialize));
+        var back = PartyHomeMovesMessage.Deserialize(r);
+        Assert.Equal(new[] { 1, 2 }, back.Chapter);
+        Assert.Equal(new[] { 2f, 4f, 6f }, new[] { back.FX[1], back.FY[1], back.FZ[1] });
+        Assert.Equal(new[] { 7f, 9f, 11f }, new[] { back.TX[0], back.TY[0], back.TZ[0] });
+        Assert.Equal(0, r.AvailableBytes);
+    }
+
+    [Fact]
     public void ChapterTransition_RoundTrips()
     {
         var full = new ChapterTransitionMessage

@@ -492,6 +492,7 @@ namespace DWMPHorde.Sync
                 return;
             QuestItemHandoff.OnHostSaved();
             OxygenTankParty.OnHostSaved();
+            Patches.PartyHomeMoves.OnHostSaved();
         }
     }
 
@@ -503,6 +504,7 @@ namespace DWMPHorde.Sync
         {
             QuestItemHandoff.OnWorldLoaded();
             OxygenTankParty.OnWorldLoaded();
+            Patches.PartyHomeMoves.OnWorldLoaded();
         }
     }
 }

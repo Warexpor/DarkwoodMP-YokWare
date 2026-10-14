@@ -126,6 +126,7 @@ namespace DWMPHorde.Networking
             LateJoinStep(playerId, "dialogTrees", () => DWMPHorde.Sync.DialogTreeSync.SendBulkTo(this, playerId));
             LateJoinStep(playerId, "reputation", () => BulkSyncHandlers.SendReputationBulkSyncTo(playerId));
             LateJoinStep(playerId, "hideoutState", () => BulkSyncHandlers.SendHideoutStateSyncTo(playerId));
+            LateJoinStep(playerId, "partyHomeMoves", () => Patches.PartyHomeMoves.ShareTo(this, playerId));
             LateJoinStep(playerId, "workbenchLevel", () => BulkSyncHandlers.SendWorkbenchLevelSyncTo(playerId));
             LateJoinStep(playerId, "mapState", () => BulkSyncHandlers.SendMapStateSyncTo(playerId));
             LateJoinStep(playerId, "timeSync", () => SendTimeSyncTo(playerId));

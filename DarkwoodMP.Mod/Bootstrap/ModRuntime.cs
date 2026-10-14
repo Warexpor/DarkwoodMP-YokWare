@@ -261,6 +261,7 @@ namespace DWMPHorde
             NetworkResetRegistry.Register(NpcDialogueLock.Reset);
             NetworkResetRegistry.Register(PeerItemPresence.Reset);
             NetworkResetRegistry.Register(OxygenTankParty.Reset);
+            NetworkResetRegistry.Register(Patches.PartyHomeMoves.Reset);
             NetworkResetRegistry.Register(QuestItemHandoff.Reset);
             NetworkResetRegistry.Register(DialogHandInArbiter.Reset);
             NetworkResetRegistry.Register(DialogMirror.Reset);

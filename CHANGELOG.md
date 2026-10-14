@@ -3,11 +3,13 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.293**. The current Horde wire protocol is **73**. Every install in a session
+**0.8.294**. The current Horde wire protocol is **74**. Every install in a session
 needs the same DLL; the protocol is checked on join.
 
 Protocol history (newest first):
 
+- **74**, 0.8.294: `PlayerEffectSync` with `MovedHome` carries the home it left (`FromX/Y/Z`);
+  new `PartyHomeMoves` (178), host to a joiner: the party's home moves kept with the world.
 - **73**, 0.8.293: the entity snapshot leaves out an entity's clip name while it is unchanged
   (`Flag2ClipSame`, 64); the clip now follows the loop flag on the wire.
 - **72**, 0.8.286 to 0.8.292: new `PartyCharacter` (177), host to clients: another player's stored character.
@@ -91,6 +93,29 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.294 — a player who missed the party's move home no longer wakes in the old hideout
+
+- **A night-dead client woke in the Dry Meadow hideout while the party lived in the next one.**
+  A player respawns at their own home oven (vanilla `Player.experienceMachine`). When someone
+  lights a new hideout's oven, everyone living in the old hideout moves with them, but only on
+  the live message: a player not connected at that moment (joined or came back later), or a new
+  character (its home is the world's first hideout), kept the old home. The receiving side also
+  needed the mover's previous home from an earlier message, so a peer whose copy of the mover was
+  new missed the move as well. Not seen in a log (the session's logs were gone); these are the
+  code paths that leave exactly one player behind.
+- A move now says which home it left. Every player records the party's moves (old oven to new
+  oven, per chapter); the host writes them with its world save (`party_home_moves_<campaign>.json`
+  next to the client backups) and sends them to a joiner. A player whose home is an oven the
+  party moved out of follows on its next 2 s effect keepalive (not during a load, a backup
+  restore, a prologue, an epilogue or a dream). Moving back to an old hideout is a move too, so
+  that oven is a home again and nobody is pulled away from it.
+- Moves made before this build were never recorded: a player still living in the old hideout
+  moves by talking to the new hideout's oven once, as before.
+- Files: `World/PartyHomeMoves.cs` (new), `World/Patches/HideoutUpgradePatch.cs`,
+  `World/WorldProxyEffectNetHandlers.cs`, `Messages/PlayerMessages.cs`, `Messages/SyncMessages.cs`,
+  `NetMessageType.cs`, late join, `docs/HOW_COOP_WORKS.md`.
+- Status: builds, unit tests pass (wire round trips). Not playtested.
 
 ## 0.8.293 — performance and smoothness pass: a peer moves smoothly, less garbage everywhere
 

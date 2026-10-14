@@ -424,6 +424,8 @@ reinstall), so a returning player is not taken for a new one.
 - **The party moves home together.** When a player lights a new hideout's oven, every
   player who lived in the hideout it left moves with it (their home and respawn point
   follow). A player who lives in another hideout keeps their own.
+  The moves are kept with the world, so a player who was not there for one (joined or came
+  back later, or a new character, whose home is the world's first hideout) follows it too.
 - **Whoever pushes or drags a thing moves it.** The pusher's own game moves it and
   everyone else sees the result. Other players' bodies pass through pushable things
   on your screen, so nothing gets pushed twice. Furniture the night shoves around (the

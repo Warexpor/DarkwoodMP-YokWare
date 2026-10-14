@@ -476,6 +476,48 @@ namespace DWMPHorde.Networking
         }
     }
 
+    /// <summary>Host→joiner: the party's home moves (chapter, old oven, new oven).</summary>
+    public struct PartyHomeMovesMessage
+    {
+        public const int MaxMoves = 16;
+
+        public int[] Chapter;
+        public float[] FX, FY, FZ;
+        public float[] TX, TY, TZ;
+
+        public void Serialize(NetWriter w)
+        {
+            int n = Chapter != null ? System.Math.Min(Chapter.Length, MaxMoves) : 0;
+            w.Put((byte)n);
+            for (int i = 0; i < n; i++)
+            {
+                w.Put((byte)Chapter[i]);
+                w.Put(FX[i]); w.Put(FY[i]); w.Put(FZ[i]);
+                w.Put(TX[i]); w.Put(TY[i]); w.Put(TZ[i]);
+            }
+        }
+
+        public static PartyHomeMovesMessage Deserialize(NetReader r)
+        {
+            int n = r.GetByte();
+            if (n > MaxMoves)
+                throw new System.IO.InvalidDataException("PartyHomeMoves count " + n);
+            var m = new PartyHomeMovesMessage
+            {
+                Chapter = new int[n],
+                FX = new float[n], FY = new float[n], FZ = new float[n],
+                TX = new float[n], TY = new float[n], TZ = new float[n]
+            };
+            for (int i = 0; i < n; i++)
+            {
+                m.Chapter[i] = r.GetByte();
+                m.FX[i] = r.GetFloat(); m.FY[i] = r.GetFloat(); m.FZ[i] = r.GetFloat();
+                m.TX[i] = r.GetFloat(); m.TY[i] = r.GetFloat(); m.TZ[i] = r.GetFloat();
+            }
+            return m;
+        }
+    }
+
     public struct OxygenTankSetMessage
     {
         /// <summary>Which tank source (<c>Sync.OxygenTankParty</c> Source*).</summary>

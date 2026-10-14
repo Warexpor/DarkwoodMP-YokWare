@@ -128,7 +128,17 @@ namespace DWMPHorde.Networking
             msg.HomeY = homePos.y;
             msg.HomeZ = homePos.z;
             bool homeChanged = msg.HasHome != _lastHasHome || (homePos - _lastHome).sqrMagnitude > 0.01f;
-            msg.MovedHome = homeChanged && Patches.OvenHomes.ConsumeMovedHome();
+            // A move says where it left: a peer that never had this player's old home (its proxy
+            // was new, it joined since) still knows who lived there.
+            if (homeChanged && Patches.OvenHomes.ConsumeMovedHome() && _lastHasHome && msg.HasHome)
+            {
+                msg.MovedHome = true;
+                msg.FromX = _lastHome.x;
+                msg.FromY = _lastHome.y;
+                msg.FromZ = _lastHome.z;
+                if (!msg.InPrologue && !msg.InEpilogue)
+                    Patches.PartyHomeMoves.Record(_lastHome, homePos);
+            }
             _lastHasHome = msg.HasHome;
             _lastHome = homePos;
             int flags = msg.Flags | (msg.Flags2 << 8) | (msg.HealthPct << 16) | (msg.DarknessPct << 24);
@@ -136,6 +146,8 @@ namespace DWMPHorde.Networking
                 return;
             _lastEffectFlags = flags;
             _lastSkills = skills;
+            if (keepalive)
+                Patches.PartyHomeMoves.CheckLocalHome(_net);
             // The skill list rides only on a change and the keepalive, not on every health tick.
             msg.HasSkills = skillsChanged || keepalive;
             msg.Skills = skills;
@@ -154,12 +166,16 @@ namespace DWMPHorde.Networking
             proxy.RemoteHasEnemyOfTheForest = msg.EnemyOfTheForest;
             proxy.RemotePoisoned = msg.Poisoned;
             proxy.RemoteBleeding = msg.Bleeding;
-            Vector3? prevHome = proxy.RemoteHomeOven;
             proxy.RemoteHomeOven = msg.HasHome ? new Vector3(msg.HomeX, msg.HomeY, msg.HomeZ) : (Vector3?)null;
-            if (msg.MovedHome && prevHome.HasValue && proxy.RemoteHomeOven.HasValue
-                && (prevHome.Value - proxy.RemoteHomeOven.Value).sqrMagnitude > 1f)
-                Patches.OvenHomes.FollowPeerMove(prevHome.Value, proxy.RemoteHomeOven.Value,
-                    msg.InPrologue || msg.InEpilogue);
+            if (msg.MovedHome && msg.HasHome)
+            {
+                Vector3 from = new Vector3(msg.FromX, msg.FromY, msg.FromZ);
+                Vector3 to = proxy.RemoteHomeOven.Value;
+                bool inStory = msg.InPrologue || msg.InEpilogue;
+                if (!inStory)
+                    Patches.PartyHomeMoves.Record(from, to);
+                Patches.OvenHomes.FollowPeerMove(from, to, inStory);
+            }
             proxy.RemoteInEpilogue = msg.InEpilogue;
             proxy.RemoteInPrologue = msg.InPrologue;
             proxy.RemoteHealthPct = msg.HealthPct;
