@@ -256,10 +256,13 @@ namespace DWMPHorde.Patches
         }
 
         /// <summary>
-        /// Host, each clock step of a held morning: a living player who is in no hideout (it
+        /// Host, each clock step of a held morning: a living player out in the open world (it
         /// spent the night out, so it never "walks out") releases the clock like a leaver does.
         /// Without this the day stood still for it until someone inside a hideout left. Players
-        /// who were dead at dawn are on their way home and do not count.
+        /// who were dead at dawn are on their way home and do not count, nor do players in a
+        /// place where vanilla stops the clock anyway (a village, a bunker, any outside location)
+        /// or under a personal hold: a party split between hideouts and the village stays frozen
+        /// until someone steps out into the forest.
         /// </summary>
         public static void ReleaseIfSomeoneOutside()
         {
@@ -271,7 +274,8 @@ namespace DWMPHorde.Patches
             int who = 0;
             Player host = Player.Instance;
             if (host != null && host.alive && !host.dying && !DeathStateTracker.LocalNightDeath
-                && !LocalPositionInside())
+                && !LocalPositionInside() && HostSharedClockPatch.LocalInOpenWorld()
+                && !HostSharedClockPatch.LocalPersonalHold())
                 who = net.LocalPlayerId;
             else
             {
@@ -285,6 +289,10 @@ namespace DWMPHorde.Patches
                         || Sync.DreamSyncManager.IsRemoteInDream(proxy.PlayerId))
                         continue;
                     if (PositionInPlayerBase(proxy.transform.position))
+                        continue;
+                    // In a village or other outside location (or held): the clock stands for it.
+                    if (!net.RemotePlayers.TryGetValue(proxy.PlayerId, out RemotePlayerState st)
+                        || !st.InOpenWorld || st.ClockHeld || !net.IsPeerReadyForGameplay(proxy.PlayerId))
                         continue;
                     who = proxy.PlayerId;
                     break;

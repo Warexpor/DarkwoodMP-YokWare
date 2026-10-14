@@ -461,8 +461,10 @@ reinstall), so a returning player is not taken for a new one.
   A player who is not home at dawn, or who died that night, gets none (as in vanilla).
 - **The morning holds until the hideout is empty, the clock does not.** One player
   walking out does not despawn the trader for the others, but the clock runs again
-  for everyone from the moment the first player (host or client) walks out. A morning
-  still held at dusk ends then. The trader restocks only when nobody is trading with it.
+  for everyone from the moment the first player (host or client) walks out into the
+  open world. A player who spent the night in a village (or any other location that
+  stops the clock) does not start it: while the party stays in hideouts and villages
+  the morning stays frozen. A morning still held at dusk ends then. The trader restocks only when nobody is trading with it.
 - **Generators:** fuel is host-owned. A client's switch or refuel is a request. The
   Electrician skill applies at the best rate any player has.
 - **Village nights (co-op only).** Vanilla never needed this: friendly villagers go

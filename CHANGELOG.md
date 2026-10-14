@@ -3,7 +3,7 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.286**. The current Horde wire protocol is **72**. Every install in a session
+**0.8.287**. The current Horde wire protocol is **72**. Every install in a session
 needs the same DLL; the protocol is checked on join.
 
 Protocol history (newest first):
@@ -87,6 +87,22 @@ Protocol history (newest first):
 This file is a public ship log. Code-only status and runtime status are called
 out separately. A runtime item is not considered verified until it has been
 tested in the game.
+
+---
+
+## 0.8.287 — a morning split between hideouts and the village stays frozen
+
+- **What broke.** Some players spent the night in their hideout, others in the village. At dawn the
+  clock started running at once, though nobody was out in the forest: a hideout morning should hold
+  the clock until someone walks out, and the village stops it anyway.
+- **Why.** The host releases the held morning clock for a living player "outside every hideout"
+  (someone who spent the night in the forest never walks out of one). That check only looked at
+  hideouts, so a player in the village counted as outside.
+- **Now.** Only a player out in the open world (the same `InOpenWorld` the shared clock uses, not
+  under a personal hold, ready for gameplay) releases it. Players in hideouts and villages keep the
+  morning frozen; the first one to step out into the forest starts the clock for everyone.
+- Files: `DayNightTransitionPatches.cs` (`MorningHideoutHold.ReleaseIfSomeoneOutside`),
+  `HOW_COOP_WORKS.md` section 6. No protocol change.
 
 ---
 
