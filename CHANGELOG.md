@@ -196,6 +196,15 @@ over both chapters' hideouts, every event of each night's scenario fired).
   boards at once when the talk ends, and past its reading time, then closes; the NPC's close
   events wait for it. Files: `DialogOutcomeApplyNetHandlers.Drain.cs`
   (`RushWorldOnlyDrainForRelease`), `DialogNpcLockNetHandlers.cs`, `LanNetworkManager.PeerEvents.cs`.
+- **The overworld bunker door opened by itself on the host when a client stood at it.** A
+  remote player's stand-in on each machine is a copy of the player, and the mod makes all its
+  child colliders solid (the player's sensor volumes among them). An area trigger counted any of
+  them as the player walking in, where vanilla takes only the player's own body. At the shut door
+  a sensor reached into the walk-through volume behind it (`goThroughDoor`), which ran on the host
+  for that client: the shut door went and the open one came on there, nowhere else, with no key
+  (seen in a three-player run, the trigger firing three times while the client stood still).
+  Area triggers and the party gate now take the stand-in's body only. Files:
+  `EventTriggersProxyPatches.cs`, `LockBehindPartyGate.cs`.
 - **The bunker key opened the door on the host only.** With the boards played, the key's
   `endOfChapter1` ran `goThroughDoor` on the host (shut door removed, open door and corridor on,
   the keyholder's trip), but that event is repeatable in the scene data, and the host never sends

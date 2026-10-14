@@ -253,7 +253,12 @@ namespace DWMPHorde.Patches
                 return;
             }
 
-            RemotePlayerProxy proxy = other.GetComponentInParent<RemotePlayerProxy>();
+            // The stand-in's body only, as vanilla takes the player's own collider and none of its
+            // children. The stand-in is a copy of the player whose child colliders (sensors that
+            // are triggers on the player) are made solid, and one of them reached into the bunker's
+            // walk-through volume behind the shut door: a client standing at the door "went
+            // through" on the host, which opened the door there and nowhere else.
+            RemotePlayerProxy proxy = other.GetComponent<RemotePlayerProxy>();
             if (proxy == null) return;
 
             if (EventTriggersAuth.IsLocalBodyOnlyVolume(__instance.name))
@@ -313,7 +318,8 @@ namespace DWMPHorde.Patches
             if (!__instance.reactsToPlayer) return;
             if (!EventTriggersAuth.CanFireTriggers(__instance)) return;
 
-            RemotePlayerProxy proxy = other.GetComponentInParent<RemotePlayerProxy>();
+            // The stand-in's body only, as on enter.
+            RemotePlayerProxy proxy = other.GetComponent<RemotePlayerProxy>();
             if (proxy == null) return;
 
             if (EventTriggersAuth.IsLocalBodyOnlyVolume(__instance.name))
