@@ -17,7 +17,8 @@ namespace DWMPHorde.Patches
     /// after a death, alone, while the party lived in the next hideout. Every peer records each
     /// move it sees; the host writes them with its world save and hands them to a joiner. A
     /// player whose home is an oven the party moved out of follows on its next effect keepalive.
-    /// Moving back to an old hideout is a move too: that oven is a home again.
+    /// Moving back to an old hideout is a move too: that oven is a home again. A player standing
+    /// in its home hideout when the party leaves it stays there for good (see ChooseHome).
     /// </summary>
     internal static class PartyHomeMoves
     {
@@ -137,11 +138,82 @@ namespace DWMPHorde.Patches
             Vector3 from = home.transform.position;
             if (_failedFrom.HasValue && (_failedFrom.Value - from).sqrMagnitude <= SameOvenSq)
                 return;
-            if (!TryResolve(from, out Vector3 to))
+            if (PartyHomeMoves.IsChosenHome(from) || !TryResolve(from, out Vector3 to))
                 return;
-            if (!OvenHomes.FollowNow(p, from, to, "party moved home while this player was away"))
+            if (!OvenHomes.FollowNow(p, from, to, "party moved home while this player was away", mayStay: false))
                 _failedFrom = from;
         }
+
+        // ---------------------------------------------------------------- own choice
+
+        /// <summary>
+        /// The home this install's player kept when the party moved out of it (it was standing in
+        /// that hideout then), by campaign. While the player lives there, party moves and recorded
+        /// moves leave it. Any later move of its own, or a follow, ends it. Kept in a small file of
+        /// this install (each player's own choice), written when it changes.
+        /// </summary>
+        private sealed class ChoiceData
+        {
+            public bool Has;
+            public float X, Y, Z;
+            public int Chapter;
+        }
+
+        private static ChoiceData _choice; // process-scoped: this install's choice for _choiceCampaign
+        private static string _choiceCampaign; // process-scoped: campaign _choice belongs to (null = not loaded)
+
+        internal static void ChooseHome(Vector3? home)
+        {
+            EnsureChoiceLoaded();
+            _choice = home.HasValue
+                ? new ChoiceData { Has = true, X = home.Value.x, Y = home.Value.y, Z = home.Value.z, Chapter = Chapter() }
+                : new ChoiceData();
+            try
+            {
+                string path = ChoicePath(_choiceCampaign);
+                if (!_choice.Has)
+                {
+                    if (File.Exists(path))
+                        File.Delete(path);
+                }
+                else
+                    File.WriteAllText(path, JsonConvert.SerializeObject(_choice, Formatting.None));
+            }
+            catch (Exception ex)
+            {
+                ModRuntime.Log?.LogWarning("[HideoutUpgrade] could not write the home choice: " + ex.Message);
+            }
+            if (home.HasValue)
+                ModLog.Event(LogCat.World, "[HideoutUpgrade] home at " + home.Value + " is this player's own choice");
+        }
+
+        /// <summary>The local player chose this home itself (it stays when the party moves on).</summary>
+        internal static bool IsChosenHome(Vector3 home)
+        {
+            EnsureChoiceLoaded();
+            return _choice != null && _choice.Has && _choice.Chapter == Chapter()
+                && Same(_choice.X, _choice.Y, _choice.Z, home);
+        }
+
+        private static void EnsureChoiceLoaded()
+        {
+            string campaign = CoopWorldCopyMeta.TryGetCampaignIdForCurrentProfile() ?? "";
+            if (_choiceCampaign == campaign)
+                return;
+            _choiceCampaign = campaign;
+            _choice = null;
+            string path = ChoicePath(campaign);
+            if (!File.Exists(path))
+                return;
+            try { _choice = JsonConvert.DeserializeObject<ChoiceData>(File.ReadAllText(path)); }
+            catch (Exception ex)
+            {
+                ModRuntime.Log?.LogWarning("[HideoutUpgrade] could not read the home choice: " + ex.Message);
+            }
+        }
+
+        private static string ChoicePath(string campaign)
+            => ClientStateBackup.GetProfileBackupDirectory() + "/own_home_choice_" + Safe(campaign) + ".json";
 
         // ---------------------------------------------------------------- sharing
 
@@ -239,6 +311,9 @@ namespace DWMPHorde.Patches
         }
 
         private static string FilePath(string campaign)
+            => ClientStateBackup.GetProfileBackupDirectory() + "/party_home_moves_" + Safe(campaign) + ".json";
+
+        private static string Safe(string campaign)
         {
             var sb = new System.Text.StringBuilder();
             foreach (char c in campaign ?? "")
@@ -246,7 +321,7 @@ namespace DWMPHorde.Patches
                 if (char.IsLetterOrDigit(c))
                     sb.Append(c);
             }
-            return ClientStateBackup.GetProfileBackupDirectory() + "/party_home_moves_" + (sb.Length > 0 ? sb.ToString() : "nocampaign") + ".json";
+            return sb.Length > 0 ? sb.ToString() : "nocampaign";
         }
     }
 }

@@ -3,12 +3,12 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.294**. The current Horde wire protocol is **74**. Every install in a session
+**0.8.295**. The current Horde wire protocol is **74**. Every install in a session
 needs the same DLL; the protocol is checked on join.
 
 Protocol history (newest first):
 
-- **74**, 0.8.294: `PlayerEffectSync` with `MovedHome` carries the home it left (`FromX/Y/Z`);
+- **74**, 0.8.294 to 0.8.295: `PlayerEffectSync` with `MovedHome` carries the home it left (`FromX/Y/Z`);
   new `PartyHomeMoves` (178), host to a joiner: the party's home moves kept with the world.
 - **73**, 0.8.293: the entity snapshot leaves out an entity's clip name while it is unchanged
   (`Flag2ClipSame`, 64); the clip now follows the loop flag on the wire.
@@ -93,6 +93,25 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.295 — the party can split into different hideouts
+
+- **Players who once shared a home could never live apart.** Lighting a new hideout's oven took
+  along everyone living at the oven left, so a second player lighting a third hideout dragged the
+  first one with it, and going back dragged everyone back. Four players in four hideouts was not
+  reachable.
+- A player standing in its own home hideout when the party moves out of it now stays: it keeps
+  that home, and later party moves (and the moves recorded for players who were away) leave it
+  there. A player away from home at that moment (with the mover, out in the world) still goes
+  along, so whoever led an earlier move is not left behind. A catch-up for a player who was not
+  there never stays (a new character wakes in the first hideout, its home, and still follows).
+  Lighting another oven itself, or following a move, ends the stay.
+- The stay is this install's own, per campaign: `own_home_choice_<campaign>.json` next to the
+  client backups. No wire change.
+- Files: `World/Patches/HideoutUpgradePatch.cs` (`FollowNow`, `StandsInHome`),
+  `World/PartyHomeMoves.cs` (`ChooseHome`, `IsChosenHome`), `World/Patches/PersonalProloguePatches.cs`,
+  `docs/HOW_COOP_WORKS.md`.
+- Status: builds, unit tests pass. Not playtested.
 
 ## 0.8.294 — a player who missed the party's move home no longer wakes in the old hideout
 

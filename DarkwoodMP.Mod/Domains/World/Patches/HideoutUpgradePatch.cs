@@ -76,17 +76,24 @@ namespace DWMPHorde.Patches
         /// A peer moved home from <paramref name="from"/> to <paramref name="to"/>. A player who
         /// lived in the oven it moved out of moves with it: the party had one home, and the one
         /// who never talked to the new oven woke up after a night death alone in the old hideout.
-        /// A player living elsewhere keeps its own home. Runs next frame, outside the apply scope,
+        /// A player living elsewhere keeps its own home, and so does one standing in this home
+        /// when the party leaves it (the party split; see <see cref="FollowNow"/>). Runs next frame, outside the apply scope,
         /// so an old oven nobody lives in any more goes out on every peer.
         /// </summary>
         private static bool _movedHome; // reset-in: ConsumeMovedHome (read on the next effect send)
         private static bool _following; // process-scoped: call-scoped, a follow is not a move of its own
 
-        /// <summary>The local player moved home itself (vanilla setExperienceMachine from a live home).</summary>
+        /// <summary>
+        /// The local player moved home itself (vanilla setExperienceMachine from a live home). Its
+        /// new home follows the party like any other (a stay is kept only for the home it left).
+        /// A load putting the save's home back is not a move.
+        /// </summary>
         internal static void NoteLocalMove()
         {
-            if (!_following)
-                _movedHome = true;
+            if (_following || Core.loadingGame)
+                return;
+            _movedHome = true;
+            PartyHomeMoves.ChooseHome(null);
         }
 
         internal static bool ConsumeMovedHome()
@@ -105,17 +112,33 @@ namespace DWMPHorde.Patches
             var ctrl = Singleton<Controller>.Instance;
             if (ctrl == null)
                 return;
-            ctrl.waitFramesAndRun(() => FollowNow(Player.Instance, from, to, "party moved home"), 1);
+            ctrl.waitFramesAndRun(() => FollowNow(Player.Instance, from, to, "party moved home", mayStay: true), 1);
         }
 
         /// <summary>
         /// The local player, living at <paramref name="from"/>, moves home to the oven at
         /// <paramref name="to"/> (not a move of its own). False when no oven stands there.
+        /// With <paramref name="mayStay"/> (a move happening now), a player standing in its own
+        /// home hideout at that moment stays there and keeps it from then on: the party split. A
+        /// player away from home (with the mover, out in the world) goes along, as the leader of
+        /// an earlier move does. A catch-up (the player was not here for the move) never stays:
+        /// a new character wakes in the world's first hideout, its home, and must still follow.
         /// </summary>
-        internal static bool FollowNow(Player p, Vector3 from, Vector3 to, string why)
+        internal static bool FollowNow(Player p, Vector3 from, Vector3 to, string why, bool mayStay)
         {
             if (!LivesAt(p, from))
                 return true;
+            if (PartyHomeMoves.IsChosenHome(from))
+            {
+                ModLog.Event(LogCat.World, "[HideoutUpgrade] " + why + " — staying: this player kept its home at " + from);
+                return true;
+            }
+            if (mayStay && StandsInHome(p))
+            {
+                PartyHomeMoves.ChooseHome(from);
+                ModLog.Event(LogCat.World, "[HideoutUpgrade] " + why + " — staying: this player is home at " + from + " (the party split)");
+                return true;
+            }
             ExperienceMachine next = Sync.WorldQueryHelper.FindNearest<ExperienceMachine>(to, 2f);
             if (next == null || next == p.experienceMachine)
             {
@@ -125,8 +148,17 @@ namespace DWMPHorde.Patches
             _following = true;
             try { p.setExperienceMachine(next, doEnable: true); }
             finally { _following = false; }
+            PartyHomeMoves.ChooseHome(null);
             ModLog.Event(LogCat.World, "[HideoutUpgrade] " + why + " — following to " + next.transform.position);
             return true;
+        }
+
+        /// <summary>The player stands in the hideout of its own home oven.</summary>
+        private static bool StandsInHome(Player p)
+        {
+            Location home = p.experienceMachine != null ? p.experienceMachine.transform.GetLocation() : null;
+            Location here = p.whereAmI != null ? p.whereAmI.bigLocation : null;
+            return home != null && here != null && here == home;
         }
 
         private static bool LivesAt(Player p, Vector3 oven)

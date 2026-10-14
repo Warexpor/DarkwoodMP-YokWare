@@ -421,9 +421,12 @@ reinstall), so a returning player is not taken for a new one.
 - **Homes are personal, buildings are shared.** Each player has their own home oven
   and respawn point. The hideout's walls, doors, barricades, generator and
   furniture are one shared world. An oven goes out only when nobody calls it home.
-- **The party moves home together.** When a player lights a new hideout's oven, every
-  player who lived in the hideout it left moves with it (their home and respawn point
-  follow). A player who lives in another hideout keeps their own.
+- **The party moves home together, unless it splits.** When a player lights a new hideout's
+  oven, every player who lived in the hideout it left moves with it (their home and respawn
+  point follow). A player standing in that old hideout at that moment stays: it keeps that
+  home for good, and later moves of the party leave it there, until it lights another oven
+  itself. A player who lives in another hideout keeps their own. So four players can live in
+  four hideouts: each lights its own oven while the others are at home in theirs.
   The moves are kept with the world, so a player who was not there for one (joined or came
   back later, or a new character, whose home is the world's first hideout) follows it too.
 - **Whoever pushes or drags a thing moves it.** The pusher's own game moves it and
