@@ -869,4 +869,14 @@ public class MessageRoundTripTests
         Assert.True(back.ClockHeld);
         Assert.Equal(0, r.AvailableBytes);
     }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void SaveSync_CarriesTheIndicator(bool show)
+    {
+        var r = new NetReader(Bytes(new SaveSyncMessage { ShowIndicator = show }.Serialize));
+        Assert.Equal(show, SaveSyncMessage.Deserialize(r).ShowIndicator);
+        Assert.Equal(0, r.AvailableBytes);
+    }
 }

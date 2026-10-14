@@ -23,12 +23,24 @@ namespace DWMPHorde.Patches
         }
     }
 
+    /// <summary>Marks the play calls a sound area makes for its own loop (see <see cref="AudioSuppressionLogic.SoundAreaStarting"/>).</summary>
+    [OptionalPatch]
+    [HarmonyPatch(typeof(SoundArea), "playSound")]
+    public static class SoundAreaPlayScopePatch
+    {
+        private static void Prefix() => AudioSuppressionLogic.SoundAreaStarting++;
+        private static void Finalizer() => AudioSuppressionLogic.SoundAreaStarting--;
+    }
+
     /// <summary>
     /// Music and ambience are global; never distance-cull them.
     /// (Previously shared SuppressFarAudio and killed menu/BGM tracks.)
     /// </summary>
     internal static class AudioSuppressionLogic
     {
+        /// <summary>Inside <c>SoundArea.playSound</c> (main thread): its play call is the area's own loop.</summary>
+        internal static int SoundAreaStarting; // process-scoped: call depth, balanced by the finalizer
+
         /// <summary>
         /// Returns true to allow play, false to suppress.
         /// </summary>
@@ -45,12 +57,15 @@ namespace DWMPHorde.Patches
             if (IsDreamMusic(audioID))
                 return true;
 
-            // A sound area's own loop (the village's music and env, fires, water). The area starts
-            // it when the local player walks into its trigger and stops it on the way out, so the
-            // player is already inside by definition; the area's transform often sits at the
-            // location's origin, thousands of units from the spot the player came in at, and the
-            // distance test below refused its 2D loop for the whole visit.
-            if (parentObj != null && parentObj.GetComponent<SoundArea>() != null)
+            // A sound area's own loop (the village's music and env, fires, water, banshee ambience),
+            // started by SoundArea.playSound. The area plays it only when the local player walks
+            // into its trigger, or comes within its source distance, and stops it on the way out:
+            // that is the vanilla gate (a remote player's stand-in has no Player component and
+            // never trips it). Judged by distance instead, a loop on the area's transform, often at
+            // the location's origin thousands of units from where the player came in, was refused
+            // for the whole visit; a spectator's onlyOneInstance loop, played on the local body,
+            // was muted by the body rule below.
+            if (SoundAreaStarting > 0)
                 return true;
 
             // Title / main menu — no distance culling at all.

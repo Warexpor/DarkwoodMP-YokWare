@@ -12,9 +12,10 @@ namespace DWMPHorde.Sync
     /// <item>The friendly villagers are away from the "night is coming" warning until morning
     /// (<see cref="VillageNightPolicy"/>). The Musician, the hostile villagers and the ones
     /// already indoors (most of the sick) stay. Entering
-    /// near night finds them gone. With players inside, they leave (or come back at dawn) all at
-    /// once, and only while nobody sees any of them: each player reports that on
-    /// <c>PlayerState.SeesVillager</c>, using vanilla's own "in sight or close" test.</item>
+    /// near night finds them gone. With players inside, they leave all at once, and only while
+    /// nobody sees any of them: each player reports that on <c>PlayerState.SeesVillager</c>,
+    /// using vanilla's own "in sight or close" test. They come back all at once at daybreak,
+    /// seen or not, under the daybreak fade.</item>
     /// <item>Indoors in the village shelters a player from the night worm like a lit hideout:
     /// the player carries vanilla's shadow ward effect there.</item>
     /// </list>

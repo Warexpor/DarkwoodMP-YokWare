@@ -2,8 +2,9 @@ namespace DWMPHorde
 {
     /// <summary>
     /// The village empties at night. Villagers are away from the "night is coming" warning
-    /// (two hours before night) until morning. The change happens at once while nobody is in
-    /// the village, and with players inside only while none of them sees a villager.
+    /// (two hours before night) until morning. Leaving happens at once while nobody is in the
+    /// village, and with players inside only while none of them sees a villager; the return
+    /// at daybreak is at once either way.
     /// </summary>
     public static class VillageNightPolicy
     {
@@ -13,9 +14,10 @@ namespace DWMPHorde
             => time >= nightTime - NightComingLeadMinutes || time < dayTime;
 
         /// <summary>
-        /// Leaving for the night waits until nobody sees them go. The return is at once at daybreak
-        /// (the day's hard transition covers it): somebody standing in the open village nearly always
-        /// has a spot in sight, and waiting for an unseen moment never ended.
+        /// Leaving for the night waits until nobody sees them go. The return is at once at daybreak:
+        /// the clock reaches dayTime under vanilla's daybreak fade (startBeforeDay, one game
+        /// minute earlier; mirrored on clients), and somebody standing in the open village nearly
+        /// always has a spot in sight, so waiting for an unseen moment never ended.
         /// </summary>
         public static bool ShouldFlip(bool currentlyAway, bool wantAway, bool occupied, bool anyoneSees)
         {

@@ -280,7 +280,8 @@ namespace DWMPHorde.Patches
 
     /// <summary>
     /// Co-op coordinated save: local <see cref="SaveManager.Save"/> notifies the host;
-    /// host rate-limits then broadcasts SaveSync so clients run full Save with Saving UI.
+    /// host rate-limits then broadcasts SaveSync so clients run full Save, with the Saving
+    /// indicator only when this Save asked for it (vanilla's new day Save does not).
     /// <see cref="LanNetworkManager.RemoteSaveInProgress"/> prevents rebroadcast loops.
     /// </summary>
     [HarmonyPatch(typeof(SaveManager), "Save")]

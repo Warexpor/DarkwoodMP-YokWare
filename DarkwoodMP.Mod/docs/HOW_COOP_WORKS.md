@@ -297,7 +297,8 @@ ever written inside a dream: such a save strands the player on the pad at the ne
 - **Only the host saves the world.** Any host save (the game's own, or a slot of the
   optional manual-saves add-on) makes every client save its copy at the same moment
   and send its character snapshot to the host. The add-on's Save is greyed out on a
-  client.
+  client. Every machine shows the corner "Saving" notice only when the save that
+  started it does (none at the new day's save, as in vanilla).
 - A connected client never writes the world to disk on its own, because a
   client-side save could overwrite shared state with a partial picture.
 - Loading a save is refused while in a session.
@@ -454,13 +455,12 @@ profile slot the world lands.
 - **Generators:** fuel is host-owned. A client's switch or refuel is a request. The
   Electrician skill applies at the best rate any player has.
 - **Village nights (co-op only).** Vanilla never needed this: friendly villagers go
-  home between the "night is coming" warning and morning, but only while nobody
-  sees them. The ones already indoors (the sick) stay. Village houses give the
+  home between the "night is coming" warning and morning. They leave only while
+  nobody sees them, and all come back at once at daybreak, seen or not (the daybreak
+  fade covers it). The ones already indoors (the sick) stay. Village houses give the
   shadow ward to a player standing inside; outdoors the worm comes as anywhere else.
   The village is a location, so night only comes there while someone is out in the
   open world (the clock rule in section 5).
-  They go away only while unseen, and all come back at once at daybreak (the day's hard
-  transition covers it).
 
 ---
 

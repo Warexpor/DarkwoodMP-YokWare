@@ -89,7 +89,7 @@ tested in the game.
 
 ---
 
-## 0.8.285 — no "Saving" notice at a new day on a client; villagers come back in the morning
+## 0.8.285 — no "Saving" notice at a new day on a client; villagers come back in the morning; exact sound-area exemption
 
 On top of 0.8.284. Protocol **71** (`SaveSync` gains `ShowIndicator`).
 
@@ -97,18 +97,27 @@ On top of 0.8.284. Protocol **71** (`SaveSync` gains `ShowIndicator`).
   day Save (`Controller.startDay`) asks for no indicator. The host's SaveSync fan-out then ran a
   Save on every peer with the indicator forced on. The message now says whether the Save that raised
   it showed the indicator, and the peer's Save follows it: the new day's is silent on every machine,
-  a manual or sleep Save still shows. Files: `SyncMessages.cs` (`SaveSyncMessage`),
+  a manual or sleep Save still shows. Saves the host's 3 s debounce merges show it if any of them
+  asked; a session reset clears the pending choice. Files: `SyncMessages.cs` (`SaveSyncMessage`),
   `SaveSyncPatches.cs` (`SaveSyncPatch` takes `showSavingIndicator`), `SaveNetHandlers.cs`,
-  `SaveNetHandlers.Apply.cs`.
+  `SaveNetHandlers.Apply.cs`; round trip in `MessageRoundTripTests`.
 - **A client standing in the village saw none of the villagers come back at daybreak.** The host
   flips the villagers back only while nobody in the village has one in sight or within 1000 units
   (checked at their spots, hidden or not). In the open village someone standing in it nearly always
   has, so the flip waited for ever (no `[NightVillage] ... back for the day` in the host log all
-  morning). The return now happens at once at daybreak, seen or not (the day's hard transition covers
-  it); leaving for the night is unchanged (never in front of a player). The host log line gains
-  `seen=`. Files: `CoopPolicy.NpcNight.cs` (`VillageNightPolicy.ShouldFlip`),
-  `NightVillage.cs`; unit-tested in `CoopPolicyTests`.
-- Not run in game yet: both read from the 0.8.284 playtest logs (host: new day Save; no return flip
+  morning). The return now happens at once at daybreak, seen or not: the clock reaches `dayTime`
+  under vanilla's daybreak fade (`startBeforeDay`, one game minute earlier, mirrored on clients),
+  and each client's `TimeSync.VillagersAway` turns them back on. Leaving for the night is unchanged
+  (never in front of a player). The host log line gains `seen=`. Files: `CoopPolicy.NpcNight.cs`
+  (`VillageNightPolicy.ShouldFlip`), `NightVillage.cs`; unit-tested in `CoopPolicyTests`.
+- **Sound-area loops: the 0.8.284 exemption is exact now, and a spectator hears single-instance
+  areas.** 0.8.284 let through any sound parented to a `SoundArea`. It now lets through the play
+  calls the area's own `playSound` makes (`SoundAreaPlayScopePatch` marks them), which is the vanilla
+  gate (the local player in its trigger or source range; a stand-in has no `Player` and never trips
+  it), and nothing else played on that object. An `onlyOneInstance` area (fire, banshee ambience)
+  plays on the local body, which the spectator rule mutes: a spectating player, whose body follows
+  the watched player through those areas, heard none of them. File: `AudioSuppressionPatch.cs`.
+- Not run in game yet: all read from the 0.8.284 playtest logs (host: new day Save; no return flip
   while the client was in the village) and the vanilla code.
 
 ---

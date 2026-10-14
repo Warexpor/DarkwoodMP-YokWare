@@ -51,6 +51,7 @@ namespace DWMPHorde.Networking
             _clientBackupRestoreCo = null;
             _saveSyncBroadcastPending = false;
             _saveSyncHostNeedsApply = false;
+            _saveSyncShowIndicator = false;
         }
 
         /// <summary>Arm after local/remote death so vanilla Save spam does not re-Save the host.</summary>

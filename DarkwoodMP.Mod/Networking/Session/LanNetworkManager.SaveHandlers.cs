@@ -36,7 +36,8 @@ namespace DWMPHorde.Networking
         }
 
         /// <summary>
-        /// Host-broadcast SaveSync → clients run full local Save with vanilla Saving UI.
+        /// Host-broadcast SaveSync → clients run full local Save, showing the Saving indicator
+        /// only when the Save that raised it did (<see cref="SaveSyncMessage.ShowIndicator"/>).
         /// Client-originated SaveSync is host-only (debounced fan-out). Flag blocks loops.
         /// </summary>
         private void HandleSaveSync(SaveSyncMessage m)
