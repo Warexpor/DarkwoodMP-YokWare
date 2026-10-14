@@ -3,11 +3,13 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.284**. The current Horde wire protocol is **70**. Every install in a session
+**0.8.285**. The current Horde wire protocol is **71**. Every install in a session
 needs the same DLL; the protocol is checked on join.
 
 Protocol history (newest first):
 
+- **71**, 0.8.285: `SaveSync` (was empty) carries `ShowIndicator`, whether the Save behind it showed the
+  corner "Saving" indicator.
 - **70**, 0.8.282 to 0.8.283: `ScenarioEventFired` gains `AnchorActors` (the player each anchor's scene played for);
   `ShadowArmorState` gains the wearing creature's `EntityId`.
 - **69**, 0.8.281: `MeleeWorldHit` gains the struck item's furniture save id and name.
@@ -84,6 +86,30 @@ Protocol history (newest first):
 This file is a public ship log. Code-only status and runtime status are called
 out separately. A runtime item is not considered verified until it has been
 tested in the game.
+
+---
+
+## 0.8.285 — no "Saving" notice at a new day on a client; villagers come back in the morning
+
+On top of 0.8.284. Protocol **71** (`SaveSync` gains `ShowIndicator`).
+
+- **A client showed the "Saving" corner notice when a new day began; the host did not.** Vanilla's new
+  day Save (`Controller.startDay`) asks for no indicator. The host's SaveSync fan-out then ran a
+  Save on every peer with the indicator forced on. The message now says whether the Save that raised
+  it showed the indicator, and the peer's Save follows it: the new day's is silent on every machine,
+  a manual or sleep Save still shows. Files: `SyncMessages.cs` (`SaveSyncMessage`),
+  `SaveSyncPatches.cs` (`SaveSyncPatch` takes `showSavingIndicator`), `SaveNetHandlers.cs`,
+  `SaveNetHandlers.Apply.cs`.
+- **A client standing in the village saw none of the villagers come back at daybreak.** The host
+  flips the villagers back only while nobody in the village has one in sight or within 1000 units
+  (checked at their spots, hidden or not). In the open village someone standing in it nearly always
+  has, so the flip waited for ever (no `[NightVillage] ... back for the day` in the host log all
+  morning). The return now waits for an unseen moment for 20 s, then happens regardless; leaving
+  for the night is unchanged (never in front of a player). The host log line gains `seen=`.
+  Files: `CoopPolicy.NpcNight.cs` (`VillageNightPolicy.ShouldFlip`, `ReturnMaxWaitSec`),
+  `NightVillage.cs`; unit-tested in `CoopPolicyTests`.
+- Not run in game yet: both read from the 0.8.284 playtest logs (host: new day Save; no return flip
+  while the client was in the village) and the vanilla code.
 
 ---
 

@@ -286,7 +286,7 @@ namespace DWMPHorde.Patches
     [HarmonyPatch(typeof(SaveManager), "Save")]
     public static class SaveSyncPatch
     {
-        private static void Postfix()
+        private static void Postfix(bool showSavingIndicator)
         {
             if (LanNetworkManager.RemoteSaveInProgress)
                 return;
@@ -326,7 +326,7 @@ namespace DWMPHorde.Patches
             ModLog.Event(LogCat.Save,
                 "Local Save path (" + ModRuntime.Network.Role
                 + ") → SaveSync request/broadcast (host debounced fan-out)");
-            ModRuntime.Network.SendSaveSync(hostAlreadySavedLocally: true);
+            ModRuntime.Network.SendSaveSync(hostAlreadySavedLocally: true, showIndicator: showSavingIndicator);
 
             // After the first post-death Save fans out, suppress the peer Save storm.
             if (DeathStateTracker.ConsumeDeathSaveSuppressArm()

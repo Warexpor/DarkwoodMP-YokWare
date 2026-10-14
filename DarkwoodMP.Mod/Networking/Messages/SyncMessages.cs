@@ -807,8 +807,10 @@ namespace DWMPHorde.Networking
 
     public struct SaveSyncMessage
     {
-        public void Serialize(NetWriter w) { }
-        public static SaveSyncMessage Deserialize(NetReader r) => new SaveSyncMessage();
+        /// <summary>The Save that raised this fan-out showed the corner "Saving" indicator (vanilla's showSavingIndicator): peers show it too, or not.</summary>
+        public bool ShowIndicator;
+        public void Serialize(NetWriter w) { w.Put(ShowIndicator); }
+        public static SaveSyncMessage Deserialize(NetReader r) => new SaveSyncMessage { ShowIndicator = r.GetBool() };
     }
 
     public struct TimeSyncMessage

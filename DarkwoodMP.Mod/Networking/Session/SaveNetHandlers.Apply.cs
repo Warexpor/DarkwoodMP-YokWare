@@ -14,7 +14,7 @@ namespace DWMPHorde.Networking
         /// Host-broadcast SaveSync → clients run full local Save with vanilla Saving UI.
         /// Client-originated SaveSync is host-only (debounced fan-out). Flag blocks loops.
         /// </summary>
-        internal void HandleSaveSync()
+        internal void HandleSaveSync(SaveSyncMessage msg)
         {
             if (_net.Role == NetworkRole.Offline)
                 return;
@@ -45,7 +45,7 @@ namespace DWMPHorde.Networking
                 }
                 ModLog.Event(LogCat.Save,
                     "SaveSync request from p" + _net.CurrentReceivePlayerId + " → host debounce");
-                HostScheduleSaveSyncBroadcast(hostAlreadySavedLocally: false);
+                HostScheduleSaveSyncBroadcast(hostAlreadySavedLocally: false, showIndicator: msg.ShowIndicator);
                 return;
             }
 
@@ -57,10 +57,10 @@ namespace DWMPHorde.Networking
                 return;
             }
 
-            ApplySaveSyncLocalSave("host broadcast");
+            ApplySaveSyncLocalSave("host broadcast", msg.ShowIndicator);
         }
 
-        private void ApplySaveSyncLocalSave(string reason)
+        private void ApplySaveSyncLocalSave(string reason, bool showIndicator)
         {
             if (LanNetworkManager.RemoteSaveInProgress)
                 return;
@@ -91,7 +91,7 @@ namespace DWMPHorde.Networking
             try
             {
                 ModLog.Event(LogCat.Save,
-                    "SaveSync " + reason + " → local coordinated Save (force + Saving indicator) role="
+                    "SaveSync " + reason + " → local coordinated Save (force, indicator=" + showIndicator + ") role="
                     + _net.Role);
 
                 sm.Save(
@@ -99,7 +99,7 @@ namespace DWMPHorde.Networking
                     doSaveProfile: true,
                     force: true,
                     forceSaveStatic: false,
-                    showSavingIndicator: true);
+                    showSavingIndicator: showIndicator);
 
                 if (_net.Role == NetworkRole.Client)
                 {

@@ -12,8 +12,23 @@ namespace DWMPHorde
         public static bool IsNearNight(int time, int nightTime, int dayTime)
             => time >= nightTime - NightComingLeadMinutes || time < dayTime;
 
-        public static bool ShouldFlip(bool currentlyAway, bool wantAway, bool occupied, bool anyoneSees)
-            => currentlyAway != wantAway && (!occupied || !anyoneSees);
+        /// <summary>
+        /// How long the morning waits for a moment nobody sees the villagers' spots. In an open
+        /// village somebody standing in it nearly always has one in sight or within reach, and the
+        /// villagers then never came back for them; vanishing in front of a player is what the rule
+        /// is for, not their return.
+        /// </summary>
+        public const float ReturnMaxWaitSec = 20f;
+
+        public static bool ShouldFlip(bool currentlyAway, bool wantAway, bool occupied, bool anyoneSees,
+            float waitedSec = 0f)
+        {
+            if (currentlyAway == wantAway)
+                return false;
+            if (!occupied || !anyoneSees)
+                return true;
+            return currentlyAway && !wantAway && waitedSec >= ReturnMaxWaitSec;
+        }
     }
 
     /// <summary>

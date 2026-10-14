@@ -43,6 +43,7 @@ namespace DWMPHorde.Sync
         private static Location _villagersOf;
         private const float ArrivalGrace = 3f;
         private static float _nextTick;
+        private static float _wantedSince = -1f; // reset-in: Reset; when the villagers' return was first wanted
         private static float _arrivedAt = -1f;
         private const float WardDuration = 20000000f; // marks the village ward (see RemoveWard)
 
@@ -86,6 +87,7 @@ namespace DWMPHorde.Sync
             Villagers.Clear();
             _villagersOf = null;
             _nextTick = 0f;
+            _wantedSince = -1f;
             _arrivedAt = -1f;
             LocalSeesVillager = false;
             RemoveWard();
@@ -144,13 +146,25 @@ namespace DWMPHorde.Sync
                 if (net.RemotePlayers.TryGetValue(kvp.Key, out RemotePlayerState st) && st.SeesVillager)
                     anyoneSees = true;
             }
-            if (!VillageNightPolicy.ShouldFlip(away, want, occupied, anyoneSees))
+            float now = Time.unscaledTime;
+            if (away && !want)
+            {
+                if (_wantedSince < 0f)
+                    _wantedSince = now;
+            }
+            else
+            {
+                _wantedSince = -1f;
+            }
+            float waited = _wantedSince < 0f ? 0f : now - _wantedSince;
+            if (!VillageNightPolicy.ShouldFlip(away, want, occupied, anyoneSees, waited))
                 return;
+            _wantedSince = -1f;
 
             Away = want;
             Apply();
             net.SendTimeSyncTo(-1);
-            Logging.ModLog.Event(Logging.LogCat.World, $"[NightVillage] villagers {(want ? "away for the night" : "back for the day")} (occupied={occupied})");
+            Logging.ModLog.Event(Logging.LogCat.World, $"[NightVillage] villagers {(want ? "away for the night" : "back for the day")} (occupied={occupied} seen={anyoneSees})");
         }
 
         private static void Hide()

@@ -23,7 +23,7 @@ namespace DWMPHorde.Networking
             On(NetMessageType.DesyncReport, DesyncReportMessage.Deserialize,
                 m => Sync.DesyncCheck.HostOnReport(this, _currentReceivePlayerId, m));
             On(NetMessageType.WorldSession, WorldSessionMessage.Deserialize, m => HandleWorldSession(m));
-            OnRaw(NetMessageType.SaveSync, _ => HandleSaveSync());
+            On(NetMessageType.SaveSync, SaveSyncMessage.Deserialize, m => HandleSaveSync(m));
             On(NetMessageType.TimeSync, TimeSyncMessage.Deserialize, m => WorldWeatherTimeHandlers.HandleTimeSync(m));
             On(NetMessageType.SleepEndRequest, SleepEndRequestMessage.Deserialize, m => NightHandlers.HandleSleepEndRequest(m));
             On(NetMessageType.AfterNightEndRequest, AfterNightEndRequestMessage.Deserialize, m => NightHandlers.HandleAfterNightEndRequest(m));

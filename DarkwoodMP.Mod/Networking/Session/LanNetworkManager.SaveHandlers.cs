@@ -16,9 +16,9 @@ namespace DWMPHorde.Networking
         /// <summary>
         /// After a local Save: host debounces broadcast; client requests host fan-out only.
         /// </summary>
-        public void SendSaveSync(bool hostAlreadySavedLocally = false)
+        public void SendSaveSync(bool hostAlreadySavedLocally = false, bool showIndicator = true)
         {
-            SaveHandlers.SendSaveSync(hostAlreadySavedLocally);
+            SaveHandlers.SendSaveSync(hostAlreadySavedLocally, showIndicator);
         }
 
         private void TickSaveSyncBroadcast()
@@ -39,9 +39,9 @@ namespace DWMPHorde.Networking
         /// Host-broadcast SaveSync → clients run full local Save with vanilla Saving UI.
         /// Client-originated SaveSync is host-only (debounced fan-out). Flag blocks loops.
         /// </summary>
-        private void HandleSaveSync()
+        private void HandleSaveSync(SaveSyncMessage m)
         {
-            SaveHandlers.HandleSaveSync();
+            SaveHandlers.HandleSaveSync(m);
         }
 
         /// <summary>

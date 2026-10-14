@@ -14,6 +14,8 @@ namespace DWMPHorde.Networking
         private float _lastSaveSyncBroadcastAt = -999f;
         private bool _saveSyncBroadcastPending;
         private bool _saveSyncHostNeedsApply;
+        /// <summary>Host: the Save behind the pending broadcast asked for the corner indicator (any of the debounced requests).</summary>
+        private bool _saveSyncShowIndicator;
         private const float SaveSyncHostCooldownSec = 3f;
         /// <summary>After a peer day/night death save cascade, drop redundant SaveSync.</summary>
         private float _deathSaveSyncSuppressUntil = -999f;
@@ -60,7 +62,7 @@ namespace DWMPHorde.Networking
         /// <summary>
         /// After a local Save: host debounces broadcast; client requests host fan-out only.
         /// </summary>
-        internal void SendSaveSync(bool hostAlreadySavedLocally = false)
+        internal void SendSaveSync(bool hostAlreadySavedLocally = false, bool showIndicator = true)
         {
             if (!_net.IsConnected) return;
             if (LanNetworkManager.RemoteSaveInProgress) return;
@@ -75,17 +77,18 @@ namespace DWMPHorde.Networking
 
             if (_net.Role == NetworkRole.Host)
             {
-                HostScheduleSaveSyncBroadcast(hostAlreadySavedLocally);
+                HostScheduleSaveSyncBroadcast(hostAlreadySavedLocally, showIndicator);
                 return;
             }
 
             ModRuntime.LegacyInfo("[SaveSync] client → host save-sync request");
-            _net.Send(NetMessageType.SaveSync, w => new SaveSyncMessage().Serialize(w),
+            _net.Send(NetMessageType.SaveSync, w => new SaveSyncMessage { ShowIndicator = showIndicator }.Serialize(w),
                 LiteNetLib.DeliveryMethod.ReliableOrdered);
         }
 
-        private void HostScheduleSaveSyncBroadcast(bool hostAlreadySavedLocally)
+        private void HostScheduleSaveSyncBroadcast(bool hostAlreadySavedLocally, bool showIndicator)
         {
+            _saveSyncShowIndicator |= showIndicator;
             if (!hostAlreadySavedLocally)
                 _saveSyncHostNeedsApply = true;
             _saveSyncBroadcastPending = true;
@@ -111,6 +114,8 @@ namespace DWMPHorde.Networking
                 return;
 
             _saveSyncBroadcastPending = false;
+            bool showIndicator = _saveSyncShowIndicator;
+            _saveSyncShowIndicator = false;
             _lastSaveSyncBroadcastAt = Time.unscaledTime;
 
             if (_saveSyncHostNeedsApply)
@@ -124,7 +129,7 @@ namespace DWMPHorde.Networking
                     ModLog.Event(LogCat.Save, "SaveSync request declined — " + blocked);
                     return;
                 }
-                ApplySaveSyncLocalSave("host debounced client request");
+                ApplySaveSyncLocalSave("host debounced client request", showIndicator);
             }
 
             // The host's character lives in the world save, which a client taking the host over
@@ -134,7 +139,7 @@ namespace DWMPHorde.Networking
             catch (Exception ex) { ModRuntime.Log?.LogWarning("[ClientBackup] host self snapshot: " + ex.Message); }
 
             ModRuntime.LegacyInfo("[SaveSync] host broadcast coordinated Save to peers");
-            _net.SendToAll(NetMessageType.SaveSync, w => new SaveSyncMessage().Serialize(w),
+            _net.SendToAll(NetMessageType.SaveSync, w => new SaveSyncMessage { ShowIndicator = showIndicator }.Serialize(w),
                 LiteNetLib.DeliveryMethod.ReliableOrdered);
         }
 

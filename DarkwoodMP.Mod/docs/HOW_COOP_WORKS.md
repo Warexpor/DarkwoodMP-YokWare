@@ -459,6 +459,8 @@ profile slot the world lands.
   shadow ward to a player standing inside; outdoors the worm comes as anywhere else.
   The village is a location, so night only comes there while someone is out in the
   open world (the clock rule in section 5).
+  They go away only while unseen, and come back at daybreak waiting at most 20 s for an
+  unseen moment (somebody standing in the village almost always has one in sight).
 
 ---
 
