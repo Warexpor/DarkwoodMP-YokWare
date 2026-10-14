@@ -432,8 +432,8 @@ namespace DWMPHorde.Networking
             }
             else if (!LocalAudioService.WorldSoundAudible(msg.SoundId, pos))
                 return;
-            else
-                RandomWorldSoundShare.OnPeerSoundHeard(msg.SoundId);
+            else if (RandomWorldSoundShare.TryPlayPeerStinger(msg.SoundId, pos, msg.Volume))
+                return;
 
             // Explicit flag saved and restored: an outer apply scope must survive this replay.
             bool prevNet = TraverseHack.GetExplicitFlag();

@@ -3,7 +3,7 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.289**. The current Horde wire protocol is **72**. Every install in a session
+**0.8.290**. The current Horde wire protocol is **72**. Every install in a session
 needs the same DLL; the protocol is checked on join.
 
 Protocol history (newest first):
@@ -89,6 +89,22 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.290 — a peer's random house / forest noise plays the vanilla way (no steps dying away out of nowhere)
+
+- **Players heard footsteps out of nowhere that slowly faded away.** These are the game's random
+  stingers (`RandomWorldSounds`): `house_noises` is all footstep clips, rolled every 50 to 150 s
+  while indoors, 300 to 500 units away; `forest_noises` the same outdoors. Vanilla keeps the sound
+  beside the player (`AlignToObject`), at the game's own falloff. The share sent each roll to nearby
+  peers, who played it fixed at that spot with the stand-in falloff: walking off faded it away. A
+  peer also played it whatever its own state was, so a player outdoors heard the house footsteps a
+  peer indoors rolled.
+- Now a received stinger plays only when this player's own roll could have picked it right then
+  (not underground, not dreaming or in the credits, indoors / outdoors as the sound needs, its
+  requirements and daily cap), with the game's falloff, following this player at the offset it
+  arrived at; otherwise it is dropped. A played one still counts as this player's roll.
+- Files: `Audio/RandomWorldSoundShare.cs`, `Domains/World/WorldFxNetHandlers.cs`.
+- Status: code only, not tested in the game.
 
 ## 0.8.289 — every install logs at Dev detail, whatever its config says
 
