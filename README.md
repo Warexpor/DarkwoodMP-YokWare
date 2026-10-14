@@ -5,7 +5,7 @@ join it: the same forest, the same nights, the same story, played together.
 
 | | |
 |--|--|
-| Product | YokWare Branch **0.8.295** |
+| Product | YokWare Branch **0.8.296** |
 | Wire | Horde protocol **74** |
 | Players | Up to 8 by default (`MaxPlayers`, host included) |
 | Transport | LAN (LiteNetLib) or Steam lobby (SteamNetworkingSockets) |
@@ -271,8 +271,10 @@ Wine/Proton client, set `FreeCursorForDualBox = true` in both installs' config
 
 `DarkwoodMP.ManualSaves` builds `YokWare.ManualSaves.dll`, an optional add-on: ten
 extra save slots per profile, opened with **F3** in the world (a Saves screen in the
-pause menu). It needs the co-op mod next to it. In co-op only the host saves (every
-player's copy is saved with it), and loading a slot needs the session left first.
+pause menu). It needs the co-op mod next to it (version 1.1.0 needs YokWare Branch 0.8.296 or newer). In co-op only the host saves (every
+player's copy is saved with it), and loading a slot needs the session left first. A slot
+keeps every player's character of its own save, so loading it brings back everyone's bag
+and skills as they were at that save.
 Build it with `dotnet build DarkwoodMP.ManualSaves -c Release` (it deploys like the
 mod); `./scripts/pack-release.sh --addons` packs it as its own zip.
 

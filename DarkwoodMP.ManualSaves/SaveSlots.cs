@@ -20,7 +20,8 @@ namespace YokWare.ManualSaves
 
     /// <summary>
     /// Ten extra save slots per PLAY profile: a copy of the profile's whole save set, taken right
-    /// after a real save, and put back (offline only) to load it. The co-op rules come from the
+    /// after a real save, with every player's character and the co-op records of that save, and put
+    /// back (offline only) to load it. The co-op rules come from the
     /// co-op mod: a joined client cannot save the host's world, nothing is saved during a partial
     /// night death, a dream or the prologue, and loading needs the session to be left first.
     /// </summary>
@@ -146,6 +147,8 @@ namespace YokWare.ManualSaves
                 // from an older save in this slot is removed with the rest.
                 if (!CopySaveSet(profDir, slotDir, out string copyError))
                     return "Save error: " + copyError;
+                // Every player's character and the co-op records belong to this save, not the profile.
+                AddOnApi.SaveCoopFilesInto(Core.currentProfile.id, slotDir);
 
                 var meta = new ManualSaveSlotMeta
                 {
@@ -192,6 +195,8 @@ namespace YokWare.ManualSaves
                 // A slot is a different save instance: a new campaign id, so a co-op backup of
                 // another copy cannot apply to it, and the co-op mod's world state is dropped.
                 AddOnApi.BeforeOfflineLoad(Core.currentProfile.id);
+                // The characters and co-op records of the slot's own save, under that new id.
+                AddOnApi.RestoreCoopFilesFrom(Core.currentProfile.id, slotDir);
 
                 // A slot without a chapter in its meta (an old or missing meta.json) loads
                 // chapter 1, so the profile says chapter 1 too, not the chapter it was on.

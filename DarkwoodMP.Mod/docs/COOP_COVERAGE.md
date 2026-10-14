@@ -40,7 +40,7 @@ state without changing existing players' state.
 | Domain | Main code paths | Current status |
 |---|---|---|
 | Session and handshake | `LanNetworkManager`, `ConnectionBackend`, `HostMigration` | Code covered; runtime pending |
-| World share and saves | `WorldSaveShareService`, `ClientStateBackup`, `SaveSyncPatches` | Code covered; runtime pending |
+| World share and saves | `WorldSaveShareService`, `ClientStateBackup`, `SaveSyncPatches`, `CampaignFiles` (a manual save slot keeps every player's character and the co-op records of its own save) | Code covered; runtime pending |
 | Clock and pause | `ClientTimeAuthorityPatches`, `SleepSyncPatches`, `TimeSync`, `WeatherSync` (Rain/Lightning/fog host→client) | Code covered; runtime pending |
 | Flags and reset | `FlagSyncPatches` (story sync; `player_in*` local-only ephemeral), `NetworkApplyGuard`, `NetworkResetRegistry` | Code covered; runtime pending |
 | Player state | `PlayerStateMessage`, player proxy and animation paths; the stand-in plays positions back on the sender's beat (`RemotePoseTimeline`, unit tested) | Code covered; runtime pending |

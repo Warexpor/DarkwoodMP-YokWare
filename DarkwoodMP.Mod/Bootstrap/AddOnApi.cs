@@ -56,6 +56,15 @@ namespace DWMPHorde
             MultiplayerMapManager.Reset();
         }
 
+        /// <summary>
+        /// A slot was just saved into <paramref name="slotDir"/>: it keeps every player's character
+        /// and the co-op records of this save with it (see <see cref="CampaignFiles"/>).
+        /// </summary>
+        public static void SaveCoopFilesInto(int profileId, string slotDir) => CampaignFiles.CopyIntoSlot(profileId, slotDir);
+
+        /// <summary>After <see cref="BeforeOfflineLoad"/>: the slot's characters and records go back into the profile.</summary>
+        public static void RestoreCoopFilesFrom(int profileId, string slotDir) => CampaignFiles.RestoreFromSlot(profileId, slotDir);
+
         /// <summary>Hold vanilla gameplay input while <paramref name="owner"/>'s screen takes the keyboard.</summary>
         public static void HoldInput(string owner, bool held) => UiInputLock.Set(owner, held);
     }
