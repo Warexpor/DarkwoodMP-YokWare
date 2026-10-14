@@ -106,8 +106,9 @@ namespace DWMPHorde.Patches
 
             // multipleFire ambient loops already run on clients (Prefix allows them).
             // Rebroadcasting each tick → FindNearest* on client + Dev log spam = periodic hitches.
-            // A player's use or examine is the exception: clients never run those locally.
-            if (__instance.multipleFire && !PlayerUseScope.Active)
+            // A player's use or examine is the exception: clients never run those locally. So is
+            // a dialogue board's world event (the bunker key's goThroughDoor).
+            if (__instance.multipleFire && !PlayerUseScope.Active && !DialogueWorldEventScope.Active)
                 return;
             // A night scene's copy: clients replay the scene where they are (ScenarioEventFired).
             if (NightEventAnchor.PlayingScene)

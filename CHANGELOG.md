@@ -196,6 +196,13 @@ over both chapters' hideouts, every event of each night's scenario fired).
   boards at once when the talk ends, and past its reading time, then closes; the NPC's close
   events wait for it. Files: `DialogOutcomeApplyNetHandlers.Drain.cs`
   (`RushWorldOnlyDrainForRelease`), `DialogNpcLockNetHandlers.cs`, `LanNetworkManager.PeerEvents.cs`.
+- **The bunker key opened the door on the host only.** With the boards played, the key's
+  `endOfChapter1` ran `goThroughDoor` on the host (shut door removed, open door and corridor on,
+  the keyholder's trip), but that event is repeatable in the scene data, and the host never sends
+  repeatable events (clients run their ambient loops themselves). Every client kept the shut
+  door, and the keyholder stayed in front of it. A world event fired by a dialogue board is now
+  sent whatever its flag, as a player's use already was. Files: `EventCoroutineScope.cs`
+  (`DialogueWorldEventScope`), `GameEventsFiredPatch.cs`.
 - **The bunker's talking door came back after it let the players through (dream and
   overworld).** Closing the dream talk fires the leave-door event: it switches off the shut door
   and the talking door (an NPC creature) and switches the corridor beyond on; the overworld

@@ -135,6 +135,38 @@ namespace DWMPHorde.Sync
         }
     }
 
+    /// <summary>
+    /// Host: a world event a dialogue board fires (vanilla outcome fireWorldEvent). The bunker
+    /// key's <c>endOfChapter1</c> runs <c>goThroughDoor</c>, a repeatable GameEvents; repeatable
+    /// ones are not sent (clients run their ambient loops themselves), so the door opened and the
+    /// keyholder went through on the host only. A board's world event is a story step whatever
+    /// its event's flag, and is sent like a player's use.
+    /// </summary>
+    internal static class DialogueWorldEventScope
+    {
+        internal static int Depth; // process-scoped: call-scoped, balanced by the patch Finalizer
+
+        internal static bool Active => Depth > 0;
+    }
+
+    [HarmonyPatch(typeof(Events), nameof(Events.fireWorldEvent))]
+    public static class DialogueWorldEventScopePatch
+    {
+        private static void Prefix(out bool __state)
+        {
+            DialogueWindow dw = Singleton<UI>.Instance != null ? Singleton<UI>.Instance.dialogueWindow : null;
+            __state = dw != null && dw.displayingDialogue && NetGuard.Host(out _);
+            if (__state)
+                DialogueWorldEventScope.Depth++;
+        }
+
+        private static void Finalizer(bool __state)
+        {
+            if (__state)
+                DialogueWorldEventScope.Depth--;
+        }
+    }
+
     [HarmonyPatch(typeof(GameEvent), nameof(GameEvent.fire))]
     public static class GameEventFireScopePatch
     {
