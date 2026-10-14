@@ -11,7 +11,7 @@ behaves), see [HOW_COOP_WORKS.md](HOW_COOP_WORKS.md).
 
 | Folder | What lives there |
 |---|---|
-| `Bootstrap/` | Loader entry points (BepInEx `DWMPEntry`, MelonLoader `MelonModMain`), `ModRuntime` (start/stop, patch application, reset registrations), `PluginInfo` (the single source of version and protocol). |
+| `Bootstrap/` | Loader entry points (BepInEx `DWMPEntry`, MelonLoader `MelonModMain`), `ModRuntime` (start/stop, patch application, reset registrations), `PluginInfo` (the single source of version and protocol), `AddOnApi` (all the manual-saves add-on may call: session state, save rules, the crash-safe save-set copy, a slot's co-op files). |
 | `Harmony/` | Patch application per class (`PatchApplier`), the `[OptionalPatch]` marker, coroutine helpers. |
 | `Networking/` | `LanNetworkManager` (the network component), transports, dispatch, messages, session services. |
 | `Networking/Transport/` | `IPeerTable` with `LanPeerTable` (LiteNetLib) and `SteamPeerTable` (SNS + host-password gate). |
