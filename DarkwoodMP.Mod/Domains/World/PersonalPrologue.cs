@@ -420,6 +420,9 @@ namespace DWMPHorde.Sync
                 // this campaign was saved under (a host who handed the world over and joins it
                 // back, a second copy of the same world): the character follows the campaign.
                 ClientStateBackup.AdoptSelfBackupFromOtherProfile(path, KnownSuffix);
+                // The host's copy of the world stores this player's character too: a player whose
+                // own files are missing here (another machine) or older is not new to the world.
+                ClientStateBackup.AdoptHostHeldSelf();
                 snapshot = System.IO.File.Exists(path);
                 _prologueDone = System.IO.File.Exists(path + KnownSuffix);
             }

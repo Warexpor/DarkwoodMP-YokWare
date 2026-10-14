@@ -138,6 +138,7 @@ namespace DWMPHorde.Networking
             LateJoinStep(playerId, "worldBurn", () => WorldBurnHandlers.SendWorldBurnStatesTo(playerId));
             LateJoinStep(playerId, "dreamSession", () => DreamHandlers.SendDreamSessionBulkTo(playerId));
             LateJoinStep(playerId, "clientBackup", () => SendStoredClientBackupTo(playerId));
+            LateJoinStep(playerId, "partyCharacters", () => SaveHandlers.SendPartyCharactersTo(playerId));
             LateJoinStep(playerId, "hostLight", () => SyncCurrentLightState());
             LateJoinStep(playerId, "hostAnimLibrary", () => SyncCurrentAnimLibrary());
             // Other clients' light state / anim library (the host's own went out just above).

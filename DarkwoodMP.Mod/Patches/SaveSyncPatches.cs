@@ -287,15 +287,24 @@ namespace DWMPHorde.Patches
     [HarmonyPatch(typeof(SaveManager), "Save")]
     public static class SaveSyncPatch
     {
-        private static void Postfix(bool showSavingIndicator)
+        private static void Postfix(bool showSavingIndicator, bool __runOriginal)
         {
             if (LanNetworkManager.RemoteSaveInProgress)
                 return;
             // Host applying client dialog must never fan out Saving UI (see DialogHostSilentClose).
             if (HostApplyGuard.Active)
                 return;
-            if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected)
+            if (ModRuntime.Network == null)
                 return;
+            if (!ModRuntime.Network.IsConnected)
+            {
+                // A host saving alone: its character goes with this save all the same (the world a
+                // later joiner downloads, and whoever hosts that copy next, pair it with this bag).
+                if (__runOriginal && ModRuntime.Network.Role == NetworkRole.Host && !NightDeathSavePatch.IsHeld()
+                    && !IsDreamEntrySaveWindow() && !DreamSyncManager.IsLocalMidDream)
+                    ModRuntime.Network.SaveHandlers.HostKeepOwnCharacter();
+                return;
+            }
             if (ModRuntime.Network.Role == NetworkRole.Offline)
                 return;
 

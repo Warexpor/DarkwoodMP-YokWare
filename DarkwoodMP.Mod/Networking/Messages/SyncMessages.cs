@@ -996,6 +996,32 @@ namespace DWMPHorde.Networking
         public static ClientStateBackupMessage Deserialize(NetReader r) => new ClientStateBackupMessage { JsonData = r.GetLongString(), NightDeath = r.GetBool() };
     }
 
+    /// <summary>Why the host sends a <see cref="PartyCharacterMessage"/>.</summary>
+    public enum PartyCharacterKind : byte
+    {
+        /// <summary>Taken at the world save that just ran (relayed client snapshot or the host's own).</summary>
+        SaveRound = 0,
+        /// <summary>To a joiner, after its load: the characters stored with the world it downloaded.</summary>
+        Roster = 1,
+        /// <summary>To a joiner, before the download: its own character as this world stores it.</summary>
+        Own = 2,
+    }
+
+    public struct PartyCharacterMessage
+    {
+        public PartyCharacterKind Kind;
+        /// <summary>A <c>ClientStateBackupData</c> JSON, identity fields stamped by the host.</summary>
+        public string JsonData;
+        public void Serialize(NetWriter w) { w.Put((byte)Kind); w.PutLongString(JsonData); }
+        public static PartyCharacterMessage Deserialize(NetReader r)
+        {
+            byte k = r.GetByte();
+            if (k > (byte)PartyCharacterKind.Own)
+                throw new System.IO.InvalidDataException("PartyCharacter kind " + k);
+            return new PartyCharacterMessage { Kind = (PartyCharacterKind)k, JsonData = r.GetLongString() };
+        }
+    }
+
     public struct ReputationSyncMessage
     {
         public string NpcName;

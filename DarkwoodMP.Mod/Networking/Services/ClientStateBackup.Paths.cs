@@ -374,6 +374,16 @@ namespace DWMPHorde.Networking
 
                 CoopWorldCopyMeta.WriteAllTextAtomic(path, json);
                 ModRuntime.LegacyInfo($"[ClientBackup] saved{keyTag} → {path}");
+                // A Steam player's LAN key file too: a later host of this world on LAN (a GOG copy)
+                // finds the character by the key alone.
+                if (steamId != 0 && !string.IsNullOrEmpty(stableKey))
+                {
+                    string keyPath = GetBackupFilePathForStableKey(stableKey);
+                    string c = SanitizeCampaignIdForPath(parsed?.CampaignId);
+                    if (!string.IsNullOrEmpty(c))
+                        keyPath = GetProfileBackupDirectory() + "/client_backup_k" + stableKey + "_" + c + ".json";
+                    CoopWorldCopyMeta.WriteAllTextAtomic(keyPath, json);
+                }
             }
             catch (Exception ex)
             {
@@ -449,18 +459,8 @@ namespace DWMPHorde.Networking
                     + (steamId != 0 ? " s" + steamId : "")
                     + (stableKey != null ? " k" + stableKey.Substring(0, Math.Min(8, stableKey.Length)) : "");
 
-                if (steamId != 0)
-                {
-                    data = TryReadBackup(GetBackupFilePathForSteam(steamId));
-                    if (data == null)
-                        data = TryReadBackup(GetLegacySteamBackupPath(steamId));
-                }
-                if (data == null && !string.IsNullOrEmpty(stableKey))
-                {
-                    data = TryReadBackup(GetBackupFilePathForStableKey(stableKey));
-                    if (data == null)
-                        data = TryReadBackup(GetLegacyStableBackupPath(stableKey));
-                }
+                if (steamId != 0 || !string.IsNullOrEmpty(stableKey))
+                    data = ReadStoredCharacter(steamId, stableKey);
                 if (data == null && allowPlayerIdFallback && playerId > 0)
                 {
                     data = TryReadBackup(GetBackupFilePathForPlayer(playerId));

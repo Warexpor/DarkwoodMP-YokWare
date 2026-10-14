@@ -370,6 +370,10 @@ namespace DWMPHorde.Networking
 
             if (target <= 0)
                 _broadcastRecipients = new HashSet<int>(_net.EnumeratePeerIds());
+            // Ahead of the world: the recipient's own character as this world stores it, for its load
+            // to tell a returning player from a new one.
+            foreach (int id in target > 0 ? new[] { target } : (IEnumerable<int>)_broadcastRecipients)
+                _net.SaveHandlers.SendOwnCharacterBeforeShare(id);
             SendShare(target, NetMessageType.WorldSaveBegin, w => begin.Serialize(w));
 
             int sent = 0;

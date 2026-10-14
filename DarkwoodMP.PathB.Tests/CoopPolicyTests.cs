@@ -553,4 +553,41 @@ public class CoopPolicyTests
         // Put in the middle (teleported): no side to go back to.
         Assert.False(LockGatePolicy.WentBack(5f, 5f, 0f, 2000f));
     }
+
+    [Fact]
+    public void PartyCharacter_StoredOnlyWhenItBelongsWithThisCopy()
+    {
+        var t0 = new System.DateTime(2026, 10, 14, 12, 0, 0);
+        var t1 = t0.AddMinutes(10);
+        // Save round, this copy saved a moment ago, nothing stored yet / an older copy stored.
+        Assert.True(PartyCharacterPolicy.ShouldStore(0, true, false, true, t1, default, false, 3f));
+        Assert.True(PartyCharacterPolicy.ShouldStore(0, true, false, true, t1, t0, true, 3f));
+        Assert.True(PartyCharacterPolicy.ShouldStore(0, true, false, true, t1, t1, true, 3f));
+        // This copy skipped that save (never saved, or long ago): its world is older than the bag.
+        Assert.False(PartyCharacterPolicy.ShouldStore(0, true, false, true, t1, default, false, -1f));
+        Assert.False(PartyCharacterPolicy.ShouldStore(0, true, false, true, t1, default, false, PartyCharacterPolicy.SaveRoundWindowSec + 1f));
+        // A join's roster matches the world just downloaded: no save needed.
+        Assert.True(PartyCharacterPolicy.ShouldStore(1, true, false, true, t1, default, false, -1f));
+        // Never an older one over a newer, another campaign's, this player's own, an empty one.
+        Assert.False(PartyCharacterPolicy.ShouldStore(1, true, false, true, t0, t1, true, -1f));
+        Assert.False(PartyCharacterPolicy.ShouldStore(1, false, false, true, t1, default, false, -1f));
+        Assert.False(PartyCharacterPolicy.ShouldStore(1, true, true, true, t1, default, false, -1f));
+        Assert.False(PartyCharacterPolicy.ShouldStore(1, true, false, false, t1, default, false, -1f));
+        // Own is held for the load, never stored as another player's.
+        Assert.False(PartyCharacterPolicy.ShouldStore(2, true, false, true, t1, default, false, 3f));
+    }
+
+    [Fact]
+    public void PartyCharacter_HeldOwnReplacesOnlyAMissingOrOlderLocalFile()
+    {
+        var t0 = new System.DateTime(2026, 10, 14, 12, 0, 0);
+        var t1 = t0.AddMinutes(10);
+        Assert.True(PartyCharacterPolicy.ShouldAdoptHeldOwn(true, true, t1, default, false));
+        Assert.True(PartyCharacterPolicy.ShouldAdoptHeldOwn(true, true, t1, t0, true));
+        Assert.False(PartyCharacterPolicy.ShouldAdoptHeldOwn(true, true, t1, t1, true));
+        Assert.False(PartyCharacterPolicy.ShouldAdoptHeldOwn(true, true, t0, t1, true));
+        Assert.False(PartyCharacterPolicy.ShouldAdoptHeldOwn(false, true, t1, default, false));
+        Assert.False(PartyCharacterPolicy.ShouldAdoptHeldOwn(true, false, t1, default, false));
+    }
 }
+

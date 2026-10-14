@@ -3,11 +3,12 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.285**. The current Horde wire protocol is **71**. Every install in a session
+**0.8.286**. The current Horde wire protocol is **72**. Every install in a session
 needs the same DLL; the protocol is checked on join.
 
 Protocol history (newest first):
 
+- **72**, 0.8.286: new `PartyCharacter` (177), host to clients: another player's stored character.
 - **71**, 0.8.285: `SaveSync` (was empty) carries `ShowIndicator`, whether the Save behind it showed the
   corner "Saving" indicator.
 - **70**, 0.8.282 to 0.8.283: `ScenarioEventFired` gains `AnchorActors` (the player each anchor's scene played for);
@@ -88,6 +89,47 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.286 — every copy of a co-op world keeps every player's character: anyone can host it next
+
+Protocol **72** (new `PartyCharacter`, 177).
+
+- **What changes for players.** Three friends play, the host gets busy: any of the others loads their
+  own copy of the world (the slot their game saved it in), hosts it, and everyone joins as they were,
+  the old host included, with their bag, skills, level, upgrades and position from the last world save
+  they were in. No handing saves around.
+- **Why it did not quite work before.** Only the host kept every player's character
+  (`client_backup_s…/k…_{campaign}.json` in its profile). A client kept its own only. A client
+  hosting its copy had nobody else's: each joiner fell back on the file on its own machine, so a
+  player on another machine (or after a reinstall) came back as a new character, and the new host
+  had nothing of its own to give anyone.
+- **Now every machine keeps every character, in the same files the host keeps.**
+  - At each world save the host relays each client's fresh character to the other clients, and sends
+    its own (stamped with its Steam id and LAN key) right after the save broadcast. A client stores
+    them only if it took part in that save (its coordinated save ran within the last 2 minutes): a
+    copy that skipped the save (in a dream) would pair an older world with a newer bag.
+  - A joiner gets, after its load, every character the host's copy stores (the host's own included,
+    not the joiner's): they match the world it just downloaded.
+  - Before the download the host sends the joiner its own character as the host's copy has it. The
+    join load uses it when the joiner's machine has none or an older one, so a returning player on
+    another machine is not taken for a new one (fresh character, prologue).
+  - A file is never replaced by an older copy of the same player (timestamps of one player's
+    snapshots all come from that player's clock), never with another campaign's, never with the
+    receiving player's own.
+- **A host saving alone keeps its character too.** It was stored only at saves with clients
+  connected, so a joiner downloaded a world newer than the host's stored character; whoever hosted
+  that copy next handed the old host an older bag.
+- **Steam and LAN keys.** A Steam player's character is also written under its LAN key, and a lookup
+  takes the newer of the two files, so a GOG copy hosting over LAN finds a player who was stored on a
+  Steam session.
+- Files: `ClientStateBackup.Party.cs` (new: store, roster, held own character),
+  `ClientStateBackup.Paths.cs` (LAN key file next to the Steam one, newer-of-two lookup),
+  `SaveNetHandlers.cs` / `SaveNetHandlers.Apply.cs` (relay, host's own, roster, `HandlePartyCharacter`),
+  `SaveSyncPatches.cs` (host alone), `WorldSaveShareService.HostShare.cs` (own character before the
+  download), `PersonalPrologue.cs` (join load takes it), `LanNetworkManager.SessionHandlers.LateJoin.cs`,
+  `SyncMessages.cs` / `NetMessageType.cs`, `CoopPolicy.Session.cs` (`PartyCharacterPolicy`); tests in
+  `CoopPolicyTests` and `MessageRoundTripTests`.
+- Not run in game yet.
 
 ## 0.8.285 — no "Saving" notice at a new day on a client; villagers come back in the morning; exact sound-area exemption
 

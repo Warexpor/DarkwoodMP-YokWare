@@ -372,6 +372,17 @@ the world. The host's own character is kept as a snapshot at every save, so the
 same player joining that world later comes back as that character, in whichever
 profile slot the world lands.
 
+### Anyone can host the world next
+
+Every copy of a co-op world keeps every player's character, the host's included, not
+only the host's copy. At each world save the host sends each player's fresh character
+to the others (a copy that skipped that save, in a dream, does not take them), and a
+joiner gets all of them with the world it downloads. So when the host cannot play any
+more, any other player loads their own copy, hosts it, and everyone, the old host too,
+joins as they were at the last world save they were in. A joiner's own character from
+the host's copy is also used when the joiner's machine has none (another machine, a
+reinstall), so a returning player is not taken for a new one.
+
 ---
 
 ## 5. Time, pause and the clock

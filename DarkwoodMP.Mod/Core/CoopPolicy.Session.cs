@@ -151,4 +151,41 @@ namespace DWMPHorde
             return name;
         }
     }
+
+    /// <summary>
+    /// Every copy of a co-op world keeps every player's character, so any player can host that
+    /// world later and hand the others (the old host too) their characters back. The host sends
+    /// them; this decides whether a client writes one into its copy.
+    /// </summary>
+    public static class PartyCharacterPolicy
+    {
+        /// <summary>
+        /// A save round's character is written only by a machine that took part in that save (its
+        /// own coordinated save ran this recently): a copy that skipped the save (in a dream) would
+        /// pair an older world with a newer bag, and a host of that copy would hand out items still
+        /// lying in its world.
+        /// </summary>
+        public const float SaveRoundWindowSec = 120f;
+
+        /// <param name="kind">0 save round, 1 join roster, 2 own (see PartyCharacterKind).</param>
+        /// <param name="secondsSinceLocalWorldSave">Since this machine's last coordinated world save; negative = never.</param>
+        public static bool ShouldStore(int kind, bool campaignMatches, bool isOwnCharacter, bool hasProgress,
+            System.DateTime incomingAt, System.DateTime existingAt, bool hasExisting, float secondsSinceLocalWorldSave)
+        {
+            if (kind == 2 || !campaignMatches || isOwnCharacter || !hasProgress)
+                return false;
+            if (kind == 0 && (secondsSinceLocalWorldSave < 0f || secondsSinceLocalWorldSave > SaveRoundWindowSec))
+                return false;
+            // Timestamps of one player's snapshots all come from that player's clock.
+            return !hasExisting || incomingAt >= existingAt;
+        }
+
+        /// <summary>
+        /// A joiner's own character as the host's copy stores it, held through the download: it
+        /// becomes the joiner's own file when that has none or an older one.
+        /// </summary>
+        public static bool ShouldAdoptHeldOwn(bool campaignMatches, bool hasProgress,
+            System.DateTime heldAt, System.DateTime localAt, bool hasLocal)
+            => campaignMatches && hasProgress && (!hasLocal || heldAt > localAt);
+    }
 }

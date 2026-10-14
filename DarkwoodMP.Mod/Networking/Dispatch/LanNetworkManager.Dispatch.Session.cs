@@ -34,6 +34,7 @@ namespace DWMPHorde.Networking
             On(NetMessageType.FlagSync, FlagSyncMessage.Deserialize, m => FlagHandlers.HandleFlagSync(m));
             On(NetMessageType.DreamSessionBulk, DreamSessionBulkMessage.Deserialize, m => DreamHandlers.HandleDreamSessionBulk(m));
             On(NetMessageType.ClientStateBackup, ClientStateBackupMessage.Deserialize, m => HandleClientStateBackup(m));
+            On(NetMessageType.PartyCharacter, PartyCharacterMessage.Deserialize, m => SaveHandlers.HandlePartyCharacter(m));
             On(NetMessageType.GameEventsBulk, GameEventsBulkMessage.Deserialize, m => GameEventHandlers.HandleGameEventsBulk(m));
             On(NetMessageType.HideoutUpgrade, HideoutUpgradeMessage.Deserialize, m => ContainerLootHandlers.HandleHideoutUpgrade(m));
             On(NetMessageType.JournalBulkSync, JournalBulkSyncMessage.Deserialize, m => JournalHandlers.HandleJournalBulkSync(m));

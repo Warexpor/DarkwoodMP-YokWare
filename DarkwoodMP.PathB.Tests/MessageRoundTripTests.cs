@@ -879,4 +879,28 @@ public class MessageRoundTripTests
         Assert.Equal(show, SaveSyncMessage.Deserialize(r).ShowIndicator);
         Assert.Equal(0, r.AvailableBytes);
     }
+
+    [Theory]
+    [InlineData(PartyCharacterKind.SaveRound)]
+    [InlineData(PartyCharacterKind.Roster)]
+    [InlineData(PartyCharacterKind.Own)]
+    public void PartyCharacter_RoundTrips(PartyCharacterKind kind)
+    {
+        string json = "{\"StableClientKey\":\"" + new string('a', 32) + "\",\"Pad\":\"" + new string('x', 70000) + "\"}";
+        var r = new NetReader(Bytes(new PartyCharacterMessage { Kind = kind, JsonData = json }.Serialize));
+        var back = PartyCharacterMessage.Deserialize(r);
+        Assert.Equal(kind, back.Kind);
+        Assert.Equal(json, back.JsonData);
+        Assert.Equal(0, r.AvailableBytes);
+    }
+
+    [Fact]
+    public void PartyCharacter_RejectsUnknownKind()
+    {
+        var w = new NetWriter();
+        w.Put((byte)9);
+        w.PutLongString("{}");
+        Assert.Throws<System.IO.InvalidDataException>(() => PartyCharacterMessage.Deserialize(new NetReader(w.CopyData())));
+    }
 }
+

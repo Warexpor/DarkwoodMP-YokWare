@@ -78,7 +78,8 @@ public class NetMessageContractTests
         Assert.Equal(174, (byte)NetMessageType.OxygenTankSet);
         Assert.Equal(175, (byte)NetMessageType.ObjectSpawnerFired);
         Assert.Equal(176, (byte)NetMessageType.OxygenTankRecords);
-        Assert.Equal(176, (byte)NetMessageType._Highest);
+        Assert.Equal(177, (byte)NetMessageType.PartyCharacter);
+        Assert.Equal(177, (byte)NetMessageType._Highest);
         // 157 (OxygenTankTier) is retired.
         Assert.False(Enum.IsDefined(typeof(NetMessageType), (byte)157));
         // 68 / 72 (MapMarker / MapMarkerRemove) and 165 (WorldClock) are retired.
