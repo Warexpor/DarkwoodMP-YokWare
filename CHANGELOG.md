@@ -195,9 +195,10 @@ over both chapters' hideouts, every event of each night's scenario fired).
   switch-off), and the host's replay of a client's talk (`HostFireNpcCloseDialogue`,
   `FindNpcByName`, `ResolveNpc`, the talk-start replay). The talking door came straight back on
   the host and went on streaming to every client, standing in the doorway the event had opened;
-  the dream scene's switched-off spare of it could be woken too. Vanilla never switches an NPC's
-  object for the culling (`Location.activateCharacters` wakes only its components): only the
-  story does. The mod now follows that rule everywhere: an NPC switched off stays off and is not
+  the dream scene's switched-off spare of it could be woken too. In vanilla an NPC's object is
+  switched by its location (on when a player enters it, off when it is left), the distance
+  culling and the story; nothing else wakes it. The mod now follows that: an NPC switched off
+  while its spot is in view (the culling did not do it) stays off and is not
   streamed (after a load too, where its saved state is the story's), a creature a story step
   switched off (`setMeActive(false)`) likewise, and a talk is replayed on the NPC that is out
   rather than on a switched-off twin. This is why the bunker doors kept trading places: each fix

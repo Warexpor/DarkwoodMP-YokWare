@@ -82,9 +82,9 @@ namespace DWMPHorde.Networking
             DialogHostApplyGuard.BeginWorldOnly();
             try
             {
-                // An NPC switched off stays off: only the story switches an NPC's object on or
-                // off (vanilla Location.activateCharacters never does). Switching it on here
-                // revived the bunker's talking door after its talk had let the players through.
+                // An NPC switched off stays off: its location, the culling and the story switch
+                // an NPC's object, a talk's replay does not. Switching it on here revived the
+                // bunker's talking door after its talk had let the players through.
                 Core.sendTriggerInfo(npc.gameObject, EventTrigger.Type.onCloseDialogue);
 
                 // Vanilla sendTriggerInfo only checks the root GO. Dream props sometimes

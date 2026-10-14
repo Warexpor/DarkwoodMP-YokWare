@@ -47,6 +47,7 @@ namespace DWMPHorde.Sync
         private static int _talked;                 // process-scoped: talks run since the last "talkall"
         private static readonly HashSet<string> _visited = new HashSet<string>(); // process-scoped: dialogue options already picked
         private static readonly Dictionary<string, int> _decisionTurns = new Dictionary<string, int>(); // process-scoped: next branch per decision
+        private static string _talkPick;            // process-scoped: "talkpick" option label part the talk takes when offered
         private static string[] _atCmd;             // process-scoped: "at" command waiting for its moment
         private static long _atMs;                  // process-scoped: when (Unix ms) it runs
         private static readonly List<KeyValuePair<string, Vector3>> _sounds = new List<KeyValuePair<string, Vector3>>(); // process-scoped: "audio" recording
@@ -1635,6 +1636,12 @@ namespace DWMPHorde.Sync
                     _visited.Clear();
                     Out("  dialogue options forgotten");
                     return;
+                case "talkpick":
+                    // "talkpick <label part>": at each decision the talk takes an option whose label
+                    // holds it when one is offered (the bunker key's insertKey); "talkpick" alone clears.
+                    _talkPick = a.Length > 1 ? a[1] : null;
+                    Out("  talk picks " + (_talkPick ?? "in turn"));
+                    return;
                 case "give":
                 {
                     InvItemClass it = p.Inventory.addItemTypeToPlayer(a[1], a.Length > 2 ? int.Parse(a[2], CultureInfo.InvariantCulture) : 1, dropIfNoRoom: true);
@@ -1905,6 +1912,13 @@ namespace DWMPHorde.Sync
                     _decisionTurns.TryGetValue(key, out int turn);
                     _decisionTurns[key] = turn + 1;
                     int pick = turn % w.menuOptions.Count;
+                    if (_talkPick != null)
+                        for (int oi = 0; oi < w.menuOptions.Count; oi++)
+                            if (Label(w.menuOptions[oi]).IndexOf(_talkPick, StringComparison.OrdinalIgnoreCase) >= 0)
+                            {
+                                pick = oi;
+                                break;
+                            }
                     Out("  decision " + key + " → " + pick + "/" + w.menuOptions.Count + " " + Label(w.menuOptions[pick]));
                     w.menuOptions[pick].getClicked(force: true);
                     return;

@@ -433,10 +433,10 @@ namespace DWMPHorde.Networking
             float wakeSq = GameplayConstants.EntityActivationRange * GameplayConstants.EntityActivationRange;
             // A dummy (a scene prop built as a Character, the grave meadow's corpse) has nothing to
             // wake: vanilla enableComponents returns at once for it, so it was "woken" every tick.
-            // The wake is for the culling's switch-off only. An NPC's object is switched on and
-            // off by the story alone (vanilla Location.activateCharacters wakes only its
-            // components), and a creature a story step switched off stays off: woken, the dream
-            // bunker's talking door came back after its talk had let the players through.
+            // The wake is for the culling's switch-off only. An NPC's object is otherwise switched
+            // by its location (Location.enter / leave) and the story, and a creature a story step
+            // switched off stays off: woken, the dream bunker's talking door came back after its
+            // talk had let the players through.
             if (c.alive && !c.dummy
                 && !(!c.gameObject.activeSelf && SwitchedOffForGood(c))
                 && PlayerPositionManager.IsAnyRemoteWithinSq(cPos, wakeSq)
