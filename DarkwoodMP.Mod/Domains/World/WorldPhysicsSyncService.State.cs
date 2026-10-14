@@ -95,6 +95,9 @@ namespace DWMPHorde.Sync
             public readonly Dictionary<Vector3, bool> LastGeneratorOn = new Dictionary<Vector3, bool>();
             public readonly Dictionary<Vector3, float> LastGeneratorFuel = new Dictionary<Vector3, float>();
             public readonly List<Vector3> ScanCenters = new List<Vector3>(8);
+            /// <summary>Host: bodies sent moving lately, scanned where they are until they settle.</summary>
+            public readonly Dictionary<int, Transform> RecentMovers = new Dictionary<int, Transform>(16);
+            public readonly List<int> RecentMoversDone = new List<int>(16);
             public readonly HashSet<int> ScannedObjectIds = new HashSet<int>();
             public readonly Dictionary<int, ObjectInterpState> ObjectInterp = new Dictionary<int, ObjectInterpState>();
         }

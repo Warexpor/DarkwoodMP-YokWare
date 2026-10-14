@@ -1,4 +1,5 @@
 using DWMPHorde.Networking;
+using DWMPHorde.Players;
 using DWMPHorde.Sync;
 using HarmonyLib;
 using UnityEngine;
@@ -71,6 +72,17 @@ namespace DWMPHorde.Patches
                     || eventName.IndexOf("def_shadow", System.StringComparison.OrdinalIgnoreCase) >= 0);
         }
 
+        /// <summary>The night spawn (not a creature from the save) the event belongs to, or null.</summary>
+        private static Character SpawnedCreatureOf(GameEvents ges)
+        {
+            Character c = ges.GetComponentInParent<Character>();
+            if (c == null)
+                return null;
+            CharacterSpawner spawner = Singleton<CharacterSpawner>.Instance;
+            return c.temporarySpawned || (spawner != null && spawner.spawnedCharacters != null
+                && spawner.spawnedCharacters.Contains(c.gameObject)) ? c : null;
+        }
+
         private static void Postfix(GameEvents __instance, bool __state)
         {
             if (__instance == null) return;
@@ -94,8 +106,9 @@ namespace DWMPHorde.Patches
 
             // multipleFire ambient loops already run on clients (Prefix allows them).
             // Rebroadcasting each tick → FindNearest* on client + Dev log spam = periodic hitches.
-            // A player's use or examine is the exception: clients never run those locally.
-            if (__instance.multipleFire && !PlayerUseScope.Active)
+            // A player's use or examine is the exception: clients never run those locally. So is
+            // a dialogue board's world event (the bunker key's goThroughDoor).
+            if (__instance.multipleFire && !PlayerUseScope.Active && !DialogueWorldEventScope.Active)
                 return;
             // A night scene's copy: clients replay the scene where they are (ScenarioEventFired).
             if (NightEventAnchor.PlayingScene)
@@ -139,6 +152,22 @@ namespace DWMPHorde.Patches
                 firedMsg.ScenePiece = true;
                 foreach (int id in scenePeers)
                     net.SendToPlayer(id, NetMessageType.GameEventsFired, w => firedMsg.Serialize(w), LiteNetLib.DeliveryMethod.ReliableOrdered);
+            }
+            else if (SpawnedCreatureOf(__instance) is Character owner)
+            {
+                // A spawned creature's own events (the banshee's scream and run-away): only the
+                // peers it is streamed to have a copy of it. The others searched a minute for it
+                // ("no GameEvents near ... name='Banshee' after 60s, dropped").
+                float rangeSq = GameplayConstants.EntityInterestLeaveRange * GameplayConstants.EntityInterestLeaveRange;
+                Vector3 at = owner.transform.position;
+                foreach (RemotePlayerProxy proxy in net.GetAllProxies())
+                {
+                    if (proxy == null || proxy.PlayerId <= 0)
+                        continue;
+                    Vector3 d = proxy.transform.position - at;
+                    if (d.x * d.x + d.z * d.z <= rangeSq)
+                        net.SendToPlayer(proxy.PlayerId, NetMessageType.GameEventsFired, w => firedMsg.Serialize(w), LiteNetLib.DeliveryMethod.ReliableOrdered);
+                }
             }
             else
                 net.SendGameEventsFired(firedMsg);

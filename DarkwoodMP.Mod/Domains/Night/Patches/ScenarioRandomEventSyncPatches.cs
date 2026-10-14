@@ -39,7 +39,10 @@ namespace DWMPHorde.Patches
             _lastSentEventIndex = int.MinValue;
         }
 
-        private static void Postfix(NightScenario __instance)
+        private static void Postfix(NightScenario __instance) => SendCurrent(__instance);
+
+        /// <summary>Host: send the scenario's current event once (also right after a forced start).</summary>
+        internal static void SendCurrent(NightScenario __instance)
         {
             var net = ModRuntime.Network;
             if (net == null || net.Role != NetworkRole.Host || !net.IsConnected)
@@ -62,7 +65,8 @@ namespace DWMPHorde.Patches
                         return;
                     _lastSentScenario = __instance;
                     _lastSentEventIndex = i;
-                    net.SendScenarioEventFired(__instance.name, __instance.nightId, i, NightEventAnchor.TakeFiredAnchors());
+                    string actors = NightEventAnchor.TakeFiredActors();
+                    net.SendScenarioEventFired(__instance.name, __instance.nightId, i, NightEventAnchor.TakeFiredAnchors(), actors);
                     return;
                 }
             }

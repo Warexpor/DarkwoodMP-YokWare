@@ -47,6 +47,7 @@ namespace DWMPHorde.Sync
         private static int _talked;                 // process-scoped: talks run since the last "talkall"
         private static readonly HashSet<string> _visited = new HashSet<string>(); // process-scoped: dialogue options already picked
         private static readonly Dictionary<string, int> _decisionTurns = new Dictionary<string, int>(); // process-scoped: next branch per decision
+        private static string _talkPick;            // process-scoped: "talkpick" option label part the talk takes when offered
         private static string[] _atCmd;             // process-scoped: "at" command waiting for its moment
         private static long _atMs;                  // process-scoped: when (Unix ms) it runs
         private static readonly List<KeyValuePair<string, Vector3>> _sounds = new List<KeyValuePair<string, Vector3>>(); // process-scoped: "audio" recording
@@ -928,6 +929,32 @@ namespace DWMPHorde.Sync
                     Out("  pages done inEpilogue=" + p.inEpilogue + " ending=" + EpilogueNetHandlers.IsLocalInEpilogue());
                     return;
                 }
+                case "cevent":
+                {
+                    // "cevent [text]": fire the current night's event whose name contains the text, as
+                    // its time had come (host: every occupied hideout gets its scene, clients replay
+                    // it); no text lists the night's events.
+                    NightScenario sc = Singleton<NightScenarios>.Instance != null ? Singleton<NightScenarios>.Instance.currentScenario : null;
+                    if (sc == null) { Out("  no night scenario"); return; }
+                    CustomEvent pick = null;
+                    foreach (var cei in sc.customEventAndInts)
+                    {
+                        if (cei == null || cei.customEvent == null) continue;
+                        if (a.Length < 2) { Out("  " + cei.customEvent.name); continue; }
+                        if (pick == null && cei.customEvent.name.IndexOf(a[1], StringComparison.OrdinalIgnoreCase) >= 0)
+                            pick = cei.customEvent;
+                    }
+                    if (a.Length < 2) return;
+                    if (pick == null) { Out("  no event like " + a[1] + " in " + sc.name); return; }
+                    // The night already started it on its own: a second fire doubles its pieces
+                    // (two deadly lights on one spot), which no real night does.
+                    if (pick.started) { Out("  already started " + pick.name + " in " + sc.name); return; }
+                    pick.fire(force: true);
+                    // Sent now: the next check would see only the last of several forced at once.
+                    Patches.HostCheckFrequenciesPostfix.SendCurrent(sc);
+                    Out("  fired " + pick.name + " in " + sc.name);
+                    return;
+                }
                 case "endnight":
                     // What walking out of the hideout does in the morning (Location.OnTriggerExit);
                     // a teleport fires no trigger exit. On a client it asks the host, as a walk-out would.
@@ -1609,6 +1636,12 @@ namespace DWMPHorde.Sync
                     _visited.Clear();
                     Out("  dialogue options forgotten");
                     return;
+                case "talkpick":
+                    // "talkpick <label part>": at each decision the talk takes an option whose label
+                    // holds it when one is offered (the bunker key's insertKey); "talkpick" alone clears.
+                    _talkPick = a.Length > 1 ? a[1] : null;
+                    Out("  talk picks " + (_talkPick ?? "in turn"));
+                    return;
                 case "give":
                 {
                     InvItemClass it = p.Inventory.addItemTypeToPlayer(a[1], a.Length > 2 ? int.Parse(a[2], CultureInfo.InvariantCulture) : 1, dropIfNoRoom: true);
@@ -1879,6 +1912,13 @@ namespace DWMPHorde.Sync
                     _decisionTurns.TryGetValue(key, out int turn);
                     _decisionTurns[key] = turn + 1;
                     int pick = turn % w.menuOptions.Count;
+                    if (_talkPick != null)
+                        for (int oi = 0; oi < w.menuOptions.Count; oi++)
+                            if (Label(w.menuOptions[oi]).IndexOf(_talkPick, StringComparison.OrdinalIgnoreCase) >= 0)
+                            {
+                                pick = oi;
+                                break;
+                            }
                     Out("  decision " + key + " → " + pick + "/" + w.menuOptions.Count + " " + Label(w.menuOptions[pick]));
                     w.menuOptions[pick].getClicked(force: true);
                     return;

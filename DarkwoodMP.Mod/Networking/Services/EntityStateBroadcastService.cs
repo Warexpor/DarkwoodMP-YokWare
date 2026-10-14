@@ -220,6 +220,14 @@ namespace DWMPHorde.Networking
                 if (sid == 0)
                     continue;
 
+                // Switched off by the story: not part of the world any more (each peer's own copy
+                // took the same step). Streamed, its copies stayed driven where it stood.
+                if (!c.gameObject.activeSelf && SwitchedOffForGood(c))
+                {
+                    _inRange.Remove(sid);
+                    continue;
+                }
+
                 Vector3 cPos = c.transform.position;
                 float dxh = cPos.x - hostPos.x;
                 float dzh = cPos.z - hostPos.z;
@@ -394,6 +402,23 @@ namespace DWMPHorde.Networking
             }
         }
 
+        /// <summary>
+        /// Switched off by the story, not by the culling: a creature a story step switched off
+        /// this session, or an NPC the culling did not hide (vanilla's location culling never
+        /// switches an NPC's object, only its components; after a load its saved state is the
+        /// story's). The world grid's culling hides what stands outside a location on a node the
+        /// host has not entered: that one is the culling's, and is woken.
+        /// </summary>
+        private static bool SwitchedOffForGood(Character c)
+        {
+            if (Patches.StoryDeactivatedCharacters.Contains(c.gameObject))
+                return true;
+            if (c.GetComponent<NPC>() == null)
+                return false;
+            CullableObject cull = c.GetComponent<CullableObject>();
+            return cull == null || cull.node == null || cull.node.entered;
+        }
+
         private static bool TryBuildSnapshot(Character c, short id, Vector3 cPos, bool force, out EntitySnapshotNet snap)
         {
             snap = default;
@@ -408,7 +433,12 @@ namespace DWMPHorde.Networking
             float wakeSq = GameplayConstants.EntityActivationRange * GameplayConstants.EntityActivationRange;
             // A dummy (a scene prop built as a Character, the grave meadow's corpse) has nothing to
             // wake: vanilla enableComponents returns at once for it, so it was "woken" every tick.
+            // The wake is for the culling's switch-off only. An NPC's object is otherwise switched
+            // by its location (Location.enter / leave) and the story, and a creature a story step
+            // switched off stays off: woken, the dream bunker's talking door came back after its
+            // talk had let the players through.
             if (c.alive && !c.dummy
+                && !(!c.gameObject.activeSelf && SwitchedOffForGood(c))
                 && PlayerPositionManager.IsAnyRemoteWithinSq(cPos, wakeSq)
                 && (!c.isActive || (c.animator != null && !c.animator.enabled)))
             {

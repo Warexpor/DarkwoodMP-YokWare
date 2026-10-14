@@ -183,10 +183,8 @@ namespace DWMPHorde.Networking
                 // Nothing at the striker's spot: this machine's copy of that piece stands elsewhere
                 // (pushed apart on the two machines). Furniture from the save is the same piece
                 // everywhere by its save id; the blow lands on it, or it was lost.
-                Item byId = msg.SaveId > 0
-                    ? WorldQueryHelper.FindFurnitureBySaveId<Item>(msg.SaveId, pos, float.MaxValue)
-                    : null;
-                if (byId != null && byId.gameObject.name == msg.Name
+                Item byId = WorldQueryHelper.FindFurnitureItemBySaveId(msg.SaveId, msg.Name);
+                if (byId != null
                     && (byId.destructible || WorldQueryHelper.HasAttackTrigger(byId)))
                 {
                     Vector3 at = byId.transform.position;

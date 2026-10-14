@@ -17,6 +17,7 @@ namespace DWMPHorde.Networking
             float dt = Time.deltaTime;
 
             TickPendingMatches(now);
+            TickDrivenContacts(now);
 
             // 2. Update interpolation + track stale entities
             _staleKeys.Clear();

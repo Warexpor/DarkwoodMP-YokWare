@@ -124,6 +124,10 @@ namespace DWMPHorde.Sync
                + Mathf.RoundToInt(p.y * 2f).ToString(CultureInfo.InvariantCulture) + ","
                + Mathf.RoundToInt(p.z * 2f).ToString(CultureInfo.InvariantCulture);
 
+        private static string FlatKey(Vector3 p)
+            => Mathf.RoundToInt(p.x * 2f).ToString(CultureInfo.InvariantCulture) + ","
+               + Mathf.RoundToInt(p.z * 2f).ToString(CultureInfo.InvariantCulture);
+
         private static string B(bool v) => v ? "1" : "0";
 
         private static string I(int v) => v.ToString(CultureInfo.InvariantCulture);
@@ -425,7 +429,10 @@ namespace DWMPHorde.Sync
                 int dist = NearDist(ctx, p, NearRadius);
                 if (dist < 0 || !t.gameObject.activeInHierarchy || !TrapNetworkId.IsWorldTrap(t.gameObject))
                     continue;
-                Add(into, BaseName(t.name) + "@" + PosKey(p),
+                // Across the ground only: the night mushroom rises as it grows (y is the draw
+                // layer), and a client's copy that started a moment later stood a step lower and
+                // read as two different traps.
+                Add(into, BaseName(t.name) + "@" + FlatKey(p),
                     "d=" + I(dist) + "|triggered=" + B(t.triggered) + "|active=" + B(t.active));
             }
         }

@@ -309,13 +309,32 @@ namespace DWMPHorde.Networking
         /// pose the drag ended on (absent when the host releases a disconnected dragger's claim).
         /// </summary>
         public bool HasPose;
+        /// <summary>Most players holding a body with its dragger (shared drag: four in all).</summary>
+        public const int MaxCoHolders = 3;
         /// <summary>
-        /// The second player holding the body with the dragger (shared drag, <c>SharedDrag</c>);
-        /// 0 for none. Protocol 58.
+        /// The players holding the body with the dragger (shared drag, <c>SharedDrag</c>), and
+        /// where each stands on the dragger's machine, which runs all their bodies. Protocol 70
+        /// (one co-holder before).
         /// </summary>
-        public int CoHolderId;
-        /// <summary>Where the co-holder stands on the dragger's machine, which runs both bodies.</summary>
-        public float CoPosX, CoPosY, CoPosZ;
+        public int CoCount;
+        public int[] CoIds;
+        public float[] CoX, CoY, CoZ;
+
+        /// <summary>Whether <paramref name="id"/> holds the body with the dragger, and where it stands.</summary>
+        public bool TryGetCo(int id, out Vector3 pos)
+        {
+            pos = default;
+            if (id <= 0 || CoIds == null)
+                return false;
+            for (int i = 0; i < CoCount && i < CoIds.Length; i++)
+            {
+                if (CoIds[i] != id)
+                    continue;
+                pos = new Vector3(CoX[i], CoY[i], CoZ[i]);
+                return true;
+            }
+            return false;
+        }
 
         public void Serialize(NetWriter w)
         {
@@ -328,30 +347,53 @@ namespace DWMPHorde.Networking
             w.Put(ScrapeActive);
             w.Put(SendTime);
             w.Put(HasPose);
-            w.Put(CoHolderId);
-            w.Put(CoPosX); w.Put(CoPosY); w.Put(CoPosZ);
+            int n = CoIds == null ? 0 : System.Math.Min(System.Math.Min(CoCount, CoIds.Length), MaxCoHolders);
+            w.Put((byte)n);
+            for (int i = 0; i < n; i++)
+            {
+                w.Put(CoIds[i]);
+                w.Put(CoX[i]); w.Put(CoY[i]); w.Put(CoZ[i]);
+            }
         }
 
-        public static DragSyncMessage Deserialize(NetReader r) => new DragSyncMessage
+        public static DragSyncMessage Deserialize(NetReader r)
         {
-            PosX = r.GetFloat(),
-            PosY = r.GetFloat(),
-            PosZ = r.GetFloat(),
-            RotX = r.GetFloat(),
-            RotY = r.GetFloat(),
-            RotZ = r.GetFloat(),
-            IsDragging = r.GetBool(),
-            ObjectName = r.GetString(),
-            ItemType = r.GetString(),
-            ClaimedByPlayerId = r.GetInt(),
-            ScrapeActive = r.GetBool(),
-            SendTime = r.GetFloat(),
-            HasPose = r.GetBool(),
-            CoHolderId = r.GetInt(),
-            CoPosX = r.GetFloat(),
-            CoPosY = r.GetFloat(),
-            CoPosZ = r.GetFloat()
-        };
+            var m = new DragSyncMessage
+            {
+                PosX = r.GetFloat(),
+                PosY = r.GetFloat(),
+                PosZ = r.GetFloat(),
+                RotX = r.GetFloat(),
+                RotY = r.GetFloat(),
+                RotZ = r.GetFloat(),
+                IsDragging = r.GetBool(),
+                ObjectName = r.GetString(),
+                ItemType = r.GetString(),
+                ClaimedByPlayerId = r.GetInt(),
+                ScrapeActive = r.GetBool(),
+                SendTime = r.GetFloat(),
+                HasPose = r.GetBool()
+            };
+            int n = r.GetByte();
+            if (n > MaxCoHolders)
+                n = MaxCoHolders;
+            if (n > 0)
+            {
+                m.CoCount = n;
+                m.CoIds = new int[n];
+                m.CoX = new float[n];
+                m.CoY = new float[n];
+                m.CoZ = new float[n];
+                for (int i = 0; i < n; i++)
+                {
+                    m.CoIds[i] = r.GetInt();
+                    m.CoX[i] = r.GetFloat();
+                    m.CoY[i] = r.GetFloat();
+                    m.CoZ[i] = r.GetFloat();
+                }
+            }
+            return m;
+        }
     }
 
     /// <summary>
@@ -1487,6 +1529,12 @@ namespace DWMPHorde.Networking
         public float MaxHealth;
         /// <summary>1 = destroyed (call die), 0 = alive with Health/MaxHealth.</summary>
         public byte Destroyed;
+        /// <summary>
+        /// The creature wearing the armor (its stable entity id), 0 for armor on a world object.
+        /// A creature's armor moves with it: by position it was missed on every peer whose copy
+        /// stood a little behind.
+        /// </summary>
+        public short EntityId;
 
         public void Serialize(NetWriter w)
         {
@@ -1494,6 +1542,7 @@ namespace DWMPHorde.Networking
             w.Put(Health);
             w.Put(MaxHealth);
             w.Put(Destroyed);
+            w.Put(EntityId);
         }
 
         public static ShadowArmorStateMessage Deserialize(NetReader r) =>
@@ -1504,7 +1553,8 @@ namespace DWMPHorde.Networking
                 PosZ = r.GetFloat(),
                 Health = r.GetFloat(),
                 MaxHealth = r.GetFloat(),
-                Destroyed = r.GetByte()
+                Destroyed = r.GetByte(),
+                EntityId = r.GetShort()
             };
     }
 

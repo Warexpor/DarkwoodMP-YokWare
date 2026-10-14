@@ -286,9 +286,9 @@ namespace DWMPHorde.Sync
         /// </summary>
         private static bool SnapFarObject(WorldObjectState obj, Vector3 targetPos)
         {
-            GameObject best = null;
+            GameObject best = BySaveId(obj, targetPos);
             float bestSq = FullScanMaxDist * FullScanMaxDist;
-            Item[] items = WorldQueryHelper.GetCachedSceneComponents<Item>();
+            Item[] items = best != null ? Array.Empty<Item>() : WorldQueryHelper.GetCachedSceneComponents<Item>();
             for (int i = 0; i < items.Length; i++)
             {
                 Item it = items[i];
@@ -328,6 +328,23 @@ namespace DWMPHorde.Sync
             return true;
         }
 
+        /// <summary>
+        /// The furniture piece the sender named by its save id, wherever it stands here: the
+        /// spot-based strategies below reach FullScanMaxDist only, and a piece shoved further on
+        /// the sender before any scan saw it was never found again.
+        /// </summary>
+        private static GameObject BySaveId(WorldObjectState obj, Vector3 targetPos)
+        {
+            if (obj.SaveId <= 0)
+                return null;
+            Item it = WorldQueryHelper.FindFurnitureItemBySaveId(obj.SaveId, obj.Name);
+            if (it == null || it.GetComponent<Rigidbody>() == null
+                || !IsUsableResolveCandidate(it.gameObject, obj.Name, targetPos, float.MaxValue)
+                || !IsSameWorldAsTarget(it.transform, targetPos))
+                return null;
+            return it.gameObject;
+        }
+
         /// <param name="allowSpawn">False for client-origin snapshots: the host owns item existence
         /// and must never mint a prefab because a client still reports an object the host removed.</param>
         private static GameObject FindOrSpawnObject(WorldObjectState obj, bool allowSpawn)
@@ -336,6 +353,10 @@ namespace DWMPHorde.Sync
                 return null;
 
             Vector3 targetPos = new Vector3(obj.PosX, obj.PosY, obj.PosZ);
+
+            GameObject bySave = BySaveId(obj, targetPos);
+            if (bySave != null)
+                return RememberResolved(obj.Name, bySave);
 
             // Last successful resolve for this name (skip if destroyed / too far). Only taken when
             // no other object of that name sits closer to the reported spot: two identical chairs

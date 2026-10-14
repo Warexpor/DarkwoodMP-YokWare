@@ -150,7 +150,7 @@ namespace DWMPHorde.Networking
             List<Sync.NpcRef> leftTalks = Sync.NpcDialogueLock.HostReleaseAllForPlayer(this, playerId);
             for (int i = 0; i < leftTalks.Count; i++)
             {
-                DialogOutcomeApplyHandlers?.AbortWorldOnlyDrainForRelease(leftTalks[i], playerId);
+                DialogOutcomeApplyHandlers?.RushWorldOnlyDrainForRelease(leftTalks[i], playerId);
                 DialogOutcomeCloseHandlers?.HostFireNpcCloseDialogue(leftTalks[i]);
             }
             Sync.PauseMenuSync.HostPeerLeft(playerId);

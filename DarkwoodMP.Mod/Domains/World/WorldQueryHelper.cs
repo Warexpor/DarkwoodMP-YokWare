@@ -247,6 +247,28 @@ namespace DWMPHorde.Sync
             return c;
         }
 
+        /// <summary>
+        /// The furniture piece with save id <paramref name="saveId"/> and GameObject name
+        /// <paramref name="objectName"/>, wherever it stands here. A piece without a save entry of
+        /// its own carries its parent's id (the hatted man at the cottage's bed is a child of the
+        /// bed): the id names the parent, the name picks the piece under it.
+        /// </summary>
+        public static Item FindFurnitureItemBySaveId(int saveId, string objectName)
+        {
+            if (saveId <= 0 || string.IsNullOrEmpty(objectName))
+                return null;
+            SaveManager sm = Singleton<SaveManager>.Instance;
+            if (sm == null || sm.uniqueIdDict == null
+                || !sm.uniqueIdDict.TryGetValue(saveId, out Transform t) || t == null)
+                return null;
+            foreach (Item c in t.GetComponentsInChildren<Item>(true))
+            {
+                if (c != null && c.gameObject.name == objectName && FurnitureSaveId(c.gameObject) == saveId)
+                    return c;
+            }
+            return null;
+        }
+
         /// <summary>The save id of the container at <paramref name="pos"/> (this game's own spot for it).</summary>
         public static int ContainerSaveIdAt(Vector3 pos) => ContainerSaveId(FindInventoryByPos(pos));
 
@@ -561,6 +583,30 @@ namespace DWMPHorde.Sync
         /// ones included: a repeated event for an item already broken must land on that item,
         /// not on a whole twin standing near it.
         /// </summary>
+        /// <summary>
+        /// As <see cref="FindDestructibleItemByName"/>, by GameObject name (not the item's own name:
+        /// the FOV mob's spawner has none, the cottage's hatted man has another one).
+        /// </summary>
+        public static Item FindDestructibleItemByObjectName(string objectName, Vector3 pos, float maxDist)
+        {
+            if (string.IsNullOrEmpty(objectName)) return null;
+            Item best = null;
+            float bestSq = maxDist * maxDist;
+            Item[] all = GetCachedSceneComponents<Item>();
+            for (int i = 0; i < all.Length; i++)
+            {
+                Item candidate = all[i];
+                if (candidate == null || !candidate.destructible) continue;
+                float dx = candidate.transform.position.x - pos.x;
+                float dz = candidate.transform.position.z - pos.z;
+                float dSq = dx * dx + dz * dz;
+                if (dSq >= bestSq || candidate.gameObject.name != objectName) continue;
+                bestSq = dSq;
+                best = candidate;
+            }
+            return best;
+        }
+
         public static Item FindDestructibleItemByName(string name, Vector3 pos, float maxDist)
         {
             if (string.IsNullOrEmpty(name)) return null;

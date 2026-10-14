@@ -23,6 +23,22 @@ public class DesyncLedgerTests
     }
 
     [Fact]
+    public void Compare_HostOnlyEntry_NamesTheClientsNearestOfThatName()
+    {
+        var host = new Dictionary<string, string> { ["Wardrobe@-88,11,-24292"] = "items=0:bread" };
+        var client = new Dictionary<string, string>
+        {
+            ["Wardrobe@-120,11,-24300"] = "items=",
+            ["Wardrobe@900,11,-24300"] = "items=x",
+            ["Chest@-88,11,-24292"] = "items=",
+        };
+        var diffs = DesyncEntries.Compare(host, client, DesyncEntries.Exact);
+        DesyncEntries.Diff only = diffs.Single(d => d.Key == "Wardrobe@-88,11,-24292");
+        Assert.Equal("Wardrobe@-120,11,-24300=items=", only.ClientNearest);
+        Assert.Null(DesyncEntries.NearestOfName("Stool@1,2,3", client));
+    }
+
+    [Fact]
     public void Format_IsOrderIndependent_AndHashesAgree()
     {
         string a = DesyncEntries.Format(E(("b", "1"), ("a", "2")));

@@ -37,7 +37,7 @@ namespace DWMPHorde.Patches
             }
             if (thisBodyHeld || thisSpotHeld)
             {
-                // Shared drag: take hold of it with its dragger (one co-holder at most).
+                // Shared drag: take hold of it with its dragger (three co-holders at most).
                 if (Sync.SharedDrag.TryBeginFollow(__instance, net, out string refusal))
                     return true;
                 DWMPHorde.Patches.PersonalFlavorHud.BeginBypass();

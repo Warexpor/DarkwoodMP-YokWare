@@ -104,6 +104,8 @@ namespace DWMPHorde.Sync
             public string Key;
             public string Host;
             public string Client;
+            /// <summary>Host-only key: the client's nearest entry of that name ("key=value"), or null.</summary>
+            public string ClientNearest;
         }
 
         /// <param name="hostTruncated">The host's list was cut: keys only the client has are not evidence.</param>
@@ -129,6 +131,14 @@ namespace DWMPHorde.Sync
                 }
             }
             PairNeighbours(diffs, same);
+            for (int i = 0; i < diffs.Count; i++)
+            {
+                if (diffs[i].Client != null || diffs[i].Host == null)
+                    continue;
+                Diff d = diffs[i];
+                d.ClientNearest = NearestOfName(d.Key, client);
+                diffs[i] = d;
+            }
             diffs.Sort((a, b) => string.CompareOrdinal(a.Key, b.Key));
             return diffs;
         }
@@ -157,6 +167,49 @@ namespace DWMPHorde.Sync
                     break;
                 }
             }
+        }
+
+        /// <summary>
+        /// The entry of <paramref name="map"/> with the same name as "Name@x,y,z" <paramref name="key"/>
+        /// nearest to it ("key=value"), or null: where the other machine has that object.
+        /// </summary>
+        internal static string NearestOfName(string key, Dictionary<string, string> map)
+        {
+            int at = key.LastIndexOf('@');
+            if (at <= 0 || !TryCoords(key.Substring(at + 1), out long[] pos))
+                return null;
+            string best = null;
+            long bestSq = long.MaxValue;
+            foreach (KeyValuePair<string, string> kv in map)
+            {
+                int ia = kv.Key.LastIndexOf('@');
+                if (ia != at || string.CompareOrdinal(kv.Key, 0, key, 0, at) != 0
+                    || !TryCoords(kv.Key.Substring(ia + 1), out long[] p) || p.Length != pos.Length)
+                    continue;
+                long sq = 0;
+                for (int k = 0; k < p.Length; k++)
+                    sq += (p[k] - pos[k]) * (p[k] - pos[k]);
+                if (sq < bestSq)
+                {
+                    bestSq = sq;
+                    best = kv.Key + "=" + kv.Value;
+                }
+            }
+            return best;
+        }
+
+        private static bool TryCoords(string s, out long[] coords)
+        {
+            string[] parts = s.Split(',');
+            coords = new long[parts.Length];
+            for (int k = 0; k < parts.Length; k++)
+            {
+                int hash = parts[k].IndexOf('#');
+                string v = hash >= 0 ? parts[k].Substring(0, hash) : parts[k];
+                if (!long.TryParse(v, System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out coords[k]))
+                    return false;
+            }
+            return parts.Length > 0;
         }
 
         /// <summary>"Name@x,y,z" keys with the same name, each coordinate at most one grid step apart.</summary>
@@ -226,7 +279,8 @@ namespace DWMPHorde.Sync
                         _pending.Remove(k);
                         _reported[k] = sectionName + " " + d.Key;
                         string line = "DESYNC " + sectionName + " " + d.Key
-                            + ": host=" + Show(d.Host) + " client=" + Show(d.Client);
+                            + ": host=" + Show(d.Host) + " client=" + Show(d.Client)
+                            + (d.ClientNearest != null ? " (client's nearest: " + d.ClientNearest + ")" : "");
                         if (lines.Count < MaxLinesPerCheck)
                             lines.Add(line);
                         else

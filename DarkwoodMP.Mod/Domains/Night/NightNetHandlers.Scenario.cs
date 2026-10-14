@@ -209,12 +209,18 @@ namespace DWMPHorde.Networking
             bool locationEvent = ce.theEvent != null && ce.theEvent.type == RandomEvent.Type.locationEvent;
             // A location event plays only where the host played it: the location this client
             // stands in. Elsewhere its scene (and the host's creatures) is somewhere else.
-            bool here = locationEvent && Patches.NightEventAnchor.LocalIn(msg.Anchors);
+            int anchor = locationEvent ? Patches.NightEventAnchor.LocalAnchor(msg.Anchors) : -1;
+            bool here = anchor >= 0;
+            // The scene plays for the player the host played it for in this location.
+            int actor = Patches.NightEventAnchor.ActorAt(msg.AnchorActors, anchor);
             if (locationEvent)
                 ModLog.Event(LogCat.World, "[ScenarioEventFired] night scene '" + msg.ScenarioName + "' #" + msg.EventIndex
                     + (here ? " plays here" : " is elsewhere") + " (host anchors: " + msg.Anchors + ")");
             if (here)
                 Patches.ClientRandomEventGate.Arm(20f);
+            bool pushedActor = here && actor > 0;
+            if (pushedActor)
+                Sync.GeFireActorContext.Push(actor);
             try
             {
                 using (new NetworkApplyGuard())
@@ -231,6 +237,11 @@ namespace DWMPHorde.Networking
             catch (System.Exception ex)
             {
                 ModRuntime.Log?.LogWarning("[ScenarioEventFired] event apply failed: " + ex.Message);
+            }
+            finally
+            {
+                if (pushedActor)
+                    Sync.GeFireActorContext.Pop();
             }
         }
 

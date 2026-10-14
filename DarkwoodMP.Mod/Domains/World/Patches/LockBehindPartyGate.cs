@@ -309,7 +309,9 @@ namespace DWMPHorde.Patches
                 LockBehindPartyGate.NotePassed(__instance, net.LocalPlayerId);
                 return;
             }
-            RemotePlayerProxy proxy = other.GetComponentInParent<RemotePlayerProxy>();
+            // The stand-in's body only, as the player's own collider above (its child colliders
+            // reach further than the body: EventTriggersProxyEnterPatch).
+            RemotePlayerProxy proxy = other.GetComponent<RemotePlayerProxy>();
             if (proxy != null)
                 LockBehindPartyGate.NotePassed(__instance, proxy.PlayerId);
         }

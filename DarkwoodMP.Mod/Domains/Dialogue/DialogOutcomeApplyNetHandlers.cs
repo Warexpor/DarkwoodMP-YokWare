@@ -27,6 +27,8 @@ namespace DWMPHorde.Networking
         // or a talk with another NPC of the same name, cannot abort it.
         private NPC _drainNpc;
         private int _drainOwnerId;
+        // The drain's talk ended on its speaker: advance each board at once (RushWorldOnlyDrainForRelease).
+        private bool _drainRush;
 
         // Outcomes that arrived while the host's dialogue window was busy with another NPC.
         private sealed class DeferredApply

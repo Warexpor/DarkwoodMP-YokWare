@@ -45,8 +45,12 @@ namespace DWMPHorde.Patches
     [HarmonyPatch(typeof(Location.GetObject), nameof(Location.GetObject.returnObjects))]
     public static class LocationReturnObjectsClosestPatch
     {
-        private static bool Prefix(Location.GetObject __instance, List<GameObject> returnToList, Location _location)
+        private static bool Prefix(Location.GetObject __instance, List<GameObject> returnToList, Location _location, bool __runOriginal)
         {
+            // The scene's own player already picked (NightSceneClosestObjectsPatch): a second pick
+            // here added the spot twice, and the flare scene of a peer's hideout dropped two flares.
+            if (!__runOriginal)
+                return false;
             if (__instance == null || !__instance.getClosestToPlayer || __instance.getAll || __instance.getClosest)
                 return true;
             if (!LocationPlayerBody.TryPeerIn(_location, out Vector3 peer))
@@ -64,8 +68,10 @@ namespace DWMPHorde.Patches
     [HarmonyPatch(typeof(Location.GetObject), nameof(Location.GetObject.returnObject))]
     public static class LocationReturnObjectClosestPatch
     {
-        private static bool Prefix(Location.GetObject __instance, Location _location, ref GameObject __result)
+        private static bool Prefix(Location.GetObject __instance, Location _location, ref GameObject __result, bool __runOriginal)
         {
+            if (!__runOriginal)
+                return false;
             if (__instance == null || !__instance.getClosestToPlayer || __instance.getClosest)
                 return true;
             if (!LocationPlayerBody.TryPeerIn(_location, out Vector3 peer))

@@ -22,6 +22,7 @@ namespace DWMPHorde.Patches
     internal static class NightEventAnchor
     {
         private static string _firedAnchors; // reset-in: Reset
+        private static string _firedActors; // reset-in: Reset
 
         /// <summary>
         /// Host is starting a scene's GameEvents copy. Its own fire is not fanned out as a
@@ -33,6 +34,7 @@ namespace DWMPHorde.Patches
         internal static void Reset()
         {
             _firedAnchors = null;
+            _firedActors = null;
             PlayingScene = false;
             _sceneAnchors.Clear();
         }
@@ -96,6 +98,14 @@ namespace DWMPHorde.Patches
                 if (big == loc)
                     into.Add(proxy.PlayerId);
             }
+        }
+
+        /// <summary>Host checkFrequencies postfix: the player each of those locations' scene played for.</summary>
+        internal static string TakeFiredActors()
+        {
+            string a = _firedActors ?? string.Empty;
+            _firedActors = null;
+            return a;
         }
 
         /// <summary>Host checkFrequencies postfix: the locations the event that just started played in.</summary>
@@ -234,26 +244,45 @@ namespace DWMPHorde.Patches
         internal static void NoteFired(List<KeyValuePair<Location, int>> anchors)
         {
             var names = new List<string>(anchors.Count);
+            var actors = new List<string>(anchors.Count);
             for (int i = 0; i < anchors.Count; i++)
+            {
                 names.Add(anchors[i].Key.name);
+                actors.Add(anchors[i].Value.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            }
             _firedAnchors = string.Join("|", names);
+            _firedActors = string.Join("|", actors);
         }
 
         /// <summary>Client: it stands in one of the host's anchor locations.</summary>
-        internal static bool LocalIn(string anchors)
+        internal static bool LocalIn(string anchors) => LocalAnchor(anchors) >= 0;
+
+        /// <summary>Client: the index of the host's anchor location it stands in, or -1.</summary>
+        internal static int LocalAnchor(string anchors)
         {
             if (string.IsNullOrEmpty(anchors))
-                return false;
+                return -1;
             Player p = Player.Instance;
             if (p == null || p.whereAmI == null || HostInOutsideLocation())
-                return false;
+                return -1;
             Location big = p.whereAmI.bigLocation;
             if (big == null || big.isOutsideLocation)
-                return false;
-            foreach (string name in anchors.Split('|'))
-                if (name == big.name)
-                    return true;
-            return false;
+                return -1;
+            string[] names = anchors.Split('|');
+            for (int i = 0; i < names.Length; i++)
+                if (names[i] == big.name)
+                    return i;
+            return -1;
+        }
+
+        /// <summary>Client: the player the host played the scene for at anchor <paramref name="index"/>, or 0.</summary>
+        internal static int ActorAt(string anchorActors, int index)
+        {
+            if (string.IsNullOrEmpty(anchorActors) || index < 0)
+                return 0;
+            string[] ids = anchorActors.Split('|');
+            return index < ids.Length && int.TryParse(ids[index], System.Globalization.NumberStyles.Integer,
+                System.Globalization.CultureInfo.InvariantCulture, out int id) ? id : 0;
         }
 
         /// <summary>

@@ -128,6 +128,35 @@ namespace DWMPHorde.Patches
     }
 
     /// <summary>
+    /// The talk window closing with this player's trade still open closes the trade first, as
+    /// vanilla's Esc does. Vanilla pauses the game for a talk, so its window never closes from
+    /// inside a trade and close() leaves the trade to closeTrade. Co-op keeps the world running
+    /// and closes the window itself (a session ending under a listener's trade, a hand-in turned
+    /// down, a peer's talk replayed): the window went but the Sell and Buy trays and their Accept button
+    /// stayed on screen, with the player still marked as in the shop and the laid-out goods in
+    /// the trays.
+    /// </summary>
+    [HarmonyPatch(typeof(DialogueWindow), nameof(DialogueWindow.close))]
+    public static class TradeClosedWithWindowPatch
+    {
+        // Ahead of the listener's close (DialogMirrorClosePatch, Priority.First): it closes the
+        // trade before the view, as DialogMirror's own end of a talk does.
+        [HarmonyPriority(Priority.First + 100)]
+        private static void Prefix(DialogueWindow __instance)
+        {
+            if (__instance == null || __instance.npc == null || __instance.tweening)
+                return; // vanilla close() does nothing then
+            // The host's world-only replay of another player's talk does not close the host's
+            // window (DialogHostSilentClosePatch); a trade of the host's own stays open.
+            if (DialogHostApplyGuard.DialogueApplyActive)
+                return;
+            if (Player.Instance == null || !Player.Instance.inShop)
+                return;
+            __instance.closeTrade();
+        }
+    }
+
+    /// <summary>
     /// Host: its own trade window closed with goods still in the buy tray. Vanilla puts them back
     /// into the stock; every snapshot sent while they sat in the tray (another player's trade, a
     /// restock) went out without them, so the others' copies are short until the next one.
@@ -348,10 +377,13 @@ namespace DWMPHorde.Patches
             if (string.IsNullOrEmpty(msg.NpcName)) return;
 
             NPC npc = FindNpcByName(msg);
-            if (npc == null || !npc.gameObject.activeInHierarchy)
+            if (npc == null || !npc.gameObject.activeInHierarchy || npc.inventory == null)
             {
                 // Not here yet, or switched off (a trader the story keeps hidden; the host sends
-                // every trader's stock, out or not): queued, applied once it is out.
+                // every trader's stock, out or not): queued, applied once it is out. Out but not
+                // set up yet (vanilla NPC.init reads its Inventory later): the stock was dropped
+                // ("NPC 'wolfman' has no inventory" after a chapter move) and the client's trader
+                // stood empty until the host's next sale.
                 ModRuntime.Network?.TradeHandlers?.QueuePendingTradeInventory(msg);
                 return;
             }

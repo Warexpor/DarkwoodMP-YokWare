@@ -350,7 +350,7 @@ namespace DWMPHorde.Sync
         private static void FireRemoteEnterDialogue(NpcRef npcRef, int ownerPlayerId)
         {
             // Strict: for a dream talk only the pad twin qualifies. The overworld twin shares
-            // the name, and this method SetActive(true)s and fires triggers on whatever it gets.
+            // the name, and this method fires triggers on whatever it gets.
             NPC npc = DialogOutcomeCloseNetHandlers.ResolveNpc(npcRef, strictPad: true);
             if (npc == null || npc.gameObject == null)
             {
@@ -379,12 +379,7 @@ namespace DWMPHorde.Sync
             DialogHostApplyGuard.BeginWorldOnly();
             try
             {
-                if (!npc.gameObject.activeInHierarchy)
-                {
-                    try { npc.gameObject.SetActive(true); }
-                    catch { /* ignore */ }
-                }
-
+                // Not switched on when it is off: only the story does that to an NPC.
                 Core.sendTriggerInfo(npc.gameObject, EventTrigger.Type.onEnterDialogue);
                 EventTriggers[] ets = npc.GetComponentsInChildren<EventTriggers>(true);
                 for (int i = 0; i < ets.Length; i++)

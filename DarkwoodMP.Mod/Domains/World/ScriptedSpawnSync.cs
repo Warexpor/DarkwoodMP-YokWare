@@ -53,9 +53,28 @@ namespace DWMPHorde.Sync
             return null;
         }
 
-        /// <summary>A world object the save keeps (not a creature: those go by entity snapshots).</summary>
+        /// <summary>
+        /// A world object the save keeps (not a creature: those go by entity snapshots). The save's
+        /// prefab list goes by name, so the step's prefab must be that very asset: the vortex
+        /// scene's own "sound_item" piece (its sound and events) shares the name of the save's
+        /// Templates/sound_item, was sent as that empty template, and the replay skipped the
+        /// real piece ("no GameEvents near ... name='sound_item' after 60s, dropped").
+        /// </summary>
         internal static bool IsWorldObject(Transform prefab)
-            => prefab != null && prefab.GetComponent<Character>() == null && PathOf(prefab.name) != null;
+        {
+            if (prefab == null || prefab.GetComponent<Character>() != null)
+                return false;
+            int id = prefab.GetInstanceID();
+            if (_worldObjectPrefabs.TryGetValue(id, out bool known))
+                return known;
+            string path = PathOf(prefab.name);
+            // Core.AddPrefab(path) loads "Prefabs/" + path.
+            bool result = path != null && Resources.Load("Prefabs/" + path) == prefab.gameObject;
+            _worldObjectPrefabs[id] = result;
+            return result;
+        }
+
+        private static readonly Dictionary<int, bool> _worldObjectPrefabs = new Dictionary<int, bool>(); // process-scoped: prefab assets live for the process
 
         internal static bool IsWorldObjectSpawn(GameEvent ge)
             => ge != null && ge.type == GameEvent.Type.gameObject

@@ -94,7 +94,7 @@ namespace DWMPHorde.Networking
             foreach (var kvp in pending)
             {
                 NPC npc = TradeInventorySync.FindNpcByName(kvp.Value);
-                if (npc == null || !npc.gameObject.activeInHierarchy) continue;
+                if (npc == null || !npc.gameObject.activeInHierarchy || npc.inventory == null) continue;
                 TradeInventorySync.ApplyToNpc(npc, kvp.Value);
                 _tradeFlushApplied.Add(kvp.Key);
             }

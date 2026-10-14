@@ -306,7 +306,12 @@ namespace DWMPHorde.Networking
                         && !DreamSyncManager.IsAtDreamPad(ge.transform.position))
                         return;
                 }
-                float dSq = (ge.transform.position - pos).sqrMagnitude;
+                // Across the ground: height is the draw layer here, and a piece the host shows
+                // stands raised (the hatted man's PositionOverride lifts him 11 when he appears)
+                // above this machine's switched-off copy, so his own events were dropped here.
+                Vector3 gp = ge.transform.position;
+                float dx = gp.x - pos.x, dz = gp.z - pos.z;
+                float dSq = dx * dx + dz * dz;
                 if (dSq > softMaxSq) return;
 
                 // One-shot already latched — keep searching for an unfired twin first.
