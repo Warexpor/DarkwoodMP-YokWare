@@ -47,17 +47,22 @@ namespace DWMPHorde.Networking
         internal System.Collections.IEnumerator HostDrainWorldOnlyDialogue(DialogueWindow dw, NPC npc)
         {
             float deadline = Time.realtimeSinceStartup + 8f;
+            _drainRush = false;
             int lastBoard = int.MinValue;
             int stallTicks = 0;
             bool hostTookWindow = false;
             try
             {
+                // Past the reading time the rest is played out at once, not dropped: a close at
+                // the deadline lost every board still to come and its outcomes.
                 while (dw != null
                     && DialogHostApplyGuard.DrainPending
                     && dw.displayingDialogue
                     && dw.currentDialogue != null
-                    && Time.realtimeSinceStartup < deadline)
+                    && Time.realtimeSinceStartup < deadline + 5f)
                 {
+                    if (Time.realtimeSinceStartup >= deadline)
+                        _drainRush = true;
                     // The host opened its own conversation with another NPC on the shared window: stop
                     // driving it (no force-advance, no close), the window is the host's now.
                     if (HostOwnsWindow(dw, npc))
@@ -74,7 +79,7 @@ namespace DWMPHorde.Networking
                         stallTicks++;
                         // changePortrait waits ~1.5s + setPortrait; WritingText can stall forever
                         // with no host UI clicks. Force advance after a short stall on the same board.
-                        if (stallTicks >= 25)
+                        if (stallTicks >= (_drainRush ? 1 : 25))
                         {
                             try
                             {
@@ -122,6 +127,7 @@ namespace DWMPHorde.Networking
             finally
             {
                 _drainDoneGeneration = _drainGeneration;
+                _drainRush = false;
                 _dialogWorldDrainCo = null;
                 _drainNpc = null;
                 // The drain holds no guard scope across its waits (each advance / close
@@ -156,44 +162,24 @@ namespace DWMPHorde.Networking
         }
 
         /// <summary>
-        /// Abort lookKeyhole world-only drain on dialog Release so leave-door GE runs now.
-        /// Only the NPC and peer whose drain it is: another peer's Release (or an NPC of the same
-        /// name elsewhere, or in the other world) must not cut a drain that is not theirs.
+        /// The talk this drain replays ended on its speaker (a Release, or the speaker left): the
+        /// rest of its boards play out now instead of at the reading pace, then the drain closes
+        /// and the NPC's close events run (they wait in <see cref="_pendingCloses"/>). Waiting the
+        /// reading pace held the dream door shut for seconds after the talk; stopping the drain
+        /// instead dropped every later board's outcomes: the overworld bunker key's second board
+        /// (door21_door_event, endOfChapter1) never ran, so a client's key turned in the lock and
+        /// the door stayed shut. Only the NPC and peer whose drain it is: another peer's Release
+        /// (or an NPC of the same name elsewhere, or in the other world) must not rush it.
         /// </summary>
-        internal void AbortWorldOnlyDrainForRelease(NpcRef npc, int ownerPlayerId)
+        internal void RushWorldOnlyDrainForRelease(NpcRef npc, int ownerPlayerId)
         {
             if (_dialogWorldDrainCo == null) return;
             if (_drainNpc == null || !npc.Matches(_drainNpc))
                 return;
             if (_drainOwnerId > 0 && ownerPlayerId > 0 && _drainOwnerId != ownerPlayerId)
                 return;
-
-            try { _net.StopCoroutine(_dialogWorldDrainCo); } catch { /* ignore */ }
-            _dialogWorldDrainCo = null;
-            _drainNpc = null;
-            // No guard scope to unwind: the drain never holds one across its waits, and the
-            // caller (a Release handler) may be inside its own scope.
-            DialogHostApplyGuard.EndDrain();
-            try
-            {
-                var dw = Singleton<UI>.Instance?.dialogueWindow;
-                if (dw != null && (dw.displayingDialogue || dw.npc != null))
-                    DWMPHorde.Patches.DialogHostSilentClosePatch.SilentCloseAfterWorldApply(dw);
-                else
-                    DWMPHorde.Patches.DialogHostPresentation.ScrubAndDisarm(dw);
-            }
-            catch { /* ignore */ }
-            // The caller fires this NPC's close itself; other NPCs' closes still wait their turn.
-            TakePendingClose(npc, out _);
-            if (_pendingCloses.Count > 0)
-            {
-                NpcRef[] pending = _pendingCloses.ToArray();
-                _pendingCloses.Clear();
-                for (int i = 0; i < pending.Length; i++)
-                    _close.HostFireNpcCloseDialogue(pending[i]);
-            }
-            ModRuntime.LegacyInfo(
-                "[DialogOutcome] aborted world-only drain on dialog Release (open door now)");
+            _drainRush = true;
+            ModRuntime.LegacyInfo("[DialogOutcome] talk released: world-only drain plays its last boards now");
         }
     }
 }

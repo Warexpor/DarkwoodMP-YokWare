@@ -187,6 +187,15 @@ over both chapters' hideouts, every event of each night's scenario fired).
   host's stock was thrown away ("[TradeSync] NPC 'wolfman' has no inventory") and the client's
   trader stood empty until the host's next sale. Such stock now waits in the queue like a trader
   not out yet. Files: `TradeSyncPatches.cs`, `TradeNetHandlers.cs`.
+- **A client's key turned in the bunker's lock and the door stayed shut.** The host replays a
+  client's chosen dialogue for its world effects, board by board at the reading pace. When the
+  client closed the talk, the host stopped that replay (so the dream door would not open
+  seconds late) and dropped every board still to come: the key's second board, which opens the
+  door and takes the keyholder through (`door21_door_event`, `endOfChapter1`), never ran. Only
+  the key's first step (`door21_key_event_bunker`) played. The replay now plays its remaining
+  boards at once when the talk ends, and past its reading time, then closes; the NPC's close
+  events wait for it. Files: `DialogOutcomeApplyNetHandlers.Drain.cs`
+  (`RushWorldOnlyDrainForRelease`), `DialogNpcLockNetHandlers.cs`, `LanNetworkManager.PeerEvents.cs`.
 - **The bunker's talking door came back after it let the players through (dream and
   overworld).** Closing the dream talk fires the leave-door event: it switches off the shut door
   and the talking door (an NPC creature) and switches the corridor beyond on; the overworld

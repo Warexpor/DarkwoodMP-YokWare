@@ -38,14 +38,14 @@ namespace DWMPHorde.Networking
                     // it for the rest), so the NPC's close events wait for the last one to leave.
                     if (prevOwner == owner && DialogMirror.HostHandOverTalk(_net, owner))
                     {
-                        _net.DialogOutcomeApplyHandlers.AbortWorldOnlyDrainForRelease(npc, owner);
+                        _net.DialogOutcomeApplyHandlers.RushWorldOnlyDrainForRelease(npc, owner);
                         return;
                     }
                     NpcRef released = NpcDialogueLock.HostRelease(_net, npc, owner);
 
-                    // Abort lookKeyhole world-only drain. Waiting for portrait boards caused a
-                    // multi-second pause before leave-door GE (door finally opens late).
-                    _net.DialogOutcomeApplyHandlers.AbortWorldOnlyDrainForRelease(released, owner);
+                    // The world-only drain of this talk plays its last boards now; the close
+                    // below waits for it (the key's second board opens the bunker door).
+                    _net.DialogOutcomeApplyHandlers.RushWorldOnlyDrainForRelease(released, owner);
 
                     if (prevOwner < 0 || prevOwner == owner)
                         _net.DialogOutcomeCloseHandlers.HostFireNpcCloseDialogue(released);
