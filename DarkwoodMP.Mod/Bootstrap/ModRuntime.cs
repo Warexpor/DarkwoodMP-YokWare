@@ -279,6 +279,7 @@ namespace DWMPHorde
             NetworkResetRegistry.Register(ClientRandomEventGate.Reset);
             NetworkResetRegistry.Register(BansheeVictims.Reset);
             NetworkResetRegistry.Register(HostLocationLeaveKeepRemotePatch.Reset);
+            NetworkResetRegistry.Register(TalkPartnerGonePatch.Reset);
             NetworkResetRegistry.Register(BirdAreaPresence.Reset);
             NetworkResetRegistry.Register(LocationEnterExitNetHandlers.Reset);
             NetworkResetRegistry.Register(ClientAIConditionalHelper.Reset);

@@ -205,6 +205,16 @@ over both chapters' hideouts, every event of each night's scenario fired).
   (seen in a three-player run, the trigger firing three times while the client stood still).
   Area triggers and the party gate now take the stand-in's body only. Files:
   `EventTriggersProxyPatches.cs`, `LockBehindPartyGate.cs`.
+- **The trade's Sell and Buy trays stayed on screen after a talk with a trader (Discord
+  report).** Vanilla pauses the game for a talk, so a trader never goes and the window never
+  closes from inside a trade. Co-op keeps the world running: the trader could be killed or its
+  copy despawned or re-created by the host mid-trade, after which neither the window nor the
+  trade could close (Esc threw halfway and left the trays and their Accept button up for good),
+  and the mod's own window closes did not close an open trade first. Now a close with a trade
+  open closes the trade first, as vanilla's Esc does, and a talk whose NPC is gone ends the way
+  vanilla's close does: goods laid out to sell go back to the player, the gone trader's goods go
+  with it, its talk lock is released. Files: `TradeSyncPatches.cs` (`TradeClosedWithWindowPatch`),
+  `TalkPartnerGonePatch.cs`.
 - **A player entering a location beside another player was shoved away, into the bunker's
   exit.** A remote player's stand-in is a copy of this viewer's player, and it kept the player's
   flashlight beam box (up to 1000 units ahead while the flashlight is on) as it was when copied;
