@@ -85,10 +85,16 @@ namespace DWMPHorde.Patches
             PlayerPlacedContainerKeys.Add(MakeContainerKey(inv.transform.position, slotIdx));
         }
 
-        /// <summary>A world container: not a player's own bag or hotbar.</summary>
+        /// <summary>
+        /// A world container (a crate, a wardrobe, a body's drop): the only places loot
+        /// comes from. Not a player's bag or hotbar, and not the trade, crafting or oven panes: those
+        /// hold the player's own goods (the Sell tray gives them back on close) or the trader's
+        /// stock. Counting them as loot gave the party bonus on every round trip through the Sell tray.
+        /// </summary>
         private static bool IsWorldContainer(Inventory inv)
         {
-            return inv != null && inv.invType != Inventory.InvType.playerInv && inv.invType != Inventory.InvType.hotbar;
+            return inv != null
+                && (inv.invType == Inventory.InvType.itemInv || inv.invType == Inventory.InvType.deathDrop);
         }
 
         private static int GetItemMultiplier()
@@ -227,7 +233,12 @@ namespace DWMPHorde.Patches
                 Log("  --> NOT scaled loot, skipping");
                 return false;
             }
-            if (slot.inventory != null && slot.inventory.gameObject.GetComponent<DroppedItemIdentifier>() != null)
+            if (!IsWorldContainer(slot.inventory))
+            {
+                Log($"  --> blocked: not a world container ({slot.inventory?.invType})");
+                return false;
+            }
+            if (slot.inventory.gameObject.GetComponent<DroppedItemIdentifier>() != null)
             {
                 Log("  --> blocked by DroppedItemIdentifier");
                 return false;
@@ -368,6 +379,7 @@ namespace DWMPHorde.Patches
             if (SessionSettings.LootShareMode == Config.LootShareMode.Off) return;
             if (InvItemClass.isNull(__instance.invItem)) return;
             if (!IsExpItemClass(__instance.invItem)) return;
+            if (!IsWorldContainer(__instance.inventory)) return;
             if (IsPlayerPlacedSlot(__instance)) return;
             if (__instance.inventory != null
                 && __instance.inventory.gameObject.GetComponent<DroppedItemIdentifier>() != null)

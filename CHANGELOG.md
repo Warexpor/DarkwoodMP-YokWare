@@ -3,12 +3,12 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.301**. The current Horde wire protocol is **75**. Every install in a session
+**0.8.302**. The current Horde wire protocol is **75**. Every install in a session
 needs the same DLL; the protocol is checked on join.
 
 Protocol history (newest first):
 
-- **75**, 0.8.297 to 0.8.301: `CoHold` (170) gains mode 5, `ModePlayerPush`: a player walking into another
+- **75**, 0.8.297 to 0.8.302: `CoHold` (170) gains mode 5, `ModePlayerPush`: a player walking into another
   player, sent to the pushed player.
 - **74**, 0.8.294 to 0.8.296: `PlayerEffectSync` with `MovedHome` carries the home it left (`FromX/Y/Z`);
   new `PartyHomeMoves` (178), host to a joiner: the party's home moves kept with the world.
@@ -95,6 +95,16 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.302 — cookable items no longer multiply through the trader's Sell tray
+
+- **Dupe: XP (cookable) items put in the Sell tray and taken back came back multiplied.** The
+  co-op loot share (`ItemDoublePickupPatch`) gives a party bonus on fuels and oven items taken
+  from a world container, and it counted every non-bag inventory as one: the trader's Sell tray,
+  its Buy tray and stock, the crafting and oven panes. Closing the trade (or picking the stack
+  back up) moved the player's own items "from a container" and added the bonus each round trip.
+  The share now arms only for world containers and bodies' drops (`itemInv`, `deathDrop`), on
+  every take path (take all, take one, grab).
 
 ## 0.8.301 — a living spectator's body stays where it is and can be hurt
 
