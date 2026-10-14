@@ -196,27 +196,18 @@ namespace DWMPHorde.Players
                 UnityEngine.Object.Destroy(collision.gameObject);
         }
 
-        // Throttled log counter to avoid spamming the log file
-        private static int _pushCollideCount; // process-scoped: log throttle
+        /// <summary>Where the body is (physics position).</summary>
+        internal Vector3 BodyPosition => _rb != null ? _rb.position : transform.position;
 
-        private void OnCollisionStay(Collision collision)
-        {
-            if (collision.rigidbody == null)
-                return;
+        /// <summary>How far ahead the local player's push puts the body (<c>Sync.PeerPush.LeadOffset</c>).</summary>
+        internal Vector3 PushLead => _pushOffset;
 
-            if (collision.rigidbody == Player.Instance?.Rigidbody)
-            {
-                if (++_pushCollideCount % 60 == 0 && ModRuntime.VerboseLogging)
-                    ModRuntime.LegacyInfo("[ProxyCollide] pushed by local player");
-
-                Vector3 pushDir = transform.position - collision.transform.position;
-                pushDir.y = 0f;
-                if (pushDir.magnitude > 0.01f)
-                    pushDir.Normalize();
-                float speed = Mathf.Clamp(collision.relativeVelocity.magnitude * 0.5f, 0f, 4f);
-                _pushOffset = pushDir * speed;
-            }
-        }
+        /// <summary>
+        /// The local player can push this body now (<c>Sync.PeerPush</c>): it is in this world,
+        /// its colliders are on, and it is not hinged to a shared drag here.
+        /// </summary>
+        internal bool CanBePushed => _hasState && _rb != null && !_isVaulting && !_coHeld && !_freezePosition
+            && _rb.position.y > AbsentPosition.y * 0.5f;
 
         private readonly List<KeyValuePair<Collider, Collider>> _placedInside =
             new List<KeyValuePair<Collider, Collider>>();
@@ -414,6 +405,8 @@ namespace DWMPHorde.Players
                 return;
             }
 
+            // The local player pushing it: ahead by what the push does before its positions show it.
+            _pushOffset = Sync.PeerPush.LeadOffset(PlayerId, _pushOffset, _timeline.Delay);
             Vector3 target = shown + _pushOffset;
 
             // Clamp horizontal drift so proxy can't be launched away by chain-reaction pushes.
@@ -446,7 +439,7 @@ namespace DWMPHorde.Players
             // short teleport, a respawn under the snap distance) stayed behind for as long as the
             // player stood still: creatures fought the wrong spot and the player's blows were
             // refused as out of range.
-            Vector3 behind = _rb.position - shown;
+            Vector3 behind = _rb.position - target;
             behind.y = 0f;
             if (behind.sqrMagnitude > BlockedLagDistance * BlockedLagDistance)
             {
@@ -459,9 +452,6 @@ namespace DWMPHorde.Players
             }
             else
                 _blockedTime = 0f;
-
-            // Decay push force gradually
-            _pushOffset = Vector3.Lerp(_pushOffset, Vector3.zero, Time.fixedDeltaTime * 10f);
         }
 
         /// <summary>The body's turn towards the player's facing, per second (the pace of the old 0.36 a physics step).</summary>

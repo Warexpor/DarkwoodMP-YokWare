@@ -34,9 +34,9 @@ namespace DWMPHorde.Spectator
             SyncAudioListener();
             RefreshWorldGridAt(newTarget.position);
 
-            // Teleport player to new target
+            // Teleport player to new target (a living player's body stays where it stands)
             var player = Player.Instance;
-            if (player != null)
+            if (player != null && _bodyMoved)
             {
                 Vector3 tpPos = newTarget.position;
                 tpPos.y = player._transform.position.y;
@@ -80,20 +80,27 @@ namespace DWMPHorde.Spectator
 
             cam.followTarget = remoteTransform;
 
-            player.switchVisibilty(false);
-            HideLocalExtraVision(player);
-
-            // Teleport player to target so game logic (audio triggers, AI proximity) uses correct position
+            // A dead player's body goes under the watched player, hidden (its corpse lies where
+            // it fell, PlayerCorpses). A living player's body stays where it stands, seen and
+            // hittable by everyone, itself included; a hit ends the watching (Update).
+            _bodyMoved = !LivingBody(player);
             _savedPlayerPosition = player._transform.position;
             _savedPlayerInvisible = player.invisible;
             _savedPlayerIgnoreMe = player.ignoreMe;
-            player.invisible = true;
-            player.ignoreMe = true;
-            Vector3 tpPos = remoteTransform.position;
-            tpPos.y = player._transform.position.y;
-            player._transform.position = tpPos;
-            if (player.Rigidbody != null)
-                player.Rigidbody.position = tpPos;
+            _healthOnWatch = player.health;
+            HideLocalExtraVision(player);
+            if (_bodyMoved)
+            {
+                player.switchVisibilty(false);
+                // Teleport player to target so game logic (audio triggers, AI proximity) uses correct position
+                player.invisible = true;
+                player.ignoreMe = true;
+                Vector3 tpPos = remoteTransform.position;
+                tpPos.y = player._transform.position.y;
+                player._transform.position = tpPos;
+                if (player.Rigidbody != null)
+                    player.Rigidbody.position = tpPos;
+            }
 
             // Move AudioListener to follow target so world SFX volume matches camera (5.3).
             BindAudioListener(player, remoteTransform.position);
@@ -117,12 +124,14 @@ namespace DWMPHorde.Spectator
                 _proxyVision.EnsureVisionCircle();
             }
 
-            // Mute corpse/get-up SFX on the local body while cam follows a peer.
-            MuteLocalPlayerAudio(player, mute: true);
-
             player.immobilise();
-            player.invulnerable = true;
-            player.noClipMode = true;
+            if (_bodyMoved)
+            {
+                // Mute corpse/get-up SFX on the local body while cam follows a peer.
+                MuteLocalPlayerAudio(player, mute: true);
+                player.invulnerable = true;
+                player.noClipMode = true;
+            }
 
             // Load WorldGrid / cullables around the spectated peer immediately (5.3).
             RefreshWorldGridAt(remoteTransform.position);
@@ -317,6 +326,9 @@ namespace DWMPHorde.Spectator
         {
             player.invisible = _savedPlayerInvisible;
             player.ignoreMe = _savedPlayerIgnoreMe;
+            // A living spectator's body never left (and may have been knocked aside since).
+            if (!_bodyMoved)
+                return;
             player._transform.position = _savedPlayerPosition;
             if (player.Rigidbody != null)
                 player.Rigidbody.position = _savedPlayerPosition;

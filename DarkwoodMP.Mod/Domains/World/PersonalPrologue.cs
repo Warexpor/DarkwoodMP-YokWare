@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using DG.Tweening;
 using DWMPHorde.Logging;
 using DWMPHorde.Networking;
 using DWMPHorde.Patches;
@@ -484,6 +485,9 @@ namespace DWMPHorde.Sync
             MarkKnown();
             if (p == null)
                 return;
+            // A player who played the prologue here before saw the title at its end.
+            if (!playedBefore)
+                ShowChapterTitle(wg);
             try
             {
                 ApplyChapterStart(p, wg);
@@ -512,6 +516,35 @@ namespace DWMPHorde.Sync
             {
                 ModLog.Warn(LogCat.Session, "[Prologue] placing the fresh character failed: " + ex.Message);
             }
+        }
+
+        /// <summary>
+        /// The chapter's title over a black screen, as vanilla world generation shows it to a new
+        /// game that skips the prologue (the host's own new game). A joiner loads a save instead,
+        /// and vanilla shows it only to a game that is not loaded, so a new character joining a
+        /// world whose host skipped the prologue (or one in chapter 2) never saw it. The black
+        /// lifts as the title fades, not after vanilla's longer wait: the world here already runs.
+        /// </summary>
+        private static void ShowChapterTitle(WorldGenerator wg)
+        {
+            UI ui = Singleton<UI>.Instance;
+            Controller c = Singleton<Controller>.Instance;
+            int chapter = wg != null ? wg.chapterID : 0;
+            if (ui == null || c == null || ui.blackScreen == null || ui.chapterText == null || (chapter != 1 && chapter != 2))
+                return;
+            DOTween.Kill(ui.blackScreen);
+            ui.blackScreen.SetActive(true);
+            ui.blackScreen.GetComponent<tk2dSprite>().color = new Color(0f, 0f, 0f, 1f);
+            c.Invoke(delegate
+            {
+                if (chapter == 1)
+                    ui.showChapter1Text();
+                else
+                    ui.showChapter2Text();
+                // showChapterNText fades the title out after 4 s; the black lifts with it.
+                c.Invoke(delegate { ui.tweenBlackScreen(new Color(0f, 0f, 0f, 0f), 2f); }, 4f, timeScaleDependent: false);
+            }, 1f, timeScaleDependent: false);
+            ModLog.Event(LogCat.Session, "[Prologue] chapter " + chapter + " title for the new character");
         }
 
         /// <summary>

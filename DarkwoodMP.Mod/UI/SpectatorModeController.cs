@@ -41,7 +41,52 @@ namespace DWMPHorde.Spectator
             return target != null && t != null && t.IsChildOf(target);
         }
         /// <summary>Original player position before spectating, used by network sync to avoid pushing the remote player.</summary>
-        public Vector3? NetworkPositionOverride => _spectateTargetIndex >= 0 ? (Vector3?)_savedPlayerPosition : null;
+        public Vector3? NetworkPositionOverride => _spectateTargetIndex >= 0 && _bodyMoved ? (Vector3?)_savedPlayerPosition : null;
+
+        /// <summary>The local body went under the watched player (a dead spectator); a living one's stays put.</summary>
+        private bool _bodyMoved;
+        private float _healthOnWatch;
+
+        /// <summary>Spectating with the local body moved under the watched player, hidden (a dead player).</summary>
+        internal bool BodyMovedToTarget => IsSpectating && _bodyMoved;
+
+        /// <summary>A living spectator: its body stands where it pressed F4.</summary>
+        internal bool WatchingAlive => IsSpectating && !_bodyMoved;
+
+        /// <summary>Where the local body stands while a living player watches (null otherwise).</summary>
+        internal Vector3? WatcherBodyPosition
+            => WatchingAlive && Player.Instance != null ? (Vector3?)Player.Instance._transform.position : null;
+
+        private static bool LivingBody(Player player)
+            => player != null && player.alive && !DeathStateTracker.LocalNightDeath && !FinalDreamsceneManager.IsLocalDead;
+
+        /// <summary>
+        /// A living spectator's body was hurt: back to it at once (the death path takes over a
+        /// fatal hit, which sends a dead player back to watching).
+        /// </summary>
+        private bool WatcherHit()
+        {
+            Player player = Player.Instance;
+            if (player == null)
+                return false;
+            if (player.health >= _healthOnWatch)
+            {
+                // Healing while watching raises the mark; only a drop below it ends the watch.
+                _healthOnWatch = player.health;
+                return false;
+            }
+            ModRuntime.LegacyInfo($"[Spectate] body hurt while watching ({_healthOnWatch:F0} → {player.health:F0}) — back to it");
+            var cam = Singleton<CamMain>.Instance;
+            if (!LivingBody(player) && cam != null)
+            {
+                // Killed: back to the body without touching the death state the death has just
+                // set (a night death starts its own watch, a day death goes home as usual).
+                ExitSpectate(player, cam);
+                return true;
+            }
+            ExitAndRespawn(restorePosition: false);
+            return true;
+        }
 
         public static void EnsureExists()
         {
@@ -213,7 +258,10 @@ namespace DWMPHorde.Spectator
                 }
                 SyncProxyVision();
                 SyncAudioListener();
-                SyncPlayerPosition();
+                if (_bodyMoved)
+                    SyncPlayerPosition();
+                else if (WatcherHit())
+                    return;
             }
 
             if (!Input.GetKeyDown(KeyCode.F4))

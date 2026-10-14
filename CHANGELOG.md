@@ -3,11 +3,13 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.296**. The current Horde wire protocol is **74**. Every install in a session
+**0.8.301**. The current Horde wire protocol is **75**. Every install in a session
 needs the same DLL; the protocol is checked on join.
 
 Protocol history (newest first):
 
+- **75**, 0.8.297 to 0.8.301: `CoHold` (170) gains mode 5, `ModePlayerPush`: a player walking into another
+  player, sent to the pushed player.
 - **74**, 0.8.294 to 0.8.296: `PlayerEffectSync` with `MovedHome` carries the home it left (`FromX/Y/Z`);
   new `PartyHomeMoves` (178), host to a joiner: the party's home moves kept with the world.
 - **73**, 0.8.293: the entity snapshot leaves out an entity's clip name while it is unchanged
@@ -93,6 +95,88 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.301 — a living spectator's body stays where it is and can be hurt
+
+- **F4 while alive was god mode.** The body the others saw standing where the player pressed
+  F4 could not be hurt: the real body was invulnerable, ignored by creatures (`ignoreMe`, sent to
+  the host) and moved under the watched player, hidden. A living spectator's real body now
+  stays where it stands: visible (so 0.8.300's copy of it is gone), held still, not invulnerable,
+  not ignored. Creatures see it and attack it as usual, on the host's own AI and on a client's
+  "defender decides" judging alike, and any drop in health sends the camera back to the body.
+  A fatal hit leaves the watch without touching the death state, so a night death starts its
+  own (dead) watch and a day death goes home as usual.
+- The world around the camera still loads around the watched player, and the nodes around the
+  living body are kept awake too (`SpectatorCullingPatch`, `WorldGridNodeLeavePatch`): asleep,
+  the creatures by the body stopped on the host and never showed their blows on a client.
+- A dead spectator is unchanged (body under the watched player, hidden, invulnerable; corpse
+  where it fell). The morning release no longer sends a living spectator home, and the
+  spectator's own body sounds are muted only while that body is moved.
+- Files: `SpectatorModeController` (enter, exits, `WatcherHit`), `SpectatorCullingPatch`,
+  `HostAIPatches.Grid.cs`, `AudioSuppressionPatch`, `DeathStateTracker.Release.cs`;
+  `SpectatorModeController.SelfBody.cs` removed.
+
+## 0.8.300 — a living spectator sees its own body
+
+- **Playtest: a client watching the host with F4 could not see itself.** The others see a living
+  spectator's body standing where it pressed F4 (its sent position stays there), but on its own
+  screen the real body is moved under the watched player and hidden, since the world around
+  the camera, its sounds and rooms follow the local player's position. The spot was empty for
+  the spectator alone. A copy of the player now stands there on its own screen (idle, facing
+  the way it faced, its look at that moment; no collider, light or sound) until it stops
+  watching or goes down (a dead spectator's body is `PlayerCorpses`'s, as before).
+- Files: `UI/SpectatorModeController.SelfBody.cs` (new), `SpectatorModeController` enter and
+  every exit.
+
+## 0.8.299 — a pushed player who drags something is heavier; the chapter title for a joiner
+
+- **Pushing another player:** 0.15 of the pusher's walk (was 0.3).
+- **A player dragging something was pushed as if their hands were free.** The push was a
+  force on the player's body alone, and the vanilla drag hinge passed little of the dragged
+  body's weight back. The push now steers the pushed player's speed along it: at most 0.15 of
+  a walk, times the player's damping over the player's and the load's (mass times drag; a
+  light lamp roughly halves it, a wardrobe more), with no more than 0.15 of a walk force, split
+  between the player and the load by their damping. A player already moving along the push
+  faster than that is not pushed further. The pusher's screen predicts the same slower give
+  (`RemoteDragTimeline.DraggedBy`).
+- **A joiner new to a world whose host skipped the prologue got no "Chapter 1" title.** Vanilla
+  shows the chapter's title over a black screen to a new game that is not loaded; a joiner
+  loads the host's save. A new character placed in the hideout without the prologue
+  (`PersonalPrologue.ArriveFresh`, chapter 1 or 2) now gets the title over black, and the black
+  lifts as the title fades. A player who played the prologue here before (saw the title at its
+  end) does not.
+- Files: `PeerPush.cs`, `RemoteDragTimeline.cs`, `PersonalPrologue.cs`.
+
+## 0.8.298 — pushing another player: harder, no flicker
+
+- **Playtest of 0.8.297: far too easy to shove another player, and still shaky.** The logs showed
+  the pusher's push reaching the host at about 15 a second instead of 30, in bursts: the push
+  was switching on and off. The pusher counted as touching only within a body's width of the
+  stand-in, but the push itself moves the stand-in ahead of the pusher (its lead), so the gap
+  opened, the push stopped, the lead eased back, the bodies touched and the push began again,
+  several times a second. Contact is now measured to where the stand-in would be without the
+  lead, and a push already going keeps 12 more units of gap before it ends.
+- The pushed player now gets 0.3 of the pusher's walk force (was 0.6): a standing player gives
+  way at about a third of a walk, and one who walks against it holds their ground.
+- Files: `PeerPush.cs`, `RemotePlayerProxy.Apply.cs` (`PushLead`).
+
+## 0.8.297 — players push each other smoothly (protocol 75)
+
+- **Pushing another player was hard and shook.** Each player's body is run by that player's own
+  game; the others are stand-ins. Walking into a stand-in only moved it a few units on the
+  pusher's screen, by an offset taken from each contact's speed that changed every physics step
+  (the shake), and it never moved the pushed player: a push got through only as the pusher's
+  stand-in crept into the pushed player on that player's screen, one round trip at a time.
+- Now the pusher's game sends its walk force (30 a second, `CoHold` mode 5) to the pushed
+  player's game, which adds 0.6 of it to that player's body (plain physics for two bodies of the
+  same weight would be 0.5; a bit more so a push gets through). The pushed player can walk
+  against it. On the pusher's screen the stand-in moves ahead by what the push does before its
+  own positions show it (its playback delay plus a round trip), eased in and out, so it gives
+  way at once and evenly. Not while either player is dead, vaulting, dragging or in a shared
+  drag; a push from a player more than 200 units away is ignored.
+- A stand-in pushed ahead no longer counts as held back (it snapped back after half a second).
+- Files: `Domains/Players/PeerPush.cs` (new), `RemotePlayerProxy.Apply.cs`, `SharedDrag.Handle`,
+  `LanNetworkManager.Tick.Drag.cs`, `CoHoldMessage`.
 
 ## 0.8.296 — a manual save slot keeps every player's character of its own save
 

@@ -681,6 +681,12 @@ namespace DWMPHorde.Sync
                 CoPush.HandlePush(m);
                 return;
             }
+            if (m.Mode == CoHoldMessage.ModePlayerPush)
+            {
+                if (m.TargetId == net.LocalPlayerId)
+                    PeerPush.HandlePush(m);
+                return;
+            }
             if (m.TargetId != net.LocalPlayerId)
                 return;
             switch (m.Mode)
@@ -805,6 +811,7 @@ namespace DWMPHorde.Sync
                 StopFollowDrag(null);
             _coHolders.Clear();
             CoPush.Reset();
+            PeerPush.Reset();
         }
 
         // ------------------------------------------------------------------ helpers
