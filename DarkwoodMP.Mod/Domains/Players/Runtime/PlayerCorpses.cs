@@ -127,6 +127,28 @@ namespace DWMPHorde.Players
                 source, "RemotePlayerCorpse_p" + id, Vector3.zero, PlayerCloneKind.Remote, null);
             if (body == null)
                 return;
+            // Registered before it is dressed: a throw below left it unregistered, and every tick
+            // (4 a second) cloned another standing body on the spot.
+            _corpses[id] = new Corpse
+            {
+                Body = body,
+                Dream = dream,
+                Pos = pos,
+                BagSearchUntil = Time.unscaledTime + BagSearchSeconds,
+            };
+            try
+            {
+                Dress(body, pos, proxy, source);
+            }
+            catch (System.Exception ex)
+            {
+                Logging.ModLog.Warn(Logging.LogCat.World, "[Corpse] body of p" + id + " not dressed: " + ex.Message);
+            }
+            ModRuntime.LegacyInfo($"[Corpse] body of p{id} left at {pos} ({(dream ? "dream" : "night")})");
+        }
+
+        private static void Dress(GameObject body, Vector3 pos, RemotePlayerProxy proxy, Player source)
+        {
             foreach (Collider col in body.GetComponentsInChildren<Collider>(true))
                 col.enabled = false;
             // The clone is of this viewer's player: its lights (a lamp or torch held here) went
@@ -138,7 +160,9 @@ namespace DWMPHorde.Players
                 if (mr != null)
                     mr.enabled = false;
             }
-            body.transform.position = pos;
+            // On the ground layer vanilla gives a dead creature (Character.setYPosAfterDeath):
+            // left at the player's height it drew over a live player walking across it.
+            body.transform.position = new Vector3(pos.x, Core.getYpos(PosType.lowItems2, randomize: false), pos.z);
             // Face the way the player faced when it fell (the local body has not been moved yet:
             // the spectator takes it away a few seconds into the death sequence).
             Transform facing = proxy != null ? proxy.transform : source.transform;
@@ -152,16 +176,18 @@ namespace DWMPHorde.Players
             tk2dSpriteAnimation look = proxy != null ? proxy.GetComponent<SecondPlayerAnimController>()?.TorsoLibrary : null;
             if (corpseAnim != null && look != null)
                 corpseAnim.ApplyTorsoLibrary(look);
-            corpseAnim?.PlayDeathClip("Death1");
-
-            _corpses[id] = new Corpse
+            // The fall already under way on the player's own body (or its stand-in) goes on where
+            // it is: started over, the death played a second time once the body took over.
+            tk2dSpriteAnimator fell = proxy != null ? proxy.GetComponent<tk2dSpriteAnimator>() : source.GetComponent<tk2dSpriteAnimator>();
+            tk2dSpriteAnimator corpseTorso = body.GetComponent<tk2dSpriteAnimator>();
+            tk2dSpriteAnimationClip fallClip = fell != null ? fell.CurrentClip : null;
+            if (fallClip != null && fallClip.name.StartsWith("Death", System.StringComparison.Ordinal)
+                && corpseTorso != null && corpseTorso.Library != null && corpseTorso.Library.GetClipByName(fallClip.name) != null)
             {
-                Body = body,
-                Dream = dream,
-                Pos = pos,
-                BagSearchUntil = Time.unscaledTime + BagSearchSeconds,
-            };
-            ModRuntime.LegacyInfo($"[Corpse] body of p{id} left at {pos} ({(dream ? "dream" : "night")})");
+                corpseTorso.PlayFromFrame(fallClip.name, Mathf.Clamp(fell.CurrentFrame, 0, fallClip.frames.Length - 1));
+                return;
+            }
+            corpseAnim?.PlayDeathClip("Death1");
         }
 
         private static void Release(int id)

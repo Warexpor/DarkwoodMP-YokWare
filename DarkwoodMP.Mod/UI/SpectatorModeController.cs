@@ -25,6 +25,21 @@ namespace DWMPHorde.Spectator
         public bool IsSpectating => _spectateTargetIndex >= 0;
         /// <summary>Position of the spectated target, used by Harmony culling patch.</summary>
         public Vector3? FollowTargetPosition => _followTarget != null ? (Vector3?)_followTarget.position : null;
+        internal Transform FollowTarget => _followTarget;
+
+        /// <summary>
+        /// While spectating, the body is made invisible here only so this machine's game leaves it
+        /// alone; the others keep seeing the player as it was (it showed at 30% on their screens).
+        /// </summary>
+        internal bool? NetworkInvisibleOverride => IsSpectating ? (bool?)_savedPlayerInvisible : null;
+
+        /// <summary>True when <paramref name="t"/> is the body this machine's spectator follows, or on it.</summary>
+        internal static bool IsFollowing(Transform t)
+        {
+            SpectatorModeController spec = Instance;
+            Transform target = spec != null && spec.IsSpectating ? spec._followTarget : null;
+            return target != null && t != null && t.IsChildOf(target);
+        }
         /// <summary>Original player position before spectating, used by network sync to avoid pushing the remote player.</summary>
         public Vector3? NetworkPositionOverride => _spectateTargetIndex >= 0 ? (Vector3?)_savedPlayerPosition : null;
 
@@ -207,6 +222,12 @@ namespace DWMPHorde.Spectator
             if (!CanUseSpectateKey())
                 return;
 
+            PressSpectateKey();
+        }
+
+        /// <summary>F4: start spectating, step to the next player, or leave (pilot <c>spectate</c> too).</summary>
+        internal void PressSpectateKey()
+        {
             if (!NetGuard.Connected(out var net))
                 return;
 

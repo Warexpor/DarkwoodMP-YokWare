@@ -3,7 +3,7 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.290**. The current Horde wire protocol is **72**. Every install in a session
+**0.8.291**. The current Horde wire protocol is **72**. Every install in a session
 needs the same DLL; the protocol is checked on join.
 
 Protocol history (newest first):
@@ -89,6 +89,41 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.291 — night-dead player: one body, lying under the living, real spectator view and sound
+
+- **A pile of standing "ghost" copies where a client fell, on the host.** The host dresses the
+  body in the dead player's own look (`ApplyTorsoLibrary`); on a freshly cloned body the animator
+  has no clip yet and reading its frame threw. The body was not registered yet, so every tick
+  (4 a second) cloned another, standing. The library swap now reads the frame only when there is a
+  clip, and the body is registered before it is dressed, so a failure can never clone again.
+- **The body drew over a living player walking across it.** It lay at the player's height; it now
+  lies on the ground layer vanilla gives a dead creature (`Character.setYPosAfterDeath`, lowItems2).
+- **The death animation played twice.** The body started the fall over once it took over from the
+  player's own body (or its stand-in); it now goes on from the frame that body was showing.
+- **Spectating a living player showed no circle of light around them.** The stand-in's light dot is
+  shrunk to nothing (it would be a second lantern on every peer); spectated, it is now vanilla's
+  120. The stand-in's `PlayerFOVLogic` stays off, as on the player (on, it drew a bright wedge).
+- **A dead player's screen showed "DRY MEADOW" and the saving indicator.** Vanilla's death sequence
+  names the biome you wake up in and saves; a player down until morning wakes nowhere and nothing
+  is saved for it. The biome name is skipped while down, and the client's blocked save no longer
+  shows the indicator for a held death. No machine saves until the whole party is down or morning.
+- **Spectating, the followed player's sounds panned side to side.** They were played as a peer's:
+  3D at a body the listener follows a frame behind. They now play with the game's own settings and
+  full step volume, as that player hears itself.
+- **Spectating while alive (F4) faded the player on everyone else's screen** (it is made invisible
+  here so the game leaves the body alone). The others now get the player's real invisibility.
+- Lootable body: a night body holds a bag only when the player carried something (the test runs
+  that showed no bag were a fresh, empty-handed character). Checked: with items, the bag drops and
+  sits hidden under the body on both machines.
+- Pilot: `vision` (vision lights of the player and the spectated body, stand-in visibility),
+  `spectate` (F4).
+- Files: `Players/Runtime/PlayerCorpses.cs`, `SecondPlayerAnimController.Apply.cs`,
+  `PlayerVisionController.cs`, `Night/Patches/NightDeathPatches.cs`, `Patches/SaveSyncPatches.cs`,
+  `Audio/PeerSpatialPlay.cs`, `World/WorldProxyEffectNetHandlers.cs`, `World/WorldFxNetHandlers.cs`,
+  `UI/SpectatorModeController.cs`, `Diagnostics/TestPilot.cs`.
+- Status: ghosts, body layer, single fall, circle and no banner seen in pilot runs; spectator
+  sound and the F4 look for others are code only.
 
 ## 0.8.290 — a peer's random house / forest noise plays the vanilla way (no steps dying away out of nowhere)
 

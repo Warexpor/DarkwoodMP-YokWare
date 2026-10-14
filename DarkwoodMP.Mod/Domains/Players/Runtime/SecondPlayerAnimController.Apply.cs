@@ -287,8 +287,9 @@ namespace DWMPHorde.Players
 
         private static void SwapLibraryKeepClip(tk2dSpriteAnimator anim, tk2dSpriteAnimation lib)
         {
+            // A fresh animator (a body cloned this frame) has no clip yet; CurrentFrame reads it.
             string clip = anim.CurrentClip != null ? anim.CurrentClip.name : null;
-            int frame = anim.CurrentFrame;
+            int frame = anim.CurrentClip != null ? anim.CurrentFrame : 0;
             bool playing = anim.Playing;
             anim.Library = lib;
             tk2dSpriteAnimationClip next = string.IsNullOrEmpty(clip) ? null : lib.GetClipByName(clip);

@@ -473,7 +473,8 @@ namespace DWMPHorde.Networking
                     // the same range the hear gate above used.
                     configure = src => WorldProxyEffectNetHandlers.ApplyStandInRolloff(src, id);
                 }
-                float vol = Mathf.Clamp01(msg.Volume) * (step ? WorldProxyEffectNetHandlers.PeerMovementVolume : 1f);
+                float vol = Mathf.Clamp01(msg.Volume)
+                    * (step && !Spectator.SpectatorModeController.IsFollowing(standIn) ? WorldProxyEffectNetHandlers.PeerMovementVolume : 1f);
                 PeerSpatialPlay.Play(() => AudioController.Play(id, pos, standIn, vol), configure);
             }
             finally { TraverseHack.SetExplicitFlag(prevNet); }

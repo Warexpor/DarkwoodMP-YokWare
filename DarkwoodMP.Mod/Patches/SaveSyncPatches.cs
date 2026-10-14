@@ -34,8 +34,9 @@ namespace DWMPHorde.Patches
                 "Client world Save blocked — host owns Flags/DynamicSave; backup + SaveSync only");
             // Vanilla shows the corner "Saving" indicator at the end of every save that asks for
             // it (SaveManager.finishSaving). Blocked here, the client never saw it where the host
-            // did: the dream entry, a level-up, a sleep.
-            if (showSavingIndicator)
+            // did: the dream entry, a level-up, a sleep. Not for a death held until morning: no
+            // save is made for it on any machine.
+            if (showSavingIndicator && !NightDeathSavePatch.IsHeld())
             {
                 try
                 {

@@ -102,7 +102,7 @@ namespace DWMPHorde.Networking
                     && local.effects.hasEffectType(CharacterEffectType.forestSpiritWard),
                 FriendOfTheForest = local.skills != null && local.skills.FriendOfTheForest,
                 EnemyOfTheForest = local.skills != null && local.skills.EnemyOfTheForest,
-                Invisible = local.invisible,
+                Invisible = Spectator.SpectatorModeController.Instance?.NetworkInvisibleOverride ?? local.invisible,
                 IgnoreMe = local.ignoreMe,
                 Poisoned = localCb != null && localCb.poisoned,
                 Bleeding = localCb != null && localCb.bleeding,
@@ -317,7 +317,9 @@ namespace DWMPHorde.Networking
         /// <summary>A peer's one-shot at its stand-in, 3D from its first moment (<see cref="PeerSpatialPlay"/>).</summary>
         private static void PlayProxyOneShot(string soundId, Transform at, float volume)
         {
-            volume *= PeerMovementVolume;
+            // A spectator hears the player it follows as that player hears its own steps.
+            if (!Spectator.SpectatorModeController.IsFollowing(at))
+                volume *= PeerMovementVolume;
             PeerSpatialPlay.Play(() => AudioController.Play(soundId, at, volume),
                 src => ForceSpatialProxyOneShot(src, soundId));
         }

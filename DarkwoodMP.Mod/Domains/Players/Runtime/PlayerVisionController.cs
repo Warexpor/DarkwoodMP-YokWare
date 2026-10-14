@@ -57,8 +57,11 @@ namespace DWMPHorde.Players
         /// </summary>
         public void SetVisionConeEnabled(bool enabled)
         {
-            if (_fovLogic != null)
-                _fovLogic.gameObject.SetActive(enabled);
+            // PlayerFOVLogic is authored off on the player and stays off while it plays (only the
+            // sight checks read its shape); switched on, it drew a bright wedge the followed player
+            // never had.
+            if (_fovLogic != null && !enabled)
+                _fovLogic.gameObject.SetActive(false);
 
             if (_fovLight != null)
                 _fovLight.gameObject.SetActive(enabled);
@@ -67,8 +70,25 @@ namespace DWMPHorde.Players
                 _fovDot.gameObject.SetActive(enabled);
 
             if (_lightDot != null)
+            {
+                // The stand-in's copy of the light dot is shrunk to nothing (it would be a second
+                // lantern on every peer); seen through, it is the circle of light around the player.
+                if (enabled && _lightDot.LightRadius < 1f)
+                    _lightDot.LightRadius = DefaultLightDotRadius();
                 _lightDot.gameObject.SetActive(enabled);
+            }
         }
+
+        /// <summary>Vanilla's light dot around the player (Player.lightDotDefaultRadius, 120).</summary>
+        private static float DefaultLightDotRadius()
+        {
+            Player p = Player.Instance;
+            float r = p != null && LightDotDefaultRadiusField != null ? (float)LightDotDefaultRadiusField.GetValue(p) : 0f;
+            return r >= 1f ? r : 120f;
+        }
+
+        private static readonly FieldInfo LightDotDefaultRadiusField =
+            typeof(Player).GetField("lightDotDefaultRadius", BindingFlags.Instance | BindingFlags.NonPublic);
 
         /// <summary>
         /// Spectator when local FOV is dead/off: restore both pieces of player vision;
@@ -81,16 +101,9 @@ namespace DWMPHorde.Players
             const float coneAngle = 80f;
             const float coneRadius = 18f;
             const float circleRadius = 9f;
-            ApplyConeShape(_fovLogic, coneAngle, coneRadius);
             ApplyConeShape(_fovLight, coneAngle, coneRadius * 0.9f);
             // FOVLightDot is the ambient circle around the player; never force a cone angle.
             ApplyCircleShape(_fovDot, circleRadius);
-            if (_lightDot != null)
-            {
-                _lightDot.gameObject.SetActive(true);
-                if (_lightDot.LightRadius < 1f)
-                    _lightDot.LightRadius = 8f;
-            }
             SetVisionConeEnabled(true);
         }
 
@@ -131,6 +144,8 @@ namespace DWMPHorde.Players
         {
             SetVisionConeEnabled(false);
             SetFlashlightEnabled(false);
+            if (_lightDot != null)
+                _lightDot.LightRadius = 0.001f;
         }
 
         /// <summary>
