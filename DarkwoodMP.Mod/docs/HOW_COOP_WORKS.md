@@ -319,7 +319,8 @@ ever written inside a dream: such a save strands the player on the pad at the ne
   of the world download.
 - It also writes `savplc.dat`: the container slots a player has put items into. Taking a stored
   stack back never earns the party loot bonus, also after a reload and for a player who joins
-  later. It is part of the world download too.
+  later. A player's drop on the ground is marked the same way; one made since the last save
+  gets its mark when the save gives it an id. It is part of the world download too.
 - A client's own single-player saves are untouched except the slot it chose for the
   co-op copy. The second install on a dual-box setup uses its own save root.
 - Each campaign carries an id. Character snapshots are tied to it, so a snapshot
@@ -1103,7 +1104,7 @@ with such a change not applied asks first, since it changes the game for everyon
 
 | Setting | Default | What it does |
 |---|---|---|
-| `LootShareMode` / `DoubleItemsEnabled` | `ScaleWithPlayers` / on | Taking a hideout furnace fuel (odd mushrooms, odd meat, red eggs, embryos, dead rats, fish, insects, the large odd mushrooms, and any item vanilla flags as an experience item) gives the taker the stack multiplied by party size (the extra goes straight into the taker's bag; the container loses only the real stack, first come first served, so the first taker carries the whole party's share). Not scaled: wood, nails, regular dog meat, unique items, items players put in containers, dropped items. |
+| `LootShareMode` / `DoubleItemsEnabled` | `ScaleWithPlayers` / on | Taking a hideout furnace fuel (odd mushrooms, odd meat, red eggs, embryos, dead rats, fish, insects, the large odd mushrooms, and any item vanilla flags as an experience item) gives the taker the stack multiplied by party size (the extra goes straight into the taker's bag; the container loses only the real stack, first come first served, so the first taker carries the whole party's share). Only world containers and creature bodies count. Not scaled: wood, nails, regular dog meat, unique items, items players put in containers, players' drops (also after a reload), a player's death bag, and the trade, crafting and oven panes (an item taken back out of the Sell tray is the player's own). |
 | `NamedNpcScaleEnabled` / `NamedNpcAllowlist` | on / `ChomperBlack` | In dreams only, one extra black chomper per extra player, spawned around the original when it first appears and fighting with it. Night hideout monsters are not scaled. |
 | `FriendlyFireEnabled` | on | See [section 9](#9-player-combat-and-friendly-fire). |
 | `MaxPeerDamage` | 200 | Upper bound on one client-reported hit (anti-grief). |

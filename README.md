@@ -31,7 +31,8 @@ the host.
   NPCs and the workbench are shared, and so is the look of the world: random tints,
   flips and animations come out the same on every machine.
 - **Each character is personal.** Every player keeps their own bag, health, skills,
-  level, recipes, home oven and trader standing.
+  level, recipes, home oven and trader standing. Walking into a hideout whose oven
+  is lit makes it your home (by day).
 - **Single-player rules are adapted, not removed.** Menus no longer pause the world
   for one player (players in a dialogue, the level-up menu or the pause menu are
   protected instead); the world pauses when everyone is in the pause menu. A night

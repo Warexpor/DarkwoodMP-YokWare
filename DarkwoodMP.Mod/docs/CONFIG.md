@@ -67,7 +67,7 @@ changes are kept without asking.
 |-----|---------|---------|
 | `FriendlyFireEnabled` | `true` | Players can damage each other. |
 | `DoubleItemsEnabled` | `true` | Master switch for loot sharing (hideout furnace fuels and `isExpItem` items). |
-| `LootShareMode` | `ScaleWithPlayers` | `Off` or `ScaleWithPlayers` (1 + remote peers). Scales hideout fuels (mushrooms, odd meat, eggs and similar); not wood, nails or regular dog meat. |
+| `LootShareMode` | `ScaleWithPlayers` | `Off` or `ScaleWithPlayers` (1 + remote peers). Scales hideout fuels (mushrooms, odd meat, eggs and similar); not wood, nails or regular dog meat. Only on items taken from world containers and creature bodies, never on a player's own items (stored stacks, drops, death bags, the trader's Sell tray). |
 | `NamedNpcScaleEnabled` | `true` | Host: multiply allowlisted dream NPC presence by the party multiplier. |
 | `NamedNpcAllowlist` | `ChomperBlack` | Comma-separated character short names scaled in dreams only (not night hideout trash). |
 | `SoloHomeDream` | `true` | Host. The home dream (the flat, `dream_home`) is played alone: everyone goes in together and wakes by their own way out, but each player has their own copy of the flat and does not see the others there. Off: the party plays it together like the other dreams. Clients follow the host's value. |
