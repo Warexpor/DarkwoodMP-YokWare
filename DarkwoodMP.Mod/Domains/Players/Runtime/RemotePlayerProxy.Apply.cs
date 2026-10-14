@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using DWMPHorde.Config;
 using UnityEngine;
 
@@ -36,8 +37,7 @@ namespace DWMPHorde.Players
                     if (_firstState)
                     {
                         _firstState = false;
-                        _rb.position = state.Position;
-                        _rb.velocity = Vector3.zero;
+                        PlaceAt(state.Position);
                     }
                     else
                     {
@@ -46,10 +46,7 @@ namespace DWMPHorde.Players
                         bool farXz = flat.sqrMagnitude > 150f * 150f;
                         bool farY = Mathf.Abs(_rb.position.y - state.Position.y) > 40f;
                         if (farXz || farY)
-                        {
-                            _rb.position = state.Position;
-                            _rb.velocity = Vector3.zero;
-                        }
+                            PlaceAt(state.Position);
                     }
                 }
                 else if (_firstState)
@@ -76,8 +73,7 @@ namespace DWMPHorde.Players
                 {
                     // Vault just ended — teleport to exact final position so we don't
                     // accumulate lag from the lerp.
-                    _rb.position = _targetPosition;
-                    _pushOffset = Vector3.zero;
+                    PlaceAt(_targetPosition);
                 }
             }
         }
@@ -218,6 +214,80 @@ namespace DWMPHorde.Players
             }
         }
 
+        private readonly List<KeyValuePair<Collider, Collider>> _placedInside =
+            new List<KeyValuePair<Collider, Collider>>();
+        private static readonly Collider[] _placeBuf = new Collider[32]; // process-scoped: scratch
+
+        /// <summary>
+        /// Puts the stand-in where the player's own game has it (first state, teleport, end of a
+        /// vault, catching up after being held back). The player walked there on its own screen,
+        /// where nobody stood; here this viewer's player or a creature can stand on that spot. A
+        /// body set down inside another made physics push them apart in one step, and the push
+        /// moved this viewer's player too: shoved through the shut bunker door into the trigger
+        /// behind it (sent to the swamp tunnel, Discord report), stuck "until he moved". Bodies the
+        /// stand-in lands inside do not collide with it until the two are apart; from then on they
+        /// meet as before.
+        /// </summary>
+        internal void PlaceAt(Vector3 pos)
+        {
+            if (_rb == null)
+                return;
+            Vector3 shift = pos - _rb.position;
+            _rb.position = pos;
+            _rb.velocity = Vector3.zero;
+            _pushOffset = Vector3.zero;
+            if (_cachedColliders == null)
+                return;
+            Rigidbody localBody = Player.Instance != null ? Player.Instance.Rigidbody : null;
+            for (int c = 0; c < _cachedColliders.Length; c++)
+            {
+                Collider mine = _cachedColliders[c];
+                if (mine == null || !mine.enabled || mine.isTrigger || !mine.gameObject.activeInHierarchy)
+                    continue;
+                Vector3 minePos = mine.transform.position + shift;
+                Bounds b = mine.bounds;
+                int n = Physics.OverlapBoxNonAlloc(b.center + shift, b.extents, _placeBuf);
+                for (int i = 0; i < n; i++)
+                {
+                    Collider other = _placeBuf[i];
+                    if (other == null || other.isTrigger || !other.enabled)
+                        continue;
+                    Rigidbody body = other.attachedRigidbody;
+                    if (body == null || body == _rb)
+                        continue;
+                    if (body != localBody && body.GetComponent<CharBase>() == null)
+                        continue;
+                    if (Physics.GetIgnoreCollision(mine, other))
+                        continue;
+                    if (!Physics.ComputePenetration(mine, minePos, mine.transform.rotation,
+                            other, other.transform.position, other.transform.rotation, out _, out _))
+                        continue;
+                    Physics.IgnoreCollision(mine, other, true);
+                    _placedInside.Add(new KeyValuePair<Collider, Collider>(mine, other));
+                }
+            }
+        }
+
+        /// <summary>Bodies the stand-in was set down inside collide with it again once apart.</summary>
+        private void ReleaseSeparatedBodies()
+        {
+            for (int i = _placedInside.Count - 1; i >= 0; i--)
+            {
+                Collider mine = _placedInside[i].Key, other = _placedInside[i].Value;
+                // A disabled collider (the vault) drops its ignores in Unity: nothing to restore.
+                if (mine == null || other == null || !mine.enabled || !other.enabled)
+                {
+                    _placedInside.RemoveAt(i);
+                    continue;
+                }
+                if (Physics.ComputePenetration(mine, mine.transform.position, mine.transform.rotation,
+                        other, other.transform.position, other.transform.rotation, out _, out _))
+                    continue;
+                Physics.IgnoreCollision(mine, other, false);
+                _placedInside.RemoveAt(i);
+            }
+        }
+
         private static readonly Collider[] _nearBuf = new Collider[32]; // process-scoped: scratch
         private float _ignoreRadius = -1f;
 
@@ -274,6 +344,7 @@ namespace DWMPHorde.Players
                 return;
 
             IgnorePushablesNearby();
+            ReleaseSeparatedBodies();
 
             // Shared drag: physics moves it (the hinge, the remote player's walk force).
             if (_coHeld)
@@ -334,9 +405,7 @@ namespace DWMPHorde.Players
                 _blockedTime += Time.fixedDeltaTime;
                 if (_blockedTime >= BlockedSnapSeconds)
                 {
-                    _rb.position = _targetPosition;
-                    _rb.velocity = Vector3.zero;
-                    _pushOffset = Vector3.zero;
+                    PlaceAt(_targetPosition);
                     _blockedTime = 0f;
                 }
             }

@@ -3,7 +3,7 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.287**. The current Horde wire protocol is **72**. Every install in a session
+**0.8.288**. The current Horde wire protocol is **72**. Every install in a session
 needs the same DLL; the protocol is checked on join.
 
 Protocol history (newest first):
@@ -89,6 +89,24 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.288 — another player's stand-in no longer shoves you when it is set down on you
+
+- **The host was pushed through the shut overworld bunker door and sent to the swamp tunnel;
+  players blocked or shifted each other (Discord report, 0.8.281, host log).** At 01:42:03 the
+  host talked to `door_underground`; 3 s later it was in `outside_bunker_underground_part2_01`,
+  sent there by `goThroughDoor`, the area trigger behind the shut door. The host's own body
+  got past the door. Another player's stand-in is a physics body that jumps to that player's
+  position when it falls behind (a wall, a vault's end, a teleport, a dream pad). The player
+  walked there on its own screen, where nobody stood; on this screen this player or a creature
+  can stand on that spot. Physics then pushed the two apart in one step, and this player went
+  with it, through a thin door collider or out of where it stood. Now a stand-in set down inside
+  this player, another stand-in or a creature does not collide with it until they are apart;
+  from then on they meet as before (bodies still block each other). The dream and location
+  teleports of a stand-in go the same way. Not checked in a game run. A savage that kept
+  restarting its window climb may have been the same push (a stand-in set down in its landing
+  spot); not confirmed from this log. Files: `RemotePlayerProxy.Apply.cs` (`PlaceAt`),
+  `WorldProxyLifecycleNetHandlers.cs`.
 
 ## 0.8.287 — a morning split between hideouts and the village stays frozen
 
