@@ -82,12 +82,9 @@ namespace DWMPHorde.Networking
             DialogHostApplyGuard.BeginWorldOnly();
             try
             {
-                if (!npc.gameObject.activeInHierarchy)
-                {
-                    try { npc.gameObject.SetActive(true); }
-                    catch { /* ignore */ }
-                }
-
+                // An NPC switched off stays off: only the story switches an NPC's object on or
+                // off (vanilla Location.activateCharacters never does). Switching it on here
+                // revived the bunker's talking door after its talk had let the players through.
                 Core.sendTriggerInfo(npc.gameObject, EventTrigger.Type.onCloseDialogue);
 
                 // Vanilla sendTriggerInfo only checks the root GO. Dream props sometimes
@@ -211,6 +208,7 @@ namespace DWMPHorde.Networking
                 : null;
 
             NPC bestDream = null;
+            bool bestDreamActive = false;
             NPC bestActive = null;
             NPC bestAny = null;
             float bestDreamDist = float.MaxValue;
@@ -229,11 +227,15 @@ namespace DWMPHorde.Networking
                     && (n.transform.IsChildOf(dreamRoot)
                         || DreamSyncManager.IsAtDreamPad(n.transform.position)))
                 {
+                    // The one that is out first: the dream scene also keeps a switched-off spare of
+                    // the talking door at its root.
+                    bool active = n.gameObject.activeInHierarchy;
                     float d = Vector3.Distance(n.transform.position, dreamRoot.position);
-                    if (d < bestDreamDist)
+                    if ((active && !bestDreamActive) || (active == bestDreamActive && d < bestDreamDist))
                     {
                         bestDreamDist = d;
                         bestDream = n;
+                        bestDreamActive = active;
                     }
                     continue;
                 }
@@ -251,13 +253,7 @@ namespace DWMPHorde.Networking
                 ModLog.WarnRate(LogCat.World, "dlg-find-npc-miss:" + name,
                     $"[DialogOutcome] FindNpc miss '{name}' (scanned {all.Length} NPCs, inactive incl.)");
             }
-            else if (!found.gameObject.activeInHierarchy && (dreamRoot == null || found == bestDream))
-            {
-                // Host world-apply needs a live target for displayDialogue / EventTriggers.
-                // Never wake the overworld twin when a dream is active and only it was found.
-                try { found.gameObject.SetActive(true); }
-                catch { /* ignore */ }
-            }
+            // Not switched on when it is off: only the story does that to an NPC.
             return found;
         }
 
@@ -320,12 +316,7 @@ namespace DWMPHorde.Networking
                     + count + " of that name here)");
                 return null;
             }
-            if (!found.gameObject.activeInHierarchy)
-            {
-                // Host world-apply needs a live target for displayDialogue / EventTriggers.
-                try { found.gameObject.SetActive(true); }
-                catch { /* ignore */ }
-            }
+            // Not switched on when it is off: only the story does that to an NPC.
             return found;
         }
 
@@ -363,11 +354,7 @@ namespace DWMPHorde.Networking
                     best = n;
                 }
             }
-            if (wake && best != null && !best.gameObject.activeInHierarchy)
-            {
-                try { best.gameObject.SetActive(true); }
-                catch { /* ignore */ }
-            }
+            // "wake" no longer switches an NPC on: only the story does that to an NPC.
             return best;
         }
 

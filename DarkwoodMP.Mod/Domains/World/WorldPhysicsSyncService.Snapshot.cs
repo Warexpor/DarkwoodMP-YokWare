@@ -265,6 +265,23 @@ namespace DWMPHorde.Sync
                 _s.RecentMovers.Remove(_s.RecentMoversDone[i]);
         }
 
+        /// <summary>
+        /// Host: a body a scripted push moves (vanilla <c>MoveMe</c>: the poltergeist nights'
+        /// <c>Vortex</c>, GameEvents moveMe steps) is scanned where it is while the push lasts. The
+        /// vortex shoves every item round the hideout, the stocked wardrobe 160 units from the
+        /// client in its bedroom: beyond the scan round each player, so the client's copy stayed
+        /// where it was all night ("DESYNC Containers Wardrobe_low_01", host and client 130 units
+        /// apart) until a player walked up to it.
+        /// </summary>
+        internal static void NoteScriptedMove(Transform body)
+        {
+            if (body == null)
+                return;
+            int id = body.gameObject.GetInstanceID();
+            _s.RecentMovers[id] = body;
+            _s.LastMoveTime[id] = Time.time;
+        }
+
         public static bool TryBuildWorldSnapshot(out PhysicsStateMessage msg)
         {
             msg = default;

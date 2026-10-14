@@ -440,6 +440,7 @@ namespace DWMPHorde.Sync
         /// </summary>
         public static void ResetForNetworkStop()
         {
+            Patches.StoryDeactivatedCharacters.Clear();
             // Drop destroyed refs
             for (int i = _characters.Count - 1; i >= 0; i--)
             {

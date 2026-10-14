@@ -163,6 +163,13 @@ over both chapters' hideouts, every event of each night's scenario fired).
   desync check reported the wardrobe at two spots for the rest of the night. A pose of a piece of
   furniture now carries its save id, and the client takes that piece wherever it stands. Files:
   `WorldPhysicsSyncService.Types.cs` (`WorldObjectState.SaveId`), `.Snapshot.cs`, `.ObjectResolve.cs`.
+- **The poltergeist night moved the hideout's furniture on the host only.** Its vortex gives
+  every item round the hideout a scripted push (vanilla `MoveMe`) each half second; clients drop
+  that push and take the host's poses. The host found the moved pieces only within 40 units of a
+  player, so the stocked wardrobe across a client's hideout drifted up to 130 units on the host
+  while every client kept it in place until someone walked up to it (seen in every soak night with
+  the vortex). A body under a scripted push is now scanned where it stands until it settles.
+  Files: `MoveMeClientPatch.cs`, `WorldPhysicsSyncService.Snapshot.cs` (`NoteScriptedMove`).
 - **The night mushroom grew at one waypoint on the host and another on a client.** The shared
   pick (above) indexed the location's waypoint list, and a location rebuilt from the save lists
   its waypoints in another order than the host's: the same index was another waypoint, and the
@@ -180,6 +187,25 @@ over both chapters' hideouts, every event of each night's scenario fired).
   host's stock was thrown away ("[TradeSync] NPC 'wolfman' has no inventory") and the client's
   trader stood empty until the host's next sale. Such stock now waits in the queue like a trader
   not out yet. Files: `TradeSyncPatches.cs`, `TradeNetHandlers.cs`.
+- **The bunker's talking door came back after it let the players through (dream and
+  overworld).** Closing the dream talk fires the leave-door event: it switches off the shut door
+  and the talking door (an NPC creature) and switches the corridor beyond on; the overworld
+  bunker's key does the same through `goThroughDoor`. The mod switched NPCs back on in four
+  places: the host's wake of creatures near a remote player (meant for the culling's
+  switch-off), and the host's replay of a client's talk (`HostFireNpcCloseDialogue`,
+  `FindNpcByName`, `ResolveNpc`, the talk-start replay). The talking door came straight back on
+  the host and went on streaming to every client, standing in the doorway the event had opened;
+  the dream scene's switched-off spare of it could be woken too. Vanilla never switches an NPC's
+  object for the culling (`Location.activateCharacters` wakes only its components): only the
+  story does. The mod now follows that rule everywhere: an NPC switched off stays off and is not
+  streamed (after a load too, where its saved state is the story's), a creature a story step
+  switched off (`setMeActive(false)`) likewise, and a talk is replayed on the NPC that is out
+  rather than on a switched-off twin. This is why the bunker doors kept trading places: each fix
+  of one door left one of these switch-ons in the other's path. Found by a three-player dream run
+  with a MelonLoader client talking. Files: `StoryDeactivatedCharacters.cs` (new),
+  `EntityStateBroadcastService.cs`, `DialogOutcomeCloseNetHandlers.cs`, `NpcDialogueLock.cs`,
+  `CharacterTracker.cs`. Pilot: `bunker-door-test.sh` (the overworld door: every player looks
+  through the keyhole with no key, then one inserts the key) and `dream-door-test.sh`.
 - **A client's creature copies shoved its furniture a second time.** A copy's pose is written
   every frame from the host's stream, and where it stood against a wardrobe the client's physics
   pushed the wardrobe out of it, on top of the host's push that arrives as the wardrobe's own
