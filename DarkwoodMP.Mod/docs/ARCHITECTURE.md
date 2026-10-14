@@ -81,7 +81,10 @@ optimistically).
 `Broadcast` (host: everyone, client: the host) and the hot-path variants
 (`BroadcastHot`, `SendRawToReadyPeers`). All of them go through one fan-out
 loop over the active `IPeerTable`, which skips refused peers and (Steam) lobby
-members that have not proved the host password. Unreliable streams are chunked
+members that have not proved the host password. A packet is built once in a
+pooled writer (one per nesting depth) and every peer send copies its bytes at
+once, so nothing may keep a reference to a packet buffer after the send call.
+Hot senders cache their write delegates instead of capturing locals per call. Unreliable streams are chunked
 below the MTU by their senders; LAN promotes an oversized unreliable packet to
 reliable as a backstop, and the Steam reliable backlog is capped per connection.
 

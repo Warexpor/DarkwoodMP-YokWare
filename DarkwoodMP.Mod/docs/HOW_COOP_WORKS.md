@@ -194,6 +194,7 @@ the rest of this document easier to read.
 - Hints, thought lines and one-shot "lessons" (recipes or journal pages taught by
   a hideout event): each player gets them once.
 - The prologue.
+- Camera, field of view and audio listener.
 
 ### Party map board
 
@@ -219,7 +220,6 @@ glow in its owner's colour, the day it was placed and an optional label.
   Clients ask the host, the host numbers each pin and tells everyone, so two pins
   on one spot are never mixed up. An owner is a hash of their install key: the
   same player keeps their pins and colour across sessions.
-- Camera, field of view, audio listener.
 
 Each client's personal state is saved as a character snapshot on its own disk and
 on the host, so a returning player gets their own character back, not the host's.
@@ -275,7 +275,8 @@ ready.
 3. **Enter world:** the client loads its copy offline, then reconnects as "already
    in world". The host checks that claim (campaign id and chapter id): a different
    campaign is refused as **WRONG SAVE**, the same campaign in another chapter gets a
-   fresh share.
+   fresh share. A host still on the title screen holds the claim and checks it once it
+   is in its world.
 4. **Late-join catch-up:** the host sends everything a save file cannot carry: the
    night-death state, the journal, flags, reputation, the hideout, the workbench,
    map discoveries, the clock, traps, lights and generators, location pads,
@@ -283,7 +284,11 @@ ready.
    padlocks, death bags, fired story events, the dream session, other players'
    states, and the joiner's own stored character.
 5. A player new to this world then plays their own prologue
-   ([section 14](#14-prologue-tutorial-and-ending)).
+   ([section 14](#14-prologue-tutorial-and-ending)). A Connect or Steam invite taken by
+   hand during one's own prologue is refused: the prologue joins by itself at the wake.
+
+A player on another protocol version is refused with the host's version shown, not a
+bare lost connection.
 
 A player joining (or rejoining after a drop) while a dream runs gets the save taken going into
 it and is pulled onto its pad; a dream the host's game reloaded into (it quit or dropped
@@ -357,13 +362,20 @@ Some walk-in triggers lock a door behind the player (the wedding's corridor, the
 room, a dream's exit). They are built for one player. In co-op such a trigger waits until
 every living player in that location has walked into it, then fires once: nobody is locked
 out, or in a dead-end room. A player who dies or leaves the location does not hold it.
+This also covers triggers that drop an invisible wall into a doorway (the acid dream's
+studio, the maw in the Doctor's dream) or arm a lock through a story flag (the wedding's
+groom room). In a dream it waits for everyone still playing the dream. A player who walks
+back out the way they came counts as not through yet.
 
 ### Host migration
 
 If the host crashes or times out (`HostMigrationEnabled`, on by default), the
-survivors elect the lowest remaining player id as the new host and reconnect to it.
-Every survivor computes the same answer from the player roster the host shared
-while it was alive. A migration during a dream carries the dream over (done in
+survivors elect a new host and reconnect to it: the lowest player id among the
+players who are in the world (one still joining does not stand). Every survivor
+computes the same answer from the player roster the host shared while it was
+alive. If the elected player never takes the host, every survivor skips it and
+elects the next; the migration gives up after 30 tries. Over LAN the survivors also
+try the next few ports, in case the new host had to open on another one. A migration during a dream carries the dream over (done in
 code, not yet playtested).
 
 A host that leaves on purpose hands the world over the same way, without the wait:
@@ -394,7 +406,8 @@ reinstall), so a returning player is not taken for a new one.
   dying, and in the Wolf's trap. With a party, these only take that one player out of
   the count: the clock stops only when nobody is in the open world and free. A player
   still loading, in their prologue, or dead until morning does not count. The
-  world-wide freezes (the morning, a dream, the day-1 wait) stop it for everyone.
+  world-wide freezes (a dream, the day-1 wait) stop it for everyone. The morning stops
+  it only until the first player walks out into the open world.
 - **Day 1 waits for prologues.** On a fresh world the clock holds at 05:00 while
   anyone is still in their prologue, for at most 45 minutes.
 - **Menus do not pause the world.** In single player the map, journal, padlocks,
@@ -441,10 +454,12 @@ reinstall), so a returning player is not taken for a new one.
   for four (N·7/(6+N): the crew also moves its own bodies, so each helper adds less, as in
   life). Pulling apart holds it still; when the dragger lets go, the first co-holder drags on
   alone and the others let go. Four hold a thing at most.
-- **Odd noises are heard by everyone near.** The game's random stingers (a noise in the
-  house, something in the forest, the far musician, the big pig) are rolled by one player's
-  game and heard by every player in earshot, from the same spot. Players together get about
-  vanilla's pace of them, not one each.
+- **Odd noises are shared, where they could happen.** The game's random stingers (a noise
+  in the house, something in the forest, the far musician, the big pig) are rolled by one
+  player's game and shared with the players nearby. A player hears one only if their own game
+  could have played it right then: indoors for house noises, outdoors for forest noises, not
+  underground, not in a dream. It plays with the game's own falloff and follows the listener,
+  as in vanilla. Players together get about vanilla's pace of them, not one each.
 - **Night comes to every player, at vanilla's rate.** Each hideout a living player
   is home in gets the night's monsters at vanilla's pace and count, around a player
   there (times the host's night monster setting, see [section 18](#18-balancing-for-the-party)). Each living, unwarded player gets its own worm, as in vanilla; a player in a
@@ -512,8 +527,13 @@ night for players who are still alive, so in co-op:
   the morning with what the others gave back or left: at the morning release the body
   goes and whatever is left shows as a bag again. A
   one-life death by day is held until morning too, but it drops a plain bag with no body.
-- **At dawn** every night-dead player is released and sent home. A death that
-  arrives after the host's dawn counts as a day death.
+- **At dawn**, or when the clock jumps out of the night (entering the Doctor's house
+  sets the time), every night-dead player is released and sent home, to their own
+  home oven. The host first clears that hideout of creatures, infection and armed
+  traps, as vanilla does on the way home. A death that arrives after the host's dawn
+  counts as a day death.
+- A held night death shows no biome banner and no saving notice (nothing was saved
+  and the player wakes nowhere until morning).
 - **If everyone dies,** the host resolves one shared morning (day skip and save),
   with no morning reward. If the last living player disconnects, the same happens
   instead of everyone spectating forever.
@@ -538,7 +558,10 @@ night for players who are still alive, so in co-op:
 
 Any living player can press F4 to spectate the others and cycle between them;
 wrapping around the list returns to their own body. F4 is blocked in menus, chat,
-dialogue, dream entries, cutscenes and the title screen.
+dialogue, dream entries, cutscenes and the title screen. It skips players in a dream
+or in another place's copy, and a dead player follows a living player out in the
+night first. The spectator sees the followed player's circle of light and hears them
+as that player hears themselves.
 
 When spectating begins, one line at the bottom of the screen says what F4 does from
 there (next player, and for a living player back to the body). It fades in, stays
@@ -628,9 +651,12 @@ the host, which checks it before applying damage:
 - the attacker is alive, not night-dead and not in a dream the host is not in;
 - the target type is known;
 - damage per hit is clamped to `MaxPeerDamage` (default 200);
-- each player has a hit budget (20 hits per second with a burst of 40, 1000
-  damage per second with a burst of 3000), so a shotgun's pellets all land but
-  sustained spam does not.
+- each player has a generous hit budget (250 hits and 4500 damage per second, with
+  two seconds' worth as a burst), sized so a flamethrower on a pack or a shotgun's
+  pellets all land, while sustained spam does not.
+
+A hit staggers a creature exactly as vanilla's would: the knife and sickle never
+do, and fire contact never does. The same holds for friendly fire.
 
 A rejected hit is not passed on to anyone. Weapon status effects (bleeding,
 poison, stun) travel with the hit and are applied the vanilla way.
@@ -674,7 +700,8 @@ Items are unique. When two players race for the same thing, the host decides:
 
 - **Journal items are shared** (keys, notes, the church box, Piotrek's eggs): they go
   into everyone's journal and "show item" list. A peer that already has one does
-  not pick up a second copy.
+  not pick up a second copy. A joiner gets the pages quietly, without popups, until
+  the host's journal has arrived.
 - **"Has item" requirements are a party check.** Vanilla asks whether "the player"
   holds an item. In co-op any player holding it counts, so a unique key cannot lock
   a three-player party out.
@@ -713,6 +740,9 @@ one player earns, any player can spend, and a trade that spends standing another
 player just spent is refused and undone. The exceptions are the hideout's morning
 traders, the Trader and the Three: each player has their own standing with them,
 earned by living through the night.
+
+Closing the dialogue with a trade open closes the trade first. If the trader is gone,
+goods laid out to sell go back to the player and the talk ends.
 
 ### Crafting, upgrades and the workbench
 
@@ -816,9 +846,10 @@ party events.
 - **Everyone alive goes.** A dream started for one player brings every connected,
   living player along. Dead players sit it out.
 - **The host's world waits.** From the start of the entry movie until the first
-  player wakes, the host freezes its world (creatures included). New joins are refused for the
-  duration unless the host allows them, except during the ending, where joiners are
-  pulled onto its pad (a finished game reloads into the ending).
+  player wakes, the host freezes its world (creatures included). Joins during the dream's
+  entry (movie, prepare, pad spawn) are always refused. After that a joiner is pulled into
+  the running dream, unless the host turned `AllowJoinDuringDream` off; the ending always
+  takes joiners onto its pad (a finished game reloads into the ending).
 - **Leaving is each player's own.** An exit a player takes with its own body (the
   bed in the bunker dream, an exit area, the grave) wakes that player alone; the
   others stay in the dream until each of them leaves, and the host keeps it running
@@ -916,6 +947,9 @@ party events.
 - Cutscenes, slow motion and camera steps follow the scene's location, so a player
   elsewhere is not frozen by someone else's scene.
 - One-shot moves and entry events are delivered to each player once.
+- The player who walks into a new location gets its popup, sound and journal page;
+  the others get the journal page and the map piece without the popup. The hideout
+  flags and the biome name follow each player's own position.
 - Rain keeps its schedule while a player is indoors.
 
 ---
@@ -984,8 +1018,9 @@ party events.
   see them (vanilla's enemy sight test), so it never reveals someone behind a wall.
 - **Voice chat** (any install, LAN or Steam; the game's own microphone input, carried as
   Opus by code inside the mod, no Steam client needed; a lost packet is filled in from the
-  next one). Mic, mic volume, voice volume and each
-  player's volume are in Settings > Voice:
+  next one). Mic, mic volume, voice volume, radio volume and each
+  player's volume are in Settings > Voice, as sliders in dB (left muted, middle as
+  recorded, right up to +24 dB):
   - Proximity voice comes from where the talker stands (panned toward them) and
     carries as far as they spoke loud: a shout to 1300 units, normal speech about three
     quarters of that, a whisper about a third. Muffled through walls.

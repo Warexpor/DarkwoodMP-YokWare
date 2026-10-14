@@ -275,7 +275,7 @@ namespace DWMPHorde.Config
             SoloHomeDream = config.Bind("Gameplay", "SoloHomeDream", true,
                 "Host: the home dream (the flat, dream_home) is played alone. Everyone goes in together and wakes by their own way out, but each player has their own copy of the flat and does not see the others there. Off: the party plays it together like the other dreams.");
             MaxPeerDamage = config.Bind("Gameplay", "MaxPeerDamage", 200,
-                "Host clamps peer-reported attack/FF damage to this max per hit (anti-grief). A per-peer budget (20 hits/s, burst 40; 1000 damage/s, burst 3000) caps sustained spam while multi-hit bursts like shotgun pellets still apply in full.");
+                "Host clamps peer-reported attack/FF damage to this max per hit (anti-grief). A per-peer budget (250 hits/s, burst 500; 4500 damage/s, burst 9000) caps sustained spam while a flamethrower on a pack or shotgun pellets still apply in full.");
             NightMonsterMultiplier = config.Bind("Gameplay", "NightMonsterMultiplier", 1f,
                 "Host: how many night monsters come to each hideout compared with vanilla (1 = vanilla, up to 10). Raises how many of each kind may be out at once and how fast they come. Also in Host settings, mid-game too.");
             PeerMovementVolume = config.Bind("Gameplay", "PeerMovementVolume", 0.85f,

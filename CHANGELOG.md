@@ -111,6 +111,13 @@ tested in the game.
 - Files: `World/Patches/HideoutUpgradePatch.cs` (`FollowNow`, `StandsInHome`),
   `World/PartyHomeMoves.cs` (`ChooseHome`, `IsChosenHome`), `World/Patches/PersonalProloguePatches.cs`,
   `docs/HOW_COOP_WORKS.md`.
+- Docs: `HOW_COOP_WORKS.md` brought up to date with what shipped (hit budget, shared stingers
+  only where they could happen, host migration election, joins during a dream, the morning
+  clock, doors that lock behind the party, the morning release, F4 targets, voice dB sliders,
+  joining during the prologue or on another version, trading on close, location popups).
+  `COOP_COVERAGE.md` gained the prologue, night death, party homes and oxygen tank rows;
+  `ARCHITECTURE.md` the pooled packet rule. The `MaxPeerDamage` description gives the real
+  hit budget (250 hits/s, 4500 damage/s).
 - Status: builds, unit tests pass. Not playtested.
 
 ## 0.8.294 — a player who missed the party's move home no longer wakes in the old hideout
