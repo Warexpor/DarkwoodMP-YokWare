@@ -75,6 +75,7 @@ namespace DWMPHorde.Networking
                 var adopted = saved.AddComponent<Players.DroppedItemIdentifier>();
                 adopted.Id = msg.Guid;
                 Players.DroppedItemIdentifier.Register(adopted);
+                Patches.ItemDoublePickupPatch.MarkPlayerDrop(saved.transform);
                 ModRuntime.LegacyInfo($"[DroppedItemSpawn] adopted saved drop {msg.ItemType} x{msg.Amount} guid={msg.Guid}");
                 return;
             }
@@ -112,6 +113,7 @@ namespace DWMPHorde.Networking
             var ident = go.AddComponent<Players.DroppedItemIdentifier>();
             ident.Id = msg.Guid;
             Players.DroppedItemIdentifier.Register(ident);
+            Patches.ItemDoublePickupPatch.MarkPlayerDrop(go.transform);
 
             ModRuntime.LegacyInfo($"[DroppedItemSpawn] {msg.ItemType} x{msg.Amount} recipe={msg.IsRecipe} guid={msg.Guid}");
         }

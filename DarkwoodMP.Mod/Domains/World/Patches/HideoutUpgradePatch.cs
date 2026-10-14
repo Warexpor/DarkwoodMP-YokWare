@@ -153,6 +153,47 @@ namespace DWMPHorde.Patches
             return true;
         }
 
+        /// <summary>
+        /// Walking into a hideout whose oven is lit makes it this player's home (and respawn
+        /// point). Lighting an oven, or cooking at one, used to be the only way, so a player who
+        /// spent the day in a friend's hideout still woke up in its old one after a death. The
+        /// oven it lived at stays lit: a player visiting must find its own home lit when it comes
+        /// back. Not a party move (nobody follows, as each player attaches by walking in), not
+        /// from dusk to morning (the night is set up around the homes), not while down. A hideout
+        /// the party moved out of becomes this player's own choice, so the recorded move does not
+        /// take it away again. An unlit oven still needs its talk, as in vanilla.
+        /// </summary>
+        internal static bool TryAttachOnEntry(Player p)
+        {
+            ExperienceMachine home = p != null ? p.experienceMachine : null;
+            Location here = p != null && p.whereAmI != null ? p.whereAmI.bigLocation : null;
+            if (home == null || here == null || home.transform.GetLocation() == here)
+                return false;
+            Controller ctrl = Singleton<Controller>.Instance;
+            if (ctrl == null || !Core.isDay() || (float)ctrl.CurrentTime > ctrl.nightTime - 50f)
+                return false;
+            if (DeathStateTracker.LocalDown)
+                return false;
+            ExperienceMachine oven = null;
+            foreach (ExperienceMachine em in Sync.WorldQueryHelper.GetCachedSceneComponents<ExperienceMachine>())
+            {
+                if (em != null && em.isOn && em.gameObject.activeInHierarchy && em.transform.GetLocation() == here)
+                {
+                    oven = em;
+                    break;
+                }
+            }
+            if (oven == null)
+                return false;
+            // enable() on a lit oven only makes it the home: nothing is sent, the old oven stays lit
+            // (setExperienceMachine would put it out and count as a party move).
+            oven.enable();
+            Vector3 to = oven.transform.position;
+            PartyHomeMoves.ChooseHome(PartyHomeMoves.TryResolve(to, out _) ? to : (Vector3?)null);
+            ModLog.Event(LogCat.World, "[HideoutUpgrade] entered a lit hideout — home is now the oven at " + to);
+            return true;
+        }
+
         /// <summary>The player stands in the hideout of its own home oven.</summary>
         private static bool StandsInHome(Player p)
         {

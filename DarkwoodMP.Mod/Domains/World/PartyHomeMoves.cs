@@ -135,6 +135,8 @@ namespace DWMPHorde.Patches
             Dreams dreams = Singleton<Dreams>.Instance;
             if (Sync.DreamSyncManager.IsLocalDreamActive || (dreams != null && (dreams.dreaming || dreams.switchingDream)))
                 return;
+            if (OvenHomes.TryAttachOnEntry(p))
+                return;
             Vector3 from = home.transform.position;
             if (_failedFrom.HasValue && (_failedFrom.Value - from).sqrMagnitude <= SameOvenSq)
                 return;

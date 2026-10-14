@@ -85,10 +85,32 @@ namespace DWMPHorde.Patches
             PlayerPlacedContainerKeys.Add(MakeContainerKey(inv.transform.position, slotIdx));
         }
 
-        /// <summary>A world container: not a player's own bag or hotbar.</summary>
+        /// <summary>
+        /// A world container (a crate, a wardrobe, a creature's body): the only places loot
+        /// comes from. Not a player's bag or hotbar, and not the trade, crafting or oven panes: those
+        /// hold the player's own goods (the Sell tray gives them back on close) or the trader's
+        /// stock. Counting them as loot gave the party bonus on every round trip through the Sell tray.
+        /// Not a player's death bag either (vanilla <c>deathDrop</c> prefab, the same invType as a
+        /// body): it holds what that player carried, and taking it back multiplied it.
+        /// </summary>
         private static bool IsWorldContainer(Inventory inv)
         {
-            return inv != null && inv.invType != Inventory.InvType.playerInv && inv.invType != Inventory.InvType.hotbar;
+            return inv != null
+                && (inv.invType == Inventory.InvType.itemInv || inv.invType == Inventory.InvType.deathDrop)
+                && inv.GetComponent<DeathDrop>() == null;
+        }
+
+        /// <summary>
+        /// A player's drop on the ground (this player's, a peer's copy, or a saved one adopted on
+        /// join): its stack is that player's, not loot. The network GUID alone did not cover it: a
+        /// drop on a personal pad has none, and none survives a save, so a dropped stack picked up
+        /// after a reload earned the bonus. The mark is kept with the save (<see cref="Sync.PlacedLootStore"/>).
+        /// </summary>
+        public static void MarkPlayerDrop(Transform drop)
+        {
+            Inventory inv = drop != null ? drop.GetComponent<Inventory>() : null;
+            if (inv != null && inv.slots != null && inv.slots.Count > 0)
+                MarkContainerSlotPlayerPlaced(inv, 0);
         }
 
         private static int GetItemMultiplier()
@@ -227,7 +249,12 @@ namespace DWMPHorde.Patches
                 Log("  --> NOT scaled loot, skipping");
                 return false;
             }
-            if (slot.inventory != null && slot.inventory.gameObject.GetComponent<DroppedItemIdentifier>() != null)
+            if (!IsWorldContainer(slot.inventory))
+            {
+                Log($"  --> blocked: not a world container ({slot.inventory?.invType})");
+                return false;
+            }
+            if (slot.inventory.gameObject.GetComponent<DroppedItemIdentifier>() != null)
             {
                 Log("  --> blocked by DroppedItemIdentifier");
                 return false;
@@ -368,6 +395,7 @@ namespace DWMPHorde.Patches
             if (SessionSettings.LootShareMode == Config.LootShareMode.Off) return;
             if (InvItemClass.isNull(__instance.invItem)) return;
             if (!IsExpItemClass(__instance.invItem)) return;
+            if (!IsWorldContainer(__instance.inventory)) return;
             if (IsPlayerPlacedSlot(__instance)) return;
             if (__instance.inventory != null
                 && __instance.inventory.gameObject.GetComponent<DroppedItemIdentifier>() != null)

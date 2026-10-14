@@ -3,12 +3,12 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.301**. The current Horde wire protocol is **75**. Every install in a session
+**0.8.304**. The current Horde wire protocol is **75**. Every install in a session
 needs the same DLL; the protocol is checked on join.
 
 Protocol history (newest first):
 
-- **75**, 0.8.297 to 0.8.301: `CoHold` (170) gains mode 5, `ModePlayerPush`: a player walking into another
+- **75**, 0.8.297 to 0.8.304: `CoHold` (170) gains mode 5, `ModePlayerPush`: a player walking into another
   player, sent to the pushed player.
 - **74**, 0.8.294 to 0.8.296: `PlayerEffectSync` with `MovedHome` carries the home it left (`FromX/Y/Z`);
   new `PartyHomeMoves` (178), host to a joiner: the party's home moves kept with the world.
@@ -95,6 +95,47 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.304 — walking into a lit hideout makes it your home
+
+- **Home now follows where you go, not only which oven you lit.** Your home (respawn point)
+  used to change only when you talked to or cooked at an oven, so a player who spent the day
+  in a friend's hideout still woke up in its old one after a death, and cooking at a friend's
+  oven dragged everyone who lived with you along as a party move. Now, during the day,
+  entering a hideout whose oven is lit makes it your home (`OvenHomes.TryAttachOnEntry`,
+  checked with the 2 s home check in `PartyHomeMoves.CheckLocalHome`).
+- It is personal: nobody follows, and the oven you left stays lit, so you can walk back and
+  attach to it again. Not from 50 minutes before night to morning, not while down, not in a
+  dream, prologue or epilogue. A hideout the party moved out of becomes your own choice when
+  you attach to it, so the recorded move does not pull you away again.
+- Lighting a new oven by its talk is unchanged: it is still the party move (co-residents not
+  standing in the old hideout follow). An unlit oven is never lit by walking in.
+
+## 0.8.303 — the rest of the loot-bonus dupes
+
+An audit of every way the co-op loot bonus (fuels and oven items, `ItemDoublePickupPatch`) can
+reach a player's own items, after the Sell-tray dupe in 0.8.302:
+
+- **A player's death bag multiplied its oven items.** The vanilla `deathDrop` bag has the same
+  invType as a creature's body, so taking back what you died with counted as body loot. Bags
+  with the `DeathDrop` component are no longer a loot source (creature bodies still are).
+- **A dropped stack came back multiplied after a reload.** Only the network GUID told a player's
+  drop apart from world loot, and the GUID is not saved; a drop on a personal pad (prologue,
+  solo dream) never had one. Every player drop (own, a peer's copy, a saved drop adopted on
+  join, a full-bag overflow) is now marked as player-placed, and the mark is kept with the save.
+- **Marks on objects without a save id were lost on reload.** Vanilla gives a new dynamic object
+  (a drop, a container just built) its id at the next save; `PlacedLootStore` now keeps such
+  marks pending and keys them when the save writes them.
+
+## 0.8.302 — cookable items no longer multiply through the trader's Sell tray
+
+- **Dupe: XP (cookable) items put in the Sell tray and taken back came back multiplied.** The
+  co-op loot share (`ItemDoublePickupPatch`) gives a party bonus on fuels and oven items taken
+  from a world container, and it counted every non-bag inventory as one: the trader's Sell tray,
+  its Buy tray and stock, the crafting and oven panes. Closing the trade (or picking the stack
+  back up) moved the player's own items "from a container" and added the bonus each round trip.
+  The share now arms only for world containers and bodies' drops (`itemInv`, `deathDrop`), on
+  every take path (take all, take one, grab).
 
 ## 0.8.301 — a living spectator's body stays where it is and can be hurt
 
