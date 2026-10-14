@@ -291,10 +291,10 @@ namespace DWMPHorde.Config
                 "Host: creatures hear players talk. Normal speech carries about as far as a walking step, a shout farther than running; a whisper is not heard.");
             // Entity spawner moved to standalone plugin YokWare.EntitySpawner.
 
-            // Support = join/session/combat Events without Legacy flood ([Perf] via Debug.PerfProbe).
-            // Dev = LegacyInfo dumps. Trace = max capture (LegacyInfo + VerboseLogging gates).
-            LogPresetSetting = config.Bind("Logging", "LogPreset", "Support",
-                "Public=quiet. Support=session/join/combat (default; [Perf] needs Debug.PerfProbe). Dev=LegacyInfo dumps + [Perf]. Trace=max capture (Legacy + high-freq Verbose). Dual-box bug packs: Trace on both. Restart after change.");
+            // Dev = every category + LegacyInfo dumps + [Perf], and the least any install logs
+            // (ModLog.MinPreset: Public/Support are raised to it). Trace = max capture.
+            LogPresetSetting = config.Bind("Logging", "LogPreset", "Dev",
+                "Dev (default and minimum: Public or Support log as Dev)=every category + LegacyInfo dumps + [Perf]. Trace=max capture (Legacy + high-freq Verbose; costs frame time). Restart after change.");
             LogMinLevelSetting = config.Bind("Logging", "LogMinLevel", "Event",
                 "Error | Warn | Event | Info | Trace. LegacyInfo runs on LogPreset=Dev or Trace.");
             LogExtraCategories = config.Bind("Logging", "LogExtraCategories", "",
@@ -313,7 +313,7 @@ namespace DWMPHorde.Config
                 "Include full exception stacks on Error (also on for Dev/Trace).");
 
             VerboseLogging = config.Bind("Debug", "VerboseLogging", false,
-                "If true and LogPreset=Public, forces Trace. Prefer LogPreset=Support for join tests (not Trace/Dev).");
+                "If true and LogPreset=Public, forces Trace.");
             VerboseLightSync = config.Bind("Debug", "VerboseLightSync", false,
                 "Transition light sync logs. Leave false unless debugging lights.");
             VerboseEntitySync = config.Bind("Debug", "VerboseEntitySync", false,

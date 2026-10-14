@@ -3,7 +3,7 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.288**. The current Horde wire protocol is **72**. Every install in a session
+**0.8.289**. The current Horde wire protocol is **72**. Every install in a session
 needs the same DLL; the protocol is checked on join.
 
 Protocol history (newest first):
@@ -89,6 +89,19 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.289 — every install logs at Dev detail, whatever its config says
+
+- **Bug reports came in without the steps that show what happened.** The default `Support`
+  preset (and `Public`) drops the `LegacyInfo` lines and most categories: a playtester's
+  log from a missing wedding invitation had no trace of the knocking scene, its door trigger or
+  the note's spawn, and asking players to edit the config first meant most reports came as
+  they were. Now `Dev` is the least any install logs (`ModLog.MinPreset`): a config left at
+  `Public` or `Support` is read as `Dev` (every Event category, `LegacyInfo` dumps
+  rate-limited to about 2 lines a second per message, and the `[Perf]` frame probe). A fresh
+  config writes `LogPreset = Dev`. `Trace` stays opt-in (its high-frequency dumps cost frame
+  time). The startup banner's "quiet logs" hint now points to Trace for maximum capture.
+  Files: `ModLog.cs`, `ModConfig.cs`, `docs/LOGGING.md`, `docs/CONFIG.md`.
 
 ## 0.8.288 — another player's stand-in no longer shoves you when it is set down on you
 

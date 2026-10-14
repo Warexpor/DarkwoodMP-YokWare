@@ -112,7 +112,7 @@ See [`LOGGING.md`](LOGGING.md) for what each preset prints.
 
 | Key | Default | Meaning |
 |-----|---------|---------|
-| `LogPreset` | `Support` | `Public` is quiet; `Support` adds session/join/combat (`[Perf]` only with `Debug.PerfProbe`); `Dev` adds `LegacyInfo` dumps and `[Perf]`; `Trace` is maximum capture. Restart after changing it. |
+| `LogPreset` | `Dev` | `Dev` logs every category plus `LegacyInfo` dumps and `[Perf]`, and is the minimum: `Public` and `Support` are read as `Dev`. `Trace` is maximum capture. Restart after changing it. |
 | `LogMinLevel` | `Event` | `Error`, `Warn`, `Event`, `Info` or `Trace`. `LegacyInfo` runs on `LogPreset` Dev or Trace. |
 | `LogExtraCategories` | empty | Extra Event categories on top of the preset, comma separated: Core, Network, Session, Combat, Entity, Physics, Container, World, AI, Dream, Death, Audio, UI, Save. |
 | `LogTraceCategories` | `none` | Categories allowed to emit Trace when the preset is not full Trace, or `none`. |
@@ -125,10 +125,10 @@ See [`LOGGING.md`](LOGGING.md) for what each preset prints.
 
 | Key | Default | Meaning |
 |-----|---------|---------|
-| `VerboseLogging` | `false` | Legacy switch: with `LogPreset=Public` it forces Trace. Prefer `LogPreset=Support` for join tests. |
+| `VerboseLogging` | `false` | Legacy switch: with `LogPreset=Public` it forces Trace. |
 | `VerboseLightSync` | `false` | Transition-only light sync logs (flare/flash on/off, join bulk). |
-| `VerboseEntitySync` | `false` | Deep entity sync logs (anim, interpolation, hit reaction, damage, spawn/despawn), rate-limited. Also enables Entity/Combat/AI Trace under Support. Turn on for dual-box diagnosis. |
+| `VerboseEntitySync` | `false` | Deep entity sync logs (anim, interpolation, hit reaction, damage, spawn/despawn), rate-limited. Also enables Entity/Combat/AI Trace below the Trace preset. Turn on for dual-box diagnosis. |
 | `FreeCursorForDualBox` | `false` | Force `Cursor.lockState = None` (skip vanilla Confined). Linux dual-box testers on Hyprland/Wayland with a Wine/Proton SecondDarkwood set this to `true`: Confined ClipCursor traps the mouse and the blur-release can freeze the Wine window. The game's own cursor (camera look, aim, throws) is still held inside the window as the confine would, so the camera cannot run past vanilla's look distance. Leave false for normal single-window play. |
-| `PerfProbe` | `false` | Co-op frame-cost probe: per-frame timing plus a `[Perf]` line every 2 s while connected. Always on under `LogPreset` Dev/Trace; set `true` to capture it under Support/Public. |
+| `PerfProbe` | `false` | Co-op frame-cost probe: per-frame timing plus a `[Perf]` line every 2 s while connected. Always on (every install logs at Dev or Trace). |
 | `DesyncCheck` | `true` | Desync checker: the host sends each client a fingerprint of the world state they should share (clock, flags, doors, containers, nearby creatures and items, players...). The client compares it with its own and logs a difference that lasts two checks in a row as a `DESYNC` line, and `resolved` when it goes away; the host log gets the same lines tagged with the client. Needs the host's setting on; a client with it off ignores the digests. |
 | `DesyncCheckIntervalSec` | `15` | Seconds between desync checks (clamped 5..300). |

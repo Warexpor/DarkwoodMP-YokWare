@@ -67,6 +67,9 @@ namespace DWMPHorde.Logging
             ApplyConfig();
         }
 
+        /// <summary>The least detail any install logs (a lower configured preset is raised to it).</summary>
+        public const LogPreset MinPreset = LogPreset.Dev;
+
         /// <summary>Re-read config values into live filters.</summary>
         public static void ApplyConfig()
         {
@@ -85,6 +88,13 @@ namespace DWMPHorde.Logging
             {
                 _preset = LogPreset.Trace;
             }
+
+            // Every install logs at Dev at least, whatever its config says: a player's bug report
+            // arrives as the log they already have, and Public/Support left out the steps that
+            // show what happened (a scripted spawn, a night scene's trigger). Trace stays opt-in
+            // (high-frequency dumps that cost frame time).
+            if (_preset < MinPreset)
+                _preset = MinPreset;
 
             // Bridge old gates that still check ModRuntime.VerboseLogging.
             // Dev + LogMinLevel=Trace used to flip this on and flood Entity dumps on
@@ -345,7 +355,7 @@ namespace DWMPHorde.Logging
                 Event(LogCat.Core, "  Title/pause: MULTIPLAYER | F4=spectate | add-ons: F3=saves F5=spawner");
                 Event(LogCat.Core, "  Log: " + LoaderLogPath + " in each player's game folder");
                 Event(LogCat.Core, "  Bug report: quit cleanly, send every player's " + LoaderLogPath);
-                Event(LogCat.Core, "  Quiet logs: set [Logging] LogPreset=Public (max capture: Trace)");
+                Event(LogCat.Core, "  Max capture: set [Logging] LogPreset=Trace");
                 Event(LogCat.Core, "  Path B: Horde host-authoritative sync | GPLv3 | " + PluginInfo.Authors);
                 Event(LogCat.Core, "  Docs: DarkwoodMP.Mod/docs/CONFIG.md + LOGGING.md");
                 Event(LogCat.Core, "================================================");
