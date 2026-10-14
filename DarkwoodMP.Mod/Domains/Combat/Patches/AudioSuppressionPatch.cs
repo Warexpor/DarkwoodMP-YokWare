@@ -45,6 +45,14 @@ namespace DWMPHorde.Patches
             if (IsDreamMusic(audioID))
                 return true;
 
+            // A sound area's own loop (the village's music and env, fires, water). The area starts
+            // it when the local player walks into its trigger and stops it on the way out, so the
+            // player is already inside by definition; the area's transform often sits at the
+            // location's origin, thousands of units from the spot the player came in at, and the
+            // distance test below refused its 2D loop for the whole visit.
+            if (parentObj != null && parentObj.GetComponent<SoundArea>() != null)
+                return true;
+
             // Title / main menu — no distance culling at all.
             try
             {

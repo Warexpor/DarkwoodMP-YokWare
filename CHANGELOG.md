@@ -3,7 +3,7 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.283**. The current Horde wire protocol is **70**. Every install in a session
+**0.8.284**. The current Horde wire protocol is **70**. Every install in a session
 needs the same DLL; the protocol is checked on join.
 
 Protocol history (newest first):
@@ -84,6 +84,24 @@ Protocol history (newest first):
 This file is a public ship log. Code-only status and runtime status are called
 out separately. A runtime item is not considered verified until it has been
 tested in the game.
+
+---
+
+## 0.8.284 — the village's ambient music plays for a client again
+
+On top of 0.8.283. Protocol **70** (unchanged; client-side audio).
+
+- **A client heard no ambient music in the village until night.** A sound area (`SoundArea`) starts its
+  loop when the local player walks into its trigger. The audio cull (`AudioSuppressionLogic`) then
+  judged that loop by where the area's transform stands against the player: the village's music
+  (`baba_1`) and env areas sit at the location's origin, 3888 units from where the player comes in
+  (`PlayerSpawn`), a 2D loop is only kept within the awake box around the listener, so the play call
+  was refused and the loop (started once per visit) never came back. Night's ambience goes through
+  another path, which is why it was the only thing heard. Sounds parented to a `SoundArea` now
+  skip the distance test, as in vanilla (the area's trigger is the gate). File:
+  `AudioSuppressionPatch.cs`.
+- Not run in game yet: found from the decompile, the scene data (`outside_village_ch1_01`) and the
+  cull code; needs the village visit by a client in daylight.
 
 ---
 
