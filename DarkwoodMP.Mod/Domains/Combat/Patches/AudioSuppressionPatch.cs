@@ -103,7 +103,7 @@ namespace DWMPHorde.Patches
             // Spectator: mute SFX parented to the local player body (get-up / corpse).
             // Body is teleported under the follow target so distance cull would wrongly allow it.
             var spec = SpectatorModeController.Instance;
-            if (spec != null && spec.IsSpectating && Player.Instance != null)
+            if (spec != null && spec.BodyMovedToTarget && Player.Instance != null)
             {
                 Transform localT = Player.Instance.transform;
                 if (parentObj != null

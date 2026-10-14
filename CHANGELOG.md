@@ -3,12 +3,12 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.300**. The current Horde wire protocol is **75**. Every install in a session
+**0.8.301**. The current Horde wire protocol is **75**. Every install in a session
 needs the same DLL; the protocol is checked on join.
 
 Protocol history (newest first):
 
-- **75**, 0.8.297 to 0.8.300: `CoHold` (170) gains mode 5, `ModePlayerPush`: a player walking into another
+- **75**, 0.8.297 to 0.8.301: `CoHold` (170) gains mode 5, `ModePlayerPush`: a player walking into another
   player, sent to the pushed player.
 - **74**, 0.8.294 to 0.8.296: `PlayerEffectSync` with `MovedHome` carries the home it left (`FromX/Y/Z`);
   new `PartyHomeMoves` (178), host to a joiner: the party's home moves kept with the world.
@@ -95,6 +95,26 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.301 — a living spectator's body stays where it is and can be hurt
+
+- **F4 while alive was god mode.** The body the others saw standing where the player pressed
+  F4 could not be hurt: the real body was invulnerable, ignored by creatures (`ignoreMe`, sent to
+  the host) and moved under the watched player, hidden. A living spectator's real body now
+  stays where it stands: visible (so 0.8.300's copy of it is gone), held still, not invulnerable,
+  not ignored. Creatures see it and attack it as usual, on the host's own AI and on a client's
+  "defender decides" judging alike, and any drop in health sends the camera back to the body.
+  A fatal hit leaves the watch without touching the death state, so a night death starts its
+  own (dead) watch and a day death goes home as usual.
+- The world around the camera still loads around the watched player, and the nodes around the
+  living body are kept awake too (`SpectatorCullingPatch`, `WorldGridNodeLeavePatch`): asleep,
+  the creatures by the body stopped on the host and never showed their blows on a client.
+- A dead spectator is unchanged (body under the watched player, hidden, invulnerable; corpse
+  where it fell). The morning release no longer sends a living spectator home, and the
+  spectator's own body sounds are muted only while that body is moved.
+- Files: `SpectatorModeController` (enter, exits, `WatcherHit`), `SpectatorCullingPatch`,
+  `HostAIPatches.Grid.cs`, `AudioSuppressionPatch`, `DeathStateTracker.Release.cs`;
+  `SpectatorModeController.SelfBody.cs` removed.
 
 ## 0.8.300 — a living spectator sees its own body
 

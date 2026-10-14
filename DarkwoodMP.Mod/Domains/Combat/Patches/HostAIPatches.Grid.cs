@@ -91,6 +91,9 @@ namespace DWMPHorde.Patches
             // Vanilla leave is a no-op on a node not entered (unless forced): nothing to keep.
             if (!force && !__instance.entered)
                 return true;
+            // Both roles: the nodes by a living spectator's own body stay awake.
+            if (SpectatorCullingPatch.KeepsNode(__instance))
+                return false;
             if (ModRuntime.Network == null || ModRuntime.Network.Role != NetworkRole.Host)
                 return true;
             if (!PlayerPositionManager.HasRemotePlayer)

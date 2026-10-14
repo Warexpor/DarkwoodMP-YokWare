@@ -63,8 +63,6 @@ namespace DWMPHorde
             // local release is skipped while the host itself is in a dream.
             bool localInDream = LocalDreamRunning();
             bool localDead = LocalNightDeath && !localInDream;
-            var spec = SpectatorModeController.Instance;
-            bool localSpectating = spec != null && spec.IsSpectating && !localInDream;
             // No early return when nothing looks dead here: a night-dead client that soft-reconnected
             // during the night lost its mark on the host (the blip cleared it) but is still spectating
             // locally. The client handler is idempotent, so the broadcast is always sent.
@@ -182,7 +180,8 @@ namespace DWMPHorde
         private static void ReleaseLocalNightDeath(bool worldAuthority)
         {
             var spec = SpectatorModeController.Instance;
-            bool spectating = spec != null && spec.IsSpectating;
+            // A dead player's watch only: a living player watching at morning stays where it is.
+            bool spectating = spec != null && spec.BodyMovedToTarget;
             if (!LocalNightDeath && !spectating)
                 return;
 
