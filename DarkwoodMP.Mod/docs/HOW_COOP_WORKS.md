@@ -458,8 +458,8 @@ reinstall), so a returning player is not taken for a new one.
   life). Pulling apart holds it still; when the dragger lets go, the first co-holder drags on
   alone and the others let go. Four hold a thing at most.
 - **Players push each other.** Walking into another player sends your push to their game,
-  which moves them by a share of it (about a third of a walk), and walking against it holds
-  them in place. On your screen they give way at once, ahead of their next positions.
+  which moves them by a share of it (at most 0.15 of a walk, less when they drag something),
+  and walking against it holds them in place. On your screen they give way at once, ahead of their next positions.
 - **Odd noises are shared, where they could happen.** The game's random stingers (a noise
   in the house, something in the forest, the far musician, the big pig) are rolled by one
   player's game and shared with the players nearby. A player hears one only if their own game
@@ -928,8 +928,9 @@ party events.
   personal, as in single player. The host's prologue runs vanilla and stays
   connected. A player new to the world plays it after the world download, offline,
   then reconnects. A player who joins after the host skipped the prologue (or in a
-  later chapter) starts fresh in the hideout with that chapter's starting pack. A
-  returning player never replays it.
+  later chapter) starts fresh in the hideout with that chapter's starting pack, after
+  the chapter's title over a black screen, as a new game shows it. A returning player
+  never replays it.
 - **Nothing in a prologue reaches the others,** apart from journal pages it wrote,
   which go to the shared journal afterwards. No saves happen during a prologue.
 - **Day 1 waits** for everyone's prologue (at most 45 minutes).

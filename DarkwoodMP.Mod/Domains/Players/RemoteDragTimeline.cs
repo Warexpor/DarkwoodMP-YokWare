@@ -197,6 +197,15 @@ namespace DWMPHorde.Networking
             HoldKinematic(tr);
         }
 
+        /// <summary>The body <paramref name="sender"/> drags, played back here (null: none).</summary>
+        internal static Rigidbody DraggedBy(int sender)
+        {
+            foreach (Track tr in _tracks.Values)
+                if (tr.Sender == sender && !tr.Ending && tr.Rb != null)
+                    return tr.Rb;
+            return null;
+        }
+
         /// <summary>The player whose drag of <paramref name="item"/> plays back here (0: none).</summary>
         internal static int SenderOf(Item item)
         {

@@ -27,7 +27,7 @@ namespace DWMPHorde.Sync
         /// way at this share of a walk, and one walking against it holds its ground. 0.6 (about
         /// two equal bodies sharing one walker's force) let a player be shoved around at once.
         /// </summary>
-        internal const float Share = 0.3f;
+        internal const float Share = 0.15f;
         private const float SendInterval = 1f / 30f;
         /// <summary>A push not refreshed within this has stopped (a few sends' worth of loss).</summary>
         private const float PushHold = 0.15f;
@@ -95,7 +95,10 @@ namespace DWMPHorde.Sync
                 float d = to.magnitude;
                 if (d > touch + (_wasPushing.Contains(proxy.PlayerId) ? KeepMargin : 0f) || d < 0.01f || Vector3.Dot(dir, to / d) < IntoBodyCos)
                     continue;
-                _pushing[proxy.PlayerId] = intent * (Share * WalkSpeedPerIntent(p.Rigidbody));
+                // A player dragging something gives way slower: the push moves the body it drags too.
+                Rigidbody dragged = RemoteDragTimeline.DraggedBy(proxy.PlayerId);
+                _pushing[proxy.PlayerId] = intent * (Share * WalkSpeedPerIntent(p.Rigidbody)
+                    * WithLoad(p.Rigidbody, dragged));
                 var msg = new CoHoldMessage
                 {
                     Mode = CoHoldMessage.ModePlayerPush,
@@ -135,6 +138,17 @@ namespace DWMPHorde.Sync
             return damp > 0.0001f ? PlayerMoveForcePatch.VanillaForceFactor * Time.fixedDeltaTime / damp : 0f;
         }
 
+        /// <summary>
+        /// The share of a push's speed a player keeps while dragging <paramref name="load"/>: the
+        /// player's damping (mass times drag) over the player's and the load's.
+        /// </summary>
+        private static float WithLoad(Rigidbody player, Rigidbody load)
+        {
+            float own = player.mass * player.drag;
+            float extra = load != null ? load.mass * load.drag : 0f;
+            return own + extra > 0.0001f ? own / (own + extra) : 1f;
+        }
+
         private static float Radius(Player p)
         {
             var cap = p.GetComponent<CapsuleCollider>();
@@ -166,6 +180,7 @@ namespace DWMPHorde.Sync
             bool canMove = p != null && p.Rigidbody != null && !p.Rigidbody.isKinematic
                 && !p.dying && !p.immobilised && !p.jumping && !p.wantToJumpThroughWindow;
             _done.Clear();
+            Vector3 push = Vector3.zero;
             foreach (var kv in _incoming)
             {
                 if (now > kv.Value.Until)
@@ -182,7 +197,7 @@ namespace DWMPHorde.Sync
                 gap.y = 0f;
                 if (gap.sqrMagnitude > MaxPusherRange * MaxPusherRange)
                     continue;
-                p.Rigidbody.AddForce(kv.Value.Intent * (PlayerMoveForcePatch.VanillaForceFactor * Time.fixedDeltaTime * Share));
+                push += kv.Value.Intent;
             }
             for (int i = 0; i < _done.Count; i++)
             {
@@ -190,6 +205,49 @@ namespace DWMPHorde.Sync
                 _incoming.Remove(_done[i]);
             }
             _done.Clear();
+            push.y = 0f;
+            float size = push.magnitude;
+            if (size < 0.0001f)
+                return;
+            ApplyPush(p, push / size, size);
+        }
+
+        /// <summary>
+        /// The pushes on the local player (summed walk input <paramref name="size"/> along
+        /// <paramref name="dir"/>) move it at most at <see cref="Share"/> of that walk, less by
+        /// what it drags: the push steers its speed along the push to that, with no more than
+        /// <see cref="Share"/> of a walk force. Before, the push was that force alone: a body
+        /// dragged on the vanilla hinge barely held it back (a pushed dragger went as fast as a
+        /// player with free hands), and a player walking along the push went faster than a walk.
+        /// Walking against it, the player's own force (all of a walk) wins.
+        /// </summary>
+        private static void ApplyPush(Player p, Vector3 dir, float size)
+        {
+            Rigidbody rb = p.Rigidbody;
+            float dt = Time.fixedDeltaTime;
+            Rigidbody load = null;
+            if (p.dragging && p.itemBeingDragged != null && !SharedDrag.IsFollowingItem(p.itemBeingDragged))
+            {
+                load = p.itemBeingDragged.GetComponent<Rigidbody>();
+                if (load != null && load.isKinematic)
+                    load = null;
+            }
+            float target = size * Share * WalkSpeedPerIntent(rb) * WithLoad(rb, load);
+            float maxForce = size * Share * PlayerMoveForcePatch.VanillaForceFactor * dt;
+            float along = Vector3.Dot(rb.velocity, dir);
+            // The force that holds the speed against the player's and the load's damping, plus
+            // half the gap to it in this step; never more than the push, never a pull.
+            float hold = target * (rb.mass * rb.drag + (load != null ? load.mass * load.drag : 0f));
+            float force = Mathf.Clamp(hold + rb.mass * (target - along) * 0.5f / dt, 0f, maxForce);
+            if (load != null && force > 0f)
+            {
+                // The load's part goes to the load: the hinge alone passed little of it on.
+                float loadShare = 1f - WithLoad(rb, load);
+                load.AddForce(dir * (force * loadShare));
+                force *= 1f - loadShare;
+            }
+            if (force > 0f)
+                rb.AddForce(dir * force);
         }
 
         internal static void Reset()

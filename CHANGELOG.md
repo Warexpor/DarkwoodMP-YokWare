@@ -3,12 +3,12 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.298**. The current Horde wire protocol is **75**. Every install in a session
+**0.8.299**. The current Horde wire protocol is **75**. Every install in a session
 needs the same DLL; the protocol is checked on join.
 
 Protocol history (newest first):
 
-- **75**, 0.8.297 to 0.8.298: `CoHold` (170) gains mode 5, `ModePlayerPush`: a player walking into another
+- **75**, 0.8.297 to 0.8.299: `CoHold` (170) gains mode 5, `ModePlayerPush`: a player walking into another
   player, sent to the pushed player.
 - **74**, 0.8.294 to 0.8.296: `PlayerEffectSync` with `MovedHome` carries the home it left (`FromX/Y/Z`);
   new `PartyHomeMoves` (178), host to a joiner: the party's home moves kept with the world.
@@ -95,6 +95,25 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.299 — a pushed player who drags something is heavier; the chapter title for a joiner
+
+- **Pushing another player:** 0.15 of the pusher's walk (was 0.3).
+- **A player dragging something was pushed as if their hands were free.** The push was a
+  force on the player's body alone, and the vanilla drag hinge passed little of the dragged
+  body's weight back. The push now steers the pushed player's speed along it: at most 0.15 of
+  a walk, times the player's damping over the player's and the load's (mass times drag; a
+  light lamp roughly halves it, a wardrobe more), with no more than 0.15 of a walk force, split
+  between the player and the load by their damping. A player already moving along the push
+  faster than that is not pushed further. The pusher's screen predicts the same slower give
+  (`RemoteDragTimeline.DraggedBy`).
+- **A joiner new to a world whose host skipped the prologue got no "Chapter 1" title.** Vanilla
+  shows the chapter's title over a black screen to a new game that is not loaded; a joiner
+  loads the host's save. A new character placed in the hideout without the prologue
+  (`PersonalPrologue.ArriveFresh`, chapter 1 or 2) now gets the title over black, and the black
+  lifts as the title fades. A player who played the prologue here before (saw the title at its
+  end) does not.
+- Files: `PeerPush.cs`, `RemoteDragTimeline.cs`, `PersonalPrologue.cs`.
 
 ## 0.8.298 — pushing another player: harder, no flicker
 
