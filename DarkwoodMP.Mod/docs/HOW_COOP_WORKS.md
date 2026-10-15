@@ -379,7 +379,7 @@ back out the way they came counts as not through yet.
 ### Reconnect after a lost link
 
 A client whose link to the host is lost (a timeout, the network gone; not the host
-closing it) first dials the same host again, for `ReconnectSeconds` (60 by default),
+closing it) first dials the same host again, for `ReconnectSeconds` (20 by default),
 keeping its world: the same soft reconnect a joiner makes after loading the world.
 The player is told on the HUD and in the chat when the link is lost, when it is back,
 and when the reconnect gives up. A host that goes quiet for 8 seconds is told before

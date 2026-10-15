@@ -286,7 +286,7 @@ namespace DWMPHorde.Config
                 "Experimental: other players can take hold of a body another player is dragging (E on it), up to four in all, and move it together: walking the same way 1.75x a lone player's speed for two, about 2.33x for three, 2.8x for four; held still pulling apart. Everyone holding needs it on.");
             HostMigrationEnabled = config.Bind("Network", "HostMigrationEnabled", true,
                 "If true, host crash/timeout elects lowest remaining player id as new host (LAN n+). Peers reconnect to elected listen port.");
-            ReconnectSeconds = config.Bind("Network", "ReconnectSeconds", 60,
+            ReconnectSeconds = config.Bind("Network", "ReconnectSeconds", 20,
                 "Client: when the connection to the host is lost (not closed), keep trying to reconnect to the same host for this many seconds (0..900) before host migration or leaving. 0 = no reconnect.");
             VoiceEnabled = config.Bind("Voice", "VoiceEnabled", true,
                 "Proximity and walkie voice chat (the game's own microphone input; no Steam needed).");

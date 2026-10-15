@@ -104,7 +104,7 @@ tested in the game.
 - **A lost connection to the host is retried before anything else.** Before, a client whose
   link timed out went straight to host migration: with one client it made itself a lone host
   over a network hiccup, and the player saw nothing until that had happened. Now the client
-  dials the same host again for `ReconnectSeconds` (new, Network, default 60, 0 = off),
+  dials the same host again for `ReconnectSeconds` (new, Network, default 20, 0 = off),
   keeping its world (the phase-3 soft reconnect, LAN and Steam), and only then falls back to
   migration or leaving. Only a lost link starts it (LiteNetLib Timeout / HostUnreachable /
   NetworkUnreachable, Steam SNS problem), never the host closing the connection or a handoff.

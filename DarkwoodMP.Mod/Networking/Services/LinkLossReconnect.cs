@@ -84,7 +84,7 @@ namespace DWMPHorde.Networking
                 return true;
             if (!_session.Link.HandshakeComplete)
                 return false;
-            int window = Mathf.Clamp(Config.ModConfig.ReconnectSeconds?.Value ?? 60, 0, 900);
+            int window = Mathf.Clamp(Config.ModConfig.ReconnectSeconds?.Value ?? 20, 0, 900);
             if (window <= 0)
                 return false;
             // The soft reconnect keeps the world: it needs a live, loaded character.
