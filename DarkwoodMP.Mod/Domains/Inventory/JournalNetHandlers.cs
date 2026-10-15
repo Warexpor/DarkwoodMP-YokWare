@@ -179,10 +179,15 @@ namespace DWMPHorde.Networking
                     break;
                 case JournalItemKind.Location:
                     // Journal Locations tab (Location.discoverMe). Map pins sync separately.
-                    // No popup — discoverMe already showed on the discovering peer.
+                    // A shared discovery: the finder's "discovered" popup shows here too, as
+                    // vanilla discoverMe shows it (only when the finder's did).
                     if (journal.locationsDict != null && !string.IsNullOrEmpty(msg.Type)
                         && !journal.locationsDict.ContainsKey(msg.Type))
+                    {
                         journal.locationsDict.Add(msg.Type, msg.Type);
+                        if (msg.Popup && !quiet)
+                            journal.showJournalInfoPopup("Location", msg.Type);
+                    }
                     break;
                 default:
                     ModRuntime.Log?.LogWarning($"[Journal] Unhandled JournalItemKind: {msg.Kind}");

@@ -21,12 +21,20 @@ namespace DWMPHorde.Sync
         /// <summary>A name whose MapElement never appears is dropped after this long.</summary>
         private const float PendingDiscoveryMaxAge = 300f;
 
+        /// <summary>
+        /// How far (XZ) a piece may stand from where the sender's stood and still be it. The world
+        /// and each outside location's layout come from the same save on every machine, so a match
+        /// is exact; anything farther is another piece of the same name.
+        /// </summary>
+        private const float PieceMatchDist = 8f;
+
         private struct PendingDiscovery
         {
-            public string Name;
-            public Vector3? At;
+            public MapPieceWire Piece;
             public float QueuedAt;
         }
+
+        private static readonly Dictionary<Transform, string> _anchorIndex = new Dictionary<Transform, string>(64); // process-scoped: scratch
 
         private static readonly List<PendingDiscovery> _pendingDiscoveries = new List<PendingDiscovery>(64);
         private static readonly Dictionary<string, List<MapElement>> _discoveryLookup =
@@ -104,20 +112,96 @@ namespace DWMPHorde.Sync
             return sig & int.MaxValue; // never -1 (the forced-rebuild value)
         }
 
-        internal static void QueuePendingDiscovery(string elementName, Vector3? at = null)
+        internal static void QueuePendingDiscovery(MapPieceWire piece)
         {
-            if (string.IsNullOrEmpty(elementName)) return;
+            if (string.IsNullOrEmpty(piece.Name)) return;
             for (int i = 0; i < _pendingDiscoveries.Count; i++)
             {
-                PendingDiscovery q = _pendingDiscoveries[i];
-                if (q.Name == elementName && q.At.HasValue == at.HasValue
-                    && (!at.HasValue || (q.At.Value - at.Value).sqrMagnitude < 1f))
+                MapPieceWire q = _pendingDiscoveries[i].Piece;
+                float dx = q.X - piece.X, dz = q.Z - piece.Z;
+                if (q.Name == piece.Name && q.Anchor == piece.Anchor && dx * dx + dz * dz < 1f)
                     return;
             }
             if (_pendingDiscoveries.Count >= MaxPendingDiscoveries)
                 _pendingDiscoveries.RemoveAt(0);
-            _pendingDiscoveries.Add(new PendingDiscovery { Name = elementName, At = at, QueuedAt = Time.unscaledTime });
-            ModRuntime.LegacyInfo($"[MapDiscovery] queued '{elementName}' until MapElement ready");
+            _pendingDiscoveries.Add(new PendingDiscovery { Piece = piece, QueuedAt = Time.unscaledTime });
+            ModRuntime.LegacyInfo($"[MapDiscovery] queued {PieceText(piece)} until MapElement ready");
+        }
+
+        internal static string PieceText(MapPieceWire piece)
+            => "'" + piece.Name + "' at (" + piece.X.ToString("F0") + ", " + piece.Z.ToString("F0") + ")"
+                + (string.IsNullOrEmpty(piece.Anchor) ? "" : " in " + piece.Anchor);
+
+        /// <summary>
+        /// This piece and where it stands: a world position, or the offset from the spawned outside
+        /// location it belongs to (the innermost one). Outside locations sit in shared pad slots
+        /// (OutsideLocations.locationPositions) that are freed and reused for other locations, so
+        /// a world position inside one can point at another location's piece in the same slot.
+        /// </summary>
+        internal static MapPieceWire Describe(MapElement e)
+        {
+            BuildAnchorIndex();
+            return DescribeIndexed(e);
+        }
+
+        /// <summary>Describe for a batch: one anchor index for all of <paramref name="elements"/>.</summary>
+        internal static List<MapPieceWire> DescribeOnMap(List<MapElement> elements, int max)
+        {
+            BuildAnchorIndex();
+            var list = new List<MapPieceWire>(256);
+            for (int i = 0; i < elements.Count && list.Count < max; i++)
+            {
+                MapElement el = elements[i];
+                if (el == null || !el.isOnMap || string.IsNullOrEmpty(el.elementName)) continue;
+                list.Add(DescribeIndexed(el));
+            }
+            return list;
+        }
+
+        private static void BuildAnchorIndex()
+        {
+            _anchorIndex.Clear();
+            OutsideLocations outs = Singleton<OutsideLocations>.Instance;
+            if (outs == null || outs.spawnedLocations == null)
+                return;
+            foreach (KeyValuePair<string, Location> kv in outs.spawnedLocations)
+            {
+                if (kv.Value != null && !_anchorIndex.ContainsKey(kv.Value.transform))
+                    _anchorIndex.Add(kv.Value.transform, kv.Key);
+            }
+        }
+
+        private static MapPieceWire DescribeIndexed(MapElement e)
+        {
+            Vector3 p = e.transform.position;
+            var piece = new MapPieceWire { Name = e.elementName, Anchor = "", X = p.x, Z = p.z };
+            for (Transform t = e.transform; t != null; t = t.parent)
+            {
+                if (!_anchorIndex.TryGetValue(t, out string anchor))
+                    continue;
+                Vector3 o = t.position;
+                piece.Anchor = anchor;
+                piece.X = p.x - o.x;
+                piece.Z = p.z - o.z;
+                break;
+            }
+            return piece;
+        }
+
+        /// <summary>Where the piece stands on this machine; false while its outside location is not spawned here.</summary>
+        private static bool TryWorldPos(MapPieceWire piece, out Vector3 at)
+        {
+            at = new Vector3(piece.X, 0f, piece.Z);
+            if (string.IsNullOrEmpty(piece.Anchor))
+                return true;
+            OutsideLocations outs = Singleton<OutsideLocations>.Instance;
+            if (outs == null || outs.spawnedLocations == null
+                || !outs.spawnedLocations.TryGetValue(piece.Anchor, out Location loc) || loc == null)
+                return false;
+            Vector3 o = loc.transform.position;
+            at.x += o.x;
+            at.z += o.z;
+            return true;
         }
 
         /// <summary>
@@ -141,7 +225,7 @@ namespace DWMPHorde.Sync
             for (int i = _pendingDiscoveries.Count - 1; i >= 0; i--)
             {
                 PendingDiscovery p = _pendingDiscoveries[i];
-                if (TryApplyRemoteDiscovery(p.Name, p.At, allowRescan: false))
+                if (TryApplyRemoteDiscovery(p.Piece, allowRescan: false))
                 {
                     _pendingDiscoveries.RemoveAt(i);
                     continue;
@@ -149,32 +233,34 @@ namespace DWMPHorde.Sync
                 if (now - p.QueuedAt > PendingDiscoveryMaxAge)
                 {
                     _pendingDiscoveries.RemoveAt(i);
-                    ModRuntime.LegacyInfo($"[MapDiscovery] dropped '{p.Name}' — no MapElement after {PendingDiscoveryMaxAge:F0}s");
+                    ModRuntime.LegacyInfo($"[MapDiscovery] dropped {PieceText(p.Piece)} — no MapElement there after {PendingDiscoveryMaxAge:F0}s");
                 }
             }
         }
 
         /// <summary>
-        /// Resolve by scene MapElement name (all map types), then showElement(MapElement).
-        /// Returns false when the element is not in the scene yet (caller should queue).
+        /// Resolve by name and place (all map types), then showElement(MapElement).
+        /// Returns false when that piece is not in the scene yet (caller should queue).
         /// </summary>
-        internal static bool TryApplyRemoteDiscovery(string elementName, Vector3? at = null)
+        internal static bool TryApplyRemoteDiscovery(MapPieceWire piece)
         {
-            return TryApplyRemoteDiscovery(elementName, at, allowRescan: true);
+            return TryApplyRemoteDiscovery(piece, allowRescan: true);
         }
 
-        private static bool TryApplyRemoteDiscovery(string elementName, Vector3? at, bool allowRescan)
+        private static bool TryApplyRemoteDiscovery(MapPieceWire piece, bool allowRescan)
         {
-            if (string.IsNullOrEmpty(elementName)) return true;
+            if (string.IsNullOrEmpty(piece.Name)) return true;
+            if (!TryWorldPos(piece, out Vector3 at))
+                return false;
 
-            MapElement el = FindMapElementByName(elementName, at);
+            MapElement el = FindMapElementByName(piece.Name, at);
             if (el == null)
             {
                 // Name index from before Map.initialize named the elements; a bulk of misses
                 // shares one rebuild instead of one each.
                 if (!allowRescan || !TryRescanMapElements(Time.unscaledTime))
                     return false;
-                el = FindMapElementByName(elementName, at);
+                el = FindMapElementByName(piece.Name, at);
                 if (el == null)
                     return false;
             }
@@ -193,7 +279,7 @@ namespace DWMPHorde.Sync
                     el.isOnMap = true;
             }
 
-            ModRuntime.LegacyInfo($"[MapDiscovery] remote discovered '{elementName}' — showing locally");
+            ModRuntime.LegacyInfo($"[MapDiscovery] remote discovered {PieceText(piece)} — showing locally");
             return true;
         }
 
@@ -210,7 +296,7 @@ namespace DWMPHorde.Sync
             return true;
         }
 
-        private static MapElement FindMapElementByName(string elementName, Vector3? at)
+        private static MapElement FindMapElementByName(string elementName, Vector3 at)
         {
             Map map = Map.Instance;
             if (map == null) return null;
@@ -242,27 +328,21 @@ namespace DWMPHorde.Sync
             return el != null ? el : Pick(elementName + "_done", at);
         }
 
-        /// <summary>The one at <paramref name="at"/> when known; else one not yet on the map; else any.</summary>
-        private static MapElement Pick(string name, Vector3? at)
+        /// <summary>The piece of that name standing at <paramref name="at"/>; none when no piece of it is there.</summary>
+        private static MapElement Pick(string name, Vector3 at)
         {
             if (!_discoveryLookup.TryGetValue(name, out List<MapElement> list) || list.Count == 0)
                 return null;
             MapElement best = null;
-            float bestD = float.MaxValue;
+            float bestD = PieceMatchDist * PieceMatchDist;
             for (int i = 0; i < list.Count; i++)
             {
                 MapElement e = list[i];
                 if (e == null) continue;
-                float d;
-                if (at.HasValue)
-                {
-                    Vector3 p = e.transform.position;
-                    float dx = p.x - at.Value.x, dz = p.z - at.Value.z;
-                    d = dx * dx + dz * dz;
-                }
-                else
-                    d = e.isOnMap ? 1f : 0f;
-                if (d < bestD)
+                Vector3 p = e.transform.position;
+                float dx = p.x - at.x, dz = p.z - at.z;
+                float d = dx * dx + dz * dz;
+                if (d <= bestD)
                 {
                     bestD = d;
                     best = e;

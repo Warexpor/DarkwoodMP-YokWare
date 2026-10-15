@@ -415,25 +415,19 @@ namespace DWMPHorde.Networking
 
             MapPinWire[] pins = Sync.MapPinBoard.Snapshot();
 
-            // Vanilla MapElement.isOnMap (Map.showElement) — late-join mirror of live msg 69.
-            var discoveries = new List<string>(256);
+            // Vanilla MapElement.isOnMap (Map.showElement) — late-join mirror of live msg 69. Each
+            // piece goes with where it stands: names repeat (a road piece is named after its
+            // sprite), and a name alone showed whichever piece of it the joiner had first.
             // Vanilla's own map element lists, not a MapElement scene scan (~40 ms in the bulk).
-            List<MapElement> elements = Sync.MultiplayerMapManager.CollectMapElements();
-            for (int i = 0; i < elements.Count && discoveries.Count < 4096; i++)
-            {
-                MapElement el = elements[i];
-                if (el == null || !el.isOnMap) continue;
-                if (string.IsNullOrEmpty(el.elementName)) continue;
-                discoveries.Add(el.elementName);
-            }
+            List<MapPieceWire> discoveries = Sync.MultiplayerMapManager.DescribeOnMap(
+                Sync.MultiplayerMapManager.CollectMapElements(), 4096);
 
-            int dc = discoveries.Count;
             var msg = new MapStateSyncMessage
             {
                 PinCount = Mathf.Min(pins.Length, 4096),
                 Pins = pins,
-                DiscoveryCount = dc,
-                DiscoveryElementNames = discoveries.ToArray()
+                DiscoveryCount = discoveries.Count,
+                Discoveries = discoveries.ToArray()
             };
             _net.SendBulkOrAll(NetMessageType.MapStateSync, w => msg.Serialize(w), targetPlayerId);
         }
@@ -449,12 +443,13 @@ namespace DWMPHorde.Networking
             bool canApply = LanNetworkManager.ClientCanApplyWorldBulk();
             for (int i = 0; i < msg.DiscoveryCount; i++)
             {
-                string name = msg.DiscoveryElementNames?[i];
-                if (string.IsNullOrEmpty(name)) continue;
+                if (msg.Discoveries == null || i >= msg.Discoveries.Length) break;
+                MapPieceWire piece = msg.Discoveries[i];
+                if (string.IsNullOrEmpty(piece.Name)) continue;
                 if (!canApply)
-                    Sync.MultiplayerMapManager.QueuePendingDiscovery(name);
+                    Sync.MultiplayerMapManager.QueuePendingDiscovery(piece);
                 else
-                    Sync.MultiplayerMapManager.OnRemoteElementDiscovered(name);
+                    Sync.MultiplayerMapManager.OnRemoteElementDiscovered(piece);
             }
             if (!canApply && msg.DiscoveryCount > 0)
                 ModLog.Event(LogCat.Session,

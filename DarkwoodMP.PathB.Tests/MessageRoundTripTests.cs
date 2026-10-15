@@ -792,13 +792,14 @@ public class MessageRoundTripTests
     {
         // Whether the page is a dream's travels with it: the receiver's own dream state said
         // nothing about where the sender found it.
-        var msg = new JournalItemMessage { Kind = JournalItemKind.JournalEntry, Type = "act1_entry1", InDream = inDream };
+        var msg = new JournalItemMessage { Kind = JournalItemKind.JournalEntry, Type = "act1_entry1", InDream = inDream, Popup = !inDream };
         var r = new NetReader(Bytes(msg.Serialize));
         var back = JournalItemMessage.Deserialize(r);
 
         Assert.Equal(JournalItemKind.JournalEntry, back.Kind);
         Assert.Equal("act1_entry1", back.Type);
         Assert.Equal(inDream, back.InDream);
+        Assert.Equal(!inDream, back.Popup);
         Assert.Equal(0, r.AvailableBytes);
     }
 
@@ -863,14 +864,24 @@ public class MessageRoundTripTests
             PinCount = 2,
             Pins = new[] { SamplePin(1), SamplePin(2) },
             DiscoveryCount = 2,
-            DiscoveryElementNames = new[] { "big_hideout_03", "med_wolf_01" }
+            Discoveries = new[]
+            {
+                new MapPieceWire { Name = "big_hideout_03", Anchor = "", X = 120.5f, Z = -3400f },
+                new MapPieceWire { Name = "road_forest_1_1a", Anchor = "village_01", X = -12f, Z = 40.25f }
+            }
         };
         var r = new NetReader(Bytes(msg.Serialize));
         var back = MapStateSyncMessage.Deserialize(r);
         Assert.Equal(2, back.PinCount);
         AssertPin(msg.Pins[0], back.Pins[0]);
         AssertPin(msg.Pins[1], back.Pins[1]);
-        Assert.Equal(msg.DiscoveryElementNames, back.DiscoveryElementNames);
+        for (int i = 0; i < 2; i++)
+        {
+            Assert.Equal(msg.Discoveries[i].Name, back.Discoveries[i].Name);
+            Assert.Equal(msg.Discoveries[i].Anchor, back.Discoveries[i].Anchor);
+            Assert.Equal(msg.Discoveries[i].X, back.Discoveries[i].X);
+            Assert.Equal(msg.Discoveries[i].Z, back.Discoveries[i].Z);
+        }
         Assert.Equal(0, r.AvailableBytes);
     }
 

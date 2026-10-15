@@ -13,13 +13,13 @@ namespace DWMPHorde.Patches
     /// </summary>
     internal static class JournalSyncHelpers
     {
-        internal static void SendJournalItem(JournalItemKind kind, string type)
+        internal static void SendJournalItem(JournalItemKind kind, string type, bool popup = false)
         {
             if (LanNetworkManager.IsApplyingRemoteState && !HostApplyGuard.Active)
                 return;
             if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected) return;
             if (string.IsNullOrEmpty(type)) return;
-            var msg = new JournalItemMessage { Kind = kind, Type = type, InDream = LocalPageInDream(kind, type) };
+            var msg = new JournalItemMessage { Kind = kind, Type = type, InDream = LocalPageInDream(kind, type), Popup = popup };
             var net = ModRuntime.Network;
             if (net == null) return;
             // Broadcast: host → all peers (Send is first-peer-only and breaks 3+).
@@ -310,7 +310,7 @@ namespace DWMPHorde.Patches
 
     /// <summary>
     /// Sync journal Locations-tab names from Location.discoverMe (map pins
-    /// already fan via Map.showElement). WorldSaveShare loads HOST journal;
+    /// already fan via Map.showElement), with its "discovered" popup. WorldSaveShare loads HOST journal;
     /// without this, a peer-discovered place vanishes from the journal list
     /// on cold rejoin / late-join bulk.
     /// </summary>
@@ -329,7 +329,7 @@ namespace DWMPHorde.Patches
             __state = journal.locationsDict.ContainsKey(name);
         }
 
-        private static void Postfix(Location __instance, bool __state)
+        private static void Postfix(Location __instance, bool __state, bool showPopup, bool force)
         {
             if (__state) return; // already known before discoverMe
             if (__instance == null) return;
@@ -339,7 +339,9 @@ namespace DWMPHorde.Patches
             var journal = Singleton<UI>.Instance?.journal;
             if (journal?.locationsDict == null || !journal.locationsDict.ContainsKey(name))
                 return;
-            JournalSyncHelpers.SendJournalItem(JournalItemKind.Location, name);
+            // Vanilla's own popup rule: the others see "discovered" when the finder did.
+            bool popup = showPopup && (!__instance.noDiscoverPopup || force);
+            JournalSyncHelpers.SendJournalItem(JournalItemKind.Location, name, popup);
         }
     }
 

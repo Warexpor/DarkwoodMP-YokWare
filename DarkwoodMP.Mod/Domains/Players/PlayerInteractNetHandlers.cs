@@ -302,8 +302,25 @@ namespace DWMPHorde.Networking
                 _net.PlayerInteractHandlers.LastDragSyncPos[msg.ObjectName] = targetPos;
             }
 
+            // One line every DragPoseLogSec per object, not one per packet (30 a second).
             if (ModRuntime.VerboseLogging)
-                ModRuntime.LegacyInfo($"[DragSync] {item.name} -> {targetPos} yaw={targetRot.y:F1} t={msg.SendTime:F3}");
+            {
+                float now = Time.realtimeSinceStartup;
+                _dragPoseLog.TryGetValue(msg.ObjectName, out DragPoseLog log);
+                log.Count++;
+                if (now >= log.NextAt)
+                {
+                    ModRuntime.LegacyInfo($"[DragSync] {item.name} -> {targetPos} yaw={targetRot.y:F1} t={msg.SendTime:F3} ({log.Count} pose(s))");
+                    log.NextAt = now + DragPoseLogSec;
+                    log.Count = 0;
+                }
+                _dragPoseLog[msg.ObjectName] = log;
+            }
         }
+
+        private const float DragPoseLogSec = 2f;
+        private struct DragPoseLog { public float NextAt; public int Count; }
+        private readonly System.Collections.Generic.Dictionary<string, DragPoseLog> _dragPoseLog
+            = new System.Collections.Generic.Dictionary<string, DragPoseLog>();
     }
 }
