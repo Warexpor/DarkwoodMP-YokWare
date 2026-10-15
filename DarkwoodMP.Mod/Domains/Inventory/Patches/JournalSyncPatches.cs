@@ -150,6 +150,11 @@ namespace DWMPHorde.Patches
             if (Singleton<JournalDatabase>.Instance == null) return;
             JournalNote.Note note = Singleton<JournalDatabase>.Instance.getNote(__instance.noteName);
             if (note == null || string.IsNullOrEmpty(note.type)) return;
+            // Only a page vanilla put in this journal: an examine-only note (dontPutInJournal:
+            // the gramophone, the shiny rock) shows and stays out, and sending it gave every
+            // other journal a page the examiner never had.
+            var journal = Singleton<UI>.Instance?.journal;
+            if (journal?.notesDict == null || !journal.notesDict.ContainsKey(note.type)) return;
             JournalSyncHelpers.SendJournalItem(JournalItemKind.Note, note.type);
         }
     }

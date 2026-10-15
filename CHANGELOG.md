@@ -3,12 +3,12 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.306**. The current Horde wire protocol is **76**. Every install in a session
+**0.8.307**. The current Horde wire protocol is **76**. Every install in a session
 needs the same DLL; the protocol is checked on join.
 
 Protocol history (newest first):
 
-- **76**, 0.8.306: new shared `MapPieceWire` (name, outside-location anchor, X/Z): `MapElementDiscovered` (69)
+- **76**, 0.8.306 to 0.8.307: new shared `MapPieceWire` (name, outside-location anchor, X/Z): `MapElementDiscovered` (69)
   is one piece, `MapStateSync` discoveries are pieces instead of bare names; `JournalItem` gains `Popup`.
 - **75**, 0.8.297 to 0.8.305: `CoHold` (170) gains mode 5, `ModePlayerPush`: a player walking into another
   player, sent to the pushed player.
@@ -97,6 +97,30 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.307 — story items stay with a player who rejoins; examine-only notes stay out of journals
+
+- **A Steam player who dropped and came straight back still had their story items dropped on the
+  ground 60 s later**, so Piotrek's car parts existed twice (in their bag and on the ground). The
+  host keyed the leaver by Steam id, which is already cleared when a Steam peer leaves, so the leave
+  was recorded under the install key and the return under the Steam id; the "back within the grace"
+  cancel and the later ground/bag reconciliation never matched. `QuestItemHandoff` now keys a player
+  by install key first, and also matches records written under the Steam id. Drop records already
+  in a save under the install key now reconcile on the player's next join (taken back off the
+  ground, or out of their bag if someone took the ground copy).
+- **Examining the gramophone or the shiny rock gave other players' journals a page the examiner
+  never had** (`gramofon_bambino_note`, `shiny_rock_note`). Those notes are examine-only in vanilla
+  (`dontPutInJournal`), but the pickup patch broadcast every note it saw. A note is now sent only when
+  vanilla actually put it in the local journal.
+- **A rejoining client could see a dropped item twice.** A joiner's world from the host's save holds
+  drops without their network id, and the join snapshot then tags the saved copy instead of spawning
+  another. That lookup used a physics overlap, which misses items in chunks culled away from the
+  joiner, so a second copy spawned beside the saved one (seen as a client-only `piotrek_parts_1` and
+  `nail x7` at home). It now searches the item registry, switched-off items included.
+- Seen in the same log, vanilla and left alone: a red chomper cut in half throws a `NullReferenceException`
+  in `Character.Update` each frame of its `Cut_half` clip (vanilla destroys its Rigidbody while the legs
+  still follow it), about one second of log spam.
+- Protocol unchanged (76).
 
 ## 0.8.306 — the map shows the pieces players really found; shared discoveries pop up
 

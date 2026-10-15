@@ -219,14 +219,15 @@ namespace DWMPHorde.Sync
             string key = PlayerKey(net, playerId);
             if (string.IsNullOrEmpty(key))
                 return;
-            if (_leavers.RemoveAll(l => l.Key == key) > 0)
+            string alt = AltPlayerKey(net, playerId, key);
+            if (_leavers.RemoveAll(l => l.Key == key || l.Key == alt) > 0)
                 ModRuntime.LegacyInfo($"[QuestHandoff] {key} is back within the grace; nothing dropped");
             EnsureLoaded();
             var take = new Dictionary<string, int>();
             for (int i = _entries.Count - 1; i >= 0; i--)
             {
                 Entry e = _entries[i];
-                if (e.Key != key)
+                if (e.Key != key && e.Key != alt)
                     continue;
                 if (TakeBackFromGround(net, e))
                 {
@@ -257,9 +258,10 @@ namespace DWMPHorde.Sync
             string key = PlayerKey(net, playerId);
             if (string.IsNullOrEmpty(key) || msg.Types == null)
                 return;
+            string alt = AltPlayerKey(net, playerId, key);
             EnsureLoaded();
             for (int t = 0; t < msg.Types.Length; t++)
-                _entries.RemoveAll(e => e.Key == key && e.Type == msg.Types[t]);
+                _entries.RemoveAll(e => (e.Key == key || e.Key == alt) && e.Type == msg.Types[t]);
             ModRuntime.LegacyInfo($"[QuestHandoff] {key} confirmed the removal");
         }
 
@@ -338,15 +340,29 @@ namespace DWMPHorde.Sync
             return true;
         }
 
-        /// <summary>Host: steam id, else the install key a LAN client announced. Null when neither is known.</summary>
+        /// <summary>
+        /// Host: the install key the client announced, else its steam id. Null when neither is known.
+        /// The install key comes first: a Steam leaver's steam id is already gone when it is captured,
+        /// so keying by steam id named the same player "k…" on leave and "s…" on return, and a player
+        /// back within the grace still had its story items dropped (duplicated on the ground).
+        /// </summary>
         private static string PlayerKey(LanNetworkManager net, int playerId)
         {
             if (net == null || playerId <= 0)
                 return null;
-            if (net.TryGetSteamIdForPlayer(playerId, out ulong steamId))
-                return "s" + steamId;
             if (net.TryGetStableClientKeyForPlayer(playerId, out string key))
                 return "k" + key;
+            if (net.TryGetSteamIdForPlayer(playerId, out ulong steamId))
+                return "s" + steamId;
+            return null;
+        }
+
+        /// <summary>Host: the steam-id key when <paramref name="key"/> is the install key (records written under either).</summary>
+        private static string AltPlayerKey(LanNetworkManager net, int playerId, string key)
+        {
+            if (key != null && key.StartsWith("k", StringComparison.Ordinal)
+                && net.TryGetSteamIdForPlayer(playerId, out ulong steamId))
+                return "s" + steamId;
             return null;
         }
 

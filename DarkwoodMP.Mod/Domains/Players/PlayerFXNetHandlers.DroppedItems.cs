@@ -18,6 +18,19 @@ namespace DWMPHorde.Networking
         /// <summary>A dropped item with no GUID, of this item and amount, lying at this spot (XZ: drops sit below the ground plane).</summary>
         private static GameObject FindUntaggedDrop(Vector3 pos, string wireType, bool isRecipe, int amount)
         {
+            // From the item registry, switched-off ones included: the saved copy usually lies in a
+            // chunk culled away from the joiner, where a physics overlap does not see it, and the
+            // join snapshot then spawned a second copy beside it (one pile seen twice, both takeable).
+            if (SceneRegistries.Covers<Item>())
+            {
+                Item[] items = SceneRegistry<Item>.Snapshot();
+                for (int i = 0; i < items.Length; i++)
+                {
+                    if (IsUntaggedMatch(items[i], pos, wireType, isRecipe, amount))
+                        return items[i].gameObject;
+                }
+                return null;
+            }
             Collider[] buf = WorldQueryHelper.SharedOverlapBuf;
             int n = Physics.OverlapSphereNonAlloc(pos, 30f, buf);
             for (int i = 0; i < n; i++)
@@ -26,20 +39,25 @@ namespace DWMPHorde.Networking
                 if (c == null)
                     continue;
                 Item item = c.GetComponentInParent<Item>();
-                if (item == null || !item.isDroppedItem || item.GetComponent<Players.DroppedItemIdentifier>() != null)
-                    continue;
-                float dx = item.transform.position.x - pos.x, dz = item.transform.position.z - pos.z;
-                if (dx * dx + dz * dz > 1.5f * 1.5f)
-                    continue;
-                Inventory inv = item.GetComponent<Inventory>();
-                InvItemClass held = inv != null && inv.slots != null && inv.slots.Count > 0 ? inv.slots[0].invItem : null;
-                if (InvItemClass.isNull(held) || held.isRecipe != isRecipe || held.amount != amount)
-                    continue;
-                string type = held.isRecipe ? held.recipeFor : held.type;
-                if (type == wireType)
+                if (IsUntaggedMatch(item, pos, wireType, isRecipe, amount))
                     return item.gameObject;
             }
             return null;
+        }
+
+        private static bool IsUntaggedMatch(Item item, Vector3 pos, string wireType, bool isRecipe, int amount)
+        {
+            if (item == null || !item.isDroppedItem || item.GetComponent<Players.DroppedItemIdentifier>() != null)
+                return false;
+            float dx = item.transform.position.x - pos.x, dz = item.transform.position.z - pos.z;
+            if (dx * dx + dz * dz > 1.5f * 1.5f)
+                return false;
+            Inventory inv = item.GetComponent<Inventory>();
+            InvItemClass held = inv != null && inv.slots != null && inv.slots.Count > 0 ? inv.slots[0].invItem : null;
+            if (InvItemClass.isNull(held) || held.isRecipe != isRecipe || held.amount != amount)
+                return false;
+            string type = held.isRecipe ? held.recipeFor : held.type;
+            return type == wireType;
         }
 
         internal void HandleDroppedItemSpawn(DroppedItemSpawnMessage msg)
