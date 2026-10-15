@@ -161,6 +161,8 @@ namespace DWMPHorde.Networking
             _suppressForwardThisMessage = false;
             _relayPayloadOverride = null;
             _currentReceiveMethod = inboundMethod;
+            if (_role == NetworkRole.Client)
+                _lastHostRxAt = Time.unscaledTime;
             try
             {
                 if (!HostAcceptsInbound(type))

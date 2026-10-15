@@ -113,6 +113,10 @@ namespace DWMPHorde.Networking
                     OnClientLinkFailed(disconnectInfo.Reason.ToString());
                     return;
                 }
+                // Lost (not closed by the host): dial the same host again first.
+                if (IsLostLinkReason(disconnectInfo.Reason)
+                    && TryBeginLinkLossReconnect(disconnectInfo.Reason.ToString(), peer))
+                    return;
                 TryBeginHostMigration(disconnectInfo.Reason.ToString());
             }
         }

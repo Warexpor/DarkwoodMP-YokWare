@@ -93,6 +93,7 @@ namespace DWMPHorde.Networking
                 _migrationRetryCount = 0;
                 _softReconnectTries = 0;
                 _softReconnectRetryAt = 0f;
+                OnLinkLossReconnected();
 
                 if (ClientReportsAlreadyInWorld())
                 {

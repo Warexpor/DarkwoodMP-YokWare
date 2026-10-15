@@ -17,6 +17,8 @@ namespace DWMPHorde.Sync
         public const byte InGame = 2;
         public const byte Left = 3;
         public const byte Lost = 4;
+        /// <summary>A player whose connection was lost is back in the game.</summary>
+        public const byte Reconnected = 5;
 
         /// <summary>Host: players already told to be in the game (a world resend loads them again).</summary>
         private static readonly HashSet<int> _inGame = new HashSet<int>(); // reset-in: Reset
@@ -28,6 +30,19 @@ namespace DWMPHorde.Sync
         /// </summary>
         private static readonly Dictionary<string, float> _loading = new Dictionary<string, float>(); // reset-in: Reset
 
+        /// <summary>
+        /// Host: players whose connection was lost, by reported name, with the time. A client dials
+        /// the host again for a while (ReconnectSeconds); its return reads "reconnected", not
+        /// "joining, in the game".
+        /// </summary>
+        private static readonly Dictionary<string, float> _lost = new Dictionary<string, float>(); // reset-in: Reset
+
+        /// <summary>Host: ids that came back from a lost connection and are not in the game yet.</summary>
+        private static readonly HashSet<int> _returning = new HashSet<int>(); // reset-in: Reset
+
+        /// <summary>How long a lost player's return still counts as a reconnect (the longest ReconnectSeconds, plus its last dial).</summary>
+        private const float LostGrace = 960f;
+
         /// <summary>How long a joiner may take to load the world before it counts as gone.</summary>
         private const float LoadingGrace = 180f;
 
@@ -35,6 +50,8 @@ namespace DWMPHorde.Sync
         {
             _inGame.Clear();
             _loading.Clear();
+            _lost.Clear();
+            _returning.Clear();
         }
 
         /// <summary>Host: a new player's name is known (the first thing a joiner sends after the handshake).</summary>
@@ -43,6 +60,16 @@ namespace DWMPHorde.Sync
             // Back from loading the world: already announced.
             if (name != null && _loading.Remove(name))
                 return;
+            // Back from a lost connection: said once it is in the game.
+            if (name != null && _lost.TryGetValue(name, out float lostAt))
+            {
+                _lost.Remove(name);
+                if (UnityEngine.Time.realtimeSinceStartup - lostAt <= LostGrace)
+                {
+                    _returning.Add(playerId);
+                    return;
+                }
+            }
             HostTell(net, playerId, Joining, name);
         }
 
@@ -61,6 +88,8 @@ namespace DWMPHorde.Sync
         /// <summary>Host, each frame: joiners that went to load the world and never came back left.</summary>
         internal static void HostTick(LanNetworkManager net)
         {
+            if (_lost.Count > 0)
+                PruneLost();
             if (_loading.Count == 0)
                 return;
             float now = UnityEngine.Time.realtimeSinceStartup;
@@ -82,6 +111,20 @@ namespace DWMPHorde.Sync
             }
         }
 
+        private static void PruneLost()
+        {
+            float now = UnityEngine.Time.realtimeSinceStartup;
+            List<string> old = null;
+            foreach (var kv in _lost)
+            {
+                if (now - kv.Value > LostGrace)
+                    (old ?? (old = new List<string>())).Add(kv.Key);
+            }
+            if (old != null)
+                foreach (string name in old)
+                    _lost.Remove(name);
+        }
+
         /// <summary>Host: the player has sent its first in-world state and is still here.</summary>
         internal static bool IsInGame(int playerId) => _inGame.Contains(playerId);
 
@@ -89,13 +132,20 @@ namespace DWMPHorde.Sync
         internal static void HostInGame(LanNetworkManager net, int playerId)
         {
             if (_inGame.Add(playerId))
-                HostTell(net, playerId, InGame, PlayerNames.Shown(playerId));
+                HostTell(net, playerId, _returning.Remove(playerId) ? Reconnected : InGame, PlayerNames.Shown(playerId));
         }
 
         /// <summary>Host: the player is gone; <paramref name="name"/> is read before its records are cleared.</summary>
         internal static void HostGone(LanNetworkManager net, int playerId, string name, bool lost)
         {
             _inGame.Remove(playerId);
+            _returning.Remove(playerId);
+            if (lost)
+            {
+                string reported = PlayerNames.ReportedName(playerId);
+                if (!string.IsNullOrEmpty(reported))
+                    _lost[reported] = UnityEngine.Time.realtimeSinceStartup;
+            }
             HostTell(net, playerId, lost ? Lost : Left, name);
         }
 
@@ -131,6 +181,7 @@ namespace DWMPHorde.Sync
                     case InGame: line = who + " в игре."; break;
                     case Left: line = who + " покинул игру."; break;
                     case Lost: line = who + " потерял соединение."; break;
+                    case Reconnected: line = who + " переподключился."; break;
                     default: return;
                 }
             }
@@ -142,6 +193,7 @@ namespace DWMPHorde.Sync
                     case InGame: line = name + " is in the game."; break;
                     case Left: line = name + " left the game."; break;
                     case Lost: line = name + " lost connection."; break;
+                    case Reconnected: line = name + " reconnected."; break;
                     default: return;
                 }
             }

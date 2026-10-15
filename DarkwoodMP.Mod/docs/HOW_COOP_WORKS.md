@@ -376,10 +376,22 @@ studio, the maw in the Doctor's dream) or arm a lock through a story flag (the w
 groom room). In a dream it waits for everyone still playing the dream. A player who walks
 back out the way they came counts as not through yet.
 
+### Reconnect after a lost link
+
+A client whose link to the host is lost (a timeout, the network gone; not the host
+closing it) first dials the same host again, for `ReconnectSeconds` (20 by default),
+keeping its world: the same soft reconnect a joiner makes after loading the world.
+The player is told on the HUD and in the chat when the link is lost, when it is back,
+and when the reconnect gives up. A host that goes quiet for 8 seconds is told before
+that (the transport only calls the link lost after 30). The host's chat says the player
+"lost connection", then "reconnected" when they are back in the game. Only when the
+window runs out does host migration (below) run, or the session ends. On Steam a host
+that left its lobby is gone: no waiting.
+
 ### Host migration
 
-If the host crashes or times out (`HostMigrationEnabled`, on by default), the
-survivors elect a new host and reconnect to it: the lowest player id among the
+If the host crashes or times out (`HostMigrationEnabled`, on by default) and the
+reconnect above gets nowhere, the survivors elect a new host and reconnect to it: the lowest player id among the
 players who are in the world (one still joining does not stand). Every survivor
 computes the same answer from the player roster the host shared while it was
 alive. If the elected player never takes the host, every survivor skips it and
@@ -424,6 +436,11 @@ reinstall), so a returning player is not taken for a new one.
   co-op the world keeps running for everyone. To make up for it, a player in the
   level-up menu, a dialogue (or trading) or the pause menu is invulnerable and
   ignored by creatures until they close it.
+- **The active-skills wheel (Q) does not slow time.** In single player it slows the
+  game to a fifth while open. That slowdown is one machine's clock: on the host it
+  slowed the world for everyone, on a client only that player. In co-op the wheel
+  opens at full speed; alone, it slows time as in single player (also when the first
+  player connects or the last one leaves while it is open).
 - **The pause menu (Esc) pauses only when everyone is in it.** Opening it does not
   stop the world for the others; the player in it is protected the same way as in a
   dialogue. When every player in the session has it open, the whole world pauses on

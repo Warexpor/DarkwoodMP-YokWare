@@ -184,6 +184,9 @@ namespace DWMPHorde.Networking.Steam
             return true;
         }
 
+        /// <summary>This Steam user is still listed in <paramref name="lobbyId"/>.</summary>
+        internal static bool IsLocalMemberOf(CSteamID lobbyId) => IsLocalInLobby(lobbyId);
+
         private static bool IsLocalInLobby(CSteamID lobbyId)
         {
             if (!lobbyId.IsValid())

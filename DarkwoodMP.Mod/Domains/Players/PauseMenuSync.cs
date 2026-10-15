@@ -64,9 +64,15 @@ namespace DWMPHorde.Sync
                 _hostWorldPaused = false;
                 _nextHostEval = 0f;
                 if (live)
+                {
                     LiftSoloPause();
+                    ActiveSkillsMenuNoSlowMoPatch.OnCoopStarted();
+                }
                 else
+                {
                     PauseAlone();
+                    ActiveSkillsMenuNoSlowMoPatch.OnAlone();
+                }
             }
             if (!live)
                 return;

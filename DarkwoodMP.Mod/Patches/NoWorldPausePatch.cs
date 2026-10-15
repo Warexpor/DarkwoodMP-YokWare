@@ -5,6 +5,7 @@ using DWMPHorde.Harmony;
 using DWMPHorde.Networking;
 using DWMPHorde.Sync;
 using HarmonyLib;
+using UnityEngine;
 
 namespace DWMPHorde.Patches
 {
@@ -222,5 +223,67 @@ namespace DWMPHorde.Patches
 
         // Finalizer (not Postfix): hide throw after BeginNoUnpause → stuck SuppressUnpause.
         private static void Finalizer() => PauseSuppression.EndNoUnpause();
+    }
+}
+namespace DWMPHorde.Patches
+{
+    /// <summary>
+    /// The active-skills wheel (Q) slows time to 0.2x while it is open (vanilla
+    /// <c>ActiveSkillsMenu.show</c> → <c>Core.setTimeScale(0.2f)</c>, back to 1 in <c>hide</c>). That
+    /// time scale is one machine's: on the host it slowed the whole world for everyone while every
+    /// client's own character ran at full speed; on a client it slowed only that player, in a world
+    /// that ran on at full speed. In co-op the wheel opens without the slowdown. A player with
+    /// nobody connected keeps it, and a wheel open across a connect or the last leave follows the
+    /// rule from then on (<see cref="Sync.PauseMenuSync"/>).
+    /// </summary>
+    [HarmonyPatch(typeof(ActiveSkillsMenu), "show")]
+    internal static class ActiveSkillsMenuNoSlowMoPatch
+    {
+        /// <summary>Vanilla's time scale while the wheel is open.</summary>
+        internal const float VanillaSlowMo = 0.2f;
+
+        /// <summary>The wheel's show is running in co-op: its slowdown is skipped.</summary>
+        internal static bool InCoopShow; // process-scoped: call-scoped, unwound by the Finalizer
+
+        private static void Prefix() => InCoopShow = PauseSuppression.MultiplayerActive;
+
+        // Finalizer (not Postfix): a throwing show must not leave every later slowdown blocked.
+        private static void Finalizer() => InCoopShow = false;
+
+        /// <summary>The wheel is open on this machine.</summary>
+        internal static bool WheelOpen()
+        {
+            try
+            {
+                UI ui = Singleton<UI>.Instance;
+                return ui != null && ui.activeSkillsMenu != null && ui.activeSkillsMenu.opened;
+            }
+            catch { return false; }
+        }
+
+        /// <summary>Another player connected while the wheel was open alone: time runs at full speed again.</summary>
+        internal static void OnCoopStarted()
+        {
+            if (!WheelOpen() || Core.Paused || Time.timeScale >= 1f || Time.timeScale <= 0f)
+                return;
+            Core.setTimeScale(1f);
+            Logging.ModLog.Event(Logging.LogCat.Session, "[SkillWheel] another player connected: the wheel's slowdown is lifted");
+        }
+
+        /// <summary>The last other player left while the wheel was open: it slows time as in single player.</summary>
+        internal static void OnAlone()
+        {
+            if (!WheelOpen() || Core.Paused || !Mathf.Approximately(Time.timeScale, 1f))
+                return;
+            Core.setTimeScale(VanillaSlowMo);
+            Logging.ModLog.Event(Logging.LogCat.Session, "[SkillWheel] alone with the wheel open: its slowdown applies");
+        }
+    }
+
+    [HarmonyPatch(typeof(Core), "setTimeScale")]
+    internal static class CoreSetTimeScaleSkillWheelPatch
+    {
+        private static bool Prefix(float _timeScale)
+            => !(ActiveSkillsMenuNoSlowMoPatch.InCoopShow && _timeScale < 1f);
     }
 }

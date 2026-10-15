@@ -3,12 +3,12 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.308**. The current Horde wire protocol is **77**. Every install in a session
+**0.8.310**. The current Horde wire protocol is **77**. Every install in a session
 needs the same DLL; the protocol is checked on join.
 
 Protocol history (newest first):
 
-- **77**, 0.8.308: `LocationTransport` gains `TargetKey`, the point inside the location to land on.
+- **77**, 0.8.308 to 0.8.310: `LocationTransport` gains `TargetKey`, the point inside the location to land on.
 - **76**, 0.8.306 to 0.8.307: new shared `MapPieceWire` (name, outside-location anchor, X/Z): `MapElementDiscovered` (69)
   is one piece, `MapStateSync` discoveries are pieces instead of bare names; `JournalItem` gains `Popup`.
 - **75**, 0.8.297 to 0.8.305: `CoHold` (170) gains mode 5, `ModePlayerPush`: a player walking into another
@@ -98,6 +98,45 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.310 — skill wheel runs at full speed in co-op
+
+- **The active-skills wheel (Q) no longer slows time in co-op.** Vanilla `ActiveSkillsMenu.show`
+  sets `Core.setTimeScale(0.2f)` (time and every playing sound's pitch) until `hide`. The mod
+  left it alone, so it ran on one machine only: the host opening it slowed the whole world
+  (creatures, physics, fire, the day clock) to a fifth for everyone while each client's own
+  character kept full speed; a client opening it slowed only itself, its actions and sounds,
+  in a world that ran on at full speed. Now the slowdown is skipped while anyone else is
+  connected. Alone it slows time as before; a wheel open when the first player connects goes
+  back to full speed, and one open when the last player leaves slows down.
+- Code: `ActiveSkillsMenuNoSlowMoPatch` + `CoreSetTimeScaleSkillWheelPatch`
+  (`Patches/NoWorldPausePatch.cs`), connect/alone hooks in `PauseMenuSync.Tick`. Docs: HOW_COOP_WORKS §5.
+
+## 0.8.309 — reconnect after a lost link
+
+- **A lost connection to the host is retried before anything else.** Before, a client whose
+  link timed out went straight to host migration: with one client it made itself a lone host
+  over a network hiccup, and the player saw nothing until that had happened. Now the client
+  dials the same host again for `ReconnectSeconds` (new, Network, default 20, 0 = off),
+  keeping its world (the phase-3 soft reconnect, LAN and Steam), and only then falls back to
+  migration or leaving. Only a lost link starts it (LiteNetLib Timeout / HostUnreachable /
+  NetworkUnreachable, Steam SNS problem), never the host closing the connection or a handoff.
+  Steam: still in the lobby, the client dials the host's SNS straight; dropped out of it, it
+  rejoins only if the lobby's owner is still that host. A host that left its lobby ends the
+  wait at once and migration runs.
+- **The player is told.** HUD and chat lines (EN/RU): "Lost connection to the host —
+  reconnecting…", "Reconnected to the host", "Could not reconnect to the host"; the status line
+  counts the seconds left. A host silent for 8 s (before the 30 s transport timeout calls the
+  link lost) shows "The host is not responding — waiting…", and "Connection to the host is
+  back" when it answers.
+- **Host and other players' chat** reads "X lost connection", then "X reconnected" when that
+  player is back in the game, instead of "is joining / is in the game" (`PeerNotice` kind 5,
+  same layout; protocol stays 77).
+- Code: `Networking/Services/LinkLossReconnect.cs` (window, dials, stall notice), hooks in
+  `OnPeerDisconnected`, `HandleSteamPeerDisconnected`, `OnClientLinkFailed`, the client
+  handshake and `OnSteamHostLeftLobby`; `TryBeginHostMigration` gains `afterReconnectWindow`.
+  The soft-reconnect tear is one shared `SoftTearForReconnect` (LAN, Steam lobby, Steam direct).
+  Docs: CONFIG, HOW_COOP_WORKS.
 
 ## 0.8.308 — the village shortcut, a way home when stuck, every map discovery shared
 

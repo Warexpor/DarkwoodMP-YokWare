@@ -149,6 +149,12 @@ namespace DWMPHorde.Networking.Steam
                 _owner.OnSteamLobbyFailed("no host");
                 return;
             }
+            if (ReconnectExpectedHost.IsValid() && _hostSteamId != ReconnectExpectedHost)
+            {
+                ModLog.Warn(LogCat.Network, "Steam reconnect: the lobby's owner is no longer the host — it left");
+                _owner.OnLinkLossHostGone("host left the lobby");
+                return;
+            }
 
             SteamNetworkingIdentity identity = default;
             identity.SetSteamID(_hostSteamId);

@@ -102,6 +102,7 @@ namespace DWMPHorde.Networking
             _softReconnectAddress = null;
             _softReconnectPort = 0;
             _softReconnectLobby = 0;
+            ResetLinkLossState();
             _isPromotedHost = false;
             _migrationReservedIds.Clear();
             _migrationSettleAt = 0f;
@@ -190,6 +191,8 @@ namespace DWMPHorde.Networking
         /// </summary>
         private void OnClientLinkFailed(string reason)
         {
+            if (OnLinkLossDialFailed(reason))
+                return;
             if (_role == NetworkRole.Client && _softReconnectTries > 0
                 && _softReconnectTries < SoftReconnectMaxTries)
             {
