@@ -3,7 +3,7 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.309**. The current Horde wire protocol is **77**. Every install in a session
+**0.8.310**. The current Horde wire protocol is **77**. Every install in a session
 needs the same DLL; the protocol is checked on join.
 
 Protocol history (newest first):
@@ -98,6 +98,19 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.310 — skill wheel runs at full speed in co-op
+
+- **The active-skills wheel (Q) no longer slows time in co-op.** Vanilla `ActiveSkillsMenu.show`
+  sets `Core.setTimeScale(0.2f)` (time and every playing sound's pitch) until `hide`. The mod
+  left it alone, so it ran on one machine only: the host opening it slowed the whole world
+  (creatures, physics, fire, the day clock) to a fifth for everyone while each client's own
+  character kept full speed; a client opening it slowed only itself, its actions and sounds,
+  in a world that ran on at full speed. Now the slowdown is skipped while anyone else is
+  connected. Alone it slows time as before; a wheel open when the first player connects goes
+  back to full speed, and one open when the last player leaves slows down.
+- Code: `ActiveSkillsMenuNoSlowMoPatch` + `CoreSetTimeScaleSkillWheelPatch`
+  (`Patches/NoWorldPausePatch.cs`), connect/alone hooks in `PauseMenuSync.Tick`. Docs: HOW_COOP_WORKS §5.
 
 ## 0.8.309 — reconnect after a lost link
 
