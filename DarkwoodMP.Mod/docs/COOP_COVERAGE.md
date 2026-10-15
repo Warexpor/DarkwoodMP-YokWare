@@ -39,9 +39,9 @@ state without changing existing players' state.
 
 | Domain | Main code paths | Current status |
 |---|---|---|
-| Session and handshake | `LanNetworkManager`, `ConnectionBackend`, `HostMigration` | Code covered; runtime pending |
+| Session and handshake | `LanNetworkManager`, `ConnectionBackend`, `HostMigration`, `LinkLossReconnect` (a client that lost the host dials it again for `ReconnectSeconds`, keeping its world, before migration; HUD/chat notices) | Code covered; runtime pending |
 | World share and saves | `WorldSaveShareService`, `ClientStateBackup` (also written by a client on leave / link loss), `SaveSyncPatches`, `CampaignFiles` (a manual save slot keeps every player's character and the co-op records of its own save) | Code covered; runtime pending |
-| Clock and pause | `ClientTimeAuthorityPatches`, `SleepSyncPatches`, `TimeSync`, `WeatherSync` (Rain/Lightning/fog host→client) | Code covered; runtime pending |
+| Clock and pause | `ClientTimeAuthorityPatches`, `SleepSyncPatches`, `TimeSync`, `WeatherSync` (Rain/Lightning/fog host→client), `NoWorldPausePatch` (menus do not pause; the skill wheel's 0.2x slowdown is skipped in co-op) | Code covered; runtime pending |
 | Flags and reset | `FlagSyncPatches` (story sync; `player_in*` local-only ephemeral), `NetworkApplyGuard`, `NetworkResetRegistry` | Code covered; runtime pending |
 | Player state | `PlayerStateMessage`, player proxy and animation paths; the stand-in plays positions back on the sender's beat (`RemotePoseTimeline`, unit tested); players push each other through the pushed player's own game (`PeerPush`, `CoHold` mode 5) | Code covered; runtime pending |
 | Prologue and new characters | `PersonalPrologue` (each player's own prologue, day 1 held while anyone is in it), `PrologueFreshCharacterOvenPatch` (a new character's home) | Code covered; runtime pending |
@@ -196,6 +196,8 @@ and join a different host; host migration followed by a reconnect.
   Host `InSightOfPlayer` sight considers any session avatar
   (`HostPlayerIdentity.AnyInSight`). Dual-box runtime pending.
 - Dream objects and dream cleanup are scoped to the active dream location.
+- A lost host link is first retried against the same host (`ReconnectSeconds`,
+  default 20); host migration runs only after that window.
 - Host migration elects the lowest positive surviving `PlayerId`; a migration
   during a dream carries the dream over (done in code, not playtested; see the
   deferred list below).
