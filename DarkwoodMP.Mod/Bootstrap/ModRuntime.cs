@@ -264,6 +264,7 @@ namespace DWMPHorde
             NetworkResetRegistry.Register(Patches.PartyHomeMoves.Reset);
             NetworkResetRegistry.Register(CampaignFiles.Reset);
             NetworkResetRegistry.Register(QuestItemHandoff.Reset);
+            NetworkResetRegistry.Register(Networking.CursorActionNetHandlers.ResetPendingTarget);
             NetworkResetRegistry.Register(DialogHandInArbiter.Reset);
             NetworkResetRegistry.Register(DialogMirror.Reset);
             NetworkResetRegistry.Register(DWMPHorde.Patches.DialogPeerTrip.Reset);

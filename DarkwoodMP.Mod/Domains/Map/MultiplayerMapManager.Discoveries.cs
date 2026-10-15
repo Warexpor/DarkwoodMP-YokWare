@@ -265,6 +265,7 @@ namespace DWMPHorde.Sync
                     return false;
             }
 
+            NoteKnown(el);
             if (el.isOnMap)
                 return true;
 

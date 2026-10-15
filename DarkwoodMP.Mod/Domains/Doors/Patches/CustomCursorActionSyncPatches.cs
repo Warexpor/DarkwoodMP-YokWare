@@ -113,9 +113,16 @@ namespace DWMPHorde.Patches
         /// </summary>
         internal static bool TryResolveLocationEnter(CustomCursorAction action, int actorPlayerId,
             out string locationName, out Transform source)
+            => TryResolveLocationEnter(action, actorPlayerId, out locationName, out source, out _);
+
+        /// <param name="targetKey">For a transportPlayerToObject step: the UniqueObjects key of the
+        /// point inside the location it lands on (the village shortcut's teleport point), else null.</param>
+        internal static bool TryResolveLocationEnter(CustomCursorAction action, int actorPlayerId,
+            out string locationName, out Transform source, out string targetKey)
         {
             locationName = null;
             source = null;
+            targetKey = null;
             if (action == null) return false;
 
             var geList = new List<GameEvents>(8);
@@ -150,7 +157,7 @@ namespace DWMPHorde.Patches
                     if (evt.type != GameEvent.Type.transportPlayerToObject || evt.activeModifier)
                         continue;
 
-                    GameObject target = ResolveFirstTransportTarget(evt);
+                    GameObject target = ResolveFirstTransportTarget(evt, out string key);
                     if (target == null) continue;
 
                     Location destLoc = Location.getAtPos(target.transform.position);
@@ -161,7 +168,10 @@ namespace DWMPHorde.Patches
 
                     locationName = Core.getTrueLocationName(destLoc.name);
                     if (!string.IsNullOrEmpty(locationName))
+                    {
+                        targetKey = key;
                         return true;
+                    }
                 }
             }
             return false;
@@ -240,8 +250,9 @@ namespace DWMPHorde.Patches
             return true;
         }
 
-        private static GameObject ResolveFirstTransportTarget(GameEvent evt)
+        private static GameObject ResolveFirstTransportTarget(GameEvent evt, out string uniqueKey)
         {
+            uniqueKey = null;
             if (evt.targetGameObjects != null)
             {
                 for (int i = 0; i < evt.targetGameObjects.Count; i++)
@@ -259,7 +270,11 @@ namespace DWMPHorde.Patches
                     string key = evt.targetUniqueObjects[i];
                     if (string.IsNullOrEmpty(key)) continue;
                     GameObject uo = Singleton<UniqueObjects>.Instance.getObject(key);
-                    if (uo != null) return uo;
+                    if (uo != null)
+                    {
+                        uniqueKey = key;
+                        return uo;
+                    }
                 }
             }
 

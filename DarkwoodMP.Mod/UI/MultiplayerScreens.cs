@@ -209,6 +209,8 @@ namespace DWMPHorde
                     items.Add(Entry("Send the world again", ResendWorld));
                 if (role == NetworkRole.Client && CanRestoreSelf(out _))
                     items.Add(Entry("Restore my character", ConfirmRestoreSelf));
+                if (Sync.StuckRecovery.CanUse())
+                    items.Add(Entry("Back to my hideout", ConfirmGoHome));
             }
             items.Add(Entry("Settings", () => Vm.Open(_settings)));
             // What a host decides for everyone: a client in a game plays by the host's choice.
@@ -811,6 +813,20 @@ namespace DWMPHorde
             }
             data = _peekBackup;
             return data != null;
+        }
+
+        /// <summary>Stuck in a place with no way out (an empty location copy): back to the hideout's bed.</summary>
+        private static void ConfirmGoHome()
+        {
+            _root.Confirm(Loc.T("Stuck? Go back to your hideout's bed?"), yes =>
+            {
+                if (!yes)
+                    return;
+                if (Sync.StuckRecovery.GoHome())
+                    Vm.CloseAll(restoreMenu: true);
+                else
+                    MainMenuMultiplayerInject.Flash("Cannot go home right now");
+            });
         }
 
         private static void ConfirmRestoreSelf()

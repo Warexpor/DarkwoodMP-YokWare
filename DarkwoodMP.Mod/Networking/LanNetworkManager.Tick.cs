@@ -71,6 +71,7 @@ namespace DWMPHorde.Networking
             LocationEnterExitHandlers?.TryFlushPendingForceAnnounce();
             JournalHandlers.TryFlushPendingJournal();
             Sync.MultiplayerMapManager.TryFlushPendingDiscoveries();
+            Sync.MultiplayerMapManager.ScanForDiscoveries();
             Sync.MapPinBoard.Tick();
             BulkSyncHandlers?.TryFlushPendingHideoutState();
             ContainerLootHandlers?.TryFlushPendingHideoutUpgrades();

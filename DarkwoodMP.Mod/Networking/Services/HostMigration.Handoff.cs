@@ -122,6 +122,8 @@ namespace DWMPHorde.Networking
         /// </summary>
         private void TryBeginHostMigration(string reason)
         {
+            if (!_suppressHostMigration && !_migrationInProgress && _session.Link.HandshakeComplete)
+                SaveHandlers?.PersistOnLinkLoss("host lost: " + reason);
             if (_suppressHostMigration)
             {
                 StopNetwork();
