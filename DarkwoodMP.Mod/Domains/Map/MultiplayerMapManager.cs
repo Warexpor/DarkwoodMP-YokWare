@@ -36,17 +36,16 @@ namespace DWMPHorde.Sync
 
             if (!NetGuard.Connected(out var net)) return;
 
-            Vector3 at = element.transform.position;
-            var msg = new MapElementDiscoveredMessage { ElementName = element.elementName, HasPos = true, PosX = at.x, PosZ = at.z };
+            var msg = new MapElementDiscoveredMessage { Piece = Describe(element) };
             net.Broadcast(NetMessageType.MapElementDiscovered, w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);
-            ModRuntime.LegacyInfo($"[MapDiscovery] discovered '{element.elementName}' — broadcast to remote");
+            ModRuntime.LegacyInfo($"[MapDiscovery] discovered {PieceText(msg.Piece)} — broadcast to remote");
         }
 
-        public static void OnRemoteElementDiscovered(string elementName, Vector3? at = null)
+        public static void OnRemoteElementDiscovered(MapPieceWire piece)
         {
-            if (string.IsNullOrEmpty(elementName)) return;
-            if (!TryApplyRemoteDiscovery(elementName, at))
-                QueuePendingDiscovery(elementName, at);
+            if (string.IsNullOrEmpty(piece.Name)) return;
+            if (!TryApplyRemoteDiscovery(piece))
+                QueuePendingDiscovery(piece);
         }
     }
 

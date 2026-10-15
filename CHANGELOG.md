@@ -3,12 +3,14 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.304**. The current Horde wire protocol is **75**. Every install in a session
+**0.8.306**. The current Horde wire protocol is **76**. Every install in a session
 needs the same DLL; the protocol is checked on join.
 
 Protocol history (newest first):
 
-- **75**, 0.8.297 to 0.8.304: `CoHold` (170) gains mode 5, `ModePlayerPush`: a player walking into another
+- **76**, 0.8.306: new shared `MapPieceWire` (name, outside-location anchor, X/Z): `MapElementDiscovered` (69)
+  is one piece, `MapStateSync` discoveries are pieces instead of bare names; `JournalItem` gains `Popup`.
+- **75**, 0.8.297 to 0.8.305: `CoHold` (170) gains mode 5, `ModePlayerPush`: a player walking into another
   player, sent to the pushed player.
 - **74**, 0.8.294 to 0.8.296: `PlayerEffectSync` with `MovedHome` carries the home it left (`FromX/Y/Z`);
   new `PartyHomeMoves` (178), host to a joiner: the party's home moves kept with the world.
@@ -95,6 +97,38 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.306 — the map shows the pieces players really found; shared discoveries pop up
+
+- **A joiner's map showed trail pieces nobody had walked, even inside other locations.**
+  Map pieces such as roads are named after their sprite, so dozens share one name. The
+  late-join map state (`MapStateSync`) sent the host's revealed pieces by name only, and the
+  joiner revealed whichever piece of that name it had first, often in another location. Live
+  discoveries sent a world position but took the nearest piece of that name at any distance,
+  and a location's pad slot is reused for other locations, so a piece inside one could land on
+  another's. Every discovery now carries where the piece stands: a world position, or its
+  offset inside its outside location (`MapPieceWire`, `MultiplayerMapManager.Describe`). A piece
+  is shown only when a piece of that name stands within 8 units of that spot; otherwise it
+  waits for that location to load (up to the existing 5 minutes).
+- **Other players got a found location silently.** A location one player discovered reached the
+  others' journal and map, but not vanilla's "discovered" popup (it was held back on purpose).
+  Now the others see the same popup, only when the finder saw one (vanilla `discoverMe`'s
+  `showPopup` / `noDiscoverPopup` rule), and not during a join's quiet catch-up.
+- **Dragging a physical object logged one line per network packet** (30 a second) on every
+  watcher with verbose logging. The `[DragSync]` pose line now logs once every 2 s per object
+  with the number of poses since.
+- Protocol 76: every install needs this DLL.
+
+## 0.8.305 — a joiner's chapter title no longer overlaps their stand-up
+
+- **A new player joining a world whose host skipped the prologue stood up under the chapter
+  title.** The joiner's load already ran vanilla's wake-up (the `Sleep` stand-up clip), and the
+  mod's chapter title (`PersonalPrologue.ShowChapterTitle`) came over it with no wait, so by
+  the time the black lifted the player was already on their feet. Now it follows vanilla's new
+  game timing (`WorldGenerator.onCreatedAllChunks` then `activatePlayer`): the load's stand-up
+  is cut and input locked behind the black, the title comes 2.5 s in, the stand-up starts
+  7 s after the title (once it has faded), and the black lifts 1.5 s after that over 2 s. The
+  others still see the stand-up in step (`LocalGetUpHold`). Chapter 2 joiners get the same.
 
 ## 0.8.304 — walking into a lit hideout makes it your home
 

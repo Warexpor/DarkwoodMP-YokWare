@@ -522,8 +522,15 @@ namespace DWMPHorde.Sync
         /// The chapter's title over a black screen, as vanilla world generation shows it to a new
         /// game that skips the prologue (the host's own new game). A joiner loads a save instead,
         /// and vanilla shows it only to a game that is not loaded, so a new character joining a
-        /// world whose host skipped the prologue (or one in chapter 2) never saw it. The black
-        /// lifts as the title fades, not after vanilla's longer wait: the world here already runs.
+        /// world whose host skipped the prologue (or one in chapter 2) never saw it.
+        /// <para>
+        /// Vanilla's timing (<c>WorldGenerator.onCreatedAllChunks</c>, then <c>activatePlayer</c>):
+        /// the title 2.5 s into the black, the stand-up 7 s after the title (it has faded by then),
+        /// the black lifting 1.5 s after that, over 2 s. The joiner's load already ran its own
+        /// stand-up, under the title: it is cut, the player kept still behind the black, and the
+        /// stand-up starts again on vanilla's beat (<see cref="DWMPHorde.Players.LocalGetUpHold"/>
+        /// still holds it for the others' stand-ins).
+        /// </para>
         /// </summary>
         private static void ShowChapterTitle(WorldGenerator wg)
         {
@@ -535,15 +542,25 @@ namespace DWMPHorde.Sync
             DOTween.Kill(ui.blackScreen);
             ui.blackScreen.SetActive(true);
             ui.blackScreen.GetComponent<tk2dSprite>().color = new Color(0f, 0f, 0f, 1f);
+            Player p = Player.Instance;
+            if (p != null && p.endingSleep)
+                p.onEndSleep();
+            Core.forbidInputs = true;
             c.Invoke(delegate
             {
                 if (chapter == 1)
                     ui.showChapter1Text();
                 else
                     ui.showChapter2Text();
-                // showChapterNText fades the title out after 4 s; the black lifts with it.
-                c.Invoke(delegate { ui.tweenBlackScreen(new Color(0f, 0f, 0f, 0f), 2f); }, 4f, timeScaleDependent: false);
-            }, 1f, timeScaleDependent: false);
+                c.Invoke(delegate
+                {
+                    Player pl = Player.Instance;
+                    Core.forbidInputs = false;
+                    if (pl != null && pl.alive)
+                        pl.lieDown(); // the Sleep clip from its start; its end runs onEndSleep
+                    c.Invoke(delegate { ui.tweenBlackScreen(new Color(0f, 0f, 0f, 0f), 2f); }, 1.5f, timeScaleDependent: false);
+                }, 7f, timeScaleDependent: false);
+            }, 2.5f, timeScaleDependent: false);
             ModLog.Event(LogCat.Session, "[Prologue] chapter " + chapter + " title for the new character");
         }
 

@@ -42,9 +42,8 @@ namespace DWMPHorde.Networking
         /// </summary>
         internal void HandleMapElementDiscovered(MapElementDiscoveredMessage msg)
         {
-            if (string.IsNullOrEmpty(msg.ElementName)) return;
-            MultiplayerMapManager.OnRemoteElementDiscovered(msg.ElementName,
-                msg.HasPos ? new Vector3(msg.PosX, 0f, msg.PosZ) : (Vector3?)null);
+            if (string.IsNullOrEmpty(msg.Piece.Name)) return;
+            MultiplayerMapManager.OnRemoteElementDiscovered(msg.Piece);
         }
     }
 }

@@ -937,8 +937,8 @@ party events.
   connected. A player new to the world plays it after the world download, offline,
   then reconnects. A player who joins after the host skipped the prologue (or in a
   later chapter) starts fresh in the hideout with that chapter's starting pack, after
-  the chapter's title over a black screen, as a new game shows it. A returning player
-  never replays it.
+  the chapter's title over a black screen, as a new game shows it, and stands up only
+  once the title has faded (vanilla's timing). A returning player never replays it.
 - **Nothing in a prologue reaches the others,** apart from journal pages it wrote,
   which go to the shared journal afterwards. No saves happen during a prologue.
 - **Day 1 waits** for everyone's prologue (at most 45 minutes).
@@ -963,8 +963,12 @@ party events.
   elsewhere is not frozen by someone else's scene.
 - One-shot moves and entry events are delivered to each player once.
 - The player who walks into a new location gets its popup, sound and journal page;
-  the others get the journal page and the map piece without the popup. The hideout
-  flags and the biome name follow each player's own position.
+  the others get the journal page, the map piece and the same "discovered" popup
+  (only when the finder got one). The hideout flags and the biome name follow each
+  player's own position.
+- The map is shared: a piece one player reveals (a road, a location) shows on every
+  map. A piece is matched by its name and where it stands (inside a location, where
+  it stands in that location), never by name alone, since many road pieces share one.
 - Rain keeps its schedule while a player is indoors.
 
 ---

@@ -843,8 +843,10 @@ namespace DWMPHorde.Networking
         public string Type;
         /// <summary>The sender's page belongs to a dream (vanilla <c>inDream</c>): it goes when that dream ends.</summary>
         public bool InDream;
-        public void Serialize(NetWriter w) { w.Put((byte)Kind); w.Put(Type ?? ""); w.Put(InDream); }
-        public static JournalItemMessage Deserialize(NetReader r) => new JournalItemMessage { Kind = (JournalItemKind)r.GetByte(), Type = r.GetString(), InDream = r.GetBool() };
+        /// <summary>A <see cref="JournalItemKind.Location"/>: the sender's discovery showed vanilla's "discovered" popup, so the others show it too. Protocol 76.</summary>
+        public bool Popup;
+        public void Serialize(NetWriter w) { w.Put((byte)Kind); w.Put(Type ?? ""); w.Put(InDream); w.Put(Popup); }
+        public static JournalItemMessage Deserialize(NetReader r) => new JournalItemMessage { Kind = (JournalItemKind)r.GetByte(), Type = r.GetString(), InDream = r.GetBool(), Popup = r.GetBool() };
     }
 
     public struct SaveSyncMessage
@@ -1343,34 +1345,28 @@ namespace DWMPHorde.Networking
         };
     }
 
+    /// <summary>
+    /// Which map piece, among the many sharing its name (a road piece is named after its sprite).
+    /// <see cref="Anchor"/> empty: <see cref="X"/>/<see cref="Z"/> are a world position. Otherwise
+    /// they are the offset from that spawned outside location (OutsideLocations.spawnedLocations),
+    /// whose pad slot is reused for other locations. Protocol 76.
+    /// </summary>
+    public struct MapPieceWire
+    {
+        public string Name;
+        public string Anchor;
+        public float X, Z;
+
+        public void Serialize(NetWriter w) { w.Put(Name ?? ""); w.Put(Anchor ?? ""); w.Put(X); w.Put(Z); }
+        public static MapPieceWire Deserialize(NetReader r) => new MapPieceWire { Name = r.GetString(), Anchor = r.GetString(), X = r.GetFloat(), Z = r.GetFloat() };
+    }
+
     public struct MapElementDiscoveredMessage
     {
-        public string ElementName;
-        /// <summary>Where the element stands: names repeat across the map, the first match by name was not always it.</summary>
-        public bool HasPos;
-        public float PosX, PosZ;
+        public MapPieceWire Piece;
 
-        public void Serialize(NetWriter w)
-        {
-            w.Put(ElementName ?? "");
-            w.Put(HasPos);
-            if (HasPos)
-            {
-                w.Put(PosX);
-                w.Put(PosZ);
-            }
-        }
-
-        public static MapElementDiscoveredMessage Deserialize(NetReader r)
-        {
-            var m = new MapElementDiscoveredMessage { ElementName = r.GetString(), HasPos = r.GetBool() };
-            if (m.HasPos)
-            {
-                m.PosX = r.GetFloat();
-                m.PosZ = r.GetFloat();
-            }
-            return m;
-        }
+        public void Serialize(NetWriter w) => Piece.Serialize(w);
+        public static MapElementDiscoveredMessage Deserialize(NetReader r) => new MapElementDiscoveredMessage { Piece = MapPieceWire.Deserialize(r) };
     }
 
     public struct JournalBulkSyncMessage
@@ -1642,7 +1638,8 @@ namespace DWMPHorde.Networking
         /// <summary>The whole party map board (replaces the joiner's).</summary>
         public int PinCount, DiscoveryCount;
         public MapPinWire[] Pins;
-        public string[] DiscoveryElementNames;
+        /// <summary>Every piece the host's map shows, with where it stands (names repeat). Protocol 76.</summary>
+        public MapPieceWire[] Discoveries;
 
         public void Serialize(NetWriter w)
         {
@@ -1651,7 +1648,7 @@ namespace DWMPHorde.Networking
                 (Pins != null && i < Pins.Length ? Pins[i] : default(MapPinWire)).Serialize(w);
             w.Put(DiscoveryCount);
             for (int i = 0; i < DiscoveryCount; i++)
-                w.Put(DiscoveryElementNames?[i] ?? "");
+                (Discoveries != null && i < Discoveries.Length ? Discoveries[i] : default(MapPieceWire)).Serialize(w);
         }
 
         public static MapStateSyncMessage Deserialize(NetReader r)
@@ -1663,9 +1660,9 @@ namespace DWMPHorde.Networking
                 msg.Pins[i] = MapPinWire.Deserialize(r);
             msg.DiscoveryCount = r.GetInt();
             if (msg.DiscoveryCount < 0 || msg.DiscoveryCount > 4096) msg.DiscoveryCount = 0;
-            msg.DiscoveryElementNames = new string[msg.DiscoveryCount];
+            msg.Discoveries = new MapPieceWire[msg.DiscoveryCount];
             for (int i = 0; i < msg.DiscoveryCount; i++)
-                msg.DiscoveryElementNames[i] = r.GetString();
+                msg.Discoveries[i] = MapPieceWire.Deserialize(r);
             return msg;
         }
     }
