@@ -18,7 +18,6 @@ namespace DWMPHorde.Networking
         private ConnectionBackend _backend = ConnectionBackend.None;
         /// <summary>Steam SNS peers by player id (created in Awake).</summary>
         private SteamPeerTable _steamPeers;
-        private readonly List<int> _steamSoftReconnectProxyIds = new List<int>(8);
 
         private static bool HostRequiresPassword()
             => !string.IsNullOrEmpty(Config.ModConfig.HostPassword?.Value?.Trim());
@@ -218,21 +217,7 @@ namespace DWMPHorde.Networking
             if (softReconnect)
             {
                 ModLog.Event(LogCat.Network, "ConnectSteam soft reconnect (keep world)");
-                StopTransportOnly("steam phase3 soft reconnect");
-                _steamSoftReconnectProxyIds.Clear();
-                foreach (int id in _remoteProxies.Keys)
-                    _steamSoftReconnectProxyIds.Add(id);
-                for (int i = 0; i < _steamSoftReconnectProxyIds.Count; i++)
-                    WorldProxyLifecycleHandlers.DestroyRemoteProxy(_steamSoftReconnectProxyIds[i]);
-                _remoteProxies.Clear();
-                _remotePlayers.Clear();
-                LocationEnterExitHandlers?.ClearMembershipForSoftReconnect();
-                PlayerLightFxApplyHandlers?.ClearPendingPlayerLights();
-                PlayerFXHandlers?.ClearAllPendingAnimLibraries();
-                _session.Link = new LinkState();
-                _session.HostWasShareableForWaitingClients = false;
-                _session.HostWorldReadyEmitted = false;
-                _session.ClientHostWorldReady = false;
+                SoftTearForReconnect("steam phase3 soft reconnect", leaveSteamLobby: true);
                 NoteSoftReconnectAttempt(null, 0, lobbyId.m_SteamID);
             }
             else
@@ -380,6 +365,11 @@ namespace DWMPHorde.Networking
                 return;
             if (_migrationInProgress)
                 return;
+            if (IsReconnectingToHost)
+            {
+                OnLinkLossHostGone("host left the lobby");
+                return;
+            }
             ModLog.Event(LogCat.Network, "Steam host left lobby — attempting host grant");
             TryBeginHostMigration("steam host left lobby");
         }

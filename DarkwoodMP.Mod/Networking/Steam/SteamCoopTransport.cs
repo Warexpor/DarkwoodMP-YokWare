@@ -62,6 +62,11 @@ namespace DWMPHorde.Networking.Steam
 
         private CSteamID _lobbyId = CSteamID.Nil;
         private CSteamID _hostSteamId = CSteamID.Nil;
+        /// <summary>
+        /// Client reconnecting after a lost link: the host it had. A lobby whose owner is someone else
+        /// now was left by that host, and joining it would dial a player who hosts nothing.
+        /// </summary>
+        internal CSteamID ReconnectExpectedHost = CSteamID.Nil;
         private HSteamListenSocket _listenSocket = HSteamListenSocket.Invalid;
         private HSteamNetPollGroup _pollGroup = HSteamNetPollGroup.Invalid;
         private HSteamNetConnection _serverConn = HSteamNetConnection.Invalid;

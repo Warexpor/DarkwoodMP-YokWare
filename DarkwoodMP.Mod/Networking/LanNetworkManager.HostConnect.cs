@@ -85,19 +85,7 @@ namespace DWMPHorde.Networking
             {
                 ModLog.Event(LogCat.Network,
                     "ConnectToHost soft reconnect (keep world / entity state) → " + address + ":" + port);
-                StopTransportOnly("phase3 soft reconnect");
-                foreach (int id in new List<int>(_remoteProxies.Keys))
-                    WorldProxyLifecycleHandlers.DestroyRemoteProxy(id);
-                _remoteProxies.Clear();
-                _remotePlayers.Clear();
-                // Proxies gone — drop sticky membership so host LocationEnter re-places.
-                LocationEnterExitHandlers?.ClearMembershipForSoftReconnect();
-                PlayerLightFxApplyHandlers?.ClearPendingPlayerLights();
-                PlayerFXHandlers?.ClearAllPendingAnimLibraries();
-                _session.Link = new LinkState();
-                _session.HostWasShareableForWaitingClients = false;
-                _session.HostWorldReadyEmitted = false;
-                _session.ClientHostWorldReady = false;
+                SoftTearForReconnect("phase3 soft reconnect", leaveSteamLobby: true);
                 NoteSoftReconnectAttempt(address, port, 0);
             }
             else
@@ -140,6 +128,8 @@ namespace DWMPHorde.Networking
             NetworkRole wasRole = _role;
             int wasLocalId = _localPlayerId;
             int wasPeers = PeerCount;
+            // A reconnect window ended by a full stop (a refused lobby join, the player leaving).
+            bool wasReconnecting = IsReconnectingToHost;
 
             NetworkResetRegistry.ResetAll();
             ResetCombatSessionState();
@@ -195,6 +185,8 @@ namespace DWMPHorde.Networking
             {
                 ModLog.BannerSessionStop(wasRole.ToString(), wasLocalId, wasPeers);
             }
+            if (wasReconnecting)
+                ShowLinkNotice("Could not reconnect to the host");
 
             _role = NetworkRole.Offline;
             StatusText = "Offline";

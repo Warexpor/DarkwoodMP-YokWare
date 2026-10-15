@@ -120,7 +120,11 @@ namespace DWMPHorde.Networking
         /// <summary>
         /// Client: host peer dropped or handoff. Elect + promote or reconnect (n+).
         /// </summary>
-        private void TryBeginHostMigration(string reason)
+        /// <param name="afterReconnectWindow">
+        /// The reconnect window ran out: the link was already torn for its dials (no handshake left
+        /// to check) and the character was kept when the link was lost.
+        /// </param>
+        private void TryBeginHostMigration(string reason, bool afterReconnectWindow = false)
         {
             if (!_suppressHostMigration && !_migrationInProgress && _session.Link.HandshakeComplete)
                 SaveHandlers?.PersistOnLinkLoss("host lost: " + reason);
@@ -136,7 +140,7 @@ namespace DWMPHorde.Networking
 
             // A link that never completed its handshake is a failed connect, not a host loss:
             // electing here would promote a client that was never part of the session.
-            if (!_session.Link.HandshakeComplete)
+            if (!_session.Link.HandshakeComplete && !afterReconnectWindow)
             {
                 OnClientLinkFailed(reason);
                 return;

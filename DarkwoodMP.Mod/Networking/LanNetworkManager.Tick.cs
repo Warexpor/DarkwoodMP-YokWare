@@ -117,6 +117,7 @@ namespace DWMPHorde.Networking
             TickHostMigrationRetry();
             TickMigrationSettle();
             TickSoftReconnectRetry();
+            TickLinkLossReconnect();
             TickSteamUnauthTimeout();
             if (perf) ClientPerfProbe.EndUpdateSegment();
 

@@ -224,6 +224,9 @@ namespace DWMPHorde.Networking
             {
                 if (_suppressHostMigration)
                     return;
+                // Lost (not closed by the host): dial the same host again first.
+                if (lost && TryBeginLinkLossReconnect(reason, null))
+                    return;
                 // Client lost host SNS; use the same grant path as a LAN peer drop.
                 TryBeginHostMigration("steam host SNS lost");
             }

@@ -53,6 +53,7 @@ changes are kept without asking.
 | `AllowJoinDuringDream` | `true` | A player joining (or rejoining after a drop) while a dream runs is pulled onto its pad. When false, joins are rejected until the dream ends. Joins during a dream's entry (movie, prepare) are always rejected. |
 | `AllowJoinDuringDreamDefaultApplied` | `false` | Internal. Set once when `AllowJoinDuringDream` is switched to its new default (true) in a cfg written while the default was false; after that the player's own value is kept. |
 | `HostMigrationEnabled` | `true` | When the host crashes or times out, the survivors elect the lowest remaining player id as the new host (LAN and Steam) and reconnect to it. |
+| `ReconnectSeconds` | `60` | Client: when the link to the host is lost (timeout, network gone; not when the host closes it), the client keeps dialing the same host for this many seconds (0..900), keeping its world, and is told on the HUD and in the chat. Only after that does host migration (or leaving) run. A Steam host that left its lobby is gone at once. 0 = no reconnect, straight to migration as before. |
 
 ## Saves
 
