@@ -85,6 +85,9 @@ namespace DWMPHorde.Networking
                 // Local loading screen done — retry remote pads deferred while it was up.
                 TryFlushDeferredCreatesWhileLocalLoading();
 
+                if (_net.Role == NetworkRole.Client)
+                    CursorActionNetHandlers.OnLocalSettled(locationName);
+
                 ModRuntime.LegacyInfo(
                     $"[LocationSync] local settled in '{locationName}' — proxies resynced, LocationEnter forced");
             }

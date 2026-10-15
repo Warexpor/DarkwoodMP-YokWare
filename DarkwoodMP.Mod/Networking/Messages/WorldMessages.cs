@@ -1477,18 +1477,22 @@ namespace DWMPHorde.Networking
     {
         public string LocationName;
         public bool FromWorld;
+        /// <summary>UniqueObjects key of the point inside the location to land on (a shortcut's exit); empty = the entrance.</summary>
+        public string TargetKey;
 
         public void Serialize(NetWriter w)
         {
             w.Put(LocationName ?? "");
             w.Put(FromWorld);
+            w.Put(TargetKey ?? "");
         }
 
         public static LocationTransportMessage Deserialize(NetReader r) =>
             new LocationTransportMessage
             {
                 LocationName = r.GetString(),
-                FromWorld = r.GetBool()
+                FromWorld = r.GetBool(),
+                TargetKey = r.GetString()
             };
     }
 

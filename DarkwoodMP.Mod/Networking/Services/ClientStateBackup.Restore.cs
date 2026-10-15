@@ -451,7 +451,19 @@ namespace DWMPHorde.Networking
             try
             {
                 player.teleportTo(pos, Quaternion.Euler(90f, 0f, 0f));
-                if (Singleton<WorldGrid>.Instance != null)
+                // The host's save put this player where the host stood: inside an outside location
+                // (the village) when the host saved there. The character's own place is in the
+                // world, so it leaves that location as vanilla's return does (every pad left, the
+                // World grid back). Moved without it, the body stood in the world while the
+                // village's grid stayed loaded: nothing around it, and every second it told the
+                // others it was in the village.
+                OutsideLocations ol = Singleton<OutsideLocations>.Instance;
+                if (ol != null && ol.playerInOutsideLocation)
+                {
+                    ModRuntime.LegacyInfo($"[ClientBackup] leaving '{ol.currentLocationName}' the save put this player in");
+                    ol.returningOnTeleportedPlayer();
+                }
+                else if (Singleton<WorldGrid>.Instance != null)
                     Singleton<WorldGrid>.Instance.refreshPosition(pos, instant: true, force: true);
 
                 ModRuntime.LegacyInfo(

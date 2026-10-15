@@ -3,11 +3,12 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.307**. The current Horde wire protocol is **76**. Every install in a session
+**0.8.308**. The current Horde wire protocol is **77**. Every install in a session
 needs the same DLL; the protocol is checked on join.
 
 Protocol history (newest first):
 
+- **77**, 0.8.308: `LocationTransport` gains `TargetKey`, the point inside the location to land on.
 - **76**, 0.8.306 to 0.8.307: new shared `MapPieceWire` (name, outside-location anchor, X/Z): `MapElementDiscovered` (69)
   is one piece, `MapStateSync` discoveries are pieces instead of bare names; `JournalItem` gains `Popup`.
 - **75**, 0.8.297 to 0.8.305: `CoHold` (170) gains mode 5, `ModePlayerPush`: a player walking into another
@@ -97,6 +98,42 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.308 — the village shortcut, a way home when stuck, every map discovery shared
+
+- **A client who took the shortcut hole by the hideout into the village landed in an empty
+  village of its own.** The hole (`sub_village_shortcut_01_holeBig_destVillage`) carries its user
+  with a `transportPlayerToObject` onto a point inside the village. A client's use went to the host
+  as a plain activate (only actions named `_enter` were treated as location entries), and the
+  client then replayed the move itself, in a world where it had never spawned the village at the
+  host's pad slot: an empty copy somewhere else, none of the host's villagers or the host in it.
+  The host now sends any action that carries its user into an outside location the user is not in
+  as a `LocationTransport`: the client spawns the pad at the host's slot and then stands on the
+  hole's landing point (`TargetKey`, `CursorActionNetHandlers.OnLocalSettled`).
+- **A rejoining client could stand in empty space.** A world share loads the host's save, which
+  puts the joiner where the host stood: inside the village when the host saved there. The client's
+  own position (by its hideout) was then restored without leaving the location, so the body stood
+  in the world with the village's grid still loaded around it, and it kept telling the others it
+  was in the village. The restore now leaves the location the save put it in, as vanilla's return
+  does (`ClientStateBackup.RestorePosition`).
+- **New: "Back to my hideout"** in the pause menu's Multiplayer screen, for anyone stuck where they
+  cannot walk out. It puts the player at its hideout's bed and out of any location (vanilla
+  `transportToHome`'s placement, without its world changes, which are the host's). This is how the
+  client stuck in the village void gets out.
+- **Most map discoveries never reached the other players.** Vanilla reveals a piece through
+  `Map.showElement(MapElement)`, a one-line setter the runtime inlines into its callers (walking
+  past, `Location.discoverMe`, a bought map's `markLocationsOnMap`), so the patch on it ran for a
+  handful of road pieces a whole session. Trails, places and the hideout a client marked with a
+  bought map stayed on that player's map. The map is now scanned every 2 s and each newly revealed
+  piece goes to everyone, whatever revealed it; pieces shown because another player found them are
+  not sent back. A joining client also sends what it had found before (the host's map already
+  comes with the world).
+- **A client's character is kept when the link drops or it leaves.** It was stored only at world
+  saves, so a rejoin brought back the last save's bag while the host's world had gone on: items
+  dropped or handed over since came back, items picked up since were lost. The client now writes
+  its own file on leaving and on losing the host (`SaveNetHandlers.PersistOnLinkLoss`), and the
+  rejoin's restore takes the newer of that file and the host's copy, as before. No world is saved.
+- Protocol 77: every install needs this DLL.
 
 ## 0.8.307 — story items stay with a player who rejoins; examine-only notes stay out of journals
 

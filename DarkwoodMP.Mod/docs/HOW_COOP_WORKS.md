@@ -176,7 +176,8 @@ the rest of this document easier to read.
 - Trader stock.
 - Doors, barricades, windows, generators and their fuel, lamps, fires.
 - The clock and weather.
-- The map's discovered locations.
+- The map: every piece any player reveals (trails, places, locations marked by a map
+  bought or found) shows on everyone's map.
 - The party map board: every pin and ping any player puts on the world map (see
   "Party map board" below).
 - Game settings that affect balance: difficulty, friendly fire, loot sharing.
@@ -340,10 +341,14 @@ ever written inside a dream: such a save strands the player on the pad at the ne
   taken back, and a drop someone else picked up is removed from the returner's bag.
   Oxygen tanks are dropped too; journal items are not (everyone has them already).
 - A player's character (position, bag, health, skills) is stored at real world saves
-  only (the "saving" indicator), never on leaving or between saves. A returning
-  player comes back as they were at the last world save they were in, not at the
-  host's spawn; one who was never in a save comes back as a fresh character.
-  Leaving saves nothing, for the host or a client, as in the base game.
+  (the "saving" indicator). A client also keeps it in its own file when it leaves or
+  loses the link, since the host's world goes on from there and not from the last
+  save. A returning player comes back as the newer of the two, not at the host's
+  spawn; one who was never in a save comes back as a fresh character. Leaving saves
+  no world, for the host or a client, as in the base game.
+- **Stuck?** "Back to my hideout" in the pause menu's Multiplayer screen puts the
+  player at its hideout's bed, out of any location (an empty location copy, a pad
+  with nothing on it).
 - A player who stands up (after a load, a join, a respawn) stays lying until the others
   can see it: until a few of their position packets have gone out and, for a joiner,
   until they have been put where they left. The others then see the whole stand-up,

@@ -168,10 +168,38 @@ namespace DWMPHorde.Networking
         }
 
         /// <summary>
-        /// Client, at a real world save only (the host's coordinated Save): the character
-        /// (position, bag, health, skills) as it is in that saved world goes to the host and to
-        /// this machine's own file. Nothing is written between saves, on leaving included: a
-        /// rejoin comes back to the last save, as the world does.
+        /// Client, the link to the host is going (dropped, a host lost, or leaving): the character
+        /// as it is now goes to this machine's own file. The host's world went on without a save,
+        /// so the last save's character was older than that world: a rejoin got back what it had
+        /// dropped or handed over since (and lost what it picked up). The rejoin's restore takes
+        /// the newer of this file and the host's copy, as it already did. Not while the body is
+        /// not yet this player's own (a join still placing it, a world loading) or is in a scene
+        /// that owns it (the host's prologue).
+        /// </summary>
+        internal void PersistOnLinkLoss(string why)
+        {
+            if (_net.Role != NetworkRole.Client || ClientPlacementPending)
+                return;
+            if (Player.Instance == null || GameScreen.AtTitle || Core.loadingGame || !LanNetworkManager.ClientCanApplyWorldBulk())
+                return;
+            if (Sync.PersonalPrologue.LocalInPrologue)
+                return;
+            try
+            {
+                if (PersistClientBackupSnapshot(sendToHost: false) != null)
+                    ModLog.Event(LogCat.Save, "[ClientBackup] character kept at link loss (" + why + ")");
+            }
+            catch (Exception ex)
+            {
+                ModRuntime.Log?.LogWarning("[ClientBackup] link-loss snapshot: " + ex.Message);
+            }
+        }
+
+        /// <summary>
+        /// Client, at a real world save (the host's coordinated Save): the character (position,
+        /// bag, health, skills) as it is in that saved world goes to the host and to this
+        /// machine's own file. Leaving or losing the link writes the file too
+        /// (<see cref="PersistOnLinkLoss"/>).
         /// </summary>
         internal void SendClientStateBackup()
         {

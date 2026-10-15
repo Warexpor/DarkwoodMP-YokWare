@@ -5,8 +5,8 @@ join it: the same forest, the same nights, the same story, played together.
 
 | | |
 |--|--|
-| Product | YokWare Branch **0.8.307** |
-| Wire | Horde protocol **76** |
+| Product | YokWare Branch **0.8.308** |
+| Wire | Horde protocol **77** |
 | Players | Up to 8 by default (`MaxPlayers`, host included) |
 | Transport | LAN (LiteNetLib) or Steam lobby (SteamNetworkingSockets) |
 | Loaders | BepInEx 5.x or MelonLoader 0.7.x |
@@ -122,7 +122,8 @@ menu. Its screens look and work like the game's own menus (Esc goes back):
   to others not applied (your name, the voice mode, a rule while hosting) asks first;
   small adjustments (volumes, keys, the microphone) are just kept.
 - **In the pause menu:** Invite friends (Steam host), Send the world again (host),
-  Restore my character (client, when the automatic restore missed), Disconnect.
+  Restore my character (client, when the automatic restore missed), Back to my hideout
+  (anyone stuck where they cannot walk out), Disconnect.
 
 When you join, you download the host's world and choose which of your 5 profiles
 keeps your copy of it, then **Enter world**. Empty profiles are safe; an occupied

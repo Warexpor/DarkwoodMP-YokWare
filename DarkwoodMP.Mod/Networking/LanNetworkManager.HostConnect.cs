@@ -130,8 +130,10 @@ namespace DWMPHorde.Networking
             // This is an intentional teardown, not a host-crash migration.
             _suppressHostMigration = true;
 
-            // Leaving saves nothing, for the host or a client, as in the base game: the world
-            // and every character are what the last in-game save wrote.
+            // Leaving saves no world, as in the base game. A client keeps its character as it is
+            // now in its own file: the host's world goes on from here, not from the last save.
+            if (_role == NetworkRole.Client)
+                SaveHandlers?.PersistOnLinkLoss("leaving");
             FlushReliableBeforeLeave();
 
             // Snapshot for public session-stop line before we wipe peers/ids
