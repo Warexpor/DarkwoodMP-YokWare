@@ -107,7 +107,9 @@ tested in the game.
   lines say `role=Solo`. Normal single-player games are unchanged (no probe, no log lines).
 - Used for a host frame-time check in a box: solo (idle + a 12-location teleport tour) and a host
   + client session (idle, tour, night) showed no stretch of unstable frame times, only one-frame
-  hitches on location loads and the join. The user's report is not reproduced yet.
+  hitches on location loads and the join. Repeated on a 100 Hz screen with vsync on and the host
+  focused (solo, then host + client through idle, tour and nightfall): both games held 10.0 ms,
+  with only single-frame hitches. The user's report is not reproduced yet.
 - Code: `TestPilot.SoloProbe`, the probe gate in `LanNetworkManager.Update` (`Networking/LanNetworkManager.Tick.cs`),
   role tag in `CoopPerfProbe.SetActive`.
 
