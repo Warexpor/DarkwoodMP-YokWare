@@ -518,6 +518,9 @@ namespace DWMPHorde.Sync
             }
         }
 
+        /// <summary>Past the title's 9.5 s to its stand-up: a keep whose stand-up beat never came (left to the menu) lets go.</summary>
+        private const float ChapterTitleKeepLyingMaxSec = 15f;
+
         /// <summary>
         /// The chapter's title over a black screen, as vanilla world generation shows it to a new
         /// game that skips the prologue (the host's own new game). A joiner loads a save instead,
@@ -527,9 +530,10 @@ namespace DWMPHorde.Sync
         /// Vanilla's timing (<c>WorldGenerator.onCreatedAllChunks</c>, then <c>activatePlayer</c>):
         /// the title 2.5 s into the black, the stand-up 7 s after the title (it has faded by then),
         /// the black lifting 1.5 s after that, over 2 s. The joiner's load already ran its own
-        /// stand-up, under the title: it is cut, the player kept still behind the black, and the
-        /// stand-up starts again on vanilla's beat (<see cref="DWMPHorde.Players.LocalGetUpHold"/>
-        /// still holds it for the others' stand-ins).
+        /// stand-up, under the title: it is kept on its first frame, the player lying behind the
+        /// black (the others' stand-ins lie with them, not standing), and the stand-up starts
+        /// again on vanilla's beat (<see cref="DWMPHorde.Players.LocalGetUpHold"/> keeps it, then
+        /// holds it for the others' stand-ins).
         /// </para>
         /// </summary>
         private static void ShowChapterTitle(WorldGenerator wg)
@@ -542,9 +546,11 @@ namespace DWMPHorde.Sync
             DOTween.Kill(ui.blackScreen);
             ui.blackScreen.SetActive(true);
             ui.blackScreen.GetComponent<tk2dSprite>().color = new Color(0f, 0f, 0f, 1f);
+            // Lying down, not standing: the others see the player behind this black.
             Player p = Player.Instance;
-            if (p != null && p.endingSleep)
-                p.onEndSleep();
+            if (p != null && p.alive && !p.endingSleep)
+                p.lieDown();
+            DWMPHorde.Players.LocalGetUpHold.KeepLying(ChapterTitleKeepLyingMaxSec);
             Core.forbidInputs = true;
             c.Invoke(delegate
             {
@@ -556,8 +562,9 @@ namespace DWMPHorde.Sync
                 {
                     Player pl = Player.Instance;
                     Core.forbidInputs = false;
-                    if (pl != null && pl.alive)
-                        pl.lieDown(); // the Sleep clip from its start; its end runs onEndSleep
+                    if (pl != null && pl.alive && !pl.endingSleep)
+                        pl.lieDown();
+                    DWMPHorde.Players.LocalGetUpHold.StopKeepingLying(); // the Sleep clip from its start; its end runs onEndSleep
                     c.Invoke(delegate { ui.tweenBlackScreen(new Color(0f, 0f, 0f, 0f), 2f); }, 1.5f, timeScaleDependent: false);
                 }, 7f, timeScaleDependent: false);
             }, 2.5f, timeScaleDependent: false);

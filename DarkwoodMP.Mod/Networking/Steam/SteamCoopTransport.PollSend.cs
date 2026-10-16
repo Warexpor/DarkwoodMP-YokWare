@@ -33,6 +33,7 @@ namespace DWMPHorde.Networking.Steam
             }
 
             FlushReliableOutbox();
+            TickSendRates();
             ReportStalledConnections();
 
             if (_hosting)

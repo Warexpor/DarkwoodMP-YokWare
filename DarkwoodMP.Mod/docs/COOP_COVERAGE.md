@@ -40,7 +40,7 @@ state without changing existing players' state.
 | Domain | Main code paths | Current status |
 |---|---|---|
 | Session and handshake | `LanNetworkManager`, `ConnectionBackend`, `HostMigration`, `LinkLossReconnect` (a client that lost the host dials it again for `ReconnectSeconds`, keeping its world, before migration; HUD/chat notices) | Code covered; runtime pending |
-| World share and saves | `WorldSaveShareService`, `ClientStateBackup` (also written by a client on leave / link loss), `SaveSyncPatches`, `CampaignFiles` (a manual save slot keeps every player's character and the co-op records of its own save) | Code covered; runtime pending |
+| World share and saves | `WorldSaveShareService` (chunks paced by each recipient's link backlog; Steam links raise their own send rate, `SteamCoopTransport.SendRate`), `ClientStateBackup` (also written by a client on leave / link loss), `SaveSyncPatches`, `CampaignFiles` (a manual save slot keeps every player's character and the co-op records of its own save) | Code covered; runtime pending |
 | Clock and pause | `ClientTimeAuthorityPatches`, `SleepSyncPatches`, `TimeSync`, `WeatherSync` (Rain/Lightning/fog host→client), `NoWorldPausePatch` (menus do not pause; the skill wheel's 0.2x slowdown is skipped in co-op) | Code covered; runtime pending |
 | Flags and reset | `FlagSyncPatches` (story sync; `player_in*` local-only ephemeral), `NetworkApplyGuard`, `NetworkResetRegistry` | Code covered; runtime pending |
 | Player state | `PlayerStateMessage`, player proxy and animation paths; the stand-in plays positions back on the sender's beat (`RemotePoseTimeline`, unit tested); players push each other through the pushed player's own game (`PeerPush`, `CoHold` mode 5) | Code covered; runtime pending |

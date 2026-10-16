@@ -1,8 +1,10 @@
 using System;
 using System.Collections.Generic;
 using DWMPHorde.Logging;
+using DWMPHorde.Networking.Steam;
 using DWMPHorde.Sync;
 using LiteNetLib;
+using Steamworks;
 
 namespace DWMPHorde.Networking
 {
@@ -281,6 +283,33 @@ namespace DWMPHorde.Networking
                     queued += peer.GetPacketsCountInReliableQueue(0, true) + peer.GetPacketsCountInReliableQueue(0, false);
             }
             return queued;
+        }
+
+        /// <summary>
+        /// Reliable bytes queued to <paramref name="playerId"/> that are not on the wire yet, or -1
+        /// when unknown. LAN counts LiteNetLib's queued packets at the peer's datagram size.
+        /// </summary>
+        internal long ReliableBacklogBytes(int playerId)
+        {
+            if (IsSteamSession)
+            {
+                SteamCoopTransport steam = _steam;
+                return steam != null && _steamPeers != null && _steamPeers.TryGetSteamId(playerId, out CSteamID sid)
+                    ? steam.PendingReliableBytes(sid) : -1;
+            }
+            if (!_lanPeers.TryGetPeer(playerId, out NetPeer peer) || peer == null
+                || peer.ConnectionState != ConnectionState.Connected)
+                return -1;
+            long packets = peer.GetPacketsCountInReliableQueue(0, true) + peer.GetPacketsCountInReliableQueue(0, false);
+            return packets * peer.GetMaxSinglePacketSize(DeliveryMethod.ReliableOrdered);
+        }
+
+        /// <summary>Bytes a second <paramref name="playerId"/>'s link sends at now (Steam), or 0 where the link sets its own pace (LAN).</summary>
+        internal int ReliableSendRate(int playerId)
+        {
+            SteamCoopTransport steam = _steam;
+            return IsSteamSession && steam != null && _steamPeers != null && _steamPeers.TryGetSteamId(playerId, out CSteamID sid)
+                ? steam.SendRate(sid) : 0;
         }
 
         /// <summary>Send a message to all connected peers.</summary>

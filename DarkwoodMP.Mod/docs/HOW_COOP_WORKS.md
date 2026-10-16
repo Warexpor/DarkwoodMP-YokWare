@@ -354,6 +354,9 @@ ever written inside a dream: such a save strands the player on the pad at the ne
   until they have been put where they left. The others then see the whole stand-up,
   in step. With nobody to watch nothing waits; a wait that cannot end lets go after
   6 seconds.
+- A new character that joins without playing the prologue gets the chapter title over
+  black first, as a new game does. They lie through it, for the others too, and stand
+  up on the title's beat.
 
 ### Chapter change
 

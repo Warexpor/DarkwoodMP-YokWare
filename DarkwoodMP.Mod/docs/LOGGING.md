@@ -156,6 +156,15 @@ desyncs are open. `grep -n "DESYNC" LogOutput.log` lists them.
 | `[YokWare/UI]` | Menus and HUD |
 | `[YokWare/Save]` | Save share |
 
+Steam send rate (Network category, Event level; Steam sessions only):
+
+| Line | When |
+|------|------|
+| `[SendRate] <steamid> loss (quality 0.91): 2048 -> 1024 KB/s` | The peer reported losing our packets (or `ping N ms (min M)`: the link's buffer filling) while the rate was raised; the rate is halved. |
+| `[SendRate] <steamid> backlog drained: peak 4096 KB/s, back to 256 KB/s` | A backlog (a world share, a bulk sync) went out; the highest rate it reached. |
+
+The host's `World save share complete (N chunks, K KB queued in S s → slot P)` gives the share's own time.
+
 `LogExtraCategories` and `LogTraceCategories` add categories on top of a preset by their
 names in [`CONFIG.md`](CONFIG.md) (`Physics`, `Container`, `Audio`...).
 

@@ -119,7 +119,8 @@ namespace DWMPHorde.Logging
             if (!active && !_active)
                 return; // already idle: nothing to reset or log
             string tag = role == NetworkRole.Host ? "Host"
-                : role == NetworkRole.Client ? "Client" : "?";
+                : role == NetworkRole.Client ? "Client"
+                : role == NetworkRole.Offline ? "Solo" : "?";
             if (_active == active && _roleTag == tag) return;
             _active = active;
             _roleTag = tag;
