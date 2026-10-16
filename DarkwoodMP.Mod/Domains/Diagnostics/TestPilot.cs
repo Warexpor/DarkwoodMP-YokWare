@@ -26,6 +26,8 @@ namespace DWMPHorde.Sync
         internal static bool Active => Mode.Length > 0;
         /// <summary>"solo..." runs the same menu sequence offline (no StartHost): a game of this machine's own.</summary>
         private static readonly bool Solo = Mode.StartsWith("solo", StringComparison.OrdinalIgnoreCase); // process-scoped: read once at start
+        /// <summary>A solo run arms the perf probe offline (role tag Solo), the baseline for co-op frame times.</summary>
+        internal static bool SoloProbe => Solo;
         private static readonly string MenuMode = Solo ? Mode.Substring(4) : Mode; // process-scoped: read once at start
 
         private enum Stage { Boot, Hosting, Loading, Joining, InWorld }

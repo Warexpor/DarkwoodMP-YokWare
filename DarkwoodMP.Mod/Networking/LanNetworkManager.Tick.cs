@@ -28,8 +28,10 @@ namespace DWMPHorde.Networking
             Players.LocalGetUpHold.Tick(this);
             // A host is probed with no peers too: a session that lost its last client still runs
             // the host paths, and its frame trouble must show in the log.
+            // A solo pilot run (DWMP_PILOT=solo...) is probed offline too: the single-player baseline.
             bool perf = _role == NetworkRole.Host
-                || (_role == NetworkRole.Client && IsConnected && _session.Link.HandshakeComplete);
+                || (_role == NetworkRole.Client && IsConnected && _session.Link.HandshakeComplete)
+                || (_role == NetworkRole.Offline && Sync.TestPilot.SoloProbe);
             ClientPerfProbe.SetActive(perf, _role);
             if (perf) ClientPerfProbe.FrameBegin();
 

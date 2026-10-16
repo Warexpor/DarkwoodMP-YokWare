@@ -3,12 +3,12 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.310**. The current Horde wire protocol is **77**. Every install in a session
+**0.8.311**. The current Horde wire protocol is **77**. Every install in a session
 needs the same DLL; the protocol is checked on join.
 
 Protocol history (newest first):
 
-- **77**, 0.8.308 to 0.8.310: `LocationTransport` gains `TargetKey`, the point inside the location to land on.
+- **77**, 0.8.308 to 0.8.311: `LocationTransport` gains `TargetKey`, the point inside the location to land on.
 - **76**, 0.8.306 to 0.8.307: new shared `MapPieceWire` (name, outside-location anchor, X/Z): `MapElementDiscovered` (69)
   is one piece, `MapStateSync` discoveries are pieces instead of bare names; `JournalItem` gains `Popup`.
 - **75**, 0.8.297 to 0.8.305: `CoHold` (170) gains mode 5, `ModePlayerPush`: a player walking into another
@@ -98,6 +98,18 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.311 — perf probe in solo pilot runs
+
+- **The frame-cost probe can measure single player now.** `[Perf]` lines were written only by a
+  host or a connected client, so there was no offline baseline to compare a host's frame times
+  against. A test-pilot solo run (`DWMP_PILOT=solo...`) now arms the same probe offline; its
+  lines say `role=Solo`. Normal single-player games are unchanged (no probe, no log lines).
+- Used for a host frame-time check in a box: solo (idle + a 12-location teleport tour) and a host
+  + client session (idle, tour, night) showed no stretch of unstable frame times, only one-frame
+  hitches on location loads and the join. The user's report is not reproduced yet.
+- Code: `TestPilot.SoloProbe`, the probe gate in `LanNetworkManager.Update` (`Networking/LanNetworkManager.Tick.cs`),
+  role tag in `CoopPerfProbe.SetActive`.
 
 ## 0.8.310 — skill wheel runs at full speed in co-op
 
