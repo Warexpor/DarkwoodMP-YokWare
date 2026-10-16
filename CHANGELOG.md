@@ -109,7 +109,8 @@ tested in the game.
   + client session (idle, tour, night) showed no stretch of unstable frame times, only one-frame
   hitches on location loads and the join. Repeated on a 100 Hz screen with vsync on and the host
   focused (solo, then host + client through idle, tour and nightfall): both games held 10.0 ms,
-  with only single-frame hitches. The user's report is not reproduced yet.
+  with only single-frame hitches. Three minutes of the host turning in circles under the cursor
+  changed nothing. The user's report is not reproduced yet.
 - Code: `TestPilot.SoloProbe`, the probe gate in `LanNetworkManager.Update` (`Networking/LanNetworkManager.Tick.cs`),
   role tag in `CoopPerfProbe.SetActive`.
 
