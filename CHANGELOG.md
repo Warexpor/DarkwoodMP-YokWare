@@ -3,12 +3,12 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.311**. The current Horde wire protocol is **77**. Every install in a session
+**0.8.312**. The current Horde wire protocol is **77**. Every install in a session
 needs the same DLL; the protocol is checked on join.
 
 Protocol history (newest first):
 
-- **77**, 0.8.308 to 0.8.311: `LocationTransport` gains `TargetKey`, the point inside the location to land on.
+- **77**, 0.8.308 to 0.8.312: `LocationTransport` gains `TargetKey`, the point inside the location to land on.
 - **76**, 0.8.306 to 0.8.307: new shared `MapPieceWire` (name, outside-location anchor, X/Z): `MapElementDiscovered` (69)
   is one piece, `MapStateSync` discoveries are pieces instead of bare names; `JournalItem` gains `Popup`.
 - **75**, 0.8.297 to 0.8.305: `CoHold` (170) gains mode 5, `ModePlayerPush`: a player walking into another
@@ -98,6 +98,18 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.312 — a new character joining lies down until they wake
+
+- **A new character joining stood up in front of the others, then fell back down.** A joiner with a
+  fresh character (one that skips the prologue) gets the chapter title over a black screen, and
+  their real stand-up waits for it (~9.5 s). That wait cut the load's stand-up short with
+  `onEndSleep`, so the player stood behind their own black screen, and everyone else's stand-in of
+  them stood there too, until the title's beat laid them down and the stand-up played. Now the
+  load's stand-up is kept on its first frame (lying) through the title and runs from its start on
+  the beat; the stand-ins lie the whole time and get up together with the player.
+- Code: `LocalGetUpHold.KeepLying` / `StopKeepingLying` (`Domains/Players/Runtime/LocalGetUpHold.cs`, bounded
+  at 15 s so a title left to the menu never freezes a later stand-up), `PersonalPrologue.ShowChapterTitle`.
 
 ## 0.8.311 — perf probe in solo pilot runs
 

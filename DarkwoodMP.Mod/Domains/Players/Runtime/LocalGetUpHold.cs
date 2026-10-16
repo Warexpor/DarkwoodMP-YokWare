@@ -32,6 +32,19 @@ namespace DWMPHorde.Players
         private static bool _handled; // process-scoped: cleared by Tick whenever no stand-up is running
         private static int _sent; // process-scoped: set when a hold begins
         private static float _held; // process-scoped: set when a hold begins
+        private static float _keepLyingUntil = -1f; // process-scoped: set by KeepLying, bounded by its deadline
+        private static bool _keptLying; // process-scoped: cleared by Tick when the keep ends
+
+        /// <summary>
+        /// Keeps this player's stand-up on its first frame, lying down, for up to
+        /// <paramref name="maxSec"/> (until <see cref="StopKeepingLying"/>). For a stand-up that
+        /// waits on a beat of its own, as the new character's chapter title: the others see the
+        /// player lie there instead of standing until it starts.
+        /// </summary>
+        internal static void KeepLying(float maxSec) => _keepLyingUntil = Time.unscaledTime + maxSec;
+
+        /// <summary>The kept stand-up runs (behind the usual hold for the others).</summary>
+        internal static void StopKeepingLying() => _keepLyingUntil = -1f;
 
         /// <summary>Every frame, connected or not.</summary>
         internal static void Tick(LanNetworkManager net)
@@ -41,6 +54,27 @@ namespace DWMPHorde.Players
             string clip = torso != null && torso.CurrentClip != null ? torso.CurrentClip.name : null;
             bool gettingUp = p != null && p.alive && (p.endingSleep || p.gettingUpFromBed)
                 && SecondPlayerAnimController.IsGetUpClip(clip);
+            if (Time.unscaledTime < _keepLyingUntil)
+            {
+                if (gettingUp)
+                {
+                    // Kept, not held: the stand-up starts over when the keep ends, and is held for the others then.
+                    _keptLying = true;
+                    _holding = false;
+                    _handled = false;
+                    if (torso.CurrentFrame > 0)
+                        torso.PlayFromFrame(torso.CurrentClip, 0);
+                    if (!torso.Paused)
+                        torso.Pause();
+                }
+                return;
+            }
+            if (_keptLying)
+            {
+                _keptLying = false;
+                if (torso != null && torso.Paused)
+                    torso.Resume();
+            }
             if (!gettingUp)
             {
                 if (_holding)
