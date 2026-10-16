@@ -377,12 +377,25 @@ namespace DWMPHorde.Networking
             SendShare(target, NetMessageType.WorldSaveBegin, w => begin.Serialize(w));
 
             int sent = 0;
-            int frameBudget = 0;
+            int frameSent = 0;
+            long bytesSent = 0;
+            var sendClock = System.Diagnostics.Stopwatch.StartNew();
+            var frameClock = System.Diagnostics.Stopwatch.StartNew();
+            IEnumerable<int> shareTo = target > 0 ? new[] { target } : (IEnumerable<int>)_broadcastRecipients;
             for (int fi = 0; fi < files.Count; fi++)
             {
                 var pf = files[fi];
                 for (int ci = 0; ci < pf.Chunks.Length; ci++)
                 {
+                    // Paced by the links, not the frame rate: wait while the slowest one is fed.
+                    while (!ShareRoomToSend(shareTo, frameSent, frameClock))
+                    {
+                        yield return null;
+                        if (gen != _shareGeneration) yield break;
+                        frameSent = 0;
+                        frameClock.Restart();
+                    }
+
                     byte fileIndex = (byte)fi;
                     int chunkIndex = ci;
                     byte[] data = pf.Chunks[ci];
@@ -397,17 +410,11 @@ namespace DWMPHorde.Networking
                     });
 
                     sent++;
-                    frameBudget++;
+                    frameSent++;
+                    bytesSent += data.Length;
                     ProgressText = "Sending world (slot " + profileId + ") "
                         + (int)(100f * sent / totalChunks) + "%";
                     _net.StatusText = ProgressText;
-
-                    if (frameBudget >= MaxChunksPerFrame)
-                    {
-                        frameBudget = 0;
-                        yield return null;
-                        if (gen != _shareGeneration) yield break;
-                    }
                 }
             }
 
@@ -427,8 +434,39 @@ namespace DWMPHorde.Networking
 
             ProgressText = "World shared → client profile " + profileId;
             _net.StatusText = ProgressText;
-            ModLog.Event(LogCat.Save, "World save share complete (" + sent + " chunks → slot " + profileId + ")");
+            double secs = sendClock.Elapsed.TotalSeconds;
+            ModLog.Event(LogCat.Save, "World save share complete (" + sent + " chunks, " + (bytesSent / 1024) + " KB queued in "
+                + secs.ToString("0.0") + " s → slot " + profileId + ")");
             FinishHostShare(gen, runAfter: true);
+        }
+
+        /// <summary>
+        /// Another chunk may go out now: every recipient's link has less than its lead queued, and
+        /// this frame's slice is not spent. The first chunk of a frame never waits on the slice.
+        /// </summary>
+        private bool ShareRoomToSend(IEnumerable<int> recipients, int frameSent, System.Diagnostics.Stopwatch slice)
+        {
+            if (frameSent > 0 && slice.Elapsed.TotalMilliseconds >= ShareSliceMs)
+                return false;
+            if (recipients == null)
+                return frameSent < UnknownBacklogChunksPerFrame;
+            foreach (int id in recipients)
+            {
+                if (!_net.HasPeer(id))
+                    continue;
+                long backlog = _net.ReliableBacklogBytes(id);
+                if (backlog < 0)
+                {
+                    if (frameSent >= UnknownBacklogChunksPerFrame)
+                        return false;
+                    continue;
+                }
+                int rate = _net.ReliableSendRate(id);
+                long ahead = rate > 0 ? Math.Max(ShareAheadMinBytes, (long)(rate * ShareAheadSec)) : ShareAheadLanBytes;
+                if (backlog >= ahead)
+                    return false;
+            }
+            return true;
         }
 
         private void SendShare(int targetPlayerId, NetMessageType type, System.Action<NetWriter> write)

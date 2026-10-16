@@ -3,12 +3,12 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.312**. The current Horde wire protocol is **77**. Every install in a session
+**0.8.313**. The current Horde wire protocol is **77**. Every install in a session
 needs the same DLL; the protocol is checked on join.
 
 Protocol history (newest first):
 
-- **77**, 0.8.308 to 0.8.312: `LocationTransport` gains `TargetKey`, the point inside the location to land on.
+- **77**, 0.8.308 to 0.8.313: `LocationTransport` gains `TargetKey`, the point inside the location to land on.
 - **76**, 0.8.306 to 0.8.307: new shared `MapPieceWire` (name, outside-location anchor, X/Z): `MapElementDiscovered` (69)
   is one piece, `MapStateSync` discoveries are pieces instead of bare names; `JournalItem` gains `Popup`.
 - **75**, 0.8.297 to 0.8.305: `CoHold` (170) gains mode 5, `ModePlayerPush`: a player walking into another
@@ -98,6 +98,28 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.313 — world share over Steam no longer crawls at 256 KB/s
+
+- **Joining over Steam spent 10-15 s downloading the world.** SteamNetworkingSockets has no
+  bandwidth estimate: every connection sends at its `SendRateMin`, which we set to 256 KB/s (the
+  4 MB/s `SendRateMax` only caps an estimate Steam never makes). A ~3 MB world package therefore
+  took 11 s or more, however fast the link was. Each Steam connection now moves its own rate:
+  doubled every 0.25 s while reliable sends are queued behind it, halved when the peer reports
+  loss (under 95 % of our packets arriving) or the ping climbs past twice its low plus 50 ms (the
+  link's own buffer filling), then grown a quarter a second; back to 256 KB/s once nothing has
+  been queued for 2 s. Capped at 8 MB/s. Logged as `[SendRate]` (back-offs, and the peak when the
+  backlog drains). Gameplay traffic sits far below the base rate and never moves it.
+- **World chunks are paced by the link, not the frame rate.** The host sent a fixed 2 chunks
+  (32 KB) a frame. Chunks now go out while the slowest recipient has under half a second of its
+  link's rate queued (Steam) or under 1 MB (LAN, where LiteNetLib paces itself), at most 2 ms of
+  main-thread time a frame; a link whose queue cannot be read keeps the old 2 a frame. The share
+  log line now says how many KB were queued and how long it took.
+- Code: `Networking/Steam/SteamCoopTransport.SendRate.cs` (new), `SteamCoopTransport.Poll`,
+  `LanNetworkManager.ReliableBacklogBytes` / `ReliableSendRate` (`LanNetworkManager.Transport.cs`),
+  `WorldSaveShareService.ShareRoomToSend` (`WorldSaveShareService.HostShare.cs`).
+- Not tested over Steam yet: the next Steam join's host log shows the `[SendRate]` lines and the
+  share time.
 
 ## 0.8.312 — a new character joining lies down until they wake
 

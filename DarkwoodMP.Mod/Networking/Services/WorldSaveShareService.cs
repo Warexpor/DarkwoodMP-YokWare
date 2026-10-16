@@ -23,8 +23,19 @@ namespace DWMPHorde.Networking
     public sealed partial class WorldSaveShareService
     {
         public const int ChunkSize = 16 * 1024;
-        /// <summary>Keep low. Dual-box ReliableOrdered traffic can stall the host.</summary>
-        private const int MaxChunksPerFrame = 2;
+        /// <summary>
+        /// Chunks go out while the slowest recipient's link has less than this much queued
+        /// (Steam: this many seconds at the link's current rate, see <c>SteamCoopTransport.SendRate</c>).
+        /// Queued past the link's pace, a chunk only waits in a buffer; kept short of it, the link idles.
+        /// </summary>
+        private const float ShareAheadSec = 0.5f;
+        private const long ShareAheadMinBytes = 64 * 1024;
+        /// <summary>LAN: LiteNetLib paces itself by its window; this much queued keeps it fed.</summary>
+        private const long ShareAheadLanBytes = 1024 * 1024;
+        /// <summary>Main-thread time the sending may take a frame (each chunk is a serialize and a copy).</summary>
+        private const double ShareSliceMs = 2.0;
+        /// <summary>A link whose backlog cannot be read gets the old fixed pace.</summary>
+        private const int UnknownBacklogChunksPerFrame = 2;
         private const float HostWaitForSaveSeconds = 2.5f;
         private const int MinProfileId = 1;
         private const int MaxProfileId = 5;

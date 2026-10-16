@@ -19,7 +19,9 @@ namespace DWMPHorde.Networking.Steam
             try
             {
                 SteamNetworkingUtils.InitRelayNetworkAccess();
-                // Friend DLL: send buffer 4MB, rate 256KB–4MB/s, timeout 90s.
+                // Friend DLL: send buffer 4MB, rate 256KB–4MB/s, timeout 90s. SNS has no bandwidth
+                // estimate: every connection sends at SendRateMin, the max only caps an estimate that
+                // never comes. SteamCoopTransport.SendRate moves each connection's rate from there.
                 SetGlobalInt((ESteamNetworkingConfigValue)9, 4194304);
                 SetGlobalInt((ESteamNetworkingConfigValue)10, 262144);
                 SetGlobalInt((ESteamNetworkingConfigValue)11, 4194304);
