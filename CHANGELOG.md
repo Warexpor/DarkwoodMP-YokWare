@@ -3,12 +3,12 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.315**. The current Horde wire protocol is **77**. Every install in a session
+**0.8.316**. The current Horde wire protocol is **77**. Every install in a session
 needs the same DLL; the protocol is checked on join.
 
 Protocol history (newest first):
 
-- **77**, 0.8.308 to 0.8.315: `LocationTransport` gains `TargetKey`, the point inside the location to land on.
+- **77**, 0.8.308 to 0.8.316: `LocationTransport` gains `TargetKey`, the point inside the location to land on.
 - **76**, 0.8.306 to 0.8.307: new shared `MapPieceWire` (name, outside-location anchor, X/Z): `MapElementDiscovered` (69)
   is one piece, `MapStateSync` discoveries are pieces instead of bare names; `JournalItem` gains `Popup`.
 - **75**, 0.8.297 to 0.8.305: `CoHold` (170) gains mode 5, `ModePlayerPush`: a player walking into another
@@ -98,6 +98,17 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.316 — Voice settings: the microphone level meter keeps its size and place
+
+- **Settings > Voice, Microphone level:** the meter was one line of text, `|` for each lit
+  slot and `.` for each empty one. The menu font is not monospaced and `|` is wider than `.`,
+  so the meter grew as you spoke and the "talking" after it slid along the row; at rest it
+  was a short row of dots that lined up with nothing. Now every slot is its own bar at a
+  fixed place, the 18 spread over the width of the sliders below (left edge on the values
+  column), empty slots the same bar dimmed, and "talking" sits at a fixed spot after the
+  last bar. Off / no microphone / starting still show as text. File:
+  `UI/MultiplayerScreens.Voice.cs` (`BuildMeterBars`, `ShowMeterBars`).
 
 ## 0.8.315 — incoming radio beep and squelch: pitch only, 3 semitones down
 
