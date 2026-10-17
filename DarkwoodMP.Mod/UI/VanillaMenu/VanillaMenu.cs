@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using HarmonyLib;
 using UnityEngine;
+using DWMPHorde.Logging;
 
 namespace YokWare.VanillaMenu
 {
@@ -44,8 +45,9 @@ namespace YokWare.VanillaMenu
                 string s = Language.Get(key, "UI");
                 return string.IsNullOrEmpty(s) ? key : s;
             }
-            catch
+            catch (Exception ex)
             {
+                ModLog.Swallowed(ex);
                 return key;
             }
         }
@@ -61,9 +63,12 @@ namespace YokWare.VanillaMenu
         public const float ItemStep = 50f;      // profile rows
         public const float BackZ = -180f;       // Profiles "Back"
         public const float RowStep = 40f;       // Video setting rows
-        public const float NameX = -1.76f;      // Video setting names (right edge)
-        public const float ValueX = 31f;        // Video setting values (left edge)
-        public const float ReturnX = -183.24f;  // Options "Return" (left edge)
+        // Vanilla's Video rows split at x 14.6 (names end at -1.76, values start at 31) and its
+        // Return row runs from -183 to past +340, both right of the centred heading. These
+        // screens keep vanilla's 33-unit gap but split on the centre line, and centre the Return row.
+        public const float NameX = -16f;        // setting names (right edge)
+        public const float ValueX = 16f;        // setting values (left edge)
+        public const float ReturnGap = 90f;     // between the entries of the Return row
         public const float ReturnZ = -313f;     // Options "Return" (its menu sits 100 up)
 
         /// <summary>Show <paramref name="screen"/>, hiding the menu or screen it opens from.</summary>
@@ -116,7 +121,7 @@ namespace YokWare.VanillaMenu
             {
                 menu.Menu0.SetActive(true);
                 try { menu.populateMainOptionsButtons(); }
-                catch { /* gamepad list only */ }
+                catch (Exception ex) { ModLog.Swallowed(ex); /* gamepad list only */ }
             }
         }
 
@@ -588,6 +593,47 @@ namespace YokWare.VanillaMenu
 
         public VmScreen Screen => _screen;
 
+        /// <summary>The Return of this screen, so the page's Apply / Revert can line up with it.</summary>
+        public Button LastReturn { get; private set; }
+
+        /// <summary>
+        /// Lay <paramref name="row"/> out left to right, <see cref="Vm.ReturnGap"/> apart, the row as
+        /// a whole centred on the screen (measured in the shown font, so a translation stays centred).
+        /// </summary>
+        public static void CentreRow(params Button[] row)
+        {
+            float total = 0f;
+            int count = 0;
+            for (int i = 0; i < row.Length; i++)
+            {
+                tk2dTextMesh tm = row[i] != null ? row[i].textMesh : null;
+                if (tm == null)
+                    continue;
+                // Left-anchored on its own line, so its x is its left edge.
+                tm.anchor = (TextAnchor)((int)tm.anchor / 3 * 3);
+                tm.Commit();
+                total += Width(tm);
+                count++;
+            }
+            if (count == 0)
+                return;
+            total += Vm.ReturnGap * (count - 1);
+            float x = -total / 2f;
+            for (int i = 0; i < row.Length; i++)
+            {
+                tk2dTextMesh tm = row[i] != null ? row[i].textMesh : null;
+                if (tm == null)
+                    continue;
+                Vector3 p = tm.transform.localPosition;
+                tm.transform.localPosition = new Vector3(x, p.y, p.z);
+                Vm.FitCollider(tm);
+                x += Width(tm) + Vm.ReturnGap;
+            }
+        }
+
+        private static float Width(tk2dTextMesh tm)
+            => Mathf.Abs(tm.GetEstimatedMeshBoundsForString(string.IsNullOrEmpty(tm.text) ? " " : tm.text).size.x);
+
         private string NextName(string kind) => kind + "_" + (_n++);
 
         private tk2dTextMesh Text(GameObject source, string kind, float x, float z, string shown)
@@ -658,11 +704,14 @@ namespace YokWare.VanillaMenu
         public Button Return(Action onFire = null)
         {
             MainMenu m = Vm.Menu;
-            tk2dTextMesh tm = Text(m != null ? Vm.ReturnSource(m) : null, "Return", Vm.ReturnX, Vm.ReturnZ, Vm.Vanilla("Return"));
-            return Wire(tm, onFire ?? Vm.Back);
+            tk2dTextMesh tm = Text(m != null ? Vm.ReturnSource(m) : null, "Return", 0f, Vm.ReturnZ, Vm.Vanilla("Return"));
+            Button b = Wire(tm, onFire ?? Vm.Back);
+            CentreRow(b);
+            LastReturn = b;
+            return b;
         }
 
-        /// <summary>A button on the Options "Return" row (vanilla "Apply" at x 0, "Revert" at x 168).</summary>
+        /// <summary>A button on the Options "Return" row; <see cref="CentreRow"/> places the row.</summary>
         public Button OptionsButton(string shown, float x, Action onFire)
         {
             MainMenu m = Vm.Menu;
@@ -897,6 +946,7 @@ namespace YokWare.VanillaMenu
         {
             _apply = b.OptionsButton(Vm.Vanilla("Apply"), 0f, Apply);
             _revert = b.OptionsButton(Vm.Vanilla("Revert_to_default"), 168f, RevertToDefault);
+            VmBuilder.CentreRow(b.LastReturn, _apply, _revert);
             _applyColor = _apply != null ? _apply.baseColor : Color.white;
             _revertColor = _revert != null ? _revert.baseColor : Color.white;
             _shownApply = _shownRevert = null;

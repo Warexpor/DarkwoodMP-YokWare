@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using DWMPHorde.Networking;
 using LiteNetLib;
+using DWMPHorde.Logging;
 
 namespace DWMPHorde.Sync
 {
@@ -215,8 +216,9 @@ namespace DWMPHorde.Sync
                 if (Player.Instance.Hotbar != null)
                     total += Player.Instance.Hotbar.getItemAmount(itemType);
             }
-            catch
+            catch (System.Exception ex)
             {
+                ModLog.Swallowed(ex);
                 return -1;
             }
             return total;
@@ -260,8 +262,9 @@ namespace DWMPHorde.Sync
                     SendLocalChange(slot.invItem.type, amt);
                 }
             }
-            catch
+            catch (System.Exception ex)
             {
+                ModLog.Swallowed(ex);
                 /* hotbar mid-teardown */
             }
         }

@@ -2,6 +2,7 @@ using DWMPHorde.Networking;
 using DWMPHorde.Sync;
 using HarmonyLib;
 using UnityEngine;
+using DWMPHorde.Logging;
 
 namespace DWMPHorde.Patches
 {
@@ -107,7 +108,7 @@ namespace DWMPHorde.Patches
                         {
                             float fade = obj.fadeOut >= 0f ? obj.fadeOut : 0.5f;
                             try { AudioController.Stop(obj.audioItemName, fade); }
-                            catch { /* ignore */ }
+                            catch (System.Exception ex) { ModLog.Swallowed(ex); /* ignore */ }
                         }
                     }
                 }
@@ -132,10 +133,10 @@ namespace DWMPHorde.Patches
                                 topSprite.color = new Color(0f, 0f, 0f, 1f);
                         }
                     }
-                    catch { /* fall through to tween */ }
+                    catch (System.Exception ex) { ModLog.Swallowed(ex); /* fall through to tween */ }
                     ui.tweenBlackScreen(new Color(0f, 0f, 0f, 1f), 0f);
                     try { ui.tweenBlackScreenTop(new Color(0f, 0f, 0f, 1f), 0f); }
-                    catch { /* older UI path */ }
+                    catch (System.Exception ex) { ModLog.Swallowed(ex); /* older UI path */ }
                 }
 
                 // Hide finished video frame; blackScreen covers the gap to DreamStarted.

@@ -8,6 +8,7 @@ using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
 using UnityEngine.Video;
+using DWMPHorde.Logging;
 
 namespace DWMPHorde.Sync
 {
@@ -25,7 +26,7 @@ namespace DWMPHorde.Sync
                 if (outside != null)
                     outside.loading = false;
             }
-            catch { /* ignore */ }
+            catch (Exception ex) { ModLog.Swallowed(ex); /* ignore */ }
         }
 
         private static readonly Dictionary<string, UniqueObject> _overworldUniqueStash

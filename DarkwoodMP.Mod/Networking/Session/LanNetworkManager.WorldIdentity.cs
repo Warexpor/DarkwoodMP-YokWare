@@ -52,8 +52,9 @@ namespace DWMPHorde.Networking
                 if (chapterId <= 0 && Core.currentProfile != null)
                     chapterId = Core.currentProfile.chapter;
             }
-            catch
+            catch (System.Exception ex)
             {
+                ModLog.Swallowed(ex);
                 campaignId = string.Empty;
                 chapterId = 0;
             }

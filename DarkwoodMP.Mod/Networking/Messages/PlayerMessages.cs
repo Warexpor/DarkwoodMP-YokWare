@@ -40,6 +40,11 @@ namespace DWMPHorde.Networking
         /// load then builds its own random map). The host re-shares its world.
         /// </summary>
         public bool WorldGeneratedLocally;
+        /// <summary>
+        /// The sender's YokWare version (<see cref="PluginInfo.Version"/>, always written), so a
+        /// version mismatch can name both versions. Empty from an older build that did not send it.
+        /// </summary>
+        public string ModVersion;
 
         public void Serialize(NetWriter writer)
         {
@@ -52,6 +57,7 @@ namespace DWMPHorde.Networking
             writer.Put(ChapterId);
             writer.Put(ConnectionKey ?? string.Empty);
             writer.Put(WorldGeneratedLocally);
+            writer.Put(PluginInfo.Version);
         }
 
         public static HandshakeMessage Deserialize(NetReader reader)
@@ -80,6 +86,8 @@ namespace DWMPHorde.Networking
                 msg.ConnectionKey = reader.GetString();
             if (reader.AvailableBytes >= 1)
                 msg.WorldGeneratedLocally = reader.GetBool();
+            if (reader.AvailableBytes >= 2)
+                msg.ModVersion = reader.GetString();
             return msg;
         }
     }

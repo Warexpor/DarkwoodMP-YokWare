@@ -42,6 +42,14 @@
     <DefineConstants>$(DefineConstants);MELONLOADER</DefineConstants>
   </PropertyGroup>
 
+  <!-- The test pilot (scripts/pilot) is built in only with -p:Pilot=true; release and normal builds leave it out. -->
+  <PropertyGroup Condition="'$(Pilot)' == 'true'">
+    <DefineConstants>$(DefineConstants);PILOT</DefineConstants>
+  </PropertyGroup>
+  <ItemGroup Condition="'$(Pilot)' != 'true'">
+    <Compile Remove="Domains\Diagnostics\TestPilot.cs" />
+  </ItemGroup>
+
   <PropertyGroup Condition="'$(Configuration)'=='Release'">
     <Optimize>true</Optimize>
     <DebugType>portable</DebugType>

@@ -235,12 +235,6 @@ namespace DWMPHorde.Sync
             return _s.ConsumedWorldPickups.Contains(MakePosNameKey(x, y, z, objectName));
         }
 
-        public static void ResetConsumedWorldPickups()
-        {
-            _s.ConsumedWorldPickups.Clear();
-            _s.ConsumedWorldPickupLog.Clear();
-        }
-
         /// <summary>Position quantized to 0.1 u and packed without overlap, plus the normalized name.</summary>
         internal readonly struct PosNameKey : IEquatable<PosNameKey>
         {

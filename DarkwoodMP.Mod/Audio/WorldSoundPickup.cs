@@ -303,7 +303,7 @@ namespace DWMPHorde.Audio
                     if (tap != null)
                         UnityEngine.Object.DestroyImmediate(tap);
                 }
-                catch { /* the object is on its way out */ }
+                catch (Exception ex) { ModLog.Swallowed(ex); /* the object is on its way out */ }
             }
         }
 
@@ -318,7 +318,7 @@ namespace DWMPHorde.Audio
                     if (__instance != null)
                         Consider(__instance.primaryAudioSource);
                 }
-                catch { /* a sound without a tap is only not picked up */ }
+                catch (Exception ex) { ModLog.Swallowed(ex); /* a sound without a tap is only not picked up */ }
             }
         }
     }

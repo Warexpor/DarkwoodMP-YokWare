@@ -1,6 +1,7 @@
 using System;
 using DWMPHorde.Sync;
 using UnityEngine;
+using DWMPHorde.Logging;
 
 namespace DWMPHorde.Networking
 {
@@ -110,7 +111,7 @@ namespace DWMPHorde.Networking
             // drives PeerItemPresence. Soft reconnect also ClearPlayer'd us on disconnect.
             // Republish inv+hotbar so host EventTrigger haveItem (keys/tanks) works again.
             try { Sync.PeerItemPresence.SendFullLocalInventory(); }
-            catch { /* offline / mid-teardown */ }
+            catch (Exception ex) { ModLog.Swallowed(ex); /* offline / mid-teardown */ }
             Sync.QuestItemHandoff.OnBagRestored();
 
             ModRuntime.LegacyInfo(
@@ -204,7 +205,7 @@ namespace DWMPHorde.Networking
 
             // Lantern / gasmask / armor hotbar auto-actives (vanilla init path).
             try { inv.checkForActiveSwitches(force: true); }
-            catch { /* non-fatal */ }
+            catch (Exception ex) { ModLog.Swallowed(ex); /* non-fatal */ }
         }
 
         /// <summary>
@@ -227,7 +228,7 @@ namespace DWMPHorde.Networking
                     && (item.baseClass.isFlashlight || item.baseClass.lightEmitter != null))
                 {
                     try { item.switchActive(destActive: true); }
-                    catch { /* presentation only */ }
+                    catch (Exception ex) { ModLog.Swallowed(ex); /* presentation only */ }
                 }
                 return;
             }

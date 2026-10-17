@@ -109,7 +109,7 @@ namespace DWMPHorde.Networking
 
             BroadcastPeerRoster();
             // Time authority is us now; push the clock to reconnecting peers as they join.
-            try { SendTimeSyncTo(-1); } catch { /* no peers yet */ }
+            try { SendTimeSyncTo(-1); } catch (Exception ex) { ModLog.Swallowed(ex); /* no peers yet */ }
         }
 
         private void PromoteLocalToSteamHost(int keepId, string reason)
@@ -144,7 +144,7 @@ namespace DWMPHorde.Networking
             NotifyPromotedHostSaveReminder();
 
             BroadcastPeerRoster();
-            try { SendTimeSyncTo(-1); } catch { /* no peers yet */ }
+            try { SendTimeSyncTo(-1); } catch (Exception ex) { ModLog.Swallowed(ex); /* no peers yet */ }
         }
 
 

@@ -45,11 +45,11 @@ namespace DWMPHorde.Items
                 return;
             _nextAttempt = Time.unscaledTime + 1f;
             // Boot-time injection; later language switches are re-injected by LanguageSwitchPatch.
-            try { InjectLocalization(); } catch { /* ignore */ }
+            try { InjectLocalization(); } catch (Exception ex) { ModLog.Swallowed(ex); /* ignore */ }
             if (_template == null)
             {
                 try { EnsureTemplate(Singleton<ItemsDatabase>.Instance); }
-                catch { /* ignore */ }
+                catch (Exception ex) { ModLog.Swallowed(ex); /* ignore */ }
             }
             if (_iconTextureFailed)
             {
@@ -140,8 +140,9 @@ namespace DWMPHorde.Items
                     if (!EnsureTemplate(__instance))
                         return true;
                 }
-                catch
+                catch (Exception ex)
                 {
+                    ModLog.Swallowed(ex);
                     return true;
                 }
                 __result = true;

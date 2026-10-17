@@ -444,8 +444,9 @@ namespace DWMPHorde.Networking
                     return true;
                 return false;
             }
-            catch
+            catch (Exception ex)
             {
+                ModLog.Swallowed(ex);
                 return false;
             }
         }

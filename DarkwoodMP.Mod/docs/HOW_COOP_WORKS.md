@@ -252,7 +252,9 @@ shared copy.
   Steam's invite window. A LAN host's Host and Multiplayer screens show the address the
   others type in; the host can type its own (VPN, forwarded port).
 - Both carry the same messages. All peers must run the same mod build: the
-  handshake carries the protocol number and refuses a mismatch.
+  handshake carries the protocol number and refuses a mismatch. The handshake and the
+  Steam lobby also carry the mod version, so the joiner reads which version the host has
+  and which they have, and the host gets a chat line that someone was turned away.
 - A GOG copy has no Steam, so a Steam host and a GOG client must use LAN.
 - An optional `HostPassword` gates both transports. On Steam it is checked in the
   handshake (lobby data is public to anyone who can see the lobby), and a lobby
@@ -1061,6 +1063,10 @@ party events.
 - **Player names**: each player tells the host their name and the host hands every
   name out with the player roster. A name shows over a player only while you can
   see them (vanilla's enemy sight test), so it never reveals someone behind a wall.
+- **Players' health**: pointing the cursor at another player shows their health in the
+  vanilla hover health bar, under vanilla's rules (within reach, in sight, nothing else
+  selected), from the health that player's own game reports. A downed or dead player shows
+  none. Per player, Multiplayer > Settings "Players' health".
 - **Voice chat** (any install, LAN or Steam; the game's own microphone input, carried as
   Opus by code inside the mod, no Steam client needed; a lost packet is filled in from the
   next one). Mic, mic volume, voice volume, radio volume and each

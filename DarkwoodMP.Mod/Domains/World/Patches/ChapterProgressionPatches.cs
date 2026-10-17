@@ -262,7 +262,7 @@ namespace DWMPHorde.Patches
             {
                 DreamSession.End("chapter:" + chapterId);
             }
-            catch { /* ignore */ }
+            catch (System.Exception ex) { ModLog.Swallowed(ex); /* ignore */ }
 
             if (Singleton<WorldGenerator>.Instance != null)
                 Singleton<WorldGenerator>.Instance.chapterID = chapterId;
@@ -436,7 +436,7 @@ namespace DWMPHorde.Patches
             if (Player.Instance != null)
                 Player.Instance.invulnerable = true;
             try { Singleton<UI>.Instance?.tweenBlackScreen(new Color(0f, 0f, 0f, 1f), 1f); }
-            catch { /* UI not ready */ }
+            catch (System.Exception ex) { ModLog.Swallowed(ex); /* UI not ready */ }
         }
 
         /// <summary>The share failed and this client stays in the old world: hand it back.</summary>
@@ -449,7 +449,7 @@ namespace DWMPHorde.Patches
             if (Player.Instance != null)
                 Player.Instance.invulnerable = false;
             try { Singleton<UI>.Instance?.tweenBlackScreen(new Color(0f, 0f, 0f, 0f), 1f); }
-            catch { /* UI not ready */ }
+            catch (System.Exception ex) { ModLog.Swallowed(ex); /* UI not ready */ }
         }
 
         /// <summary>The new chapter's scene replaced everything; forget the hold.</summary>

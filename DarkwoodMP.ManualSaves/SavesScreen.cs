@@ -20,10 +20,10 @@ namespace YokWare.ManualSaves
 
         private const float RowTopZ = 130f;
         private const float RowStep = 32f;
-        private const float SlotNameX = -230f;
-        private const float InfoX = -205f;
-        private const float SaveX = 200f;
-        private const float LoadX = 290f;
+        private const float SlotNameX = -250f;
+        private const float InfoX = -225f;
+        private const float SaveX = 180f;
+        private const float LoadX = 270f;
 
         private static string T(string english) => AddOnApi.Translate(english);
 

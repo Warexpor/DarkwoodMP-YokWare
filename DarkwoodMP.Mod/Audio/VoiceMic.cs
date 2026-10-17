@@ -58,7 +58,7 @@ namespace DWMPHorde.Audio
             get
             {
                 try { return Microphone.devices ?? new string[0]; }
-                catch { return new string[0]; }
+                catch (Exception ex) { ModLog.Swallowed(ex); return new string[0]; }
             }
         }
 
@@ -89,7 +89,7 @@ namespace DWMPHorde.Audio
             if (_clip == null)
                 return;
             try { Microphone.End(DeviceArg(_device)); }
-            catch { /* already gone */ }
+            catch (Exception ex) { ModLog.Swallowed(ex); /* already gone */ }
             _clip = null;
             if (_worker != null)
                 _worker.Stop();
@@ -103,7 +103,7 @@ namespace DWMPHorde.Audio
         private static bool IsRecording()
         {
             try { return Microphone.IsRecording(DeviceArg(_device)); }
-            catch { return false; }
+            catch (Exception ex) { ModLog.Swallowed(ex); return false; }
         }
 
         private static bool Start(string device)
@@ -340,6 +340,7 @@ namespace DWMPHorde.Audio
                 }
                 catch (Exception ex)
                 {
+                    ModLog.Swallowed(ex);
                     _error = ex.GetType().Name + ": " + ex.Message;
                 }
             }

@@ -34,8 +34,9 @@ namespace DWMPHorde.Networking
                     return false;
                 return true;
             }
-            catch
+            catch (Exception ex)
             {
+                ModLog.Swallowed(ex);
                 return false;
             }
         }

@@ -5,6 +5,7 @@ using LiteNetLib;
 using DWMPHorde.Sync;
 using UnityEngine;
 using DWMPHorde.Harmony;
+using DWMPHorde.Logging;
 
 namespace DWMPHorde.Patches
 {
@@ -187,7 +188,7 @@ namespace DWMPHorde.Patches
                 || dw.currentMenu != DialogueWindow.CurrentMenu.trade || dw.npc.inventory == null)
                 return;
             try { dw.npc.inventory.refreshReputation(); }
-            catch { /* the window is closing */ }
+            catch (System.Exception ex) { ModLog.Swallowed(ex); /* the window is closing */ }
         }
     }
 }

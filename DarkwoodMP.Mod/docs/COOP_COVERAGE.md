@@ -59,7 +59,7 @@ state without changing existing players' state.
 | Dreams and epilogue | `DreamSession`, `DreamSyncManager`, dream door and scene paths, `EpilogueNetHandlers` | Code covered (all-dead grace, chain roster, epilogue gate). Every dream played through by three players in the automated pilot (arrival, every trigger area and usable object, the Doctor chain); human playtest pending |
 | Audio and spectator mode | player/entity audio, culling, spectator listener and grid | Code covered; runtime pending |
 | Voice and walkie | `VoiceData` (129) in Opus (`VoiceCodec`, `ThirdParty/Concentus`), `VoiceMic`, `VoiceChatService` (proximity, radio channel, walkie speakers), `VoiceMicChain` (`RnNoise`, `VoiceResampler`), `WorldSoundPickup`, `PlayerState` `WalkieState` byte, `VoiceAlertsEnemies` on the host | Code covered; runtime pending |
-| Names and chat | `PlayerName` (168), `PeerRoster` names, `Nameplates` (sight-tested), chat relayed and stamped by the host | Code covered; runtime pending |
+| Names and chat | `PlayerName` (168), `PeerRoster` names, `Nameplates` (sight-tested), hover health bar (`PeerHealthBarHoverPatch`, `PlayerEffectSync` health), chat relayed and stamped by the host | Code covered; runtime pending |
 | Multiplayer menus | `MultiplayerScreens` on `UI/VanillaMenu` (Host, Join, Settings, Voice, Host settings, world-copy picker), Apply / Revert to default | Code covered; runtime pending |
 | Balance features | loot sharing (world containers and creature bodies only: not trade/crafting/oven panes, death bags or players' drops) and allowlisted dream NPC presence | Code covered; runtime pending |
 

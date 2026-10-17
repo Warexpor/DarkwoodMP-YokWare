@@ -8,6 +8,7 @@ using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
 using UnityEngine.Video;
+using DWMPHorde.Logging;
 
 namespace DWMPHorde.Sync
 {
@@ -53,7 +54,7 @@ namespace DWMPHorde.Sync
 
                 // Vanilla endDreaming parity: journal dream entries, rain, unique teleport, time.
                 try { Singleton<UI>.Instance?.journal?.clearDreamEntries(); }
-                catch (Exception) { /* journal may be null mid-teardown */ }
+                catch (Exception ex) { ModLog.Swallowed(ex); /* journal may be null mid-teardown */ }
 
                 Vector3 restorePos = dreams.positionCopy;
                 if (dreams.preset != null)

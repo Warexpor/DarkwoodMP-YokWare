@@ -276,7 +276,7 @@ namespace DWMPHorde.Networking
                 if (!go.scene.IsValid() || !go.scene.isLoaded)
                     return;
             }
-            catch { return; }
+            catch (Exception ex) { ModLog.Swallowed(ex); return; }
 
             Item item = journalRef.GetComponent<Item>() ?? journalRef.GetComponentInParent<Item>();
             GameObject target = item != null ? item.gameObject : go;
@@ -284,7 +284,7 @@ namespace DWMPHorde.Networking
             {
                 UnityEngine.Object.Destroy(target);
             }
-            catch { /* destroyed Unity object */ }
+            catch (Exception ex) { ModLog.Swallowed(ex); /* destroyed Unity object */ }
         }
     }
 }

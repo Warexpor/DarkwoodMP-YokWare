@@ -66,8 +66,9 @@ namespace DWMPHorde.Audio
                 InvItemClass cur = p != null ? p.currentItem : null;
                 return !InvItemClass.isNull(cur) && cur.type == WalkieType;
             }
-            catch
+            catch (Exception ex)
             {
+                ModLog.Swallowed(ex);
                 return false;
             }
         }
@@ -107,7 +108,7 @@ namespace DWMPHorde.Audio
                 _walkieItem = p.Inventory.getItemInPlayer(name);
                 _localWalkie = !InvItemClass.isNull(_walkieItem);
             }
-            catch { /* ignore */ }
+            catch (Exception ex) { ModLog.Swallowed(ex); /* ignore */ }
         }
 
         /// <summary>Every frame in a game: the knob, the battery, the low-battery chirp.</summary>
@@ -150,7 +151,7 @@ namespace DWMPHorde.Audio
             if (Mathf.Abs(charge - _lastRefreshedCharge) >= 0.01f || item.durability <= 0f)
             {
                 _lastRefreshedCharge = charge;
-                try { item.refresh(); } catch { /* slot UI not up */ }
+                try { item.refresh(); } catch (Exception ex) { ModLog.Swallowed(ex); /* slot UI not up */ }
             }
             if (item.durability <= 0f)
             {

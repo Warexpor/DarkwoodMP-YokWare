@@ -232,6 +232,13 @@ namespace DWMPHorde
                 _joinPending = false;
                 if (wasTimeout)
                     net.StopNetwork();
+                if (!wasTimeout && !string.IsNullOrEmpty(net.JoinRefusedText))
+                {
+                    // Another YokWare version: say which, and long enough to read both numbers.
+                    Flash(net.JoinRefusedText, RefusedFlashSec);
+                    ModLog.Event(LogCat.Session, "Join refused: " + net.JoinRefusedText);
+                    return;
+                }
                 Flash(steamJoin
                     ? "Could not reach the host through Steam"
                     : "Could not reach the host — check the address, port and password");
@@ -372,7 +379,7 @@ namespace DWMPHorde
                 if (!GameScreen.AtTitle)
                     return;
             }
-            catch { return; }
+            catch (Exception ex) { ModLog.Swallowed(ex); return; }
 
             _launchLobbyTried = true;
             net.TryConsumePendingSteamLaunchLobby();

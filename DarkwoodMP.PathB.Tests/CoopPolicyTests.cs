@@ -86,62 +86,14 @@ public class CoopPolicyTests
         Assert.False(DreamOutcomePolicy.IsFailureCleanup("allDead"));
     }
 
-    [Theory]
-    [InlineData("giveItem", true)]
-    [InlineData("removeItem", true)]
-    [InlineData("giveJournalItem", false)]
-    [InlineData("addJournalEntry", false)]
-    [InlineData("worldFlag", false)]
-    [InlineData("fireWorldEvent", false)]
-    [InlineData("modifyReputation", false)]
-    [InlineData("", false)]
-    public void DialogPolicy_PersonalRewardClassification(string type, bool personal)
+    [Fact]
+    public void DialogPolicy_HostRemoteApply_SuppressesBagAndDefersWorld()
     {
-        Assert.Equal(personal, DialogApplyPolicy.IsPersonalRewardType(type));
         Assert.True(DialogApplyPolicy.ShouldSuppressPersonalInventoryMutation(true));
         Assert.False(DialogApplyPolicy.ShouldSuppressPersonalInventoryMutation(false));
-    }
-
-    [Theory]
-    [InlineData("giveJournalItem", true)]
-    [InlineData("addJournalEntry", true)]
-    [InlineData("giveItem", false)]
-    [InlineData("modifyReputation", false)]
-    public void DialogPolicy_WorldJournalClassification(string type, bool journal)
-    {
-        Assert.Equal(journal, DialogApplyPolicy.IsWorldJournalOutcomeType(type));
-    }
-
-    [Theory]
-    [InlineData("worldFlag", true)]
-    [InlineData("fireWorldEvent", true)]
-    [InlineData("startDream", true)]
-    [InlineData("endDream", true)]
-    [InlineData("transportToOutsideLoc", false)]
-    [InlineData("returnToWorld", false)]
-    [InlineData("modifyReputation", true)]
-    [InlineData("markOnMap", true)]
-    [InlineData("enableDialogue", true)]
-    [InlineData("setDontWantToTalk", true)]
-    [InlineData("giveItem", false)]
-    [InlineData("giveJournalItem", false)]
-    [InlineData("cook", false)]
-    public void DialogApplyPolicy_WorldAuthOutcomeTypes(string type, bool world)
-    {
-        Assert.Equal(world, DialogApplyPolicy.IsWorldAuthOutcomeType(type));
         Assert.True(DialogApplyPolicy.ShouldDeferWorldOnClient(true, true, false));
         Assert.False(DialogApplyPolicy.ShouldDeferWorldOnClient(true, true, true)); // applying remote
         Assert.False(DialogApplyPolicy.ShouldDeferWorldOnClient(true, false, false)); // host
-    }
-
-    [Theory]
-    [InlineData("transportToOutsideLoc", true)]
-    [InlineData("returnToWorld", true)]
-    [InlineData("startDream", false)]
-    [InlineData("worldFlag", false)]
-    public void DialogPolicy_TripsBelongToTheSpeaker(string type, bool trip)
-    {
-        Assert.Equal(trip, DialogApplyPolicy.IsSpeakerTripOutcomeType(type));
     }
 
     [Fact]
@@ -391,12 +343,9 @@ public class CoopPolicyTests
     }
 
     [Fact]
-    public void ChapterSession_CreditsPermanent_ChapterResumes()
+    public void ChapterSession_ChapterResumes()
     {
         Assert.True(ChapterSessionPolicy.ShouldAutoResumeNetworkAfterChapter);
-        Assert.True(ChapterSessionPolicy.ShouldStopNetworkPermanently("credits"));
-        Assert.False(ChapterSessionPolicy.ShouldStopNetworkPermanently("chapter2"));
-        Assert.False(ChapterSessionPolicy.ShouldStopNetworkPermanently("chapter1"));
     }
 
     [Fact]
@@ -431,8 +380,6 @@ public class CoopPolicyTests
         Assert.True(CoopWorldPresencePolicy.ShouldKeepNodeForRemote(true, true));
         Assert.False(CoopWorldPresencePolicy.ShouldKeepNodeForRemote(true, false));
         Assert.False(CoopWorldPresencePolicy.ShouldKeepNodeForRemote(false, true));
-        Assert.True(CoopWorldPresencePolicy.ShouldKeepLocationForRemote(true, true));
-        Assert.False(CoopWorldPresencePolicy.ShouldKeepLocationForRemote(true, false));
         Assert.True(CoopWorldPresencePolicy.LocationNamesMatch(
             "outside_doctor_house_01", "outside_doctor_house_01_done"));
         Assert.False(CoopWorldPresencePolicy.LocationNamesMatch(

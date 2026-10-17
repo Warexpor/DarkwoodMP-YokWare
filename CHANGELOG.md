@@ -3,12 +3,12 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.315**. The current Horde wire protocol is **77**. Every install in a session
+**0.8.322**. The current Horde wire protocol is **77**. Every install in a session
 needs the same DLL; the protocol is checked on join.
 
 Protocol history (newest first):
 
-- **77**, 0.8.308 to 0.8.315: `LocationTransport` gains `TargetKey`, the point inside the location to land on.
+- **77**, 0.8.308 to 0.8.322: `LocationTransport` gains `TargetKey`, the point inside the location to land on.
 - **76**, 0.8.306 to 0.8.307: new shared `MapPieceWire` (name, outside-location anchor, X/Z): `MapElementDiscovered` (69)
   is one piece, `MapStateSync` discoveries are pieces instead of bare names; `JournalItem` gains `Popup`.
 - **75**, 0.8.297 to 0.8.305: `CoHold` (170) gains mode 5, `ModePlayerPush`: a player walking into another
@@ -98,6 +98,126 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.322 — silent catches log, test pilot out of the shipped DLL, dead code removed
+
+- **Silent catches now log.** About 290 `catch { /* ignore */ }`-style blocks across the
+  mod swallowed exceptions without a trace, so a fault in one (a desync, a half-applied
+  state) never showed in `LogOutput.log`. Each now calls the new `ModLog.Swallowed(ex)`:
+  the first exception per call site is logged as a `[Swallowed] File.cs:line Member`
+  warning with its stack, later ones only as a count at 10, 100, 1000. What the catch does
+  afterwards is unchanged. Catches of a specific type (`IOException`,
+  `KeyNotFoundException`…) and the logging/bootstrap/config code are left as they were.
+- **Dream pad load:** the end of a dream pad load flushed parked game events and parked
+  pad containers inside one try, so a throw in the game-event flush also skipped the
+  container flush. Each flush now runs on its own (`DreamSyncManager.SceneLoad`).
+- **Test pilot is build-time only.** `TestPilot` (the unattended test driver, about 2,100
+  lines) was compiled into every DLL, the release zips included, and only switched off by
+  the missing `DWMP_PILOT` variable. It is now built in only with
+  `dotnet build DarkwoodMP.Mod -c Release -p:Pilot=true` (`PILOT` define); a normal or
+  release build leaves it out (about 55 KB smaller). `scripts/pilot/pilot-run.sh` refuses
+  to start on boxes without a pilot build, and `pack-release.sh` / `.ps1` refuse to pack one.
+- **Dead code removed:** policy helpers only the tests called (the four
+  `DialogApplyPolicy` outcome-type classifiers and their string constants,
+  `ChapterSessionPolicy.ShouldStopNetworkPermanently`,
+  `CoopWorldPresencePolicy.ShouldKeepLocationForRemote`, `CoopBalance.IsAllowlistedPrefabPath`),
+  unused `DeathStateTracker.RemoteNightDeath`, `SessionSettings.HostApplied`,
+  `GameplayConstants.FarProxyMinDistance`, two reset methods nothing called
+  (`WorldPhysicsSyncService.ResetConsumedWorldPickups`, `DreamSyncManager.ClearChainPocketLoading`;
+  their state is reset elsewhere) and an empty `ConstructibleConstructPatch.Reset`.
+- **Tests:** `StaticStateResetTests` now also fails on a static reset method that nothing
+  calls or registers (a field cleared only there would leak into the next session).
+- No protocol change (77). Code-only: builds on both loaders and the tests pass; not yet
+  checked in game. A `[Swallowed]` line in a playtest log is a real fault to fix.
+
+## 0.8.321 — another player's item draw no longer seems to start twice
+
+- **What broke:** when a player drew an item (seen with the molotov, but any item switch),
+  the others saw the start of the draw twice: the new item showed at the hip, dipped,
+  then came up properly.
+- **Cause:** vanilla puts the old item away ("Hide"), switches the torso library the moment
+  that clip ends (`OnAniFinish`), then plays "Get" in the new library. On the stand-in the
+  library message arrived while its "Hide" was still on its last frames (it runs a frame
+  or so behind), and the library swap kept the running clip at its frame, so the end of
+  the put-away played with the new item's sprites before the draw.
+- **Fix:** a library change during "Hide" on the stand-in ends the put-away and starts
+  "Get" in the new library, as vanilla does; a state packet sent just before the switch
+  (still saying "Hide") does not bring the put-away back. Host and clients alike.
+  `SecondPlayerAnimController.ApplyTorsoLibrary` / `ApplyNetworkSnapshot`.
+- Code-only: not yet checked in a dual-box game.
+
+## 0.8.320 — on/off for the hover health bar on players
+
+- **New:** Multiplayer > Settings has "Players' health" (Yes/No, default Yes), the
+  0.8.319 hover health bar on other players. Turned off, pointing at a player shows no bar
+  and a bar already up for one fades. Config `[Network] ShowPlayerHealth` (bool, default
+  `true`), per player, only this player's own screen. Russian label "Здоровье игроков".
+- `Config/ModConfig.cs`, `UI/MultiplayerScreens.cs`, `PeerHealthBarHoverPatch`, `docs/CONFIG.md`.
+  No protocol change (77). Code-only: not yet checked in game.
+
+## 0.8.319 — hovering another player shows their health bar
+
+- **New:** pointing the cursor at another player shows their health in the same bar a
+  hovered creature, door or barricade gets (top of the screen, red fill), and it fades the
+  same way when the cursor leaves. Same rules as vanilla: within reach, in line of sight,
+  only when nothing else under the cursor is selected. A downed or dead player shows no bar.
+  Works both ways (host and clients) and for any number of players.
+- **How:** the other player's stand-in is not a vanilla creature, so vanilla's hover code
+  never showed a bar for it. A postfix on `Player.selectObject` raycasts the cursor onto the
+  stand-ins and fills `UI.enemyHealthBar` from the player's own synced health
+  (`PlayerEffectSync` `HealthPct`, sent on every change), not the stand-in's CharBase pool.
+  A health change while the bar shows that player refreshes it.
+  `Domains/Players/Patches/PeerHealthBarHoverPatch.cs`, `WorldProxyEffectNetHandlers`.
+- No protocol change (still 77). Code-only so far: not yet checked in a dual-box game.
+
+## 0.8.318 — joining on another YokWare version says which versions, plainly
+
+- **What broke:** a player on another version was told little or nothing useful. Over LAN
+  the join screen briefly had "Version mismatch: the host runs co-op protocol 76, this player
+  runs 77", then the join timer replaced it with "Could not reach the host - check the
+  address, port and password". Over Steam the lobby check failed as "Steam lobby failed:
+  protocol mismatch 76", which the join screen turned into "The Steam lobby is gone". The
+  host saw nothing but a log line.
+- **Now:** the joiner reads "Different YokWare versions: the host has 0.8.315, you have
+  0.8.318. Everyone needs the same version." for 20 s on the join screen (LAN and Steam).
+  Against a build that does not send its version yet it reads "the host's is older/newer
+  than yours (0.8.318)". The host gets a chat line: "A player could not join: they have
+  YokWare 0.8.315, you have 0.8.318." Both in Russian too.
+- **How:** the handshake gains the sender's mod version at its end (`ModVersion`, read only
+  when present, so no protocol bump: older builds on protocol 77 ignore it), the Steam lobby
+  gains a `ver` key next to `proto`, and a refused join keeps its reason
+  (`LanNetworkManager.JoinRefusedText`, cleared on the next connect) for the join screen. A
+  Steam version refusal no longer goes through the lobby-failure path (`OnSteamVersionRefused`),
+  so it is not retried as a reconnect either. Files: `Networking/Session/VersionMismatch.cs`
+  (new), `Networking/Messages/PlayerMessages.cs`, `Networking/Session/LanNetworkManager.SessionHandlers.cs`,
+  `Networking/Steam/SteamCoopTransport*.cs`, `Networking/Steam/LanNetworkManager.Steam.cs`,
+  `UI/MainMenuMultiplayerInject.HostJoin.cs`, `UI/MainMenuMultiplayerInject.JoinState.cs`,
+  `Core/Loc.Ru.cs`.
+
+## 0.8.317 — the mod's menu screens are centred
+
+- **Settings screens** (Multiplayer > Settings, Voice, Players, Host settings): the rows used
+  vanilla's Video-tab columns, which split at x 14.6 (names ending at -1.76, values starting at
+  31), so every row sat right of the centred heading. They now split on the centre line with
+  the same 32-unit gap (`Vm.NameX` -16, `Vm.ValueX` 16); sliders and the mic meter follow.
+- **Return / Apply / Revert to default:** vanilla's places (left edges at -183, 0 and 168) ran
+  the row well right of centre. The row is now laid out left to right 90 units apart and
+  centred as a whole, measured in the shown font so a translation stays centred
+  (`VmBuilder.CentreRow`, `VmBuilder.LastReturn`). A screen with only Return gets it centred.
+- **Saves add-on screen (manual-saves 1.1.1):** columns moved 20 left (slot name, info, Save, Load) so the row is
+  centred too.
+- Files: `UI/VanillaMenu/VanillaMenu.cs`, `DarkwoodMP.ManualSaves/SavesScreen.cs`.
+
+## 0.8.316 — Voice settings: the microphone level meter keeps its size and place
+
+- **Settings > Voice, Microphone level:** the meter was one line of text, `|` for each lit
+  slot and `.` for each empty one. The menu font is not monospaced and `|` is wider than `.`,
+  so the meter grew as you spoke and the "talking" after it slid along the row; at rest it
+  was a short row of dots that lined up with nothing. Now every slot is its own bar at a
+  fixed place, the 18 spread over the width of the sliders below (left edge on the values
+  column), empty slots the same bar dimmed, and "talking" sits at a fixed spot after the
+  last bar. Off / no microphone / starting still show as text. File:
+  `UI/MultiplayerScreens.Voice.cs` (`BuildMeterBars`, `ShowMeterBars`).
 
 ## 0.8.315 — incoming radio beep and squelch: pitch only, 3 semitones down
 

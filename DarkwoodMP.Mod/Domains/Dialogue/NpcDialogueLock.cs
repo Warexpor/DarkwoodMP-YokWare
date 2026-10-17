@@ -387,7 +387,7 @@ namespace DWMPHorde.Sync
                     EventTriggers et = ets[i];
                     if (et == null || et.gameObject == npc.gameObject) continue;
                     try { et.fireEventTrigger(EventTrigger.Type.onEnterDialogue); }
-                    catch { /* ignore */ }
+                    catch (System.Exception ex) { ModLog.Swallowed(ex); /* ignore */ }
                 }
             }
             catch (System.Exception ex)

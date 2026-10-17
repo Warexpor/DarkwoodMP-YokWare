@@ -95,7 +95,7 @@ namespace DWMPHorde.Networking
                     EventTriggers et = ets[i];
                     if (et == null || et.gameObject == npc.gameObject) continue;
                     try { et.fireEventTrigger(EventTrigger.Type.onCloseDialogue); }
-                    catch { /* ignore */ }
+                    catch (Exception ex) { ModLog.Swallowed(ex); /* ignore */ }
                 }
 
                 // Replay leave-door events under the dream pad when the normal close trigger

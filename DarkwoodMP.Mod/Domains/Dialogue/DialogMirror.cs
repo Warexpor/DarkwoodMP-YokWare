@@ -67,7 +67,7 @@ namespace DWMPHorde.Sync
             if (SpectatorActive)
             {
                 try { ForceCloseView(); }
-                catch { /* UI mid-teardown */ }
+                catch (System.Exception ex) { ModLog.Swallowed(ex); /* UI mid-teardown */ }
             }
             SpectatorActive = false;
             Closing = false;
@@ -401,7 +401,7 @@ namespace DWMPHorde.Sync
                     continue;
                 bool met;
                 try { met = o.requirementsMet(); }
-                catch { met = true; }
+                catch (System.Exception ex) { ModLog.Swallowed(ex); met = true; }
                 if (!met)
                     continue;
                 portrait = (int)o.portraitType;
@@ -1152,7 +1152,7 @@ namespace DWMPHorde.Sync
                     if (sp != null && !string.IsNullOrEmpty(e.Sprite))
                     {
                         try { sp.SetSprite(e.Sprite); }
-                        catch { /* sprite not in this collection */ }
+                        catch (System.Exception ex) { ModLog.Swallowed(ex); /* sprite not in this collection */ }
                         if (tm == null)
                             sp.color = color;
                     }
@@ -1322,7 +1322,7 @@ namespace DWMPHorde.Sync
                     dw.currentlySelectedMenuOption = index;
                 }
             }
-            catch { /* buttons mid-rebuild */ }
+            catch (System.Exception ex) { ModLog.Swallowed(ex); /* buttons mid-rebuild */ }
             finally { Driving = false; }
         }
 
@@ -1500,7 +1500,7 @@ namespace DWMPHorde.Sync
                 return;
             Patches.PersonalFlavorHud.BeginBypass();
             try { Player.Instance.displayMessage(Loc.T(text)); }
-            catch { /* HUD mid-teardown */ }
+            catch (System.Exception ex) { ModLog.Swallowed(ex); /* HUD mid-teardown */ }
             finally { Patches.PersonalFlavorHud.EndBypass(); }
         }
     }

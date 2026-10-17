@@ -5,6 +5,7 @@ using DWMPHorde.Sync;
 using HarmonyLib;
 using UnityEngine;
 using DWMPHorde.Harmony;
+using DWMPHorde.Logging;
 
 namespace DWMPHorde.Patches
 {
@@ -45,7 +46,7 @@ namespace DWMPHorde.Patches
             {
                 _gameEventField = HarmonyCoroutineUtil.FindThisField(stateMachine.GetType(), typeof(GameEvent));
                 try { _gameEventGet = HarmonyCoroutineUtil.FieldGetter(_gameEventField); }
-                catch { _gameEventGet = null; }
+                catch (System.Exception ex) { ModLog.Swallowed(ex); _gameEventGet = null; }
             }
             if (_gameEventField == null)
                 return null;

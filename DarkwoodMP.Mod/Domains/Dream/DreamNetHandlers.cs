@@ -381,7 +381,7 @@ namespace DWMPHorde.Networking
                             if (Singleton<Dreams>.Instance != null)
                                 Singleton<Dreams>.Instance.dreamPrepared = false;
                         }
-                        catch { /* ignore */ }
+                        catch (Exception inner) { ModLog.Swallowed(inner); /* ignore */ }
                         DreamSession.AbortStarting(ex.Message);
                         DreamSession.NextLevelBits = 0;
                         RejectStartRequest(requesterId, "prepare_failed");

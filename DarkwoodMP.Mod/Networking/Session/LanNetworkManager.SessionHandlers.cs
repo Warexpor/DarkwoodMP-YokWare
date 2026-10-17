@@ -26,6 +26,7 @@ namespace DWMPHorde.Networking
             _suppressHostMigration = true;
             StopNetwork();
             StatusText = why;
+            JoinRefusedText = why;
             WorldSaveShare?.SetWrongSaveProgress(why);
         }
 
@@ -34,16 +35,13 @@ namespace DWMPHorde.Networking
             if (handshake.ProtocolVersion != PluginInfo.ProtocolVersion)
             {
                 ModLog.Error(LogCat.Network,
-                    "Protocol mismatch. Local="
-                    + PluginInfo.ProtocolVersion
-                    + " remote="
-                    + handshake.ProtocolVersion
+                    "Protocol mismatch. Local=" + PluginInfo.ProtocolVersion + " (" + PluginInfo.Version + ")"
+                    + " remote=" + handshake.ProtocolVersion
+                    + " (" + (string.IsNullOrEmpty(handshake.ModVersion) ? "version not sent" : handshake.ModVersion) + ")"
                     + " — update both mods to the same version.");
-                string why = "Version mismatch: the host runs co-op protocol "
-                    + (_role == NetworkRole.Host ? PluginInfo.ProtocolVersion : handshake.ProtocolVersion)
-                    + ", this player runs "
-                    + (_role == NetworkRole.Host ? handshake.ProtocolVersion : PluginInfo.ProtocolVersion)
-                    + ". Update both to the same YokWare version.";
+                string why = _role == NetworkRole.Host
+                    ? VersionMismatch.ForHost(handshake.ProtocolVersion, handshake.ModVersion)
+                    : VersionMismatch.ForJoiner(handshake.ProtocolVersion, handshake.ModVersion);
                 if (_role == NetworkRole.Host && _currentReceivePlayerId > 0)
                 {
                     // The joiner was dropped with no word and saw only a lost link. It gets the
@@ -58,6 +56,9 @@ namespace DWMPHorde.Networking
                         HostPlayerId = (short)_localPlayerId
                     }.Serialize(w), DeliveryMethod.ReliableOrdered);
                     StartCoroutine(DropPeerAfterGrace(refused, why));
+                    // The host hears of it too: a friend on an old build otherwise just never shows up.
+                    try { ChatHud.AddSystemLine(Loc.T(why)); }
+                    catch (Exception ex) { ModLog.Swallowed(ex); /* chat not up (host at the title) */ }
                     return;
                 }
                 if (_role == NetworkRole.Client)
@@ -111,7 +112,7 @@ namespace DWMPHorde.Networking
                     // is still correct (soft reconnect keeps world). Republish before restore
                     // wait so haveItem EventTriggers work even if backup push is skipped.
                     try { Sync.PeerItemPresence.SendFullLocalInventory(); }
-                    catch { /* non-fatal */ }
+                    catch (Exception ex) { ModLog.Swallowed(ex); /* non-fatal */ }
                     BeginClientBackupRestoreWait();
                 }
                 else

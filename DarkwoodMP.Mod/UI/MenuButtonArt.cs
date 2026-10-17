@@ -173,8 +173,9 @@ namespace DWMPHorde
                 v1 = (yMax + 1) / (float)h;
                 return true;
             }
-            catch
+            catch (Exception ex)
             {
+                ModLog.Swallowed(ex);
                 return false;
             }
         }

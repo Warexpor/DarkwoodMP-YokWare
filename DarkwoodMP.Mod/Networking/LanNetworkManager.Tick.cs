@@ -30,8 +30,10 @@ namespace DWMPHorde.Networking
             // the host paths, and its frame trouble must show in the log.
             // A solo pilot run (DWMP_PILOT=solo...) is probed offline too: the single-player baseline.
             bool perf = _role == NetworkRole.Host
-                || (_role == NetworkRole.Client && IsConnected && _session.Link.HandshakeComplete)
-                || (_role == NetworkRole.Offline && Sync.TestPilot.SoloProbe);
+                || (_role == NetworkRole.Client && IsConnected && _session.Link.HandshakeComplete);
+#if PILOT
+            perf |= _role == NetworkRole.Offline && Sync.TestPilot.SoloProbe;
+#endif
             ClientPerfProbe.SetActive(perf, _role);
             if (perf) ClientPerfProbe.FrameBegin();
 
@@ -49,7 +51,9 @@ namespace DWMPHorde.Networking
             if (perf) ClientPerfProbe.BeginUpdateSegment("steamPoll");
             PollSteamBackend();
             if (perf) ClientPerfProbe.BeginUpdateSegment("pilotMenuNames");
+#if PILOT
             Sync.TestPilot.Tick(this);
+#endif
             Sync.PauseMenuSync.Tick(this);
             Sync.PlayerNames.Tick(this);
             if (perf) ClientPerfProbe.BeginUpdateSegment("lightProbe");

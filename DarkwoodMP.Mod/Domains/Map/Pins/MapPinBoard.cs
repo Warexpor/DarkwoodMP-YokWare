@@ -119,14 +119,14 @@ namespace DWMPHorde.Sync
                 if (Core.currentProfile != null && Core.currentProfile.chapter > 0)
                     return Core.currentProfile.chapter;
             }
-            catch { /* scene teardown */ }
+            catch (Exception ex) { ModLog.Swallowed(ex); /* scene teardown */ }
             return 1;
         }
 
         private static int CurrentDay()
         {
             try { return Core.currentProfile != null ? Core.currentProfile.day : 0; }
-            catch { return 0; }
+            catch (Exception ex) { ModLog.Swallowed(ex); return 0; }
         }
 
         internal static string LocalName() => PlayerNames.LocalName();

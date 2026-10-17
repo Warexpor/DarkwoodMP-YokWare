@@ -319,7 +319,7 @@ namespace DWMPHorde.Networking
         {
             string line = Loc.T(text);
             try { ChatHud.AddSystemLine(line); }
-            catch { /* chat not up */ }
+            catch (Exception ex) { ModLog.Swallowed(ex); /* chat not up */ }
             try
             {
                 if (Player.Instance != null && !GameScreen.AtTitle && !Core.loadingGame)

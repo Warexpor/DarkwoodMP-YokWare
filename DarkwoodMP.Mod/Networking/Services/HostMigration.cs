@@ -225,7 +225,7 @@ namespace DWMPHorde.Networking
                     finally { DWMPHorde.Patches.PersonalFlavorHud.EndBypass(); }
                 }
             }
-            catch { /* non-fatal */ }
+            catch (Exception ex) { ModLog.Swallowed(ex); /* non-fatal */ }
         }
 
         private void TickSoftReconnectRetry()

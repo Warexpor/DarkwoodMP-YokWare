@@ -318,7 +318,7 @@ namespace DWMPHorde.Networking
                         }
                     }
                 }
-                catch { /* keep raw json */ }
+                catch (Exception ex) { ModLog.Swallowed(ex); /* keep raw json */ }
 
                 string path;
                 string keyTag;
@@ -337,7 +337,7 @@ namespace DWMPHorde.Networking
                                 path = GetProfileBackupDirectory() + "/client_backup_s" + steamId + "_" + c + ".json";
                         }
                     }
-                    catch { /* use GetBackupFilePathForSteam */ }
+                    catch (Exception ex) { ModLog.Swallowed(ex); /* use GetBackupFilePathForSteam */ }
                 }
                 else if (!string.IsNullOrEmpty(stableKey))
                 {
@@ -354,7 +354,7 @@ namespace DWMPHorde.Networking
                                 path = GetProfileBackupDirectory() + "/client_backup_k" + stableKey + "_" + c + ".json";
                         }
                     }
-                    catch { /* use GetBackupFilePathForStableKey */ }
+                    catch (Exception ex) { ModLog.Swallowed(ex); /* use GetBackupFilePathForStableKey */ }
                 }
                 else
                 {
@@ -371,7 +371,7 @@ namespace DWMPHorde.Networking
                                 path = GetProfileBackupDirectory() + "/client_backup_p" + playerId + "_" + c + ".json";
                         }
                     }
-                    catch { /* use path from GetBackupFilePathForPlayer */ }
+                    catch (Exception ex) { ModLog.Swallowed(ex); /* use path from GetBackupFilePathForPlayer */ }
                 }
 
                 CoopWorldCopyMeta.WriteAllTextAtomic(path, json);
@@ -421,7 +421,7 @@ namespace DWMPHorde.Networking
                         }
                     }
                 }
-                catch { /* write anyway */ }
+                catch (Exception ex) { ModLog.Swallowed(ex); /* write anyway */ }
 
                 string path = GetLocalSelfBackupPath();
                 try
@@ -434,7 +434,7 @@ namespace DWMPHorde.Networking
                             path = GetProfileBackupDirectory() + "/client_backup_self_" + c + ".json";
                     }
                 }
-                catch { /* default path */ }
+                catch (Exception ex) { ModLog.Swallowed(ex); /* default path */ }
 
                 CoopWorldCopyMeta.WriteAllTextAtomic(path, json);
                 InvalidateSelfPeek();

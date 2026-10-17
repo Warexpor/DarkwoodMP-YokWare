@@ -48,14 +48,14 @@ namespace DWMPHorde.Networking.Steam
                 {
                     _pendingHostConnects.Remove(gone.m_SteamID);
                     try { SteamNetworkingSockets.CloseConnection(parked.Conn, CloseReasonGeneric, "left lobby", false); }
-                    catch { /* tear */ }
+                    catch (Exception ex) { ModLog.Swallowed(ex); /* tear */ }
                 }
                 if (_connBySteamId.TryGetValue(gone.m_SteamID, out HSteamNetConnection conn))
                 {
                     ModLog.Event(LogCat.Network, "Steam client " + gone.m_SteamID + " left the lobby — dropping its link");
                     UntrackConn(conn, gone.m_SteamID);
                     try { SteamNetworkingSockets.CloseConnection(conn, CloseReasonGeneric, "left lobby", false); }
-                    catch { /* tear */ }
+                    catch (Exception ex) { ModLog.Swallowed(ex); /* tear */ }
                     _owner.OnSteamSessionFailed(gone, closedByPeer: true);
                 }
                 return;
@@ -136,9 +136,12 @@ namespace DWMPHorde.Networking.Steam
             if (!string.IsNullOrEmpty(remoteProto)
                 && !string.Equals(remoteProto, localProto, StringComparison.Ordinal))
             {
+                string remoteVersion = SteamMatchmaking.GetLobbyData(_lobbyId, LobbyKeyVersion) ?? "";
                 ModLog.Error(LogCat.Network,
-                    "Steam lobby protocol mismatch remote=" + remoteProto + " local=" + localProto);
-                _owner.OnSteamLobbyFailed("protocol mismatch " + remoteProto);
+                    "Steam lobby protocol mismatch remote=" + remoteProto + " (" + (remoteVersion.Length > 0 ? remoteVersion : "version not set")
+                    + ") local=" + localProto + " (" + PluginInfo.Version + ")");
+                int.TryParse(remoteProto, out int remoteProtoNum);
+                _owner.OnSteamVersionRefused(VersionMismatch.ForJoiner(remoteProtoNum, remoteVersion));
                 return;
             }
 
@@ -181,11 +184,12 @@ namespace DWMPHorde.Networking.Steam
                 return;
             SteamMatchmaking.SetLobbyData(_lobbyId, LobbyKeyMod, "1");
             SteamMatchmaking.SetLobbyData(_lobbyId, LobbyKeyProto, PluginInfo.ProtocolVersion.ToString());
+            SteamMatchmaking.SetLobbyData(_lobbyId, LobbyKeyVersion, PluginInfo.Version);
             string name = ModConfig.PlayerName?.Value;
             if (string.IsNullOrEmpty(name))
             {
                 try { name = SteamFriends.GetPersonaName(); }
-                catch { name = "Host"; }
+                catch (Exception ex) { ModLog.Swallowed(ex); name = "Host"; }
             }
             SteamMatchmaking.SetLobbyData(_lobbyId, LobbyKeyName, name ?? "Host");
             SteamMatchmaking.SetLobbyJoinable(_lobbyId, true);

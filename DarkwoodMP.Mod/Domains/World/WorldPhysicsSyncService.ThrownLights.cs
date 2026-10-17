@@ -85,7 +85,7 @@ namespace DWMPHorde.Sync
                     }
                 }
             }
-            catch { /* optional */ }
+            catch (Exception ex) { ModLog.Swallowed(ex); /* optional */ }
 
             foreach (var ps in go.GetComponentsInChildren<ParticleSystem>(true))
             {
@@ -206,7 +206,7 @@ namespace DWMPHorde.Sync
                     if (ctrl != null)
                         ctrl.logicLights.Remove(lt);
                 }
-                catch { /* ignore */ }
+                catch (Exception ex) { ModLog.Swallowed(ex); /* ignore */ }
                 lt.LightIntensity = 0f;
                 lt.gameObject.SetActive(false);
             }

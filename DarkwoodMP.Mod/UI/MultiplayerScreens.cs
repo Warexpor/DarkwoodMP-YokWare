@@ -542,6 +542,9 @@ namespace DWMPHorde
             b.Choice("Player names", z, NameChoices, NameIndex,
                 i => { if (ModConfig.ShowPlayerNames != null) ModConfig.ShowPlayerNames.Value = NameValues[i]; });
             z -= step;
+            b.Choice("Players' health", z, YesNo, () => ModConfig.ShowPlayerHealth == null || ModConfig.ShowPlayerHealth.Value ? 1 : 0,
+                i => { if (ModConfig.ShowPlayerHealth != null) ModConfig.ShowPlayerHealth.Value = i == 1; });
+            z -= step;
             b.Choice("Text chat", z, YesNo, () => ModConfig.ChatEnabled != null && ModConfig.ChatEnabled.Value ? 1 : 0,
                 i => { if (ModConfig.ChatEnabled != null) ModConfig.ChatEnabled.Value = i == 1; });
             z -= step;
@@ -573,6 +576,7 @@ namespace DWMPHorde
             // The name everyone sees; the rest only changes this player's own screen and ears.
             yield return Setting(ModConfig.PlayerName, ask: true);
             yield return Setting(ModConfig.ShowPlayerNames);
+            yield return Setting(ModConfig.ShowPlayerHealth);
             yield return Setting(ModConfig.ChatEnabled);
             yield return Setting(ModConfig.PeerMovementVolume);
             yield return Setting(ModConfig.StuckRecoveryButton);

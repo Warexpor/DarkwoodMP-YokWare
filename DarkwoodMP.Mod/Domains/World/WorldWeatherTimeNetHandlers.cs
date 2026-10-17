@@ -319,7 +319,7 @@ namespace DWMPHorde.Networking
             if (dreamClock && Dreams.Instance != null && Dreams.Instance.dreaming)
             {
                 try { ctrl.updateAmbientLight(); }
-                catch { /* non-fatal */ }
+                catch (System.Exception ex) { ModLog.Swallowed(ex); /* non-fatal */ }
             }
         }
 

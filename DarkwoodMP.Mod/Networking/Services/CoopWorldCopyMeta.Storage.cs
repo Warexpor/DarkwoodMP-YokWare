@@ -98,7 +98,7 @@ namespace DWMPHorde.Networking
                     if (File.Exists(path) && string.Equals(File.ReadAllText(path), json, StringComparison.Ordinal))
                         return; // unchanged — no rewrite
                 }
-                catch { /* rewrite */ }
+                catch (Exception ex) { ModLog.Swallowed(ex); /* rewrite */ }
                 WriteAllTextAtomic(path, json);
             }
             catch (Exception ex)
@@ -122,8 +122,9 @@ namespace DWMPHorde.Networking
                     File.Replace(tmp, path, null);
                     return;
                 }
-                catch (Exception)
+                catch (Exception ex)
                 {
+                    ModLog.Swallowed(ex);
                     // File.Replace is unsupported on some file systems: fall back to delete + move.
                     File.Delete(path);
                 }

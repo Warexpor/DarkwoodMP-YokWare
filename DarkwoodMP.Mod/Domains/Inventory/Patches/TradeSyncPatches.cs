@@ -4,6 +4,7 @@ using DWMPHorde.Sync;
 using HarmonyLib;
 using LiteNetLib;
 using UnityEngine;
+using DWMPHorde.Logging;
 
 namespace DWMPHorde.Patches
 {
@@ -424,7 +425,7 @@ namespace DWMPHorde.Patches
                             if (Singleton<ItemsDatabase>.Instance != null)
                                 def = Singleton<ItemsDatabase>.Instance.getItem(type, instantiate: false);
                         }
-                        catch { /* title/join race */ }
+                        catch (System.Exception ex) { ModLog.Swallowed(ex); /* title/join race */ }
                         if (def == null || !def.hasAmmo)
                             continue;
                     }

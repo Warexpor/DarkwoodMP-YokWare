@@ -3,6 +3,7 @@ using DWMPHorde.Players;
 using DWMPHorde.Sync;
 using HarmonyLib;
 using UnityEngine;
+using DWMPHorde.Logging;
 
 namespace DWMPHorde.Patches
 {
@@ -163,8 +164,9 @@ namespace DWMPHorde.Patches
                 InvItem inv = go.GetComponent<InvItem>();
                 return inv != null ? inv.type : null;
             }
-            catch
+            catch (System.Exception ex)
             {
+                ModLog.Swallowed(ex);
                 return null;
             }
         }
@@ -208,7 +210,7 @@ namespace DWMPHorde.Patches
                 where = proxy.GetComponentInChildren<WhereAmI>();
             if (where == null) return null;
             try { where.checkWhereAmI(); }
-            catch { /* clone may lack colliders */ }
+            catch (System.Exception ex) { ModLog.Swallowed(ex); /* clone may lack colliders */ }
             return where.bigLocation;
         }
     }

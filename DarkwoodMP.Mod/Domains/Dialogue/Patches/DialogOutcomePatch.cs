@@ -2,6 +2,7 @@ using DWMPHorde.Networking;
 using DWMPHorde.Sync;
 using HarmonyLib;
 using LiteNetLib;
+using DWMPHorde.Logging;
 
 namespace DWMPHorde.Patches
 {
@@ -58,7 +59,7 @@ namespace DWMPHorde.Patches
                     && !string.IsNullOrEmpty(__instance.destDialogueName))
                     DialogBoardCommit.NoteChoiceDest(__instance.destDialogueName);
             }
-            catch { __state = ""; }
+            catch (System.Exception ex) { ModLog.Swallowed(ex); __state = ""; }
         }
 
         private static void Postfix(DialogueButton __instance, string __state)

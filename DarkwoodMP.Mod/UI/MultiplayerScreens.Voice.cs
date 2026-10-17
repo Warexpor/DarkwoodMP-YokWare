@@ -23,6 +23,9 @@ namespace DWMPHorde
         private static VmSettingsPage _voicePlayersPage; // process-scoped: Apply / Revert to default of Players
         private static tk2dTextMesh _meter; // process-scoped: the live level row on the Voice screen
         private static string _meterShown; // process-scoped: last meter text, to rebuild the mesh only on change
+        private static tk2dTextMesh[] _meterBars; // process-scoped: one fixed bar per meter slot on the Voice screen
+        private static tk2dTextMesh _meterTalking; // process-scoped: "talking" after the meter, at a fixed place
+        private static Color _meterLit = Color.white; // process-scoped: a filled bar's colour (the values column's)
 
         private const int MeterSlots = 18;
         private const int DeviceNameMax = 28;
@@ -162,6 +165,7 @@ namespace DWMPHorde
             Button meter = b.Value("", z, null);
             _meter = meter != null ? meter.textMesh : null;
             _meterShown = null;
+            BuildMeterBars(b, z);
             z -= step;
             b.Slider("Voice volume", z, () => VolumeScale.ToSlider(ModConfig.VoiceVolume?.Value ?? 1f),
                 t => { if (ModConfig.VoiceVolume != null) ModConfig.VoiceVolume.Value = VolumeScale.FromSlider(t); });
@@ -174,6 +178,61 @@ namespace DWMPHorde
             b.Value(others > 0 ? others + " ..." : Loc.T("Nobody yet"), z, () => Vm.Open(_voicePlayers), enabled: others > 0);
             b.Return();
             _voicePage.Buttons(b);
+        }
+
+        /// <summary>
+        /// The level meter: one bar per slot, each its own text at a fixed place, spread over the
+        /// width of the sliders below it. One string of '|' and '.' changed width as it filled (the
+        /// menu font is not monospaced), so the row grew and its "talking" moved as one spoke.
+        /// Empty slots are the same bar, dimmed.
+        /// </summary>
+        private static void BuildMeterBars(VmBuilder b, float z)
+        {
+            _meterBars = null;
+            _meterTalking = null;
+            if (_meter == null)
+                return;
+            _meterLit = _meter.color;
+            MainMenu m = Vm.Menu;
+            GameObject sliderSrc = m != null ? Vm.SliderSource(m) : null;
+            OptionsSlider os = sliderSrc != null ? sliderSrc.GetComponent<OptionsSlider>() : null;
+            float width = os != null ? os.xSize : 200f;
+            float slot = width / MeterSlots;
+            // Same line as the values column; each bar centred in its slot.
+            TextAnchor left = _meter.anchor;
+            TextAnchor centre = (TextAnchor)((int)left / 3 * 3 + 1);
+            var bars = new tk2dTextMesh[MeterSlots];
+            for (int i = 0; i < MeterSlots; i++)
+            {
+                bars[i] = b.Label("|", Vm.ValueX + slot * (i + 0.5f), z, centre, Vm.Dim);
+                if (bars[i] == null)
+                    return;
+            }
+            _meterBars = bars;
+            _meterTalking = b.Label("", Vm.ValueX + width + slot, z, left, _meterLit);
+            ShowMeterBars(false, 0, false);
+        }
+
+        private static void ShowMeterBars(bool shown, int lit, bool talking)
+        {
+            if (_meterBars == null)
+                return;
+            for (int i = 0; i < _meterBars.Length; i++)
+            {
+                tk2dTextMesh bar = _meterBars[i];
+                if (bar == null)
+                    continue;
+                if (bar.gameObject.activeSelf != shown)
+                    bar.gameObject.SetActive(shown);
+                Color c = i < lit ? _meterLit : Vm.Dim;
+                if (bar.color != c)
+                {
+                    bar.color = c;
+                    bar.Commit();
+                }
+            }
+            if (_meterTalking != null)
+                Vm.SetText(_meterTalking, shown && talking ? Loc.T("talking") : "");
         }
 
         // process-scoped: what the meter text was made from (state 0 off, 1 no mic, 2 starting, 3 level)
@@ -210,6 +269,7 @@ namespace DWMPHorde
             _meterState = state;
             _meterLevel = n;
             _meterOn = on;
+            ShowMeterBars(state == 3 && _meterBars != null, n, on);
             string shown;
             if (state == 0)
                 shown = Loc.T("Voice chat is off");
@@ -217,8 +277,11 @@ namespace DWMPHorde
                 shown = Loc.T("No microphone found");
             else if (state == 2)
                 shown = Loc.T("Starting...");
+            else if (_meterBars != null)
+                shown = "";
             else
             {
+                // No bars built (menu sources missing): the old one-line meter.
                 StringBuilder sb = _meterSb;
                 sb.Length = 0;
                 for (int i = 0; i < MeterSlots; i++)

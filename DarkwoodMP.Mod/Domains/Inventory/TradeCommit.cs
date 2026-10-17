@@ -3,6 +3,7 @@ using DWMPHorde.Networking;
 using DWMPHorde.Sync;
 using LiteNetLib;
 using UnityEngine;
+using DWMPHorde.Logging;
 
 namespace DWMPHorde.Patches
 {
@@ -158,7 +159,7 @@ namespace DWMPHorde.Patches
                 ModRuntime.LegacyInfo($"[RepSync] p{sender}'s trade: shared rep '{msg.NpcName}' {msg.RepDelta:+0;-0;0} → {standing.reputation}");
             }
             try { stock.refreshReputation(); }
-            catch { /* reputation UI not up */ }
+            catch (System.Exception ex) { ModLog.Swallowed(ex); /* reputation UI not up */ }
             var dw = Singleton<UI>.Instance?.dialogueWindow;
             if (dw != null && dw.opened && dw.npc == npc && dw.currentMenu == DialogueWindow.CurrentMenu.trade)
                 stock.refreshIcons();

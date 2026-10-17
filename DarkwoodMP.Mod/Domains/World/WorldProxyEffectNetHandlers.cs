@@ -178,7 +178,10 @@ namespace DWMPHorde.Networking
             }
             proxy.RemoteInEpilogue = msg.InEpilogue;
             proxy.RemoteInPrologue = msg.InPrologue;
+            bool healthChanged = proxy.RemoteHealthPct != msg.HealthPct;
             proxy.RemoteHealthPct = msg.HealthPct;
+            if (healthChanged)
+                DWMPHorde.Patches.PeerHealthBarHoverPatch.RefreshIfShowing(proxy);
             proxy.RemoteDarknessPct = msg.DarknessPct;
             if (msg.HasSkills)
             {
@@ -286,7 +289,7 @@ namespace DWMPHorde.Networking
             CharBase cb = proxy != null ? proxy.CachedCharBase : null;
             if (cb == null) return;
             try { cb.checkGround(); }
-            catch { /* stand-in torn down mid-frame */ }
+            catch (Exception ex) { ModLog.Swallowed(ex); /* stand-in torn down mid-frame */ }
         }
 
         /// <summary>

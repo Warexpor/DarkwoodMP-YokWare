@@ -8,6 +8,7 @@ using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
 using UnityEngine.Video;
+using DWMPHorde.Logging;
 
 namespace DWMPHorde.Sync
 {
@@ -249,10 +250,10 @@ namespace DWMPHorde.Sync
                 {
                     ui.tweenBlackScreen(new Color(0f, 0f, 0f, 0f), 0.5f);
                     try { ui.tweenBlackScreenTop(new Color(0f, 0f, 0f, 0f), 0.5f); }
-                    catch { /* ignore */ }
+                    catch (Exception ex) { ModLog.Swallowed(ex); /* ignore */ }
                 }
             }
-            catch { /* ignore */ }
+            catch (Exception ex) { ModLog.Swallowed(ex); /* ignore */ }
             // A prepared flag left behind held saves off and kept this peer out of the open world
             // (it reads as "a dream is on its way") until the next dream; the entry's input locks
             // stayed too.
@@ -264,7 +265,7 @@ namespace DWMPHorde.Sync
                     Dreams.Instance.wantToDream = false;
                 }
             }
-            catch { /* ignore */ }
+            catch (Exception ex) { ModLog.Swallowed(ex); /* ignore */ }
             ReleaseDreamInputLocks();
             UnfreezeWorld(restoreTime: false);
             if (DreamSession.IsActive)

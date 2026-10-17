@@ -383,7 +383,7 @@ namespace DWMPHorde.Audio
                         _walkieTx = !down && RadioTalkHeld() && WalkieTxAllowed() && LocalRadioLive;
                 }
             }
-            catch { /* ignore */ }
+            catch (Exception ex) { ModLog.Swallowed(ex); /* ignore */ }
 
             // A test tone sent as radio talk keys the walkie like the mouse button would.
             if (_toneWalkie && Time.unscaledTime < _toneUntil)
@@ -530,8 +530,9 @@ namespace DWMPHorde.Audio
                     Globals g = Singleton<Globals>.Instance;
                     return g != null && g.controllerMode;
                 }
-                catch
+                catch (Exception ex)
                 {
+                    ModLog.Swallowed(ex);
                     return false;
                 }
             }
@@ -552,8 +553,9 @@ namespace DWMPHorde.Audio
                 Rewired.Player rp = input != null ? input.rewiredPlayer : null;
                 return rp != null && (down ? rp.GetButtonDown(action) : rp.GetButton(action));
             }
-            catch
+            catch (Exception ex)
             {
+                ModLog.Swallowed(ex);
                 return false;
             }
         }

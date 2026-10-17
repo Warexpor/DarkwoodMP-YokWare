@@ -54,7 +54,7 @@ namespace DWMPHorde.Sync
             {
                 return db.getKey(type) != null || db.getNote(type) != null || db.getItem(type) != null;
             }
-            catch { return false; }
+            catch (System.Exception ex) { ModLog.Swallowed(ex); return false; }
         }
 
         /// <summary>Host: this client already took its copy from the slot (before the take is applied).</summary>

@@ -2,6 +2,7 @@ using DWMPHorde.Networking;
 using DWMPHorde.Sync;
 using HarmonyLib;
 using LiteNetLib;
+using DWMPHorde.Logging;
 
 namespace DWMPHorde.Patches
 {
@@ -42,12 +43,12 @@ namespace DWMPHorde.Patches
                             finally { PersonalFlavorHud.EndBypass(); }
                         }
                     }
-                    catch { /* ignore */ }
+                    catch (System.Exception ex) { ModLog.Swallowed(ex); /* ignore */ }
                     return false;
                 }
                 DialogHostApplyGuard.ClearChainedDisplayBlock();
                 try { PeerItemPresence.SendFullLocalInventory(); }
-                catch { /* ignore */ }
+                catch (System.Exception ex) { ModLog.Swallowed(ex); /* ignore */ }
                 NpcDialogueLock.BeginLeaseRenewal(_npc);
                 return true;
             }
@@ -64,7 +65,7 @@ namespace DWMPHorde.Patches
                         finally { PersonalFlavorHud.EndBypass(); }
                     }
                 }
-                catch { /* ignore */ }
+                catch (System.Exception ex) { ModLog.Swallowed(ex); /* ignore */ }
                 return false;
             }
 
@@ -76,7 +77,7 @@ namespace DWMPHorde.Patches
             // Local optimistic acquire so UI opens; host deny will close if racing.
             NpcDialogueLock.TryAcquire(npcRef, localId);
             try { PeerItemPresence.SendFullLocalInventory(); }
-            catch { /* ignore */ }
+            catch (System.Exception ex) { ModLog.Swallowed(ex); /* ignore */ }
             NpcDialogueLock.BeginLeaseRenewal(_npc);
             return true;
         }

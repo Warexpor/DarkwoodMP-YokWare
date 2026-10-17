@@ -80,10 +80,10 @@ namespace DWMPHorde.Sync
                 {
                     ui.tweenBlackScreen(new Color(0f, 0f, 0f, 0f), 0.5f);
                     try { ui.tweenBlackScreenTop(new Color(0f, 0f, 0f, 0f), 0.5f); }
-                    catch { /* ignore */ }
+                    catch (Exception ex) { ModLog.Swallowed(ex); /* ignore */ }
                 }
             }
-            catch { /* ignore */ }
+            catch (Exception ex) { ModLog.Swallowed(ex); /* ignore */ }
 
             if (DreamSession.IsActive)
             {
@@ -108,7 +108,7 @@ namespace DWMPHorde.Sync
                         Dreams.Instance.dreamPrepared = false;
                     }
                 }
-                catch { /* ignore */ }
+                catch (Exception ex) { ModLog.Swallowed(ex); /* ignore */ }
                 DropUnstartedLocalPad();
                 UnfreezeWorld(restoreTime: false);
                 // No dream came of this entry: the movie's audio fade and paused world sounds stay
@@ -118,7 +118,7 @@ namespace DWMPHorde.Sync
                     Singleton<Controller>.Instance?.fadeAudio(fadeOut: false, 1f, musicToo: true);
                     Singleton<RandomWorldSounds>.Instance?.resumeGlobalSounds();
                 }
-                catch { /* ignore */ }
+                catch (Exception ex) { ModLog.Swallowed(ex); /* ignore */ }
                 FinalDreamsceneManager.OnDreamEnded();
                 ClearRemoteDreamRoster();
                 ClearPreDreamState();

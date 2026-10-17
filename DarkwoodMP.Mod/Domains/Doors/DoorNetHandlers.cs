@@ -114,7 +114,7 @@ namespace DWMPHorde.Networking
                 // forcing a locked door open left every peer unlocked while the host stayed locked.
                 if (unblockOnly)
                 {
-                    try { door.unblock(); } catch { /* ignore */ }
+                    try { door.unblock(); } catch (System.Exception ex) { ModLog.Swallowed(ex); /* ignore */ }
                     ModRuntime.LegacyInfo($"[DoorSync] unblocked door '{door.name}' (msg={msg.DoorName}) at {pos}");
                     return;
                 }

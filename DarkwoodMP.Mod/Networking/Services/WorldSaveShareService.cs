@@ -288,8 +288,8 @@ namespace DWMPHorde.Networking
                         ? targetPlayerId : -1;
                     _afterHostShare = () =>
                     {
-                        try { prev?.Invoke(); } catch { /* ignore */ }
-                        try { afterShare?.Invoke(); } catch { /* ignore */ }
+                        try { prev?.Invoke(); } catch (Exception ex) { ModLog.Swallowed(ex); /* ignore */ }
+                        try { afterShare?.Invoke(); } catch (Exception ex) { ModLog.Swallowed(ex); /* ignore */ }
                         if (chainedTarget > 0)
                             ScheduleHostShareToPlayer(chainedTarget);
                     };

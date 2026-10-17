@@ -2,6 +2,7 @@ using System;
 using DWMPHorde.Sync;
 using HarmonyLib;
 using UnityEngine;
+using DWMPHorde.Logging;
 
 namespace DWMPHorde.Patches
 {
@@ -76,7 +77,7 @@ namespace DWMPHorde.Patches
                 hostTalking = Player.Instance != null && Player.Instance.inDialogue
                     && dw.opened && dw.npc != null;
             }
-            catch { /* non-fatal */ }
+            catch (Exception ex) { ModLog.Swallowed(ex); /* non-fatal */ }
             if (!hostTalking)
             {
                 try
@@ -85,7 +86,7 @@ namespace DWMPHorde.Patches
                     Core.cantChangeForbidInputs = false;
                     dw.forbidInputs = false;
                 }
-                catch { /* non-fatal */ }
+                catch (Exception ex) { ModLog.Swallowed(ex); /* non-fatal */ }
             }
 
             try
@@ -93,7 +94,7 @@ namespace DWMPHorde.Patches
                 if (dw.currentBoardElements != null)
                     dw.currentBoardElements.Clear();
             }
-            catch { /* ignore */ }
+            catch (Exception ex) { ModLog.Swallowed(ex); /* ignore */ }
 
             // Only clear NPC pointer if host is not in a real conversation UI.
             // World-only apply never went through initiateDialogue/onTweenOpen.

@@ -142,7 +142,7 @@ namespace DWMPHorde.Sync
 
             string destroyedName = objectName;
             try { destroyedName = best.name; }
-            catch { /* destroyed Unity object */ }
+            catch (Exception ex) { ModLog.Swallowed(ex); /* destroyed Unity object */ }
 
             RemoveObjectFromInterpolation(best);
             try
@@ -150,7 +150,7 @@ namespace DWMPHorde.Sync
                 if (best.transform != null)
                     Core.RemovePooledPrefab(best.transform);
             }
-            catch { /* ignore */ }
+            catch (Exception ex) { ModLog.Swallowed(ex); /* ignore */ }
             bool prevNet = TraverseHack.GetExplicitFlag();
             try
             {
@@ -230,7 +230,7 @@ namespace DWMPHorde.Sync
             if (go == null || string.IsNullOrEmpty(needleNorm)) return false;
             string n;
             try { n = NormalizeObjectName(go.name); }
-            catch { return false; }
+            catch (Exception ex) { ModLog.Swallowed(ex); return false; }
             if (n == needleNorm)
                 return true;
             if (string.IsNullOrEmpty(itemType))
@@ -249,7 +249,7 @@ namespace DWMPHorde.Sync
                         || display.Equals(needleSpaced, StringComparison.OrdinalIgnoreCase)))
                     return true;
             }
-            catch { /* Language table may not be ready */ }
+            catch (Exception ex) { ModLog.Swallowed(ex); /* Language table may not be ready */ }
             return false;
         }
 
@@ -272,7 +272,7 @@ namespace DWMPHorde.Sync
             if (root == null || string.IsNullOrEmpty(needleNorm)) return false;
             string rootName;
             try { rootName = root.name.ToLowerInvariant(); }
-            catch { return false; }
+            catch (Exception ex) { ModLog.Swallowed(ex); return false; }
             if (rootName.Contains("audioobject"))
                 return false;
 

@@ -2,6 +2,7 @@ using System;
 using DWMPHorde.Networking;
 using DWMPHorde.Config;
 using UnityEngine;
+using DWMPHorde.Logging;
 
 namespace DWMPHorde.Audio
 {
@@ -272,7 +273,7 @@ namespace DWMPHorde.Audio
                 if (clip != null)
                     s.Click.PlayOneShot(clip, vol);
             }
-            catch { /* audio not ready */ }
+            catch (Exception ex) { ModLog.Swallowed(ex); /* audio not ready */ }
         }
 
         /// <summary>The call beep against the squelch tail of the same radio: the beep is a pure tone and cut through at the same level.</summary>
@@ -295,7 +296,7 @@ namespace DWMPHorde.Audio
                 float vol = OneShotLevel(UserRadioVolume * (HoldingWalkie() ? 0.4f : 0.22f) * KnobLevel);
                 PlayLocal(knob, vol);
             }
-            catch { /* audio not ready */ }
+            catch (Exception ex) { ModLog.Swallowed(ex); /* audio not ready */ }
         }
 
         /// <summary>The knob takes peak at 0.7 on the click itself (their rumble is cut): played this much down.</summary>
@@ -372,7 +373,7 @@ namespace DWMPHorde.Audio
                 float vol = OneShotLevel(UserRadioVolume * (keyDown ? KeyBeepShare * 0.35f : 0.35f));
                 PlayLocal(keyDown ? _keyClip : _releaseClip, vol);
             }
-            catch { /* audio not ready */ }
+            catch (Exception ex) { ModLog.Swallowed(ex); /* audio not ready */ }
         }
     }
 }

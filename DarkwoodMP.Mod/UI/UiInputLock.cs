@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using HarmonyLib;
 using UnityEngine;
+using DWMPHorde.Logging;
 
 namespace DWMPHorde
 {
@@ -47,7 +48,7 @@ namespace DWMPHorde
                 if (IsHeld)
                     return true;
                 try { return !Core.forbidInputs && !VanillaWantsInputsForbidden(); }
-                catch { return true; }
+                catch (System.Exception ex) { ModLog.Swallowed(ex); return true; }
             }
         }
 
@@ -65,7 +66,7 @@ namespace DWMPHorde
             {
                 EnsureDriver();
                 try { _forced = !Core.forbidInputs; }
-                catch { _forced = false; }
+                catch (System.Exception ex) { ModLog.Swallowed(ex); _forced = false; }
             }
             Assert();
         }
@@ -81,7 +82,7 @@ namespace DWMPHorde
             if (_forced && !VanillaWantsInputsForbidden())
             {
                 try { Core.forbidInputs = false; }
-                catch { /* Core not ready (scene teardown) */ }
+                catch (System.Exception ex) { ModLog.Swallowed(ex); /* Core not ready (scene teardown) */ }
             }
             _forced = false;
         }
@@ -113,7 +114,7 @@ namespace DWMPHorde
                 if (dreams != null && (dreams.switchingDream || dreams.wantToDream))
                     return true;
             }
-            catch { /* Core not ready */ }
+            catch (System.Exception ex) { ModLog.Swallowed(ex); /* Core not ready */ }
             return false;
         }
 
@@ -131,7 +132,7 @@ namespace DWMPHorde
                         _forced = true;
                 }
             }
-            catch { /* Core not ready */ }
+            catch (System.Exception ex) { ModLog.Swallowed(ex); /* Core not ready */ }
         }
 
         private static void EnsureDriver()

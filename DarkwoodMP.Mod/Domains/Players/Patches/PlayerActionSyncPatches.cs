@@ -149,7 +149,7 @@ namespace DWMPHorde.Patches
                 if (player.Hotbar != null)
                     lantern = player.Hotbar.getItem("lantern");
             }
-            catch { /* optional */ }
+            catch (System.Exception ex) { ModLog.Swallowed(ex); /* optional */ }
 
             if (lantern != null && lantern.activated && lantern.baseClass != null
                 && lantern.baseClass.lightRadius > 0f)
@@ -188,7 +188,7 @@ namespace DWMPHorde.Patches
                     }
                 }
             }
-            catch { /* optional */ }
+            catch (System.Exception ex) { ModLog.Swallowed(ex); /* optional */ }
 
             // 3) lightDot expanded past default = ambient still on.
             // Always stamp type=lantern — empty ItemType was the RX thrash critical.

@@ -70,7 +70,7 @@ namespace DWMPHorde.Patches
                 Vector3 pos = p._transform != null ? p._transform.position : p.transform.position;
                 return col.bounds.Contains(new Vector3(pos.x, col.bounds.center.y, pos.z));
             }
-            catch { return false; }
+            catch (System.Exception ex) { ModLog.Swallowed(ex); return false; }
         }
 
         internal static bool IsClientConnected()

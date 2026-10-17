@@ -242,7 +242,7 @@ namespace DWMPHorde.Sync
                                 && string.Equals(lp.itemBeingDragged.gameObject.name, obj.Name,
                                     StringComparison.Ordinal);
                         }
-                        catch { /* dismantled */ }
+                        catch (Exception ex) { ModLog.Swallowed(ex); /* dismantled */ }
                         // The local pusher owns native scrape audio, so do not
                         // start MOS from the host echo.
                         // Do NOT gate on "RB non-kinematic" alone: host-pushed lamps stay

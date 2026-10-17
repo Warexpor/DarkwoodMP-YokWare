@@ -491,7 +491,7 @@ namespace DWMPHorde.Sync
                 return false;
             DreamPreset.Outcome outcome;
             try { outcome = HarmonyLib.Traverse.Create(dreams).Field("outcomePreset").GetValue<DreamPreset.Outcome>(); }
-            catch { return false; }
+            catch (Exception ex) { ModLog.Swallowed(ex); return false; }
             if (outcome == null || outcome.effects == null)
                 return false;
             for (int i = 0; i < outcome.effects.Count; i++)

@@ -454,7 +454,7 @@ namespace DWMPHorde.Networking
                     if (rb != null)
                         rb.isKinematic = false;
                 }
-                catch { /* dismantled */ }
+                catch (System.Exception ex) { ModLog.Swallowed(ex); /* dismantled */ }
             }
             Reset();
         }

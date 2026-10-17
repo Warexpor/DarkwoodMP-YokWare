@@ -8,6 +8,7 @@ using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
 using UnityEngine.Video;
+using DWMPHorde.Logging;
 
 namespace DWMPHorde.Sync
 {
@@ -224,7 +225,7 @@ namespace DWMPHorde.Sync
                 // Dream pads are small pockets; enter every node so props behind the
                 // dialogue door are not left Cullable-hidden if any registered late.
                 try { Singleton<WorldGrid>.Instance.enterAllNodes(); }
-                catch { /* ignore */ }
+                catch (Exception ex) { ModLog.Swallowed(ex); /* ignore */ }
                 Singleton<WorldGrid>.Instance.refreshPosition(player._transform.position, instant: true, force: true);
             }
             FinishDreamOutsideLoadFlags();
@@ -294,14 +295,13 @@ namespace DWMPHorde.Sync
                 if (EntryStale(gen, sid))
                     yield break;
             }
-            try
-            {
-                var netFlush = ModRuntime.Network;
-                netFlush?.GameEventHandlers?.TryFlushPendingGameEventsAfterDreamLoad();
-                _padLoadSince = -1f;
-                netFlush?.ContainerPendingHandlers?.FlushPendingPadStates();
-            }
-            catch { /* non-fatal */ }
+            // Each flush on its own: a throw in the first must not leave the pad states parked.
+            _padLoadSince = -1f;
+            var netFlush = ModRuntime.Network;
+            try { netFlush?.GameEventHandlers?.TryFlushPendingGameEventsAfterDreamLoad(); }
+            catch (Exception ex) { ModLog.Swallowed(ex); }
+            try { netFlush?.ContainerPendingHandlers?.FlushPendingPadStates(); }
+            catch (Exception ex) { ModLog.Swallowed(ex); }
 
             // Snap host/peer proxies from PlayerPositionManager (true network pos), not
             // local player feet. The old code stacked everyone on the client spawn and then
@@ -338,7 +338,7 @@ namespace DWMPHorde.Sync
 
             // Flush world lights that arrived while the pad was unloading.
             try { WorldPhysicsSyncService.TryFlushPendingLights(); }
-            catch { /* non-fatal */ }
+            catch (Exception ex) { ModLog.Swallowed(ex); /* non-fatal */ }
 
             ModRuntime.LegacyInfo($"[DreamSync] Player positioned at dream location: {locationName}");
         }
@@ -443,8 +443,9 @@ namespace DWMPHorde.Sync
                     if (baseSprite != null && baseSprite.color.a > 0.01f)
                         ui.tweenBlackScreen(new Color(0f, 0f, 0f, 0f), time);
                 }
-                catch
+                catch (Exception ex)
                 {
+                    ModLog.Swallowed(ex);
                     ui.tweenBlackScreen(new Color(0f, 0f, 0f, 0f), time);
                 }
             }

@@ -88,7 +88,7 @@ namespace DWMPHorde.Networking
 
             float dest;
             try { dest = ShadowArmorSyncHelpers.ReadDestHealth(armor); }
-            catch { return; }
+            catch (System.Exception ex) { ModLog.Swallowed(ex); return; }
             if (dest <= 0f)
                 return;
             float hp = Mathf.Max(0f, dest - damage);

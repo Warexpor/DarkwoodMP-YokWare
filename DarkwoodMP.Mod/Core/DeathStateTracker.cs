@@ -64,8 +64,6 @@ namespace DWMPHorde
 
         public static bool AllDeadAtNight => LocalNightDeath && AllRemoteDead;
 
-        public static bool RemoteNightDeath => RemoteNightDeathCount > 0;
-
         public static Vector3 LocalDeathPosition { get; private set; }
 
         /// <summary>

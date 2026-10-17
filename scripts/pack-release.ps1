@@ -56,6 +56,10 @@ function New-LoaderZip([string]$loader) {
     foreach ($f in "DarkwoodMP.Mod.dll", "LiteNetLib.dll") {
         if (-not (Test-Path (Join-Path $src $f))) { throw "missing $src\$f (build $loader first)" }
     }
+    # A -p:Pilot=true build carries the test pilot; it is never shared.
+    if (Select-String -Path (Join-Path $src "DarkwoodMP.Mod.dll") -Pattern "TestPilot" -SimpleMatch -Quiet) {
+        throw "$src\DarkwoodMP.Mod.dll is a pilot build (rebuild without -p:Pilot=true)"
+    }
     New-Item -ItemType Directory -Force -Path $stage | Out-Null
     if ($loader -eq "BepInEx") {
         Copy-Item (Join-Path $src "DarkwoodMP.Mod.dll") $stage

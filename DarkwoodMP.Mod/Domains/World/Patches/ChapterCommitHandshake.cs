@@ -384,7 +384,7 @@ namespace DWMPHorde.Patches
                     finally { PersonalFlavorHud.EndBypass(); }
                 }
             }
-            catch { /* non-fatal */ }
+            catch (System.Exception ex) { ModLog.Swallowed(ex); /* non-fatal */ }
         }
 
         /// <summary>

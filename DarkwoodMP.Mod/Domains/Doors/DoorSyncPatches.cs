@@ -530,8 +530,6 @@ namespace DWMPHorde.Sync
             var net = ModRuntime.Network;
             net?.LockHandlers?.RegisterConstructedSite(key, optionIndex);
         }
-
-        public static void Reset() { /* session clear is on LanNetworkManager */ }
     }
 
     /// <summary>Harmony patch: intercepts Item.empDisable and broadcasts the light-off state.</summary>

@@ -367,7 +367,7 @@ namespace DWMPHorde.Networking
                 if (state.CachedRb != null)
                 {
                     try { state.CachedRb.isKinematic = false; }
-                    catch { /* destroyed */ }
+                    catch (System.Exception ex) { ModLog.Swallowed(ex); /* destroyed */ }
                 }
                 ReleaseDrivenBody(state.CachedRb);
                 _states.Remove(hostId);

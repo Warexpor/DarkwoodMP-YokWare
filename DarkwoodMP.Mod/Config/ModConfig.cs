@@ -34,6 +34,8 @@ namespace DWMPHorde.Config
         public static ModSetting<bool> StuckRecoveryButton { get; private set; }
         /// <summary>When other players' names show over them: always | pointed | off (see <see cref="Nameplates"/>).</summary>
         public static ModSetting<string> ShowPlayerNames { get; private set; }
+        /// <summary>Hovering another player shows their health bar (see <see cref="Patches.PeerHealthBarHoverPatch"/>).</summary>
+        public static ModSetting<bool> ShowPlayerHealth { get; private set; }
         public static ModSetting<bool> FriendlyFireEnabled { get; private set; }
         public static ModSetting<bool> DoubleItemsEnabled { get; private set; }
         public static ModSetting<string> LootShareModeSetting { get; private set; }
@@ -267,6 +269,8 @@ namespace DWMPHorde.Config
                 + "where they cannot walk out (an empty location copy). Off by default so nobody uses it as a free trip home.");
             ShowPlayerNames = config.Bind("Network", "ShowPlayerNames", "pointed",
                 "When other players' names show over them: pointed (cursor on them, default) | always (while you can see them) | off.");
+            ShowPlayerHealth = config.Bind("Network", "ShowPlayerHealth", true,
+                "Pointing the cursor at another player shows their health in the bar a hovered creature or door gets.");
             MaxPlayers = config.Bind("Network", "MaxPlayers", 8, "Maximum players including host.");
             AllowJoinDuringDream = config.Bind("Network", "AllowJoinDuringDream", true,
                 "A player joining (or rejoining after a drop) while a dream runs is pulled into it. If false, joins wait until the dream ends. Joins during a dream's entry are always refused.");

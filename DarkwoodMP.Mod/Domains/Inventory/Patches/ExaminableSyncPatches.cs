@@ -3,6 +3,7 @@ using DWMPHorde.Sync;
 using HarmonyLib;
 using LiteNetLib;
 using UnityEngine;
+using DWMPHorde.Logging;
 
 namespace DWMPHorde.Patches
 {
@@ -90,8 +91,9 @@ namespace DWMPHorde.Patches
                 msg.gameObject.SetActive(false);
                 Singleton<Controller>.Instance.StartCoroutine(RetireNextFrame(msg));
             }
-            catch (System.Exception)
+            catch (System.Exception ex)
             {
+                ModLog.Swallowed(ex);
                 // Unity teardown — GameEvent still holds a non-null ref.
             }
         }
@@ -395,8 +397,9 @@ namespace DWMPHorde.Patches
                 __result.keyToHide = "";
                 __result.hide();
             }
-            catch (System.Exception)
+            catch (System.Exception ex)
             {
+                ModLog.Swallowed(ex);
                 // Unity teardown / missing UI — GameEvent still holds a non-null ref.
             }
         }

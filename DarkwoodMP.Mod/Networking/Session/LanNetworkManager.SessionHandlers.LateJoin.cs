@@ -383,8 +383,9 @@ namespace DWMPHorde.Networking
                 // Sticky mainMenu with loaded/coreStarted still wins.
                 return Core.loadedGame || Core.coreStarted;
             }
-            catch
+            catch (Exception ex)
             {
+                ModLog.Swallowed(ex);
                 return false;
             }
         }
@@ -519,7 +520,7 @@ namespace DWMPHorde.Networking
                     chapter = ClientSaveBridge.GetChapterId();
                     day = ClientSaveBridge.GetDayIndex();
                 }
-                catch { /* ignore */ }
+                catch (Exception ex) { ModLog.Swallowed(ex); /* ignore */ }
             }
             return new HostWorldReadyMessage
             {
@@ -545,8 +546,9 @@ namespace DWMPHorde.Networking
                     return false;
                 return true;
             }
-            catch
+            catch (Exception ex)
             {
+                ModLog.Swallowed(ex);
                 return false;
             }
         }

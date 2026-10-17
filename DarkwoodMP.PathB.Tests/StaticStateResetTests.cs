@@ -143,6 +143,87 @@ public class StaticStateResetTests
             + "nor marked '" + Marker + "' / '// reset-in: Method':\n" + string.Join("\n", offenders));
     }
 
+    private static readonly Regex StaticResetDecl = new Regex(
+        @"\bstatic\s+[\w<>\[\],\.]+\s+(\w*(?:Reset|Clear|OnDisconnected|Stop)\w*)\s*\((?:[^()]|\([^()]*\))*\)\s*(?:\{|=>)",
+        RegexOptions.Compiled);
+
+    private static readonly Regex ClassDecl = new Regex(@"\bclass\s+(\w+)", RegexOptions.Compiled);
+
+    /// <summary>Innermost class whose body holds <paramref name="index"/>.</summary>
+    private static string OwningClass(string src, int index)
+    {
+        string owner = null;
+        int ownerStart = -1;
+        foreach (Match c in ClassDecl.Matches(src))
+        {
+            int open = src.IndexOf('{', c.Index);
+            if (open < 0 || open > index || c.Index < ownerStart)
+                continue;
+            int depth = 1, i = open + 1;
+            while (depth > 0 && i < src.Length)
+            {
+                if (src[i] == '{') depth++;
+                else if (src[i] == '}') depth--;
+                i++;
+            }
+            if (index < i)
+            {
+                owner = c.Groups[1].Value;
+                ownerStart = c.Index;
+            }
+        }
+        return owner;
+    }
+
+    /// <summary>
+    /// Static reset methods that nothing calls or registers. A field cleared only there passes
+    /// the scan above but still leaks into the next session.
+    /// </summary>
+    internal static List<string> FindUncalledStaticResets()
+    {
+        var all = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (string f in Directory.GetFiles(TestPaths.ModDir, "*.cs", SearchOption.AllDirectories))
+        {
+            string rel = Path.GetRelativePath(TestPaths.ModDir, f);
+            if (rel.Split(Path.DirectorySeparatorChar).Any(p => p is "obj" or "bin" or "ThirdParty"))
+                continue;
+            all[f] = File.ReadAllText(f);
+        }
+        string everything = string.Join("\n", all.Values);
+        var offenders = new List<string>();
+        foreach (string file in ScannedFiles())
+        {
+            string src = all[file];
+            foreach (Match m in StaticResetDecl.Matches(src))
+            {
+                string name = m.Groups[1].Value;
+                string cls = OwningClass(src, m.Index);
+                if (cls == null)
+                    continue;
+                if (Regex.IsMatch(everything, @"\b" + cls + @"\." + name + @"\b"))
+                    continue;
+                // A bare call (or method group) from the class itself, partial files included.
+                var classDecl = new Regex(@"\bclass\s+" + cls + @"\b");
+                string same = string.Join("\n", all.Values.Where(s => classDecl.IsMatch(s)));
+                int uses = Regex.Matches(same, @"\b" + name + @"\b").Count;
+                int decls = Regex.Matches(same, @"\s" + name + @"\s*\((?:[^()]|\([^()]*\))*\)\s*(?:\{|=>)").Count;
+                if (uses > decls)
+                    continue;
+                offenders.Add(Path.GetRelativePath(TestPaths.ModDir, file) + ": " + cls + "." + name);
+            }
+        }
+        return offenders;
+    }
+
+    [Fact]
+    public void StaticResets_AreCalledOrRegistered()
+    {
+        List<string> offenders = FindUncalledStaticResets();
+        Assert.True(offenders.Count == 0,
+            "Static reset methods nothing calls (register them with NetworkResetRegistry, call them from a "
+            + "registered reset, or delete them):\n" + string.Join("\n", offenders));
+    }
+
     [Fact]
     public void Scanner_FindsKnownPatterns()
     {

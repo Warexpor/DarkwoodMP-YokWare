@@ -2,6 +2,7 @@ using DWMPHorde.Networking;
 using DWMPHorde.Sync;
 using HarmonyLib;
 using LiteNetLib;
+using DWMPHorde.Logging;
 
 namespace DWMPHorde.Patches
 {
@@ -81,7 +82,7 @@ namespace DWMPHorde.Patches
                 return false;
             int next;
             try { next = Traverse.Create(dw).Field("currentBoard").GetValue<int>() + 1; }
-            catch { return false; }
+            catch (System.Exception ex) { ModLog.Swallowed(ex); return false; }
             if (next < 0 || next >= d.boards.Count || d.boards[next] == null || d.boards[next].outcomes == null)
                 return false;
             foreach (CharacterDialogue.Dialogue.Board.Outcome o in d.boards[next].outcomes)

@@ -48,8 +48,9 @@ namespace DWMPHorde.Audio
                     return false;
                 return Physics.Raycast(from, delta / mag, mag, WallMask, QueryTriggerInteraction.Ignore);
             }
-            catch
+            catch (Exception ex)
             {
+                ModLog.Swallowed(ex);
                 return false;
             }
         }

@@ -292,7 +292,7 @@ namespace DWMPHorde.Players
                     Light2D lt = lightDot.GetComponent<Light2D>();
                     if (lt != null)
                     {
-                        try { lt.unlightGraphNodes(); } catch { /* ok */ }
+                        try { lt.unlightGraphNodes(); } catch (Exception ex) { ModLog.Swallowed(ex); /* ok */ }
                         lt.lightsPlayer = false;
                         lt.updateGraph = false;
                         lt.LightRadius = 0.001f;

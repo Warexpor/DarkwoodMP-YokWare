@@ -130,13 +130,13 @@ namespace DWMPHorde.Networking
         {
             if (_deferredApplyCo != null)
             {
-                try { _net.StopCoroutine(_deferredApplyCo); } catch { /* ignore */ }
+                try { _net.StopCoroutine(_deferredApplyCo); } catch (Exception ex) { ModLog.Swallowed(ex); /* ignore */ }
                 _deferredApplyCo = null;
             }
             _deferredApplies.Clear();
             if (_dialogWorldDrainCo != null)
             {
-                try { _net.StopCoroutine(_dialogWorldDrainCo); } catch { /* ignore */ }
+                try { _net.StopCoroutine(_dialogWorldDrainCo); } catch (Exception ex) { ModLog.Swallowed(ex); /* ignore */ }
                 _dialogWorldDrainCo = null;
             }
             _drainNpc = null;
@@ -292,7 +292,7 @@ namespace DWMPHorde.Networking
                 // silent-close immediately or later boards / flags never run (door stays shut).
                 if (_dialogWorldDrainCo != null)
                 {
-                    try { _net.StopCoroutine(_dialogWorldDrainCo); } catch { /* ignore */ }
+                    try { _net.StopCoroutine(_dialogWorldDrainCo); } catch (Exception ex) { ModLog.Swallowed(ex); /* ignore */ }
                     _dialogWorldDrainCo = null;
                     _drainNpc = null;
                     // The stopped drain held no guard scope across its waits; nothing to unwind.
@@ -303,7 +303,7 @@ namespace DWMPHorde.Networking
                     {
                         DWMPHorde.Patches.DialogHostSilentClosePatch.SilentCloseAfterWorldApply(dw);
                     }
-                    catch { /* ignore */ }
+                    catch (Exception ex) { ModLog.Swallowed(ex); /* ignore */ }
                 }
 
                 // Bind AFTER drain scrub — SilentCloseAfterWorldApply clears dw.npc.
@@ -378,13 +378,13 @@ namespace DWMPHorde.Networking
                     {
                         DWMPHorde.Patches.DialogHostSilentClosePatch.SilentCloseAfterWorldApply(dw);
                     }
-                    catch { /* ignore */ }
+                    catch (Exception inner) { ModLog.Swallowed(inner); /* ignore */ }
                     try
                     {
                         Core.forbidInputs = false;
                         Core.cantChangeForbidInputs = false;
                     }
-                    catch { /* ignore */ }
+                    catch (Exception inner) { ModLog.Swallowed(inner); /* ignore */ }
                     DialogHostApplyGuard.EndWorldOnly();
                     HostFinishDialogWorldApply(npc);
                     return;
@@ -440,7 +440,7 @@ namespace DWMPHorde.Networking
 
             CharacterDialogue.Dialogue dialogue = null;
             try { dialogue = npc.characterDialogue.getDialogue(msg.DialogueName); }
-            catch { dialogue = null; }
+            catch (Exception ex) { ModLog.Swallowed(ex); dialogue = null; }
             if (dialogue == null)
             {
                 ModLog.WarnRate(LogCat.World, "dlg-board-dialogue-miss:" + msg.NpcName + ":" + msg.DialogueName,

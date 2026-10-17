@@ -7,6 +7,7 @@ using DWMPHorde.Sync;
 using HarmonyLib;
 using LiteNetLib;
 using UnityEngine;
+using DWMPHorde.Logging;
 
 namespace DWMPHorde.Patches
 {
@@ -191,7 +192,7 @@ namespace DWMPHorde.Patches
         {
             if (sensor == null) return;
             try { Core.RemovePooledPrefab("Sensors", sensor.transform); }
-            catch { /* ignore */ }
+            catch (System.Exception ex) { ModLog.Swallowed(ex); /* ignore */ }
         }
     }
 }

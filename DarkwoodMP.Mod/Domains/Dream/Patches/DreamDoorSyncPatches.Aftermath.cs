@@ -5,6 +5,7 @@ using DWMPHorde.Sync;
 using HarmonyLib;
 using LiteNetLib;
 using UnityEngine;
+using DWMPHorde.Logging;
 
 namespace DWMPHorde.Patches
 {
@@ -152,7 +153,7 @@ namespace DWMPHorde.Patches
                 if (DreamSyncManager.IsDreamActive && Singleton<WorldGrid>.Instance != null)
                     Singleton<WorldGrid>.Instance.enterAllNodes();
             }
-            catch { /* ignore */ }
+            catch (System.Exception ex) { ModLog.Swallowed(ex); /* ignore */ }
 
             float[] waits = { 0.1f, 0.4f, 0.9f };
             float elapsed = 0f;
@@ -298,7 +299,7 @@ namespace DWMPHorde.Patches
                     best.unblock();
                     best.unlock();
                 }
-                catch { /* ignore */ }
+                catch (System.Exception ex) { ModLog.Swallowed(ex); /* ignore */ }
 
                 Locked locked = best.GetComponent<Locked>();
                 if (locked != null)

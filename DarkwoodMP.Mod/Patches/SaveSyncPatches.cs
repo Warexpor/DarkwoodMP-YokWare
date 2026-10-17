@@ -44,7 +44,7 @@ namespace DWMPHorde.Patches
                     if (ui != null)
                         ui.showSavingIndicator();
                 }
-                catch { /* UI not up */ }
+                catch (System.Exception ex) { ModLog.Swallowed(ex); /* UI not up */ }
             }
             return false;
         }
@@ -332,7 +332,7 @@ namespace DWMPHorde.Patches
             // Host-coordinated client SaveSync still writes; blocked client Saves skip this
             // (files unchanged) — Refresh is cheap/no-op when fingerprints match.
             try { CoopWorldCopyMeta.RefreshAfterLocalSave(); }
-            catch { /* non-fatal */ }
+            catch (System.Exception ex) { ModLog.Swallowed(ex); /* non-fatal */ }
 
             ModLog.Event(LogCat.Save,
                 "Local Save path (" + ModRuntime.Network.Role

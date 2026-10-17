@@ -42,7 +42,7 @@ namespace DWMPHorde.Sync
             {
                 ModLog.Event(LogCat.Session, "[ChapterResume] resume dropped — leaving kept Steam lobby " + _steamLobbyId);
                 try { SteamMatchmaking.LeaveLobby(new CSteamID(_steamLobbyId)); }
-                catch { /* Steam gone */ }
+                catch (System.Exception ex) { ModLog.Swallowed(ex); /* Steam gone */ }
             }
             _pending = false;
             _wasHost = false;
@@ -159,8 +159,9 @@ namespace DWMPHorde.Sync
                 // coreStarted can lag a frame after Activate player; Player is enough.
                 return true;
             }
-            catch
+            catch (System.Exception ex)
             {
+                ModLog.Swallowed(ex);
                 return false;
             }
         }
@@ -306,7 +307,7 @@ namespace DWMPHorde.Sync
                         Singleton<WorldGrid>.Instance.refreshPosition(pos, instant: true, force: true);
                     }
                 }
-                catch { /* optional */ }
+                catch (System.Exception ex) { ModLog.Swallowed(ex); /* optional */ }
 
                 ModLog.Event(LogCat.Session,
                     "[ChapterResume] client playable after " + _elapsed.ToString("F1")

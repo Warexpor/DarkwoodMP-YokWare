@@ -105,7 +105,7 @@ namespace DWMPHorde.Networking
                     if (menu != null)
                         menu.creatingProfile = false;
                 }
-                catch { /* ignore */ }
+                catch (Exception ex) { ModLog.Swallowed(ex); /* ignore */ }
 
                 ModLog.Event(LogCat.Save,
                     "Join pipeline phase 2: native initLoadGame → slot " + profileId

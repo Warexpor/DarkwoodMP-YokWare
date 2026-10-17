@@ -72,8 +72,9 @@ namespace DWMPHorde.Harmony
             {
                 return type.IsDefined(typeof(HarmonyAttribute), true);
             }
-            catch
+            catch (Exception ex)
             {
+                ModLog.Swallowed(ex);
                 return false;
             }
         }
