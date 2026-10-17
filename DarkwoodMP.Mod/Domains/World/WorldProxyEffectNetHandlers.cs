@@ -178,7 +178,10 @@ namespace DWMPHorde.Networking
             }
             proxy.RemoteInEpilogue = msg.InEpilogue;
             proxy.RemoteInPrologue = msg.InPrologue;
+            bool healthChanged = proxy.RemoteHealthPct != msg.HealthPct;
             proxy.RemoteHealthPct = msg.HealthPct;
+            if (healthChanged)
+                DWMPHorde.Patches.PeerHealthBarHoverPatch.RefreshIfShowing(proxy);
             proxy.RemoteDarknessPct = msg.DarknessPct;
             if (msg.HasSkills)
             {

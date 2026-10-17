@@ -3,12 +3,12 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.318**. The current Horde wire protocol is **77**. Every install in a session
+**0.8.319**. The current Horde wire protocol is **77**. Every install in a session
 needs the same DLL; the protocol is checked on join.
 
 Protocol history (newest first):
 
-- **77**, 0.8.308 to 0.8.318: `LocationTransport` gains `TargetKey`, the point inside the location to land on.
+- **77**, 0.8.308 to 0.8.319: `LocationTransport` gains `TargetKey`, the point inside the location to land on.
 - **76**, 0.8.306 to 0.8.307: new shared `MapPieceWire` (name, outside-location anchor, X/Z): `MapElementDiscovered` (69)
   is one piece, `MapStateSync` discoveries are pieces instead of bare names; `JournalItem` gains `Popup`.
 - **75**, 0.8.297 to 0.8.305: `CoHold` (170) gains mode 5, `ModePlayerPush`: a player walking into another
@@ -98,6 +98,21 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.319 — hovering another player shows their health bar
+
+- **New:** pointing the cursor at another player shows their health in the same bar a
+  hovered creature, door or barricade gets (top of the screen, red fill), and it fades the
+  same way when the cursor leaves. Same rules as vanilla: within reach, in line of sight,
+  only when nothing else under the cursor is selected. A downed or dead player shows no bar.
+  Works both ways (host and clients) and for any number of players.
+- **How:** the other player's stand-in is not a vanilla creature, so vanilla's hover code
+  never showed a bar for it. A postfix on `Player.selectObject` raycasts the cursor onto the
+  stand-ins and fills `UI.enemyHealthBar` from the player's own synced health
+  (`PlayerEffectSync` `HealthPct`, sent on every change), not the stand-in's CharBase pool.
+  A health change while the bar shows that player refreshes it.
+  `Domains/Players/Patches/PeerHealthBarHoverPatch.cs`, `WorldProxyEffectNetHandlers`.
+- No protocol change (still 77). Code-only so far: not yet checked in a dual-box game.
 
 ## 0.8.318 — joining on another YokWare version says which versions, plainly
 
