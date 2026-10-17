@@ -1063,6 +1063,10 @@ party events.
 - **Player names**: each player tells the host their name and the host hands every
   name out with the player roster. A name shows over a player only while you can
   see them (vanilla's enemy sight test), so it never reveals someone behind a wall.
+- **Players' health**: pointing the cursor at another player shows their health in the
+  vanilla hover health bar, under vanilla's rules (within reach, in sight, nothing else
+  selected), from the health that player's own game reports. A downed or dead player shows
+  none. Per player, Multiplayer > Settings "Players' health".
 - **Voice chat** (any install, LAN or Steam; the game's own microphone input, carried as
   Opus by code inside the mod, no Steam client needed; a lost packet is filled in from the
   next one). Mic, mic volume, voice volume, radio volume and each
