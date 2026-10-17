@@ -170,7 +170,7 @@ namespace DWMPHorde.Networking
                 }
                 if (bestId > 0) return bestId;
             }
-            catch { /* ignore */ }
+            catch (Exception ex) { ModLog.Swallowed(ex); /* ignore */ }
 
             return 0;
         }

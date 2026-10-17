@@ -88,8 +88,9 @@ namespace DWMPHorde.Patches
                     }
                 }
             }
-            catch
+            catch (Exception ex)
             {
+                ModLog.Swallowed(ex);
                 // fall through to unity default
             }
 

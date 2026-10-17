@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using HarmonyLib;
 using UnityEngine;
+using DWMPHorde.Logging;
 
 namespace YokWare.VanillaMenu
 {
@@ -44,8 +45,9 @@ namespace YokWare.VanillaMenu
                 string s = Language.Get(key, "UI");
                 return string.IsNullOrEmpty(s) ? key : s;
             }
-            catch
+            catch (Exception ex)
             {
+                ModLog.Swallowed(ex);
                 return key;
             }
         }
@@ -119,7 +121,7 @@ namespace YokWare.VanillaMenu
             {
                 menu.Menu0.SetActive(true);
                 try { menu.populateMainOptionsButtons(); }
-                catch { /* gamepad list only */ }
+                catch (Exception ex) { ModLog.Swallowed(ex); /* gamepad list only */ }
             }
         }
 

@@ -231,7 +231,7 @@ namespace DWMPHorde.Patches
 
             bool flaming = false;
             try { flaming = (bool)HarmonyLib.Traverse.Create(__instance).Field("flaming").GetValue(); }
-            catch (System.Exception) { /* optional field */ }
+            catch (System.Exception ex) { ModLog.Swallowed(ex); /* optional field */ }
 
             string prefabName = "";
             try

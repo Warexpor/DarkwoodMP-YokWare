@@ -82,13 +82,13 @@ namespace DWMPHorde.Networking.Steam
             if (_listenSocket != HSteamListenSocket.Invalid)
             {
                 try { SteamNetworkingSockets.CloseListenSocket(_listenSocket); }
-                catch { /* tear */ }
+                catch (Exception ex) { ModLog.Swallowed(ex); /* tear */ }
                 _listenSocket = HSteamListenSocket.Invalid;
             }
             if (_pollGroup != HSteamNetPollGroup.Invalid)
             {
                 try { SteamNetworkingSockets.DestroyPollGroup(_pollGroup); }
-                catch { /* tear */ }
+                catch (Exception ex) { ModLog.Swallowed(ex); /* tear */ }
                 _pollGroup = HSteamNetPollGroup.Invalid;
             }
 
@@ -152,13 +152,13 @@ namespace DWMPHorde.Networking.Steam
             if (_listenSocket != HSteamListenSocket.Invalid)
             {
                 try { SteamNetworkingSockets.CloseListenSocket(_listenSocket); }
-                catch { /* tear */ }
+                catch (Exception ex) { ModLog.Swallowed(ex); /* tear */ }
                 _listenSocket = HSteamListenSocket.Invalid;
             }
             if (_pollGroup != HSteamNetPollGroup.Invalid)
             {
                 try { SteamNetworkingSockets.DestroyPollGroup(_pollGroup); }
-                catch { /* tear */ }
+                catch (Exception ex) { ModLog.Swallowed(ex); /* tear */ }
                 _pollGroup = HSteamNetPollGroup.Invalid;
             }
 
@@ -201,7 +201,7 @@ namespace DWMPHorde.Networking.Steam
                         return true;
                 }
             }
-            catch { /* steam tear */ }
+            catch (Exception ex) { ModLog.Swallowed(ex); /* steam tear */ }
             return false;
         }
 
@@ -213,7 +213,7 @@ namespace DWMPHorde.Networking.Steam
                 {
                     SteamNetworkingSockets.CloseConnection(kvp.Value, CloseReasonShutdown, "shutdown", true);
                 }
-                catch { /* tear */ }
+                catch (Exception ex) { ModLog.Swallowed(ex); /* tear */ }
             }
             _connBySteamId.Clear();
             _steamIdByConn.Clear();
@@ -224,7 +224,7 @@ namespace DWMPHorde.Networking.Steam
                 {
                     SteamNetworkingSockets.CloseConnection(_serverConn, CloseReasonShutdown, "client disconnect", true);
                 }
-                catch { /* tear */ }
+                catch (Exception ex) { ModLog.Swallowed(ex); /* tear */ }
                 _serverConn = HSteamNetConnection.Invalid;
             }
         }
@@ -248,7 +248,7 @@ namespace DWMPHorde.Networking.Steam
         public static bool OverlayEnabled()
         {
             try { return IsSteamReady(out _) && SteamUtils.IsOverlayEnabled(); }
-            catch { return false; }
+            catch (Exception ex) { ModLog.Swallowed(ex); return false; }
         }
 
         /// <summary>Open Steam's friends list over the game. False when the overlay is off.</summary>
@@ -273,7 +273,7 @@ namespace DWMPHorde.Networking.Steam
             if (string.IsNullOrEmpty(text))
                 return;
             try { GUIUtility.systemCopyBuffer = text; }
-            catch { /* no clipboard */ }
+            catch (Exception ex) { ModLog.Swallowed(ex); /* no clipboard */ }
         }
 
     }

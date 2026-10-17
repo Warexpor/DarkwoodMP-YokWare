@@ -48,14 +48,14 @@ namespace DWMPHorde.Networking.Steam
                 {
                     _pendingHostConnects.Remove(gone.m_SteamID);
                     try { SteamNetworkingSockets.CloseConnection(parked.Conn, CloseReasonGeneric, "left lobby", false); }
-                    catch { /* tear */ }
+                    catch (Exception ex) { ModLog.Swallowed(ex); /* tear */ }
                 }
                 if (_connBySteamId.TryGetValue(gone.m_SteamID, out HSteamNetConnection conn))
                 {
                     ModLog.Event(LogCat.Network, "Steam client " + gone.m_SteamID + " left the lobby — dropping its link");
                     UntrackConn(conn, gone.m_SteamID);
                     try { SteamNetworkingSockets.CloseConnection(conn, CloseReasonGeneric, "left lobby", false); }
-                    catch { /* tear */ }
+                    catch (Exception ex) { ModLog.Swallowed(ex); /* tear */ }
                     _owner.OnSteamSessionFailed(gone, closedByPeer: true);
                 }
                 return;
@@ -189,7 +189,7 @@ namespace DWMPHorde.Networking.Steam
             if (string.IsNullOrEmpty(name))
             {
                 try { name = SteamFriends.GetPersonaName(); }
-                catch { name = "Host"; }
+                catch (Exception ex) { ModLog.Swallowed(ex); name = "Host"; }
             }
             SteamMatchmaking.SetLobbyData(_lobbyId, LobbyKeyName, name ?? "Host");
             SteamMatchmaking.SetLobbyJoinable(_lobbyId, true);

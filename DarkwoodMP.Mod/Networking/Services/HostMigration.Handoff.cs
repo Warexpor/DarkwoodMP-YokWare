@@ -153,7 +153,7 @@ namespace DWMPHorde.Networking
             {
                 playable = !GameScreen.AtTitle && (Player.Instance != null || Core.loadedGame || Core.coreStarted);
             }
-            catch { /* unity tear */ }
+            catch (Exception ex) { ModLog.Swallowed(ex); /* unity tear */ }
 
             if (!HostMigrationPolicy.ShouldAttemptMigration(
                     enabled, _role == NetworkRole.Client, GameScreen.AtTitle, playable, _migrationInProgress))
@@ -287,7 +287,7 @@ namespace DWMPHorde.Networking
             {
                 DeathStateTracker.OnRemoteDisconnected(deadHost);
             }
-            catch { /* optional */ }
+            catch (Exception ex) { ModLog.Swallowed(ex); /* optional */ }
             Sync.FinalDreamsceneManager.OnRemoteDisconnected(deadHost);
             // Its NPC talk lock and this player's view of its talk: nobody is left to release
             // them (the lock held the NPC for up to its 90 s lease).

@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using UnityEngine;
+using DWMPHorde.Logging;
 
 namespace DWMPHorde.Sync
 {
@@ -59,7 +60,7 @@ namespace DWMPHorde.Sync
                 WorldQueryHelper.InvalidateSceneScanCache<TrapNetworkId>();
                 stamped = WorldQueryHelper.GetCachedSceneComponents<TrapNetworkId>();
             }
-            catch { /* scene not ready: fall back to the ids already noted */ }
+            catch (System.Exception ex) { ModLog.Swallowed(ex); /* scene not ready: fall back to the ids already noted */ }
             if (stamped != null)
             {
                 for (int i = 0; i < stamped.Length; i++)

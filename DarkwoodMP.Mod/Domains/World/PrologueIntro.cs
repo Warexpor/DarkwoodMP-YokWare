@@ -34,7 +34,7 @@ namespace DWMPHorde.Patches
                     && outs.spawnedLocations.TryGetValue("dream_tutorial_00", out Location pad) && pad != null)
                     pad.gameObject.SetActive(false);
             }
-            catch { /* pad missing: activatePlayer still wakes the player */ }
+            catch (System.Exception ex) { ModLog.Swallowed(ex); /* pad missing: activatePlayer still wakes the player */ }
             wg.playingIntro = true;
             // As in a new game (WorldGenerator turns the camera off before the movie): activatePlayer
             // turns it back on and it centres on the player. A loaded world's camera stayed on and
@@ -102,7 +102,7 @@ namespace DWMPHorde.Patches
                 return;
             string lang = "en";
             try { lang = GameSettings.GetString("LanguageCode"); }
-            catch { /* default */ }
+            catch (System.Exception ex) { ModLog.Swallowed(ex); /* default */ }
             if (string.IsNullOrEmpty(lang))
                 lang = "en";
 

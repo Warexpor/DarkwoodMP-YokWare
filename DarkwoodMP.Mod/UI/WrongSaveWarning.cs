@@ -35,7 +35,7 @@ namespace DWMPHorde
                         net.WorldSaveShare.SetWrongSaveProgress(msg);
                 }
             }
-            catch { /* non-fatal */ }
+            catch (System.Exception ex) { ModLog.Swallowed(ex); /* non-fatal */ }
 
             try
             {
@@ -46,7 +46,7 @@ namespace DWMPHorde
                     finally { DWMPHorde.Patches.PersonalFlavorHud.EndBypass(); }
                 }
             }
-            catch { /* non-fatal */ }
+            catch (System.Exception ex) { ModLog.Swallowed(ex); /* non-fatal */ }
         }
     }
 }

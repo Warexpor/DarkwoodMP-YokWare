@@ -379,7 +379,7 @@ namespace DWMPHorde
                 if (!GameScreen.AtTitle)
                     return;
             }
-            catch { return; }
+            catch (Exception ex) { ModLog.Swallowed(ex); return; }
 
             _launchLobbyTried = true;
             net.TryConsumePendingSteamLaunchLobby();

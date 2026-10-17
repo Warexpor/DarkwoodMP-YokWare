@@ -213,7 +213,7 @@ namespace DWMPHorde.Networking
             {
                 softReconnect = !GameScreen.AtTitle && Player.Instance != null && !Core.loadingGame;
             }
-            catch { softReconnect = false; }
+            catch (Exception ex) { ModLog.Swallowed(ex); softReconnect = false; }
 
             if (softReconnect)
             {
@@ -422,7 +422,7 @@ namespace DWMPHorde.Networking
                 if (!_steamPeers.TryGetSteamId(ids[i], out CSteamID sid))
                     continue;
                 try { Steam.CloseSession(sid); }
-                catch { /* tear */ }
+                catch (Exception ex) { ModLog.Swallowed(ex); /* tear */ }
             }
         }
 

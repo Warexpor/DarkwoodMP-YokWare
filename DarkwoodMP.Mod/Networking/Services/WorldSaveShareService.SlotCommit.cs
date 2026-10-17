@@ -198,7 +198,7 @@ namespace DWMPHorde.Networking
                     if (ModConfig.ConnectAddress != null)
                         hostAddr = ModConfig.ConnectAddress.Value ?? "";
                 }
-                catch { /* ignore */ }
+                catch (Exception ex) { ModLog.Swallowed(ex); /* ignore */ }
 
                 string diskFp = CoopWorldCopyMeta.FingerprintProfileSlot(profileId);
                 string savPath = Path.Combine(profDir, "sav.dat");

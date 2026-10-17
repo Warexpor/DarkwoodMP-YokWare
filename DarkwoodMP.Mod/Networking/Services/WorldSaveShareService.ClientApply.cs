@@ -239,7 +239,7 @@ namespace DWMPHorde.Networking
                     if (sm != null)
                         sm.updateFilePaths();
                 }
-                catch { /* ignore */ }
+                catch (Exception ex) { ModLog.Swallowed(ex); /* ignore */ }
 
                 MergeProfileIntoDiskIndexAndSave(target);
                 Core.currentProfile = target;

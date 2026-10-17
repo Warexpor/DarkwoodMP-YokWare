@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using DWMPHorde.Config;
 using DWMPHorde.Networking;
 using UnityEngine;
+using DWMPHorde.Logging;
 
 namespace DWMPHorde.Audio
 {
@@ -231,7 +232,7 @@ namespace DWMPHorde.Audio
                 float vol = OneShotLevel(UserRadioVolume * 0.3f * KnobLevel * (walled ? WallVolume : 1f));
                 _knobSrc.PlayOneShot(clip, vol);
             }
-            catch { /* audio not ready */ }
+            catch (Exception ex) { ModLog.Swallowed(ex); /* audio not ready */ }
         }
     }
 }

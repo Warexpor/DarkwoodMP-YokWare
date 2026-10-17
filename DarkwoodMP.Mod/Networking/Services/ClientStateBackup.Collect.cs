@@ -5,6 +5,7 @@ using DWMPHorde.Networking.Steam;
 using DWMPHorde.Sync;
 using Newtonsoft.Json;
 using UnityEngine;
+using DWMPHorde.Logging;
 
 namespace DWMPHorde.Networking
 {
@@ -267,7 +268,7 @@ namespace DWMPHorde.Networking
                 if (sid.IsValid() && sid.m_SteamID != 0)
                     return sid.m_SteamID.ToString();
             }
-            catch { /* Steam not ready / non-Steam box */ }
+            catch (Exception ex) { ModLog.Swallowed(ex); /* Steam not ready / non-Steam box */ }
             return null;
         }
 

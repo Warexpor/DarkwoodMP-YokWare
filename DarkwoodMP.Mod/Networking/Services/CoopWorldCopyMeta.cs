@@ -179,8 +179,9 @@ namespace DWMPHorde.Networking
                 written = info.LastWriteTimeUtc;
                 length = info.Length;
             }
-            catch
+            catch (Exception ex)
             {
+                ModLog.Swallowed(ex);
                 _idPath = null;
                 string direct = TryLoad(pid)?.CampaignId;
                 return string.IsNullOrEmpty(direct) ? null : direct;
@@ -444,7 +445,7 @@ namespace DWMPHorde.Networking
             System.Threading.ThreadPool.QueueUserWorkItem(_ =>
             {
                 try { fp = FingerprintFilesQuiet(savs, sav); }
-                catch { fp = null; }
+                catch (Exception ex) { ModLog.Swallowed(ex); fp = null; }
                 finally { done = true; }
             });
             while (!done)

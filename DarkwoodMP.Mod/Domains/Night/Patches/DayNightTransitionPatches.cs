@@ -412,8 +412,9 @@ namespace DWMPHorde.Patches
                 Location loc = Location.getAtPos(pos);
                 return loc != null && loc.playerBase;
             }
-            catch
+            catch (System.Exception ex)
             {
+                ModLog.Swallowed(ex);
                 return false;
             }
         }

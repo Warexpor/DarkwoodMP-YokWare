@@ -8,6 +8,7 @@ using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
 using UnityEngine.Video;
+using DWMPHorde.Logging;
 
 namespace DWMPHorde.Sync
 {
@@ -222,14 +223,12 @@ namespace DWMPHorde.Sync
             }
         }
 
-        /// <summary>Host broadcast chain: load next pocket without full session Idle.</summary>
         /// <summary>Client: the pocket the host's DreamChainStart is loading (see ClientDreamSwitchPatch).</summary>
         private static string _chainPocketLoading; // reset-in: OnDisconnectedCleanup
 
         internal static string ChainPocketLoading => _chainPocketLoading;
 
-        internal static void ClearChainPocketLoading() => _chainPocketLoading = null;
-
+        /// <summary>Host broadcast chain: load next pocket without full session Idle.</summary>
         public static void OnDreamChain(string nextPreset)
         {
             if (string.IsNullOrEmpty(nextPreset)) return;
@@ -454,7 +453,7 @@ namespace DWMPHorde.Sync
                 ModRuntime.Log?.LogWarning("[DreamSync] restore audio after entry: " + ex.Message);
             }
             ReleaseDreamInputLocks();
-            try { Core.showGameCursor(); } catch { /* UI not ready */ }
+            try { Core.showGameCursor(); } catch (Exception ex) { ModLog.Swallowed(ex); /* UI not ready */ }
         }
 
         /// <summary>Each peer entry movie arms its own watchdog; an older one must not end a newer movie.</summary>
@@ -476,7 +475,7 @@ namespace DWMPHorde.Sync
                     if (Dreams.Instance != null && !Dreams.Instance.dreaming)
                         Dreams.Instance.dreamPrepared = false;
                 }
-                catch { /* ignore */ }
+                catch (Exception ex) { ModLog.Swallowed(ex); /* ignore */ }
                 AbortEntryVisuals();
                 UnfreezeWorld(restoreTime: false);
             }
@@ -525,10 +524,10 @@ namespace DWMPHorde.Sync
                 {
                     ui.tweenBlackScreen(new Color(0f, 0f, 0f, 0f), 0.5f);
                     try { ui.tweenBlackScreenTop(new Color(0f, 0f, 0f, 0f), 0.5f); }
-                    catch { /* ignore */ }
+                    catch (Exception ex) { ModLog.Swallowed(ex); /* ignore */ }
                 }
             }
-            catch { /* ignore */ }
+            catch (Exception ex) { ModLog.Swallowed(ex); /* ignore */ }
             UnfreezeWorld(restoreTime: false);
         }
 
@@ -540,7 +539,7 @@ namespace DWMPHorde.Sync
             // Stop the entry stinger so it cannot overlap dream-scene music after a long wait.
             if (!string.IsNullOrEmpty(_remoteEntryAudioId))
             {
-                try { AudioController.Stop(_remoteEntryAudioId); } catch { /* ignore */ }
+                try { AudioController.Stop(_remoteEntryAudioId); } catch (Exception ex) { ModLog.Swallowed(ex); /* ignore */ }
                 _remoteEntryAudioId = null;
             }
             if (Dreams.Instance?.startTransition != null)
@@ -565,7 +564,7 @@ namespace DWMPHorde.Sync
                             topSprite.color = new Color(0f, 0f, 0f, 1f);
                     }
                 }
-                catch { /* ignore */ }
+                catch (Exception ex) { ModLog.Swallowed(ex); /* ignore */ }
                 ui.tweenBlackScreen(new Color(0f, 0f, 0f, 1f), 0f);
 
                 var overlay = ui.videoOverlay;
@@ -583,7 +582,7 @@ namespace DWMPHorde.Sync
                         if (vp != null)
                         {
                             try { vp.SetDirectAudioMute(0, false); }
-                            catch { /* no audio track */ }
+                            catch (Exception ex) { ModLog.Swallowed(ex); /* no audio track */ }
                         }
                         // Snap off. DOFade(0.5s) exposed overworld when black was not yet solid.
                         if (renderer.material != null)

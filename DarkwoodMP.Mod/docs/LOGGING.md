@@ -189,6 +189,7 @@ Host creature targeting (AI category, Trace level, host with remote players only
 ## Dev notes
 
 - Prefer `ModLog.Event/Warn/Error/Trace(LogCat, …)`.  
+- A catch that carries on past an exception calls `ModLog.Swallowed(ex)`: the first per call site logs `[Swallowed] File.cs:line Member` with the stack, later ones a count (10, 100, 1000). Never a bare `catch { }`. A `[Swallowed]` line in a playtest log is a fault to fix, not noise.  
 - `LegacyInfo` = Dev or Trace.  
 - Join bulk one-shots should use `ModLog.Event(LogCat.Session, …)` so every log has them.  
 - Perf probe: `CoopPerfProbe` / `ClientPerfProbe` alias on both roles when connected.

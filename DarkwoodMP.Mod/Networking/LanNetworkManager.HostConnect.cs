@@ -80,7 +80,7 @@ namespace DWMPHorde.Networking
             {
                 softReconnect = !GameScreen.AtTitle && Player.Instance != null && !Core.loadingGame;
             }
-            catch { softReconnect = false; }
+            catch (Exception ex) { ModLog.Swallowed(ex); softReconnect = false; }
 
             if (softReconnect)
             {

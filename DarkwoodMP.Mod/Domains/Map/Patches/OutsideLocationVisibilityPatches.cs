@@ -3,6 +3,7 @@ using DWMPHorde.Players;
 using DWMPHorde.Sync;
 using HarmonyLib;
 using UnityEngine;
+using DWMPHorde.Logging;
 
 namespace DWMPHorde.Patches
 {
@@ -132,7 +133,7 @@ namespace DWMPHorde.Patches
                 && !string.Equals(wg.currentGrid.name, "World", System.StringComparison.OrdinalIgnoreCase))
             {
                 try { wg.currentGrid.leave(); }
-                catch { /* grid may already be tearing down */ }
+                catch (System.Exception ex) { ModLog.Swallowed(ex); /* grid may already be tearing down */ }
             }
 
             wg.setGrid("World");

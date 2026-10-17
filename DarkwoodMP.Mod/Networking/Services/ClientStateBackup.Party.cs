@@ -60,7 +60,7 @@ namespace DWMPHorde.Networking
             string tag = (steam != 0 ? "s" + steam : "") + (key != null ? " k" + key.Substring(0, Math.Min(8, key.Length)) : "");
             ClientStateBackupData existing = null;
             try { existing = ReadStoredCharacter(steam, key); }
-            catch { /* unreadable: replaced */ }
+            catch (Exception ex) { ModLog.Swallowed(ex); /* unreadable: replaced */ }
             if (!PartyCharacterPolicy.ShouldStore((int)kind, MatchesCurrentCampaign(data), IsOwnCharacter(data),
                     HasMeaningfulProgress(data), TryParseBackupTimestamp(data), TryParseBackupTimestamp(existing),
                     existing != null, secondsSinceLocalWorldSave))
@@ -101,7 +101,7 @@ namespace DWMPHorde.Networking
                     id = id.Substring(0, id.Length - ("_" + campaign + ".json").Length);
                     ClientStateBackupData data;
                     try { data = TryReadBackup(f); }
-                    catch { continue; }
+                    catch (Exception ex) { ModLog.Swallowed(ex); continue; }
                     if (data == null)
                         continue;
                     // The file name is the identity the host stored it under.

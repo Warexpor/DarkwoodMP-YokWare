@@ -3,6 +3,7 @@ using HarmonyLib;
 using LiteNetLib;
 using System.Collections.Generic;
 using UnityEngine;
+using DWMPHorde.Logging;
 
 namespace DWMPHorde.Sync
 {
@@ -175,7 +176,7 @@ namespace DWMPHorde.Sync
                     ^ ((int)Mathf.Round(p.z) * 19349663)
                     ^ __instance.health);
             }
-            catch { /* ignore */ }
+            catch (System.Exception ex) { ModLog.Swallowed(ex); /* ignore */ }
         }
 
         // Finalizer (not Postfix): removeHealth must never leave the global RNG re-seeded.

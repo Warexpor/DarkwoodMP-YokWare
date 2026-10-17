@@ -3,12 +3,12 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.321**. The current Horde wire protocol is **77**. Every install in a session
+**0.8.322**. The current Horde wire protocol is **77**. Every install in a session
 needs the same DLL; the protocol is checked on join.
 
 Protocol history (newest first):
 
-- **77**, 0.8.308 to 0.8.321: `LocationTransport` gains `TargetKey`, the point inside the location to land on.
+- **77**, 0.8.308 to 0.8.322: `LocationTransport` gains `TargetKey`, the point inside the location to land on.
 - **76**, 0.8.306 to 0.8.307: new shared `MapPieceWire` (name, outside-location anchor, X/Z): `MapElementDiscovered` (69)
   is one piece, `MapStateSync` discoveries are pieces instead of bare names; `JournalItem` gains `Popup`.
 - **75**, 0.8.297 to 0.8.305: `CoHold` (170) gains mode 5, `ModePlayerPush`: a player walking into another
@@ -98,6 +98,37 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.322 — silent catches log, test pilot out of the shipped DLL, dead code removed
+
+- **Silent catches now log.** About 290 `catch { /* ignore */ }`-style blocks across the
+  mod swallowed exceptions without a trace, so a fault in one (a desync, a half-applied
+  state) never showed in `LogOutput.log`. Each now calls the new `ModLog.Swallowed(ex)`:
+  the first exception per call site is logged as a `[Swallowed] File.cs:line Member`
+  warning with its stack, later ones only as a count at 10, 100, 1000. What the catch does
+  afterwards is unchanged. Catches of a specific type (`IOException`,
+  `KeyNotFoundException`…) and the logging/bootstrap/config code are left as they were.
+- **Dream pad load:** the end of a dream pad load flushed parked game events and parked
+  pad containers inside one try, so a throw in the game-event flush also skipped the
+  container flush. Each flush now runs on its own (`DreamSyncManager.SceneLoad`).
+- **Test pilot is build-time only.** `TestPilot` (the unattended test driver, about 2,100
+  lines) was compiled into every DLL, the release zips included, and only switched off by
+  the missing `DWMP_PILOT` variable. It is now built in only with
+  `dotnet build DarkwoodMP.Mod -c Release -p:Pilot=true` (`PILOT` define); a normal or
+  release build leaves it out (about 55 KB smaller). `scripts/pilot/pilot-run.sh` refuses
+  to start on boxes without a pilot build, and `pack-release.sh` / `.ps1` refuse to pack one.
+- **Dead code removed:** policy helpers only the tests called (the four
+  `DialogApplyPolicy` outcome-type classifiers and their string constants,
+  `ChapterSessionPolicy.ShouldStopNetworkPermanently`,
+  `CoopWorldPresencePolicy.ShouldKeepLocationForRemote`, `CoopBalance.IsAllowlistedPrefabPath`),
+  unused `DeathStateTracker.RemoteNightDeath`, `SessionSettings.HostApplied`,
+  `GameplayConstants.FarProxyMinDistance`, two reset methods nothing called
+  (`WorldPhysicsSyncService.ResetConsumedWorldPickups`, `DreamSyncManager.ClearChainPocketLoading`;
+  their state is reset elsewhere) and an empty `ConstructibleConstructPatch.Reset`.
+- **Tests:** `StaticStateResetTests` now also fails on a static reset method that nothing
+  calls or registers (a field cleared only there would leak into the next session).
+- No protocol change (77). Code-only: builds on both loaders and the tests pass; not yet
+  checked in game. A `[Swallowed]` line in a playtest log is a real fault to fix.
 
 ## 0.8.321 — another player's item draw no longer seems to start twice
 

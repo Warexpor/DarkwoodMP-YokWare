@@ -249,7 +249,7 @@ namespace DWMPHorde.Networking
                         if (inv.invType == Inventory.InvType.itemInv)
                         {
                             try { Sync.WorldPhysicsSyncService.DestroyEmptyItemInvAt(inv.transform.position); }
-                            catch { /* non-fatal */ }
+                            catch (Exception ex) { ModLog.Swallowed(ex); /* non-fatal */ }
                         }
                         if (_net.Role == NetworkRole.Host && inv.invType == Inventory.InvType.deathDrop)
                             _net.CombatDeathBagHandlers?.TryHostFanDeathBagEmptied(inv);

@@ -6,6 +6,7 @@ using DWMPHorde.Networking;
 using DWMPHorde.Sync;
 using HarmonyLib;
 using UnityEngine;
+using DWMPHorde.Logging;
 
 namespace DWMPHorde.Patches
 {
@@ -258,7 +259,7 @@ namespace DWMPHorde.Patches
                 UI ui = Singleton<UI>.Instance;
                 return ui != null && ui.activeSkillsMenu != null && ui.activeSkillsMenu.opened;
             }
-            catch { return false; }
+            catch (Exception ex) { ModLog.Swallowed(ex); return false; }
         }
 
         /// <summary>Another player connected while the wheel was open alone: time runs at full speed again.</summary>

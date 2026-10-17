@@ -2,6 +2,7 @@ using DWMPHorde.Sync;
 using HarmonyLib;
 using UnityEngine;
 using UnityEngine.Video;
+using DWMPHorde.Logging;
 
 namespace DWMPHorde.Patches
 {
@@ -119,13 +120,13 @@ namespace DWMPHorde.Patches
 
                 if (dw.dialogue != null)
                 {
-                    try { dw.dialogue.DestroyChildren(); } catch { /* ignore */ }
+                    try { dw.dialogue.DestroyChildren(); } catch (System.Exception ex) { ModLog.Swallowed(ex); /* ignore */ }
                     if (dw.dialogue.gameObject != null)
                         dw.dialogue.gameObject.SetActive(false);
                 }
                 if (dw.options != null)
                 {
-                    try { dw.options.DestroyChildren(); } catch { /* ignore */ }
+                    try { dw.options.DestroyChildren(); } catch (System.Exception ex) { ModLog.Swallowed(ex); /* ignore */ }
                     if (dw.options.gameObject != null)
                         dw.options.gameObject.SetActive(false);
                 }
@@ -143,20 +144,20 @@ namespace DWMPHorde.Patches
                             vp.clip = null;
                         }
                     }
-                    catch { /* ignore */ }
+                    catch (System.Exception ex) { ModLog.Swallowed(ex); /* ignore */ }
 
                     var r = dw.portrait.GetComponent<Renderer>();
                     if (r != null) r.enabled = false;
                 }
             }
-            catch { /* ignore */ }
+            catch (System.Exception ex) { ModLog.Swallowed(ex); /* ignore */ }
 
             try
             {
                 if (dw.currentBoardElements != null)
                     dw.currentBoardElements.Clear();
             }
-            catch { /* ignore */ }
+            catch (System.Exception ex) { ModLog.Swallowed(ex); /* ignore */ }
         }
 
         internal static void ClearBlackScreens()
@@ -170,7 +171,7 @@ namespace DWMPHorde.Patches
                 ForceClearSpriteAlpha(ui.blackScreen != null ? ui.blackScreen.transform : null);
                 ForceClearSpriteAlpha(ui.blackScreenTop != null ? ui.blackScreenTop.transform : null);
             }
-            catch { /* ignore */ }
+            catch (System.Exception ex) { ModLog.Swallowed(ex); /* ignore */ }
         }
 
         private static void ForceClearSpriteAlpha(Transform t)

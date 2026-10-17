@@ -270,7 +270,7 @@ namespace DWMPHorde.Networking
                         data.PosZ = prev.PosZ;
                     }
                 }
-                catch { /* keep zeros */ }
+                catch (Exception ex) { ModLog.Swallowed(ex); /* keep zeros */ }
             }
             if (!ClientStateBackup.HasMeaningfulProgress(data))
             {

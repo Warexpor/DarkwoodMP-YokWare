@@ -165,7 +165,7 @@ namespace DWMPHorde
                 if (c == null || c.gameObject == root)
                     continue;
                 try { UnityEngine.Object.DestroyImmediate(c); }
-                catch { c.enabled = false; }
+                catch (Exception ex) { ModLog.Swallowed(ex); c.enabled = false; }
             }
         }
 
@@ -235,7 +235,7 @@ namespace DWMPHorde
                 if (mbs[i] == null || mbs[i] is tk2dTextMesh)
                     continue;
                 try { UnityEngine.Object.DestroyImmediate(mbs[i]); }
-                catch { /* ignore */ }
+                catch (Exception ex) { ModLog.Swallowed(ex); /* ignore */ }
             }
             Collider[] cols = labelGo.GetComponentsInChildren<Collider>(true);
             for (int i = 0; i < cols.Length; i++)
@@ -243,7 +243,7 @@ namespace DWMPHorde
                 if (cols[i] == null)
                     continue;
                 try { UnityEngine.Object.DestroyImmediate(cols[i]); }
-                catch { /* ignore */ }
+                catch (Exception ex) { ModLog.Swallowed(ex); /* ignore */ }
             }
 
             labelGo.transform.localPosition = Vector3.zero;

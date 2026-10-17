@@ -74,8 +74,9 @@ namespace DWMPHorde.Patches
                 if (GameScreen.AtTitle)
                     return true;
             }
-            catch
+            catch (System.Exception ex)
             {
+                ModLog.Swallowed(ex);
                 // Core not ready
             }
 

@@ -305,7 +305,7 @@ namespace DWMPHorde.Networking
                     if (t != null)
                         triggered = t.triggered;
                 }
-                catch { /* ignore */ }
+                catch (Exception ex) { ModLog.Swallowed(ex); /* ignore */ }
 
                 short occ = WorldPhysicsSyncService.ResolveTrapOccupant(kv.Key, key);
                 list.Add(new TrapBulkEntry
@@ -375,7 +375,7 @@ namespace DWMPHorde.Networking
                 Trigger t = go.GetComponent<Trigger>();
                 if (t != null) return t.triggered;
             }
-            catch { /* ignore */ }
+            catch (Exception ex) { ModLog.Swallowed(ex); /* ignore */ }
             return false;
         }
 

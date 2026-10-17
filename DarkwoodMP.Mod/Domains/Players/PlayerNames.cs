@@ -69,8 +69,9 @@ namespace DWMPHorde.Sync
                     return null;
                 _steamName = Clean(Steamworks.SteamFriends.GetPersonaName());
             }
-            catch
+            catch (System.Exception ex)
             {
+                ModLog.Swallowed(ex);
                 _steamName = "";
             }
             return _steamName;

@@ -19,9 +19,6 @@ namespace DWMPHorde
         private static int _hostPartyMultiplier;
         private static bool _hostSoloHomeDream;
 
-        /// <summary>True once a host value set is in effect (connected client only).</summary>
-        public static bool HostApplied => _hostApplied;
-
         public static bool FriendlyFireEnabled
         {
             get

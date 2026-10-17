@@ -138,7 +138,7 @@ namespace DWMPHorde.Networking
                 Light2D light = ambientT.GetComponent<Light2D>();
                 if (light != null)
                 {
-                    try { light.unlightGraphNodes(); } catch { /* ok */ }
+                    try { light.unlightGraphNodes(); } catch (Exception ex) { ModLog.Swallowed(ex); /* ok */ }
                     light.LightRadius = 0.001f;
                     light.lightsPlayer = false;
                     light.updateGraph = false;
@@ -251,7 +251,7 @@ namespace DWMPHorde.Networking
                 Light2D lt = c.GetComponent<Light2D>();
                 if (lt != null)
                 {
-                    try { lt.unlightGraphNodes(); } catch { /* ok */ }
+                    try { lt.unlightGraphNodes(); } catch (Exception ex) { ModLog.Swallowed(ex); /* ok */ }
                     var ctrl = Singleton<Controller>.Instance;
                     if (ctrl != null) ctrl.logicLights.Remove(lt);
                 }
@@ -291,7 +291,7 @@ namespace DWMPHorde.Networking
                 Light2D lt = c.GetComponent<Light2D>();
                 if (lt != null)
                 {
-                    try { lt.unlightGraphNodes(); } catch { /* ok */ }
+                    try { lt.unlightGraphNodes(); } catch (Exception ex) { ModLog.Swallowed(ex); /* ok */ }
                     lt.lightsPlayer = false;
                     lt.updateGraph = false;
                     lt.LightRadius = 0.001f;

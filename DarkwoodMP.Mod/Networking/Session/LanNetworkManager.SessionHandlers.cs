@@ -58,7 +58,7 @@ namespace DWMPHorde.Networking
                     StartCoroutine(DropPeerAfterGrace(refused, why));
                     // The host hears of it too: a friend on an old build otherwise just never shows up.
                     try { ChatHud.AddSystemLine(Loc.T(why)); }
-                    catch { /* chat not up (host at the title) */ }
+                    catch (Exception ex) { ModLog.Swallowed(ex); /* chat not up (host at the title) */ }
                     return;
                 }
                 if (_role == NetworkRole.Client)
@@ -112,7 +112,7 @@ namespace DWMPHorde.Networking
                     // is still correct (soft reconnect keeps world). Republish before restore
                     // wait so haveItem EventTriggers work even if backup push is skipped.
                     try { Sync.PeerItemPresence.SendFullLocalInventory(); }
-                    catch { /* non-fatal */ }
+                    catch (Exception ex) { ModLog.Swallowed(ex); /* non-fatal */ }
                     BeginClientBackupRestoreWait();
                 }
                 else

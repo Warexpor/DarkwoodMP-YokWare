@@ -499,12 +499,12 @@ namespace DWMPHorde.Networking
                     if (EntitySyncLog.On)
                         LogWake(c, id);
                 }
-                catch { /* dismantled mid-frame */ }
+                catch (Exception ex) { ModLog.Swallowed(ex); /* dismantled mid-frame */ }
             }
 
             // Prefer Character.animator (cached body) over raw GetComponent for presentation.
             tk2dSpriteAnimator anim = null;
-            try { anim = c.animator; } catch { /* dismantled */ }
+            try { anim = c.animator; } catch (Exception ex) { ModLog.Swallowed(ex); /* dismantled */ }
             if (anim == null)
                 anim = c.GetComponent<tk2dSpriteAnimator>();
 
@@ -516,7 +516,7 @@ namespace DWMPHorde.Networking
                 if (!string.IsNullOrEmpty(c.clipToPlay))
                     clip = c.clipToPlay;
             }
-            catch { /* odd prefab */ }
+            catch (Exception ex) { ModLog.Swallowed(ex); /* odd prefab */ }
             tk2dSpriteAnimationClip current = anim != null ? anim.CurrentClip : null;
             if (string.IsNullOrEmpty(clip) && current != null)
                 clip = current.name;

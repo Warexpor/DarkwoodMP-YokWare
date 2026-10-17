@@ -70,7 +70,7 @@ namespace DWMPHorde.Networking
                         new WorldSaveEndMessage { Success = false }.Serialize(w);
                     });
                 }
-                catch { /* ignore */ }
+                catch (Exception ex) { ModLog.Swallowed(ex); /* ignore */ }
                 FinishHostShare(gen, runAfter: true);
                 yield break;
             }
@@ -89,7 +89,7 @@ namespace DWMPHorde.Networking
                         new WorldSaveEndMessage { Success = false }.Serialize(w);
                     });
                 }
-                catch { /* ignore */ }
+                catch (Exception ex) { ModLog.Swallowed(ex); /* ignore */ }
                 FinishHostShare(gen, runAfter: true);
                 yield break;
             }
@@ -148,7 +148,7 @@ namespace DWMPHorde.Networking
                             new WorldSaveEndMessage { Success = false }.Serialize(w);
                         });
                     }
-                    catch { /* ignore */ }
+                    catch (Exception inner) { ModLog.Swallowed(inner); /* ignore */ }
                     FinishHostShare(gen, runAfter: true);
                     yield break;
                 }
@@ -189,7 +189,7 @@ namespace DWMPHorde.Networking
                         new WorldSaveEndMessage { Success = false }.Serialize(w);
                     });
                 }
-                catch { /* ignore */ }
+                catch (Exception ex) { ModLog.Swallowed(ex); /* ignore */ }
                 FinishHostShare(gen, runAfter: true);
                 yield break;
             }
@@ -213,7 +213,7 @@ namespace DWMPHorde.Networking
                     if (gen != _shareGeneration) yield break;
                 }
                 try { snapshot = ReadSaveSetSnapshot(profDir); }
-                catch (Exception ex) { readEx = ex; }
+                catch (Exception ex) { ModLog.Swallowed(ex); readEx = ex; }
             }
             if (snapshot == null)
             {
@@ -228,7 +228,7 @@ namespace DWMPHorde.Networking
                         new WorldSaveEndMessage { Success = false }.Serialize(w);
                     });
                 }
-                catch { /* ignore */ }
+                catch (Exception ex) { ModLog.Swallowed(ex); /* ignore */ }
                 FinishHostShare(gen, runAfter: true);
                 yield break;
             }
@@ -253,7 +253,7 @@ namespace DWMPHorde.Networking
                 System.Threading.ThreadPool.QueueUserWorkItem(_ =>
                 {
                     try { compressed = Deflate(rawCapture); }
-                    catch (Exception ex) { packEx = ex; }
+                    catch (Exception ex) { ModLog.Swallowed(ex); packEx = ex; }
                     finally { packDone = true; }
                 });
                 while (!packDone)
@@ -318,7 +318,7 @@ namespace DWMPHorde.Networking
                         new WorldSaveEndMessage { Success = false }.Serialize(w);
                     });
                 }
-                catch { /* ignore */ }
+                catch (Exception ex) { ModLog.Swallowed(ex); /* ignore */ }
                 FinishHostShare(gen, runAfter: true);
                 yield break;
             }

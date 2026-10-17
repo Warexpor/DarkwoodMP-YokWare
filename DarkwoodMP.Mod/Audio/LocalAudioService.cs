@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using DWMPHorde.Spectator;
 using UnityEngine;
+using DWMPHorde.Logging;
 
 namespace DWMPHorde.Audio
 {
@@ -433,8 +434,9 @@ namespace DWMPHorde.Audio
                 a.MaxDistance = item.overrideAudioSourceSettings ? item.audioSource_MaxDistance : src.maxDistance;
                 a.Loop = item.Loop != AudioItem.LoopMode.DoNotLoop;
             }
-            catch
+            catch (Exception ex)
             {
+                ModLog.Swallowed(ex);
                 return default;
             }
             _audibility[audioID] = a;
@@ -537,8 +539,9 @@ namespace DWMPHorde.Audio
                 AudioItem item = AudioController.GetAudioItem(audioID);
                 return item != null && item.Loop != AudioItem.LoopMode.DoNotLoop;
             }
-            catch
+            catch (Exception ex)
             {
+                ModLog.Swallowed(ex);
                 return false; // audio system not ready
             }
         }
@@ -588,8 +591,9 @@ namespace DWMPHorde.Audio
                         return true;
                 }
             }
-            catch
+            catch (Exception ex)
             {
+                ModLog.Swallowed(ex);
             // Audio system not ready; do not block (fail open for real player SFX).
             }
 

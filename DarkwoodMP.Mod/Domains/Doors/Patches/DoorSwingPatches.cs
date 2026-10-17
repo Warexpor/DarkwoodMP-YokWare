@@ -76,8 +76,9 @@ namespace DWMPHorde.Patches
                             return m;
                     }
                 }
-                catch (Exception)
+                catch (Exception ex)
                 {
+                    ModLog.Swallowed(ex);
                     // Not readable as IL: not the knock-back.
                 }
             }

@@ -5,6 +5,7 @@ using DWMPHorde.Networking;
 using DWMPHorde.Patches;
 using DWMPHorde.Players;
 using UnityEngine;
+using DWMPHorde.Logging;
 
 namespace DWMPHorde.Sync
 {
@@ -65,6 +66,7 @@ namespace DWMPHorde.Sync
             }
             catch (Exception ex)
             {
+                ModLog.Swallowed(ex);
                 // A broken collector must not take the check down; its section reads as one entry.
                 list.Clear();
                 list.Add(new KeyValuePair<string, string>("!collector", ex.GetType().Name));

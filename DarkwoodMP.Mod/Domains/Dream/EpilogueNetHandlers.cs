@@ -1,6 +1,7 @@
 using DWMPHorde;
 using DWMPHorde.Sync;
 using UnityEngine.SceneManagement;
+using DWMPHorde.Logging;
 
 namespace DWMPHorde.Networking
 {
@@ -186,7 +187,7 @@ namespace DWMPHorde.Networking
             {
                 DreamSession.End("scene:" + sceneName);
             }
-            catch { /* ignore */ }
+            catch (System.Exception ex) { ModLog.Swallowed(ex); /* ignore */ }
 
             var ctrl = Singleton<Controller>.Instance;
             System.Action loadAction = () =>
@@ -196,7 +197,7 @@ namespace DWMPHorde.Networking
                     if (ModRuntime.Network != null && ModRuntime.Network.IsConnected)
                         ModRuntime.Network.StopNetwork();
                 }
-                catch { /* ignore */ }
+                catch (System.Exception ex) { ModLog.Swallowed(ex); /* ignore */ }
 
                 try
                 {

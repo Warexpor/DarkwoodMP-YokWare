@@ -138,15 +138,6 @@ namespace DWMPHorde
             return s;
         }
 
-        public static bool IsAllowlistedPrefabPath(string prefab)
-        {
-            if (string.IsNullOrEmpty(prefab))
-                return false;
-            // Characters/ChomperBlack or characters/chomperblack
-            string n = NormalizeNpcName(prefab);
-            return IsNamedNpcAllowlisted(n);
-        }
-
         public static void InvalidateAllowlistCache()
         {
             _cachedAllowlistRaw = null;

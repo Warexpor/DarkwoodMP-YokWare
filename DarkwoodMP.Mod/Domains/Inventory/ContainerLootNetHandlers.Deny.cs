@@ -60,7 +60,7 @@ namespace DWMPHorde.Networking
                 if (inv != null)
                     SendContainerStateSnapshotTo(playerId, inv, pos);
             }
-            catch { /* ignore */ }
+            catch (Exception ex) { ModLog.Swallowed(ex); /* ignore */ }
         }
 
         internal void SendContainerStateSnapshotTo(int playerId, Inventory inv, Vector3 pos)
@@ -213,7 +213,7 @@ namespace DWMPHorde.Networking
                     finally { DWMPHorde.Patches.PersonalFlavorHud.EndBypass(); }
                 }
             }
-            catch { /* ignore */ }
+            catch (Exception ex) { ModLog.Swallowed(ex); /* ignore */ }
         }
 
         /// <summary>
@@ -353,7 +353,7 @@ namespace DWMPHorde.Networking
                     finally { DWMPHorde.Patches.PersonalFlavorHud.EndBypass(); }
                 }
             }
-            catch { /* ignore */ }
+            catch (Exception ex) { ModLog.Swallowed(ex); /* ignore */ }
         }
     }
 }

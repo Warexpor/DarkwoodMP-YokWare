@@ -156,7 +156,7 @@ namespace DWMPHorde.Sync
                 {
                     lt.lightsPlayer = false;
                     lt.updateGraph = false;
-                    try { lt.unlightGraphNodes(); } catch { /* ignore */ }
+                    try { lt.unlightGraphNodes(); } catch (Exception ex) { ModLog.Swallowed(ex); /* ignore */ }
                     lt.gameObject.SetActive(false);
                 }
             }

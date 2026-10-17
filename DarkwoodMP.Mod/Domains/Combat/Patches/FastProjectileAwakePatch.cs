@@ -4,6 +4,7 @@ using DWMPHorde.Sync;
 using HarmonyLib;
 using PathologicalGames;
 using UnityEngine;
+using DWMPHorde.Logging;
 
 namespace DWMPHorde.Patches
 {
@@ -121,7 +122,7 @@ namespace DWMPHorde.Patches
                     if (col != null)
                         extents = Mathf.Max(0.15f, col.bounds.extents.y * 2f);
                 }
-                catch { /* ignore */ }
+                catch (System.Exception ex) { ModLog.Swallowed(ex); /* ignore */ }
                 dist = extents;
 
                 if (!_stallSince.ContainsKey(id))

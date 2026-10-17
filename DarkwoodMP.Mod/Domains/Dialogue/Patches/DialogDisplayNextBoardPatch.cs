@@ -3,6 +3,7 @@ using DWMPHorde.Networking;
 using DWMPHorde.Sync;
 using HarmonyLib;
 using LiteNetLib;
+using DWMPHorde.Logging;
 
 namespace DWMPHorde.Patches
 {
@@ -169,7 +170,7 @@ namespace DWMPHorde.Patches
                     state.HaveBoard = true;
                 }
             }
-            catch { state.HaveBoard = false; }
+            catch (System.Exception ex) { ModLog.Swallowed(ex); state.HaveBoard = false; }
 
             DialogClientWorldDefer.Begin();
             state.Deferred = true;
@@ -184,7 +185,7 @@ namespace DWMPHorde.Patches
             if (DialogHostPresentation.ShouldSuppress)
             {
                 try { DialogHostPresentation.HideSpeakerVisuals(__instance); }
-                catch { /* ignore */ }
+                catch (System.Exception ex) { ModLog.Swallowed(ex); /* ignore */ }
             }
 
             if (__state.Deferred)
@@ -229,7 +230,7 @@ namespace DWMPHorde.Patches
                     if (__instance != null)
                         __instance.forbidInputs = false;
                 }
-                catch { /* ignore */ }
+                catch (System.Exception ex) { ModLog.Swallowed(ex); /* ignore */ }
             }
 
             if (__state.Deferred)
@@ -241,7 +242,7 @@ namespace DWMPHorde.Patches
             if (__state.HostJournalDiff)
             {
                 try { JournalSyncHelpers.EndWorldApplyDiffAndBroadcastRemoves(); }
-                catch { /* journal UI may be missing */ }
+                catch (System.Exception ex) { ModLog.Swallowed(ex); /* journal UI may be missing */ }
             }
         }
 

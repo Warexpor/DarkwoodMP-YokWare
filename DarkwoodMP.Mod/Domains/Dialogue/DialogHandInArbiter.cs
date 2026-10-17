@@ -85,7 +85,7 @@ namespace DWMPHorde.Sync
                 return null;
             int next;
             try { next = Traverse.Create(dw).Field("currentBoard").GetValue<int>() + 1; }
-            catch { return null; }
+            catch (System.Exception ex) { ModLog.Swallowed(ex); return null; }
 
             for (int b = Mathf.Max(0, next); b < d.boards.Count; b++)
             {
@@ -120,7 +120,7 @@ namespace DWMPHorde.Sync
         private static bool RequirementsMet(CharacterDialogue.Dialogue.Board.Outcome o)
         {
             try { return o.requirementsMet(); }
-            catch { return true; }
+            catch (System.Exception ex) { ModLog.Swallowed(ex); return true; }
         }
 
         private static bool IsJournalItem(string type)
@@ -132,7 +132,7 @@ namespace DWMPHorde.Sync
             {
                 return db.getKey(type) != null || db.getNote(type) != null || db.getItem(type) != null;
             }
-            catch { return false; }
+            catch (System.Exception ex) { ModLog.Swallowed(ex); return false; }
         }
 
         private static bool Held(string type, bool countLocalBag)
@@ -147,7 +147,7 @@ namespace DWMPHorde.Sync
             if (countLocalBag && Player.Instance != null && Player.Instance.Inventory != null)
             {
                 try { return Player.Instance.Inventory.getItemInPlayer(type) != null; }
-                catch { return false; }
+                catch (System.Exception ex) { ModLog.Swallowed(ex); return false; }
             }
             return false;
         }
@@ -177,7 +177,7 @@ namespace DWMPHorde.Sync
                 ModLog.Event(LogCat.World,
                     $"[HandIn] refused p{actor}'s '{dw.currentDialogue?.fullName}' at {npcName}: {types[0]} already handed over");
                 try { Patches.DialogHostSilentClosePatch.SilentCloseAfterWorldApply(dw); }
-                catch { /* ignore */ }
+                catch (System.Exception ex) { ModLog.Swallowed(ex); /* ignore */ }
                 Notify(net, actor, npcName, types[0]);
                 return false;
             }
@@ -418,7 +418,7 @@ namespace DWMPHorde.Sync
             catch (System.Exception ex)
             {
                 ModLog.Warn(LogCat.World, "[HandIn] back to options: " + ex.Message);
-                try { dw.close(); } catch { /* ignore */ }
+                try { dw.close(); } catch (System.Exception inner) { ModLog.Swallowed(inner); /* ignore */ }
             }
             if (say != null)
                 Say(say);
@@ -430,7 +430,7 @@ namespace DWMPHorde.Sync
                 return;
             Patches.PersonalFlavorHud.BeginBypass();
             try { Player.Instance.displayMessage(Loc.T(text)); }
-            catch { /* HUD mid-teardown */ }
+            catch (System.Exception ex) { ModLog.Swallowed(ex); /* HUD mid-teardown */ }
             finally { Patches.PersonalFlavorHud.EndBypass(); }
         }
     }

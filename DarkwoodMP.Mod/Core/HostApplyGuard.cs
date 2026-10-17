@@ -1,4 +1,5 @@
 using System;
+using DWMPHorde.Logging;
 
 namespace DWMPHorde.Sync
 {
@@ -37,10 +38,10 @@ namespace DWMPHorde.Sync
                         _autoPushedActor = true;
                     }
                 }
-                catch { /* ignore */ }
+                catch (Exception ex) { ModLog.Swallowed(ex); /* ignore */ }
             }
             try { DWMPHorde.Patches.JournalSyncHelpers.BeginWorldApplyDiff(); }
-            catch { /* journal UI may be missing */ }
+            catch (Exception ex) { ModLog.Swallowed(ex); /* journal UI may be missing */ }
         }
 
         public static void End()
@@ -50,7 +51,7 @@ namespace DWMPHorde.Sync
             if (_depth == 1)
             {
                 try { DWMPHorde.Patches.JournalSyncHelpers.EndWorldApplyDiffAndBroadcastRemoves(); }
-                catch { /* ignore */ }
+                catch (Exception ex) { ModLog.Swallowed(ex); /* ignore */ }
                 if (_autoPushedActor)
                 {
                     GeFireActorContext.Pop();

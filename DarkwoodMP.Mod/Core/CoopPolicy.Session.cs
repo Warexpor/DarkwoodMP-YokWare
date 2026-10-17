@@ -4,7 +4,7 @@ namespace DWMPHorde
     /// <summary>
     /// Co-op loot share: the disarm double must only fire for the exact item being
     /// disarmed. A global "arm in progress" bool wrongly doubles any pickup that
-        /// arrives while a disarm is in flight, so the decision is type-scoped.
+    /// arrives while a disarm is in flight, so the decision is type-scoped.
     /// </summary>
     public static class LootPolicy
     {
@@ -24,13 +24,6 @@ namespace DWMPHorde
     public static class ChapterSessionPolicy
     {
         public static bool ShouldAutoResumeNetworkAfterChapter => true;
-
-        /// <summary>Credits end co-op; chapter mid-campaign does not.</summary>
-        public static bool ShouldStopNetworkPermanently(string sceneName)
-        {
-            if (string.IsNullOrEmpty(sceneName)) return true;
-            return string.Equals(sceneName, "credits", System.StringComparison.OrdinalIgnoreCase);
-        }
     }
 
     /// <summary>
@@ -118,13 +111,6 @@ namespace DWMPHorde
         /// </summary>
         public static bool ShouldKeepNodeForRemote(bool hostWithRemotes, bool remoteNear)
             => hostWithRemotes && remoteNear;
-
-        /// <summary>
-        /// Keep a Location GO a remote is still inside. Vanilla
-        /// <c>leaveAllLocations</c> force-leaves every other pad.
-        /// </summary>
-        public static bool ShouldKeepLocationForRemote(bool hostWithRemotes, bool remoteInside)
-            => hostWithRemotes && remoteInside;
 
         /// <summary>
         /// Local return-to-world must not yank proxies still inside a pad

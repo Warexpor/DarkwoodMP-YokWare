@@ -1,6 +1,7 @@
 using DWMPHorde.Networking;
 using DWMPHorde.Sync;
 using HarmonyLib;
+using DWMPHorde.Logging;
 
 namespace DWMPHorde.Patches
 {
@@ -46,7 +47,7 @@ namespace DWMPHorde.Patches
             if (!ReferenceEquals(__instance, Player.Instance.Hotbar)) return;
             int amt = 0;
             try { amt = Player.Instance.Hotbar.getItemAmount(type); }
-            catch { return; }
+            catch (System.Exception ex) { ModLog.Swallowed(ex); return; }
             PeerItemPresence.SendLocalChange(type, amt);
         }
     }

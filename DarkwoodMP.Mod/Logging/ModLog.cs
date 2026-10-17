@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
+using System.Runtime.CompilerServices;
 using System.Text;
 using DWMPHorde.Config;
 using UnityEngine;
@@ -180,6 +182,33 @@ namespace DWMPHorde.Logging
         {
             _rateLast.Clear();
             _rateSuppressed.Clear();
+            lock (_swallowed)
+                _swallowed.Clear();
+        }
+
+        /// <summary>Call site (file:line) → how often its catch has swallowed an exception this session.</summary>
+        private static readonly Dictionary<string, int> _swallowed = new Dictionary<string, int>(16);
+
+        /// <summary>
+        /// An exception a catch block carries on past. The first one per call site is logged with
+        /// its stack, later ones only as a count at 10, 100, 1000…, so a fault a catch hides
+        /// still shows in the log without flooding it. Safe off the main thread.
+        /// </summary>
+        public static void Swallowed(Exception ex,
+            [CallerFilePath] string file = "", [CallerLineNumber] int line = 0, [CallerMemberName] string member = "")
+        {
+            string site = Path.GetFileName(file) + ":" + line;
+            int n;
+            lock (_swallowed)
+            {
+                _swallowed.TryGetValue(site, out n);
+                _swallowed[site] = ++n;
+            }
+            if (n == 1)
+                Write(LogCat.Core, LogLevel.Warn, "[Swallowed] " + site + " " + member + ": " + ex);
+            else if (n == 10 || n == 100 || n == 1000 || n == 10000)
+                Write(LogCat.Core, LogLevel.Warn, "[Swallowed] " + site + " " + member + " x" + n
+                    + ": " + ex?.GetType().Name + ": " + ex?.Message);
         }
 
         public static bool IsEnabled(LogCat cat, LogLevel level)

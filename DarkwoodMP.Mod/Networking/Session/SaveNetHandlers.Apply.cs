@@ -106,7 +106,7 @@ namespace DWMPHorde.Networking
                 {
                     _lastLocalWorldSaveAt = Time.unscaledTime;
                     try { SendClientStateBackup(); }
-                    catch { /* non-fatal */ }
+                    catch (Exception ex) { ModLog.Swallowed(ex); /* non-fatal */ }
                 }
 
                 CoopWorldCopyMeta.RefreshAfterLocalSave();
@@ -219,7 +219,7 @@ namespace DWMPHorde.Networking
             if (_clientBackupRestoreCo != null)
             {
                 try { _net.StopCoroutine(_clientBackupRestoreCo); }
-                catch { /* ignore */ }
+                catch (Exception ex) { ModLog.Swallowed(ex); /* ignore */ }
                 _clientBackupRestoreCo = null;
             }
             _clientBackupRestoreCo = _net.StartCoroutine(ClientBackupRestoreWaitRoutine());
@@ -326,7 +326,7 @@ namespace DWMPHorde.Networking
                     ClientStateBackupData hostData = data;
                     ClientStateBackupData local = null;
                     try { local = ClientStateBackup.LoadLocalSelfBackupFile(); }
-                    catch { local = null; }
+                    catch (Exception ex) { ModLog.Swallowed(ex); local = null; }
 
                     if (local != null && ClientStateBackup.MatchesCurrentCampaign(local))
                     {
@@ -530,7 +530,7 @@ namespace DWMPHorde.Networking
                 return;
             ClientStateBackupData data;
             try { data = ClientStateBackup.DeserializeFromJson(msg.JsonData); }
-            catch { data = null; }
+            catch (Exception ex) { ModLog.Swallowed(ex); data = null; }
             if (data == null)
             {
                 ModRuntime.Log?.LogWarning("[PartyCharacter] unreadable character from the host ignored");

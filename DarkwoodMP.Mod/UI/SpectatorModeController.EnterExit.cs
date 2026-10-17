@@ -5,6 +5,7 @@ using DWMPHorde.Networking;
 using DWMPHorde.Players;
 using DWMPHorde.Sync;
 using UnityEngine;
+using DWMPHorde.Logging;
 
 namespace DWMPHorde.Spectator
 {
@@ -174,7 +175,7 @@ namespace DWMPHorde.Spectator
                 {
                     if (mute)
                     {
-                        try { cs.destroySounds(); } catch { /* ok */ }
+                        try { cs.destroySounds(); } catch (System.Exception ex) { ModLog.Swallowed(ex); /* ok */ }
                         cs.enabled = false;
                     }
                     else
@@ -198,6 +199,7 @@ namespace DWMPHorde.Spectator
             }
             catch (System.Exception ex)
             {
+                ModLog.Swallowed(ex);
                 ModRuntime.LegacyInfo($"[Spectate] MuteLocalPlayerAudio: {ex.Message}");
             }
         }
@@ -210,8 +212,9 @@ namespace DWMPHorde.Spectator
                 if (wg != null)
                     wg.refreshPosition(pos, instant: true, force: true);
             }
-            catch
+            catch (System.Exception ex)
             {
+                ModLog.Swallowed(ex);
                 // World not ready
             }
         }

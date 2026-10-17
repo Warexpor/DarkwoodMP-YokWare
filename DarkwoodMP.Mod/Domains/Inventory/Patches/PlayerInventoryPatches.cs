@@ -3,6 +3,7 @@ using DWMPHorde.Networking;
 using DWMPHorde.Players;
 using DWMPHorde.Sync;
 using HarmonyLib;
+using DWMPHorde.Logging;
 
 namespace DWMPHorde.Patches
 {
@@ -56,7 +57,7 @@ namespace DWMPHorde.Patches
                     if (npc != null && npc.GetComponent<Inventory>() == null)
                         __instance.talkedToNPC = null;
                 }
-                catch { /* ignore */ }
+                catch (Exception ex) { ModLog.Swallowed(ex); /* ignore */ }
             }
 
             if (!PlayerControlRouter.HasSecond)
@@ -85,7 +86,7 @@ namespace DWMPHorde.Patches
                 preparingDream = Dreams.Instance != null && Dreams.Instance.dreamPrepared
                     && !Dreams.Instance.dreaming;
             }
-            catch { /* ignore */ }
+            catch (Exception ex) { ModLog.Swallowed(ex); /* ignore */ }
             if (!preparingDream)
                 return __exception;
 
@@ -102,7 +103,7 @@ namespace DWMPHorde.Patches
                     __instance.openedItemInventory2 = null;
                 }
             }
-            catch { /* ignore */ }
+            catch (Exception ex) { ModLog.Swallowed(ex); /* ignore */ }
 
             return null; // swallow — let prepareLocation finish
         }
@@ -129,7 +130,7 @@ namespace DWMPHorde.Patches
                 preparingDream = Dreams.Instance != null && Dreams.Instance.dreamPrepared
                     && !Dreams.Instance.dreaming;
             }
-            catch { /* ignore */ }
+            catch (Exception ex) { ModLog.Swallowed(ex); /* ignore */ }
 
             if (!preparingDream)
                 return __exception;
@@ -139,26 +140,26 @@ namespace DWMPHorde.Patches
                 + __exception.Message);
 
             string preset = null;
-            try { preset = DreamSession.PresetName; } catch { /* ignore */ }
+            try { preset = DreamSession.PresetName; } catch (Exception ex) { ModLog.Swallowed(ex); /* ignore */ }
 
             try
             {
                 if (Dreams.Instance != null)
                     Dreams.Instance.dreamPrepared = false;
             }
-            catch { /* ignore */ }
+            catch (Exception ex) { ModLog.Swallowed(ex); /* ignore */ }
 
             try
             {
                 DreamSession.AbortStarting("prepareLocation: " + __exception.Message);
             }
-            catch { /* ignore */ }
+            catch (Exception ex) { ModLog.Swallowed(ex); /* ignore */ }
 
             try
             {
                 DreamSyncManager.ForceLocalDreamCleanup("prepareLocationFailed");
             }
-            catch { /* ignore */ }
+            catch (Exception ex) { ModLog.Swallowed(ex); /* ignore */ }
 
             // Tell peers to drop the entry wait / black void.
             try
@@ -172,7 +173,7 @@ namespace DWMPHorde.Patches
                         LiteNetLib.DeliveryMethod.ReliableOrdered);
                 }
             }
-            catch { /* ignore */ }
+            catch (Exception ex) { ModLog.Swallowed(ex); /* ignore */ }
 
             return null; // don't leave unhandled NRE spinning the host
         }

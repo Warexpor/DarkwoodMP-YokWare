@@ -4,6 +4,7 @@ using DWMPHorde.Sync;
 using HarmonyLib;
 using LiteNetLib;
 using UnityEngine;
+using DWMPHorde.Logging;
 
 namespace DWMPHorde.Patches
 {
@@ -160,7 +161,7 @@ namespace DWMPHorde.Patches
                                 if (__instance != null)
                                     __instance.dreamPrepared = false;
                             }
-                            catch { /* ignore */ }
+                            catch (System.Exception ex) { ModLog.Swallowed(ex); /* ignore */ }
                             return;
                         }
                     }
@@ -277,7 +278,7 @@ namespace DWMPHorde.Patches
                     __instance.wantToDream = false;
                     __instance.dreamPrepared = false;
                 }
-                catch { /* ignore */ }
+                catch (System.Exception ex) { ModLog.Swallowed(ex); /* ignore */ }
 
                 ModRuntime.LegacyInfo(
                     $"[DreamSync] Host prepareDream aborted — TryBegin rejected '{name}'"

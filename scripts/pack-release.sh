@@ -77,6 +77,10 @@ make_zip() {
   for f in DarkwoodMP.Mod.dll LiteNetLib.dll; do
     [[ -f "$src/$f" ]] || { echo "error: missing $src/$f (build $loader first)" >&2; exit 1; }
   done
+  # A -p:Pilot=true build carries the test pilot; it is never shared.
+  if grep -qa TestPilot "$src/DarkwoodMP.Mod.dll"; then
+    echo "error: $src/DarkwoodMP.Mod.dll is a pilot build (rebuild without -p:Pilot=true)" >&2; exit 1
+  fi
 
   mkdir -p "$stage"
   if [[ "$loader" == "BepInEx" ]]; then

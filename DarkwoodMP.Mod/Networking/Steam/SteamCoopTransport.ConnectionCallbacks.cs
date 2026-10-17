@@ -75,7 +75,7 @@ namespace DWMPHorde.Networking.Steam
                             "Steam SNS " + steamId.m_SteamID + " connected again on a new connection — the old one is dropped");
                         UntrackConn(held, steamId.m_SteamID);
                         try { SteamNetworkingSockets.CloseConnection(held, CloseReasonGeneric, "replaced by a new connection", false); }
-                        catch { /* tear */ }
+                        catch (Exception ex) { ModLog.Swallowed(ex); /* tear */ }
                         _owner.OnSteamSessionFailed(steamId, closedByPeer: false);
                     }
                     TrackConn(cb.m_hConn, steamId.m_SteamID);
@@ -96,7 +96,7 @@ namespace DWMPHorde.Networking.Steam
                         SteamNetworkingSockets.CloseConnection(
                             cb.m_hConn, CloseReasonGeneric, "peer lost", false);
                     }
-                    catch { /* tear */ }
+                    catch (Exception ex) { ModLog.Swallowed(ex); /* tear */ }
                     if (_pendingHostConnects.TryGetValue(steamId.m_SteamID, out PendingHostConnect parked)
                         && parked.Conn == cb.m_hConn)
                         _pendingHostConnects.Remove(steamId.m_SteamID);

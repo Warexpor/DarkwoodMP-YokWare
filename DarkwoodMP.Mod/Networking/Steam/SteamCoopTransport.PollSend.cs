@@ -194,7 +194,7 @@ namespace DWMPHorde.Networking.Steam
             {
                 SteamNetworkingSockets.CloseConnection(conn, CloseReasonGeneric, "peer dropped", false);
             }
-            catch { /* tear */ }
+            catch (Exception ex) { ModLog.Swallowed(ex); /* tear */ }
 
             UntrackConn(conn, remote.m_SteamID);
             if (!_hosting && conn == _serverConn)
@@ -267,7 +267,7 @@ namespace DWMPHorde.Networking.Steam
             {
                 SteamNetworkingSockets.CloseConnection(conn, CloseReasonGeneric, "send backlog", false);
             }
-            catch { /* tear */ }
+            catch (Exception ex) { ModLog.Swallowed(ex); /* tear */ }
             bool current = UntrackConn(conn, steamId);
             if (!_hosting && conn == _serverConn)
                 _serverConn = HSteamNetConnection.Invalid;

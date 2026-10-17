@@ -271,7 +271,7 @@ namespace DWMPHorde.Networking
                     var p = System.Diagnostics.Process.GetCurrentProcess();
                     return p.Id + ":" + p.StartTime.ToUniversalTime().Ticks;
                 }
-                catch { return "0:0"; }
+                catch (Exception ex) { ModLog.Swallowed(ex); return "0:0"; }
             }
 
             private static bool IsLiveOwner(string tag)
@@ -286,7 +286,7 @@ namespace DWMPHorde.Networking
                     return p.StartTime.ToUniversalTime().Ticks == ticks
                         && pid != System.Diagnostics.Process.GetCurrentProcess().Id;
                 }
-                catch { return false; }
+                catch (Exception ex) { ModLog.Swallowed(ex); return false; }
             }
 
             private static void TryDelete(string path)

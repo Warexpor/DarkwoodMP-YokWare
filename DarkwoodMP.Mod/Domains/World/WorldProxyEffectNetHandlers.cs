@@ -289,7 +289,7 @@ namespace DWMPHorde.Networking
             CharBase cb = proxy != null ? proxy.CachedCharBase : null;
             if (cb == null) return;
             try { cb.checkGround(); }
-            catch { /* stand-in torn down mid-frame */ }
+            catch (Exception ex) { ModLog.Swallowed(ex); /* stand-in torn down mid-frame */ }
         }
 
         /// <summary>

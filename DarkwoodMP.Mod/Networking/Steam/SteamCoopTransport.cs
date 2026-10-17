@@ -169,6 +169,7 @@ namespace DWMPHorde.Networking.Steam
             }
             catch (Exception ex)
             {
+                ModLog.Swallowed(ex);
                 failReason = "Steam API unavailable: " + ex.Message;
                 return false;
             }
@@ -177,7 +178,7 @@ namespace DWMPHorde.Networking.Steam
         public static CSteamID LocalSteamId()
         {
             try { return SteamUser.GetSteamID(); }
-            catch { return CSteamID.Nil; }
+            catch (Exception ex) { ModLog.Swallowed(ex); return CSteamID.Nil; }
         }
 
         public ulong ConsumePendingLaunchLobby()
@@ -216,7 +217,7 @@ namespace DWMPHorde.Networking.Steam
                     }
                 }
             }
-            catch { /* ignore */ }
+            catch (Exception ex) { ModLog.Swallowed(ex); /* ignore */ }
         }
 
         /// <summary>
@@ -236,14 +237,14 @@ namespace DWMPHorde.Networking.Steam
 
             CSteamID owner = CSteamID.Nil;
             try { owner = SteamMatchmaking.GetLobbyOwner(reuseLobby); }
-            catch { /* lobby unknown */ }
+            catch (Exception ex) { ModLog.Swallowed(ex); /* lobby unknown */ }
             if (!owner.IsValid() || owner != LocalSteamId())
             {
                 ModLog.Warn(LogCat.Network,
                     "Steam host resume: kept lobby " + reuseLobby.m_SteamID
                     + " is gone or not owned by this user — creating a new lobby (clients cannot rejoin the old id)");
                 try { SteamMatchmaking.LeaveLobby(reuseLobby); }
-                catch { /* tear */ }
+                catch (Exception ex) { ModLog.Swallowed(ex); /* tear */ }
                 return StartHost();
             }
 
@@ -393,7 +394,7 @@ namespace DWMPHorde.Networking.Steam
             if (_active)
             {
                 try { _owner.CloseAllSteamSessions(); }
-                catch { /* tear */ }
+                catch (Exception ex) { ModLog.Swallowed(ex); /* tear */ }
             }
 
             CloseAllConnections();
@@ -401,13 +402,13 @@ namespace DWMPHorde.Networking.Steam
             if (_listenSocket != HSteamListenSocket.Invalid)
             {
                 try { SteamNetworkingSockets.CloseListenSocket(_listenSocket); }
-                catch { /* tear */ }
+                catch (Exception ex) { ModLog.Swallowed(ex); /* tear */ }
                 _listenSocket = HSteamListenSocket.Invalid;
             }
             if (_pollGroup != HSteamNetPollGroup.Invalid)
             {
                 try { SteamNetworkingSockets.DestroyPollGroup(_pollGroup); }
-                catch { /* tear */ }
+                catch (Exception ex) { ModLog.Swallowed(ex); /* tear */ }
                 _pollGroup = HSteamNetPollGroup.Invalid;
             }
 
@@ -416,7 +417,7 @@ namespace DWMPHorde.Networking.Steam
                 if (_lobbyId.IsValid())
                 {
                     try { SteamMatchmaking.LeaveLobby(_lobbyId); }
-                    catch { /* tear */ }
+                    catch (Exception ex) { ModLog.Swallowed(ex); /* tear */ }
                 }
                 _lobbyId = CSteamID.Nil;
                 _migrationAllow.Clear();

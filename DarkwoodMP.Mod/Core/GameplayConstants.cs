@@ -68,8 +68,5 @@ namespace DWMPHorde
         /// to the client's reported target position (avoids hitting a same-named dog map-wide).
         /// </summary>
         public const float PlayerAttackNameMatchRadius = 80f;
-
-        /// <summary>Night spawn "far proxy" minimum distance from host.</summary>
-        public const float FarProxyMinDistance = 1000f;
     }
 }

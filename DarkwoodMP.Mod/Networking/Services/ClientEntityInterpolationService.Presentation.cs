@@ -36,11 +36,11 @@ namespace DWMPHorde.Networking
             // Dogs and NPCs link animator.legs to legsAnimator; body Play drives both.
             // Dual-Play(bodyClip) on legs freezes walk cycles (floaty roam until aggro).
             tk2dSpriteAnimator legs = null;
-            try { legs = c.legsAnimator; } catch { /* dismantled */ }
+            try { legs = c.legsAnimator; } catch (System.Exception ex) { ModLog.Swallowed(ex); /* dismantled */ }
             if (legs != null && legs != body)
             {
                 bool linked = false;
-                try { linked = body != null && body.legs == legs; } catch { /* no .legs */ }
+                try { linked = body != null && body.legs == legs; } catch (System.Exception ex) { ModLog.Swallowed(ex); /* no .legs */ }
                 if (!linked)
                     ApplyClipToAnimator(legs, entityId, clip, clipFrame, elapsed, animating);
             }
@@ -54,7 +54,7 @@ namespace DWMPHorde.Networking
             {
                 body = c.animator;
             }
-            catch { /* dismantled */ }
+            catch (System.Exception ex) { ModLog.Swallowed(ex); /* dismantled */ }
             if (body == null)
                 body = c.GetComponent<tk2dSpriteAnimator>();
             return body;
@@ -124,7 +124,7 @@ namespace DWMPHorde.Networking
                 if (!string.IsNullOrEmpty(deathAnim) && anim.GetClipByName(deathAnim) != null)
                     return deathAnim;
             }
-            catch { /* field/method missing on odd prefabs */ }
+            catch (System.Exception ex) { ModLog.Swallowed(ex); /* field/method missing on odd prefabs */ }
 
             string[] fallbacks = { "Death1", "Death2", "Death3", "Death", "Cut_half", "BeartrapDeath" };
             for (int i = 0; i < fallbacks.Length; i++)
@@ -261,7 +261,7 @@ namespace DWMPHorde.Networking
                     ch = anim.GetComponent<Character>()
                         ?? anim.GetComponentInParent<Character>();
                 }
-                catch { /* dismantled */ }
+                catch (System.Exception ex) { ModLog.Swallowed(ex); /* dismantled */ }
 
                 if (ch != null
                     && (ch.behaviour == Character.Behaviour.chasingTarget
@@ -276,7 +276,7 @@ namespace DWMPHorde.Networking
                     if (ch != null)
                         idleClip = IdleAniRef(ch);
                 }
-                catch { /* ignore */ }
+                catch (System.Exception ex) { ModLog.Swallowed(ex); /* ignore */ }
 
                 if (!string.IsNullOrEmpty(idleClip) && anim.GetClipByName(idleClip) != null)
                 {
@@ -490,7 +490,7 @@ namespace DWMPHorde.Networking
                         particles[i].Stop();
                 }
             }
-            catch { /* dismantled */ }
+            catch (System.Exception ex) { ModLog.Swallowed(ex); /* dismantled */ }
 
             if (c.AIpath != null)
                 UnityEngine.Object.Destroy(c.AIpath);
@@ -571,7 +571,7 @@ namespace DWMPHorde.Networking
         private static void ApplyDeathColliderShape(Character c)
         {
             try { Traverse.Create(c).Method("setYPosAfterDeath").GetValue(); }
-            catch { /* ignore */ }
+            catch (System.Exception ex) { ModLog.Swallowed(ex); /* ignore */ }
 
             tk2dSpriteAnimator anim = ResolveBodyAnimator(c);
             string clipName = anim != null && anim.CurrentClip != null ? anim.CurrentClip.name : null;

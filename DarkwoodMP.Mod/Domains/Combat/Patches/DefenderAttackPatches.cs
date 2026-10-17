@@ -128,13 +128,13 @@ namespace DWMPHorde.Patches
             clip = "";
             frame = -1;
             tk2dSpriteAnimator anim = null;
-            try { anim = c.animator; } catch { /* dismantled */ }
+            try { anim = c.animator; } catch (System.Exception ex) { ModLog.Swallowed(ex); /* dismantled */ }
             try
             {
                 if (!string.IsNullOrEmpty(c.clipToPlay))
                     clip = c.clipToPlay;
             }
-            catch { /* odd prefab */ }
+            catch (System.Exception ex) { ModLog.Swallowed(ex); /* odd prefab */ }
             if (anim != null && anim.CurrentClip != null)
             {
                 if (string.IsNullOrEmpty(clip))
@@ -211,7 +211,7 @@ namespace DWMPHorde.Patches
                     return;
                 }
             }
-            catch { /* pools gone mid-teardown */ }
+            catch (System.Exception ex) { ModLog.Swallowed(ex); /* pools gone mid-teardown */ }
             Object.Destroy(t.gameObject);
         }
     }

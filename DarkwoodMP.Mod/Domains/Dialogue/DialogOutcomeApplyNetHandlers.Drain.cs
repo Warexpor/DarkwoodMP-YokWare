@@ -72,7 +72,7 @@ namespace DWMPHorde.Networking
                     }
                     int board = -1;
                     try { board = Traverse.Create(dw).Field("currentBoard").GetValue<int>(); }
-                    catch { board = -1; }
+                    catch (Exception ex) { ModLog.Swallowed(ex); board = -1; }
 
                     if (board == lastBoard)
                     {
@@ -143,7 +143,7 @@ namespace DWMPHorde.Networking
                         if (dw != null)
                             dw.forbidInputs = false;
                     }
-                    catch { /* ignore */ }
+                    catch (Exception ex) { ModLog.Swallowed(ex); /* ignore */ }
                 }
                 HostFinishDialogWorldApply(npc);
                 ModRuntime.LegacyInfo("[DialogOutcome] world-only drain finished"
@@ -158,7 +158,7 @@ namespace DWMPHorde.Networking
                 return Player.Instance != null && Player.Instance.inDialogue && dw.opened
                     && dw.npc != null && dw.npc != drainNpc;
             }
-            catch { return false; }
+            catch (Exception ex) { ModLog.Swallowed(ex); return false; }
         }
 
         /// <summary>

@@ -3,6 +3,7 @@ using DWMPHorde.Sync;
 using HarmonyLib;
 using LiteNetLib;
 using UnityEngine;
+using DWMPHorde.Logging;
 
 namespace DWMPHorde.Sync
 {
@@ -110,7 +111,7 @@ namespace DWMPHorde.Sync
             __state = -1f;
             if (__instance == null || !ShadowArmorSyncHelpers.IsClientLocalAction()) return;
             try { __state = Mathf.Max(0f, ShadowArmorSyncHelpers.ReadDestHealth(__instance)); }
-            catch { __state = -1f; }
+            catch (System.Exception ex) { ModLog.Swallowed(ex); __state = -1f; }
         }
 
         private static void Postfix(ShadowArmor __instance, float __state)
@@ -120,7 +121,7 @@ namespace DWMPHorde.Sync
             {
                 float after;
                 try { after = ShadowArmorSyncHelpers.ReadDestHealth(__instance); }
-                catch { return; }
+                catch (System.Exception ex) { ModLog.Swallowed(ex); return; }
                 float dealt = __state - Mathf.Max(0f, after);
                 if (dealt > 0f)
                     ShadowArmorSyncHelpers.SendDamageRequest(__instance, dealt);

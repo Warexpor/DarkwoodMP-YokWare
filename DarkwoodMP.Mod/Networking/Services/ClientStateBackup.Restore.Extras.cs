@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using DWMPHorde.Sync;
 using UnityEngine;
+using DWMPHorde.Logging;
 
 namespace DWMPHorde.Networking
 {
@@ -61,7 +62,7 @@ namespace DWMPHorde.Networking
                         player.recipes.Add(recipes);
                 }
                 try { player.refreshRecipes(); }
-                catch { /* Crafting UI may be null mid-load */ }
+                catch (Exception ex) { ModLog.Swallowed(ex); /* Crafting UI may be null mid-load */ }
                 ModRuntime.LegacyInfo(
                     $"[ClientBackup] restored recipes count={player.recipes.Count}");
             }
