@@ -348,7 +348,8 @@ ever written inside a dream: such a save strands the player on the pad at the ne
   no world, for the host or a client, as in the base game.
 - **Stuck?** "Back to my hideout" in the pause menu's Multiplayer screen puts the
   player at its hideout's bed, out of any location (an empty location copy, a pad
-  with nothing on it).
+  with nothing on it). It is hidden until the player turns on "Stuck button" in
+  Multiplayer > Settings, so it is a way out, not a free trip home.
 - A player who stands up (after a load, a join, a respawn) stays lying until the others
   can see it: until a few of their position packets have gone out and, for a joiner,
   until they have been put where they left. The others then see the whole stand-up,

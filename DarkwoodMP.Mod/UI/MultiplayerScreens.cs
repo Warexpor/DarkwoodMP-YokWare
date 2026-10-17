@@ -209,7 +209,7 @@ namespace DWMPHorde
                     items.Add(Entry("Send the world again", ResendWorld));
                 if (role == NetworkRole.Client && CanRestoreSelf(out _))
                     items.Add(Entry("Restore my character", ConfirmRestoreSelf));
-                if (Sync.StuckRecovery.CanUse())
+                if (ModConfig.StuckRecoveryButton != null && ModConfig.StuckRecoveryButton.Value && Sync.StuckRecovery.CanUse())
                     items.Add(Entry("Back to my hideout", ConfirmGoHome));
             }
             items.Add(Entry("Settings", () => Vm.Open(_settings)));
@@ -551,6 +551,10 @@ namespace DWMPHorde
             z -= step;
             b.Slider("Other players' steps", z, () => ModConfig.PeerMovementVolume?.Value ?? 0.85f,
                 t => { if (ModConfig.PeerMovementVolume != null) ModConfig.PeerMovementVolume.Value = Mathf.Round(t * 20f) / 20f; });
+            z -= step;
+            // Hidden unless wanted: a teleport home is a way out when stuck, not a shortcut.
+            b.Choice("Stuck button", z, YesNo, () => ModConfig.StuckRecoveryButton != null && ModConfig.StuckRecoveryButton.Value ? 1 : 0,
+                i => { if (ModConfig.StuckRecoveryButton != null) ModConfig.StuckRecoveryButton.Value = i == 1; });
             b.Return();
             _settingsPage.Buttons(b);
         }
@@ -571,6 +575,7 @@ namespace DWMPHorde
             yield return Setting(ModConfig.ShowPlayerNames);
             yield return Setting(ModConfig.ChatEnabled);
             yield return Setting(ModConfig.PeerMovementVolume);
+            yield return Setting(ModConfig.StuckRecoveryButton);
         }
 
         /// <summary>
