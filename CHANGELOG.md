@@ -3,12 +3,12 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.313**. The current Horde wire protocol is **77**. Every install in a session
+**0.8.315**. The current Horde wire protocol is **77**. Every install in a session
 needs the same DLL; the protocol is checked on join.
 
 Protocol history (newest first):
 
-- **77**, 0.8.308 to 0.8.313: `LocationTransport` gains `TargetKey`, the point inside the location to land on.
+- **77**, 0.8.308 to 0.8.315: `LocationTransport` gains `TargetKey`, the point inside the location to land on.
 - **76**, 0.8.306 to 0.8.307: new shared `MapPieceWire` (name, outside-location anchor, X/Z): `MapElementDiscovered` (69)
   is one piece, `MapStateSync` discoveries are pieces instead of bare names; `JournalItem` gains `Popup`.
 - **75**, 0.8.297 to 0.8.305: `CoHold` (170) gains mode 5, `ModePlayerPush`: a player walking into another
@@ -98,6 +98,27 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.315 — incoming radio beep and squelch: pitch only, 3 semitones down
+
+- **Walkie:** 0.8.314 lowered the caller's beep and the squelch "psh" on a received
+  transmission by playing them at 0.9 speed, which also stretched them. Now the two
+  16 kHz recordings themselves (`Resources/Radio/key16.wav`, `release16.wav`) are pitched
+  3 semitones down with their length and average level unchanged (rubberband R3), and the
+  load-time resample (`PitchDown`, `IncomingPitch`) is gone. The talker's own key sounds
+  (`key.wav`, `release.wav`) are unchanged. `Resources/Radio/SOURCES.md` notes the shift.
+
+## 0.8.314 — incoming radio beep and squelch a little lower; "Back to my hideout" behind a toggle
+
+- **Walkie:** the caller's beep at the start of a received transmission and the squelch
+  "psh" at its end now play about 1.8 semitones lower (0.9 speed, so a touch longer).
+  The talker's own key sounds are unchanged. The two recordings are resampled once at load
+  (`VoiceChatService.PitchDown`, `IncomingPitch`); the squelch hold time follows the longer tail.
+- **Stuck recovery hidden by default:** "Back to my hideout" in the pause menu's Multiplayer
+  screen only shows with the new per-player setting `StuckRecoveryButton` on ("Stuck button" in
+  Multiplayer > Settings, default off), so it is no longer a free trip home sitting in the menu.
+  Existing config files get the key off. Files: `Config/ModConfig.cs`, `UI/MultiplayerScreens.cs`,
+  `Core/Loc.Ru.cs`, `docs/CONFIG.md`, `docs/HOW_COOP_WORKS.md`, README.
 
 ## 0.8.313 — world share over Steam no longer crawls at 256 KB/s
 

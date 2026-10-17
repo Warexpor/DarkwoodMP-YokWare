@@ -30,6 +30,8 @@ namespace DWMPHorde.Config
         public static ModSetting<string> PlayerName { get; private set; }
         /// <summary>Master switch for the Ctrl+C co-op chat HUD (see <see cref="ChatHud"/>).</summary>
         public static ModSetting<bool> ChatEnabled { get; private set; }
+        /// <summary>Whether the pause menu's Multiplayer screen offers "Back to my hideout" (<see cref="Sync.StuckRecovery"/>).</summary>
+        public static ModSetting<bool> StuckRecoveryButton { get; private set; }
         /// <summary>When other players' names show over them: always | pointed | off (see <see cref="Nameplates"/>).</summary>
         public static ModSetting<string> ShowPlayerNames { get; private set; }
         public static ModSetting<bool> FriendlyFireEnabled { get; private set; }
@@ -260,6 +262,9 @@ namespace DWMPHorde.Config
             ChatEnabled = config.Bind("Network", "ChatEnabled", true,
                 "Co-op text chat: Ctrl+C opens the input, Enter sends, Esc closes. "
                 + "Gameplay input is locked while typing.");
+            StuckRecoveryButton = config.Bind("Network", "StuckRecoveryButton", false,
+                "Shows \"Back to my hideout\" in the pause menu's Multiplayer screen: a way out for a player stuck "
+                + "where they cannot walk out (an empty location copy). Off by default so nobody uses it as a free trip home.");
             ShowPlayerNames = config.Bind("Network", "ShowPlayerNames", "pointed",
                 "When other players' names show over them: pointed (cursor on them, default) | always (while you can see them) | off.");
             MaxPlayers = config.Bind("Network", "MaxPlayers", 8, "Maximum players including host.");

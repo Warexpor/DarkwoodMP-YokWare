@@ -348,7 +348,8 @@ ever written inside a dream: such a save strands the player on the pad at the ne
   no world, for the host or a client, as in the base game.
 - **Stuck?** "Back to my hideout" in the pause menu's Multiplayer screen puts the
   player at its hideout's bed, out of any location (an empty location copy, a pad
-  with nothing on it).
+  with nothing on it). It is hidden until the player turns on "Stuck button" in
+  Multiplayer > Settings, so it is a way out, not a free trip home.
 - A player who stands up (after a load, a join, a respawn) stays lying until the others
   can see it: until a few of their position packets have gone out and, for a joiner,
   until they have been put where they left. The others then see the whole stand-up,
@@ -1073,7 +1074,8 @@ party events.
   - Walkie-talkie: hold a `walkie_talkie` and hold the radio talk key (right mouse by default, rebindable in Settings > Voice) to transmit. Carrying one
     lets you hear the radio from anywhere: a narrow, slightly distorted band, the caller's
     beep at the start and a squelch tail at the end (played by the listener's radio the
-    moment the talker lets go, with the static fading out under it). The signal has no
+    moment the talker lets go, with the static fading out under it), both a few semitones
+    under the talker's own key sounds. The signal has no
     cut-off distance: past the clear range static rises under the voice and the voice
     sinks into it, until only static is left, and from there on it stays static however
     far apart the two are. Every sound a radio makes is a recording; none is generated.

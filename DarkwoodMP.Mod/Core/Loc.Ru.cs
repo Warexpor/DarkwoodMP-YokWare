@@ -74,6 +74,7 @@ namespace DWMPHorde
             { "Steam lobby", "Лобби Steam" },
             { "Name", "Имя" },
             { "Text chat", "Текстовый чат" },
+            { "Stuck button", "Кнопка «Застрял»" },
             { "Player names", "Имена игроков" },
             { "When pointed at", "При наведении" },
             { "Always", "Всегда" },

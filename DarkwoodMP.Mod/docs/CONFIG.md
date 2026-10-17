@@ -18,8 +18,8 @@ test, so every bound key must be listed here.
 
 In game:
 
-- **Multiplayer > Settings** edits `PlayerName`, `ShowPlayerNames`, `ChatEnabled` and
-  `PeerMovementVolume`.
+- **Multiplayer > Settings** edits `PlayerName`, `ShowPlayerNames`, `ChatEnabled`,
+  `PeerMovementVolume` and `StuckRecoveryButton` ("Stuck button").
 - **Settings > Voice** edits `VoiceEnabled` / `VoiceMode`, `VoicePttKey`, `VoicePadTalkButton`,
   `VoiceRadioTalkKey`, `VoiceRadioPowerKey`, `VoiceRadioWorldSounds`, `VoiceMicDevice`,
   `VoiceMicVolume`, `VoiceNoiseSuppression`, `VoiceNoiseSuppressionStrength`, `VoiceVolume` and `VoiceRadioVolume`; **Voice > Players** edits `VoicePlayerVolumes`.
@@ -48,6 +48,7 @@ changes are kept without asking.
 | `SteamLobbyType` | `friends` | Steam host lobby visibility: `friends`, `public` or `private`. |
 | `PlayerName` | `Player` | Name the other players see: over your character, in chat and on map pins. Left at `Player`, a Steam player goes by their Steam name. |
 | `ChatEnabled` | `true` | Co-op text chat. Ctrl+C opens the input, Enter sends, Esc closes. Gameplay input (movement, hotbar, walkie) is held while typing. |
+| `StuckRecoveryButton` | `false` | Shows "Back to my hideout" in the pause menu's Multiplayer screen, which puts the player at its hideout's bed when stuck where it cannot walk out (an empty location copy). Off by default so it is not a free trip home; turn on in Multiplayer > Settings ("Stuck button") when needed. |
 | `ShowPlayerNames` | `pointed` | When other players' names show over them: `pointed` (when the cursor is on them), `always` (while you can see them) or `off`. |
 | `MaxPlayers` | `8` | Maximum players including the host. |
 | `AllowJoinDuringDream` | `true` | A player joining (or rejoining after a drop) while a dream runs is pulled onto its pad. When false, joins are rejected until the dream ends. Joins during a dream's entry (movie, prepare) are always rejected. |
