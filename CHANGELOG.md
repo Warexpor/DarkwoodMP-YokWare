@@ -3,12 +3,12 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.314**. The current Horde wire protocol is **77**. Every install in a session
+**0.8.315**. The current Horde wire protocol is **77**. Every install in a session
 needs the same DLL; the protocol is checked on join.
 
 Protocol history (newest first):
 
-- **77**, 0.8.308 to 0.8.314: `LocationTransport` gains `TargetKey`, the point inside the location to land on.
+- **77**, 0.8.308 to 0.8.315: `LocationTransport` gains `TargetKey`, the point inside the location to land on.
 - **76**, 0.8.306 to 0.8.307: new shared `MapPieceWire` (name, outside-location anchor, X/Z): `MapElementDiscovered` (69)
   is one piece, `MapStateSync` discoveries are pieces instead of bare names; `JournalItem` gains `Popup`.
 - **75**, 0.8.297 to 0.8.305: `CoHold` (170) gains mode 5, `ModePlayerPush`: a player walking into another
@@ -98,6 +98,15 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.315 — incoming radio beep and squelch: pitch only, 3 semitones down
+
+- **Walkie:** 0.8.314 lowered the caller's beep and the squelch "psh" on a received
+  transmission by playing them at 0.9 speed, which also stretched them. Now the two
+  16 kHz recordings themselves (`Resources/Radio/key16.wav`, `release16.wav`) are pitched
+  3 semitones down with their length and average level unchanged (rubberband R3), and the
+  load-time resample (`PitchDown`, `IncomingPitch`) is gone. The talker's own key sounds
+  (`key.wav`, `release.wav`) are unchanged. `Resources/Radio/SOURCES.md` notes the shift.
 
 ## 0.8.314 — incoming radio beep and squelch a little lower; "Back to my hideout" behind a toggle
 

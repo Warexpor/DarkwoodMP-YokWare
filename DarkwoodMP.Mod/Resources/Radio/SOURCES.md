@@ -5,6 +5,10 @@ Recordings embedded in the DLL. Each was trimmed, mixed to mono and converted to
 what is mixed into a received transmission (the two statics, made to loop and
 levelled, and a second copy of the beep and the squelch tail).
 
+`key16.wav` and `release16.wav` are pitched 3 semitones under the 44.1 kHz copies
+(rubberband R3, length unchanged, average level matched to the unshifted take): a
+far radio heard through this one is lower than the talker's own key sounds.
+
 All of them have their bass cut (nothing under 160 to 200 Hz, a zero-phase slope up
 to 320 to 380 Hz) and raised-cosine fades at both ends. The knob takes had almost all
 of their energy in a thump under 120 Hz; with it gone they are the click itself, and

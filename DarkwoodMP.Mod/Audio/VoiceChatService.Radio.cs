@@ -153,37 +153,8 @@ namespace DWMPHorde.Audio
             _staticLoaded = true;
             _staticNear = RadioSamples.LoadSamples("static_near.wav", VoiceCodec.SampleRate);
             _staticFar = RadioSamples.LoadSamples("static_far.wav", VoiceCodec.SampleRate);
-            _keyTone = PitchDown(RadioSamples.LoadSamples("key16.wav", VoiceCodec.SampleRate), IncomingPitch);
-            _releaseTail = PitchDown(RadioSamples.LoadSamples("release16.wav", VoiceCodec.SampleRate), IncomingPitch);
-        }
-
-        /// <summary>
-        /// The caller's beep and squelch tail on a received transmission play this much lower
-        /// (about 1.8 semitones, and as much longer): a far radio heard through this one's
-        /// speaker, set apart from the talker's own key sounds.
-        /// </summary>
-        private const float IncomingPitch = 0.9f;
-
-        /// <summary>A recording played slower by <paramref name="pitch"/> (under 1: lower and longer), linear interpolation.</summary>
-        internal static float[] PitchDown(float[] src, float pitch)
-        {
-            if (src == null || src.Length < 2 || pitch <= 0f || pitch >= 1f)
-                return src;
-            int n = (int)((src.Length - 1) / pitch) + 1;
-            var dst = new float[n];
-            for (int i = 0; i < n; i++)
-            {
-                float at = i * pitch;
-                int j = (int)at;
-                if (j >= src.Length - 1)
-                {
-                    dst[i] = src[src.Length - 1];
-                    continue;
-                }
-                float f = at - j;
-                dst[i] = src[j] + (src[j + 1] - src[j]) * f;
-            }
-            return dst;
+            _keyTone = RadioSamples.LoadSamples("key16.wav", VoiceCodec.SampleRate);
+            _releaseTail = RadioSamples.LoadSamples("release16.wav", VoiceCodec.SampleRate);
         }
 
         /// <summary>A transmission opens on this speaker: its static starts somewhere in the recordings.</summary>
