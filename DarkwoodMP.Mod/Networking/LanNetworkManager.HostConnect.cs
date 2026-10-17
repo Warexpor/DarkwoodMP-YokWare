@@ -69,6 +69,7 @@ namespace DWMPHorde.Networking
             // Half-applied patches would sync half the game: refuse to start a session.
             if (!ModRuntime.CanStartSession(out string patchBlock)) { StatusText = patchBlock; return; }
             if (PersonalPrologue.BlocksManualJoin(out string prologueBlock)) { StatusText = prologueBlock; return; }
+            JoinRefusedText = null;
             LastClientSteamLobbyId = 0;
             // Phase-3 / migration: already in chapter with a live Player. Full StopNetwork
             // runs NetworkResetRegistry (entity interp reset + CharacterTracker scene scan)

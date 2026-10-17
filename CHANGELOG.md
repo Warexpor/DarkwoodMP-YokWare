@@ -3,12 +3,12 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.317**. The current Horde wire protocol is **77**. Every install in a session
+**0.8.318**. The current Horde wire protocol is **77**. Every install in a session
 needs the same DLL; the protocol is checked on join.
 
 Protocol history (newest first):
 
-- **77**, 0.8.308 to 0.8.317: `LocationTransport` gains `TargetKey`, the point inside the location to land on.
+- **77**, 0.8.308 to 0.8.318: `LocationTransport` gains `TargetKey`, the point inside the location to land on.
 - **76**, 0.8.306 to 0.8.307: new shared `MapPieceWire` (name, outside-location anchor, X/Z): `MapElementDiscovered` (69)
   is one piece, `MapStateSync` discoveries are pieces instead of bare names; `JournalItem` gains `Popup`.
 - **75**, 0.8.297 to 0.8.305: `CoHold` (170) gains mode 5, `ModePlayerPush`: a player walking into another
@@ -98,6 +98,30 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.318 — joining on another YokWare version says which versions, plainly
+
+- **What broke:** a player on another version was told little or nothing useful. Over LAN
+  the join screen briefly had "Version mismatch: the host runs co-op protocol 76, this player
+  runs 77", then the join timer replaced it with "Could not reach the host - check the
+  address, port and password". Over Steam the lobby check failed as "Steam lobby failed:
+  protocol mismatch 76", which the join screen turned into "The Steam lobby is gone". The
+  host saw nothing but a log line.
+- **Now:** the joiner reads "Different YokWare versions: the host has 0.8.315, you have
+  0.8.318. Everyone needs the same version." for 20 s on the join screen (LAN and Steam).
+  Against a build that does not send its version yet it reads "the host's is older/newer
+  than yours (0.8.318)". The host gets a chat line: "A player could not join: they have
+  YokWare 0.8.315, you have 0.8.318." Both in Russian too.
+- **How:** the handshake gains the sender's mod version at its end (`ModVersion`, read only
+  when present, so no protocol bump: older builds on protocol 77 ignore it), the Steam lobby
+  gains a `ver` key next to `proto`, and a refused join keeps its reason
+  (`LanNetworkManager.JoinRefusedText`, cleared on the next connect) for the join screen. A
+  Steam version refusal no longer goes through the lobby-failure path (`OnSteamVersionRefused`),
+  so it is not retried as a reconnect either. Files: `Networking/Session/VersionMismatch.cs`
+  (new), `Networking/Messages/PlayerMessages.cs`, `Networking/Session/LanNetworkManager.SessionHandlers.cs`,
+  `Networking/Steam/SteamCoopTransport*.cs`, `Networking/Steam/LanNetworkManager.Steam.cs`,
+  `UI/MainMenuMultiplayerInject.HostJoin.cs`, `UI/MainMenuMultiplayerInject.JoinState.cs`,
+  `Core/Loc.Ru.cs`.
 
 ## 0.8.317 — the mod's menu screens are centred
 

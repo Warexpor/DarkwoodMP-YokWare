@@ -206,6 +206,7 @@ namespace DWMPHorde.Networking
         public void ConnectSteamLobby(CSteamID lobbyId)
         {
             if (Sync.PersonalPrologue.BlocksManualJoin(out string prologueBlock)) { StatusText = prologueBlock; return; }
+            JoinRefusedText = null;
             LastClientSteamLobbyId = lobbyId.m_SteamID;
             bool softReconnect = false;
             try
@@ -355,6 +356,19 @@ namespace DWMPHorde.Networking
             // Full tear so peer maps / lobby / role cannot stick half-open.
             StopNetwork();
             StatusText = "Steam lobby failed: " + reason;
+        }
+
+        /// <summary>
+        /// The lobby's host is on another YokWare version: the join ends here, said why. Not a
+        /// lobby failure (no reconnect retry, and the join screen read "the Steam lobby is gone").
+        /// </summary>
+        internal void OnSteamVersionRefused(string why)
+        {
+            ModLog.Error(LogCat.Network, "Steam join refused: " + why);
+            _suppressHostMigration = true;
+            StopNetwork();
+            StatusText = why;
+            JoinRefusedText = why;
         }
 
         internal void OnSteamHostLeftLobby()

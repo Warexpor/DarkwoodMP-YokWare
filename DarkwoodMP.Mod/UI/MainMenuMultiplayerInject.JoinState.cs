@@ -68,14 +68,18 @@ namespace DWMPHorde
         // ------------------------------------------------------------------
 
         private const float FlashSec = 6f;
+        /// <summary>A join turned away for another version: two version numbers to read and act on.</summary>
+        private const float RefusedFlashSec = 20f;
         private static string _flash; // process-scoped: menu status line
         private static float _flashUntil; // process-scoped: menu status line timer
 
         /// <summary>Show <paramref name="english"/> on the multiplayer screens for a few seconds.</summary>
-        internal static void Flash(string english)
+        internal static void Flash(string english) => Flash(english, FlashSec);
+
+        internal static void Flash(string english, float seconds)
         {
             _flash = english;
-            _flashUntil = Time.realtimeSinceStartup + FlashSec;
+            _flashUntil = Time.realtimeSinceStartup + seconds;
         }
 
         private static void ClearFlash()
@@ -92,6 +96,8 @@ namespace DWMPHorde
         {
             if (string.IsNullOrEmpty(status))
                 return fallback;
+            if (status.StartsWith(VersionMismatch.Prefix, StringComparison.Ordinal))
+                return status;
             if (status.IndexOf("bind", StringComparison.OrdinalIgnoreCase) >= 0)
                 return "The port is already in use";
             if (status.IndexOf("unavailable", StringComparison.OrdinalIgnoreCase) >= 0

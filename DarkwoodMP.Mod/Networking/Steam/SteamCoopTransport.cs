@@ -18,6 +18,8 @@ namespace DWMPHorde.Networking.Steam
     {
         public const string LobbyKeyMod = "yokware";
         public const string LobbyKeyProto = "proto";
+        /// <summary>The host's YokWare version, for a joiner on another protocol to be told which.</summary>
+        public const string LobbyKeyVersion = "ver";
         public const string LobbyKeyName = "name";
         /// <summary>Darkwood Steam AppID.</summary>
         public const uint DarkwoodAppId = 274520;

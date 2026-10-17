@@ -252,7 +252,9 @@ shared copy.
   Steam's invite window. A LAN host's Host and Multiplayer screens show the address the
   others type in; the host can type its own (VPN, forwarded port).
 - Both carry the same messages. All peers must run the same mod build: the
-  handshake carries the protocol number and refuses a mismatch.
+  handshake carries the protocol number and refuses a mismatch. The handshake and the
+  Steam lobby also carry the mod version, so the joiner reads which version the host has
+  and which they have, and the host gets a chat line that someone was turned away.
 - A GOG copy has no Steam, so a Steam host and a GOG client must use LAN.
 - An optional `HostPassword` gates both transports. On Steam it is checked in the
   handshake (lobby data is public to anyone who can see the lobby), and a lobby

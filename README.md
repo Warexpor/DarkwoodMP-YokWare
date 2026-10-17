@@ -5,7 +5,7 @@ join it: the same forest, the same nights, the same story, played together.
 
 | | |
 |--|--|
-| Product | YokWare Branch **0.8.317** |
+| Product | YokWare Branch **0.8.318** |
 | Wire | Horde protocol **77** |
 | Players | Up to 8 by default (`MaxPlayers`, host included) |
 | Transport | LAN (LiteNetLib) or Steam lobby (SteamNetworkingSockets) |
@@ -14,7 +14,8 @@ join it: the same forest, the same nights, the same story, played together.
 | Authors | Warexpor and Yokyy |
 
 Every player in a session must run the same version: the protocol number is
-checked when a player joins.
+checked when a player joins, and a player on another version is told both versions
+(the host's and theirs).
 
 ---
 

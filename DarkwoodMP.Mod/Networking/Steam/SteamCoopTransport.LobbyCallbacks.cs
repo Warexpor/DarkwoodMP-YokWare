@@ -136,9 +136,12 @@ namespace DWMPHorde.Networking.Steam
             if (!string.IsNullOrEmpty(remoteProto)
                 && !string.Equals(remoteProto, localProto, StringComparison.Ordinal))
             {
+                string remoteVersion = SteamMatchmaking.GetLobbyData(_lobbyId, LobbyKeyVersion) ?? "";
                 ModLog.Error(LogCat.Network,
-                    "Steam lobby protocol mismatch remote=" + remoteProto + " local=" + localProto);
-                _owner.OnSteamLobbyFailed("protocol mismatch " + remoteProto);
+                    "Steam lobby protocol mismatch remote=" + remoteProto + " (" + (remoteVersion.Length > 0 ? remoteVersion : "version not set")
+                    + ") local=" + localProto + " (" + PluginInfo.Version + ")");
+                int.TryParse(remoteProto, out int remoteProtoNum);
+                _owner.OnSteamVersionRefused(VersionMismatch.ForJoiner(remoteProtoNum, remoteVersion));
                 return;
             }
 
@@ -181,6 +184,7 @@ namespace DWMPHorde.Networking.Steam
                 return;
             SteamMatchmaking.SetLobbyData(_lobbyId, LobbyKeyMod, "1");
             SteamMatchmaking.SetLobbyData(_lobbyId, LobbyKeyProto, PluginInfo.ProtocolVersion.ToString());
+            SteamMatchmaking.SetLobbyData(_lobbyId, LobbyKeyVersion, PluginInfo.Version);
             string name = ModConfig.PlayerName?.Value;
             if (string.IsNullOrEmpty(name))
             {

@@ -160,6 +160,12 @@ namespace DWMPHorde.Networking
 
         internal void AssignCurrentReceivePlayerId(int playerId) => _currentReceivePlayerId = playerId;
         public string StatusText { get; internal set; } = "Offline";
+        /// <summary>
+        /// Why the last join was turned away for being on another YokWare version (null: it was
+        /// not). Set as the session ends; the join screen shows it in place of "could not reach".
+        /// Cleared when a new connect starts.
+        /// </summary>
+        public string JoinRefusedText { get; internal set; }
         /// <summary>Snapshot of connected peer player-ids (LAN or Steam). Safe to mutate after call.</summary>
         public IReadOnlyCollection<int> ConnectedPlayerIds
         {
