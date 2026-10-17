@@ -1074,7 +1074,8 @@ party events.
   - Walkie-talkie: hold a `walkie_talkie` and hold the radio talk key (right mouse by default, rebindable in Settings > Voice) to transmit. Carrying one
     lets you hear the radio from anywhere: a narrow, slightly distorted band, the caller's
     beep at the start and a squelch tail at the end (played by the listener's radio the
-    moment the talker lets go, with the static fading out under it). The signal has no
+    moment the talker lets go, with the static fading out under it), both a few semitones
+    under the talker's own key sounds. The signal has no
     cut-off distance: past the clear range static rises under the voice and the voice
     sinks into it, until only static is left, and from there on it stays static however
     far apart the two are. Every sound a radio makes is a recording; none is generated.
