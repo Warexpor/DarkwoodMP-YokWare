@@ -44,6 +44,19 @@ namespace DWMPHorde.Players
             }
             SetLegsWalkFps(dragging);
 
+            // The library change already ended the put-away (see ApplyTorsoLibrary): a state
+            // sent before it does not bring the put-away back in the new item's sprites.
+            if (_hideEndedByLibrary)
+            {
+                if (torsoClip == "Hide")
+                {
+                    torsoClip = "Get";
+                    currentFrame = -1;
+                }
+                else
+                    _hideEndedByLibrary = false;
+            }
+
             bool hideLegs = ShouldHideLegsForTorso(torsoClip);
 
             if (!string.IsNullOrEmpty(torsoClip))
@@ -275,6 +288,12 @@ namespace DWMPHorde.Players
         {
             if (_torsoAnimator == null || lib == null)
                 return;
+            // Vanilla switches the library when the put-away ("Hide") ends (OnAniFinish) and
+            // draws the new item ("Get") next. Kept at its frame in the new library, the copy's
+            // Hide ran its last frames with the new item's sprites first: the item showed at the
+            // hip, went down and came up again, the draw seemingly starting twice.
+            bool hideEnded = _torsoAnimator.CurrentClip != null && _torsoAnimator.CurrentClip.name == "Hide"
+                && lib.GetClipByName("Get") != null;
             SkinLibraries(lib.name, out string noneName, out string legsName);
             var none = Resources.Load(noneName, typeof(tk2dSpriteAnimation)) as tk2dSpriteAnimation;
             if (none != null)
@@ -286,10 +305,20 @@ namespace DWMPHorde.Players
                 if (legs != null && _legsAnimator.Library != legs)
                     SwapLibraryKeepClip(_legsAnimator, legs);
             }
-            SwapLibraryKeepClip(_torsoAnimator, lib);
+            if (hideEnded)
+            {
+                _torsoAnimator.Library = lib;
+                PlayTorso("Get");
+                _hideEndedByLibrary = true;
+            }
+            else
+                SwapLibraryKeepClip(_torsoAnimator, lib);
             if (_legsAnimator != null)
                 ApplyLegsClipFps();
         }
+
+        /// <summary>The library change ended a put-away and started the draw (see <see cref="ApplyTorsoLibrary"/>).</summary>
+        private bool _hideEndedByLibrary;
 
         private static void SwapLibraryKeepClip(tk2dSpriteAnimator anim, tk2dSpriteAnimation lib)
         {

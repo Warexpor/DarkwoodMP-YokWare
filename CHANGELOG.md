@@ -3,12 +3,12 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.320**. The current Horde wire protocol is **77**. Every install in a session
+**0.8.321**. The current Horde wire protocol is **77**. Every install in a session
 needs the same DLL; the protocol is checked on join.
 
 Protocol history (newest first):
 
-- **77**, 0.8.308 to 0.8.320: `LocationTransport` gains `TargetKey`, the point inside the location to land on.
+- **77**, 0.8.308 to 0.8.321: `LocationTransport` gains `TargetKey`, the point inside the location to land on.
 - **76**, 0.8.306 to 0.8.307: new shared `MapPieceWire` (name, outside-location anchor, X/Z): `MapElementDiscovered` (69)
   is one piece, `MapStateSync` discoveries are pieces instead of bare names; `JournalItem` gains `Popup`.
 - **75**, 0.8.297 to 0.8.305: `CoHold` (170) gains mode 5, `ModePlayerPush`: a player walking into another
@@ -98,6 +98,22 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.321 — another player's item draw no longer seems to start twice
+
+- **What broke:** when a player drew an item (seen with the molotov, but any item switch),
+  the others saw the start of the draw twice: the new item showed at the hip, dipped,
+  then came up properly.
+- **Cause:** vanilla puts the old item away ("Hide"), switches the torso library the moment
+  that clip ends (`OnAniFinish`), then plays "Get" in the new library. On the stand-in the
+  library message arrived while its "Hide" was still on its last frames (it runs a frame
+  or so behind), and the library swap kept the running clip at its frame, so the end of
+  the put-away played with the new item's sprites before the draw.
+- **Fix:** a library change during "Hide" on the stand-in ends the put-away and starts
+  "Get" in the new library, as vanilla does; a state packet sent just before the switch
+  (still saying "Hide") does not bring the put-away back. Host and clients alike.
+  `SecondPlayerAnimController.ApplyTorsoLibrary` / `ApplyNetworkSnapshot`.
+- Code-only: not yet checked in a dual-box game.
 
 ## 0.8.320 — on/off for the hover health bar on players
 
