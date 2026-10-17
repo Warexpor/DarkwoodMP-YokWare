@@ -3,12 +3,12 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.316**. The current Horde wire protocol is **77**. Every install in a session
+**0.8.317**. The current Horde wire protocol is **77**. Every install in a session
 needs the same DLL; the protocol is checked on join.
 
 Protocol history (newest first):
 
-- **77**, 0.8.308 to 0.8.316: `LocationTransport` gains `TargetKey`, the point inside the location to land on.
+- **77**, 0.8.308 to 0.8.317: `LocationTransport` gains `TargetKey`, the point inside the location to land on.
 - **76**, 0.8.306 to 0.8.307: new shared `MapPieceWire` (name, outside-location anchor, X/Z): `MapElementDiscovered` (69)
   is one piece, `MapStateSync` discoveries are pieces instead of bare names; `JournalItem` gains `Popup`.
 - **75**, 0.8.297 to 0.8.305: `CoHold` (170) gains mode 5, `ModePlayerPush`: a player walking into another
@@ -98,6 +98,20 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.317 — the mod's menu screens are centred
+
+- **Settings screens** (Multiplayer > Settings, Voice, Players, Host settings): the rows used
+  vanilla's Video-tab columns, which split at x 14.6 (names ending at -1.76, values starting at
+  31), so every row sat right of the centred heading. They now split on the centre line with
+  the same 32-unit gap (`Vm.NameX` -16, `Vm.ValueX` 16); sliders and the mic meter follow.
+- **Return / Apply / Revert to default:** vanilla's places (left edges at -183, 0 and 168) ran
+  the row well right of centre. The row is now laid out left to right 90 units apart and
+  centred as a whole, measured in the shown font so a translation stays centred
+  (`VmBuilder.CentreRow`, `VmBuilder.LastReturn`). A screen with only Return gets it centred.
+- **Saves add-on screen (manual-saves 1.1.1):** columns moved 20 left (slot name, info, Save, Load) so the row is
+  centred too.
+- Files: `UI/VanillaMenu/VanillaMenu.cs`, `DarkwoodMP.ManualSaves/SavesScreen.cs`.
 
 ## 0.8.316 — Voice settings: the microphone level meter keeps its size and place
 
