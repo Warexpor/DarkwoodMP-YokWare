@@ -1,3 +1,4 @@
+using DWMPHorde.Config;
 using DWMPHorde.Players;
 using HarmonyLib;
 using UnityEngine;
@@ -12,6 +13,7 @@ namespace DWMPHorde.Patches
     /// selected nothing, under the same gates (<c>canSeeAtCursor</c> and <c>withinReach</c>).
     /// The fill is the peer's own health (<c>RemoteHealthPct</c>, PlayerEffectSync), not the
     /// stand-in's CharBase pool. A downed or dead player shows no bar, like a dead creature.
+    /// Off with <c>[Network] ShowPlayerHealth</c> (Multiplayer > Settings, "Players' health").
     /// </summary>
     [HarmonyPatch(typeof(Player), nameof(Player.selectObject))]
     public static class PeerHealthBarHoverPatch
@@ -37,7 +39,7 @@ namespace DWMPHorde.Patches
                 return;
 
             RemotePlayerProxy hovered = null;
-            if (__instance.selectedObject == null && !Core.forbidInputs && !__instance.inEpilogue)
+            if (Enabled && __instance.selectedObject == null && !Core.forbidInputs && !__instance.inEpilogue)
                 hovered = HoveredProxy(__instance);
 
             if (hovered != null)
@@ -51,6 +53,9 @@ namespace DWMPHorde.Patches
             if (shown != null && shown.GetComponent<RemotePlayerProxy>() != null)
                 bar.startHiding();
         }
+
+        private static bool Enabled =>
+            ModConfig.ShowPlayerHealth == null || ModConfig.ShowPlayerHealth.Value;
 
         private static RemotePlayerProxy HoveredProxy(Player local)
         {
@@ -86,7 +91,7 @@ namespace DWMPHorde.Patches
             EnemyHealthBar bar = ui != null ? ui.enemyHealthBar : null;
             if (bar == null || proxy == null || bar.currentObj != proxy.gameObject)
                 return;
-            if (Alive(proxy))
+            if (Enabled && Alive(proxy))
                 Show(bar, proxy, onlyRefresh: true);
             else
                 bar.hide();

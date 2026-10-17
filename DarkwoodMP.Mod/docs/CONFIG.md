@@ -18,7 +18,7 @@ test, so every bound key must be listed here.
 
 In game:
 
-- **Multiplayer > Settings** edits `PlayerName`, `ShowPlayerNames`, `ChatEnabled`,
+- **Multiplayer > Settings** edits `PlayerName`, `ShowPlayerNames`, `ShowPlayerHealth`, `ChatEnabled`,
   `PeerMovementVolume` and `StuckRecoveryButton` ("Stuck button").
 - **Settings > Voice** edits `VoiceEnabled` / `VoiceMode`, `VoicePttKey`, `VoicePadTalkButton`,
   `VoiceRadioTalkKey`, `VoiceRadioPowerKey`, `VoiceRadioWorldSounds`, `VoiceMicDevice`,
@@ -50,6 +50,7 @@ changes are kept without asking.
 | `ChatEnabled` | `true` | Co-op text chat. Ctrl+C opens the input, Enter sends, Esc closes. Gameplay input (movement, hotbar, walkie) is held while typing. |
 | `StuckRecoveryButton` | `false` | Shows "Back to my hideout" in the pause menu's Multiplayer screen, which puts the player at its hideout's bed when stuck where it cannot walk out (an empty location copy). Off by default so it is not a free trip home; turn on in Multiplayer > Settings ("Stuck button") when needed. |
 | `ShowPlayerNames` | `pointed` | When other players' names show over them: `pointed` (when the cursor is on them), `always` (while you can see them) or `off`. |
+| `ShowPlayerHealth` | `true` | Pointing the cursor at another player shows their health in the vanilla hover health bar (the one creatures, doors and barricades get), within reach and in sight. Multiplayer > Settings, "Players' health". |
 | `MaxPlayers` | `8` | Maximum players including the host. |
 | `AllowJoinDuringDream` | `true` | A player joining (or rejoining after a drop) while a dream runs is pulled onto its pad. When false, joins are rejected until the dream ends. Joins during a dream's entry (movie, prepare) are always rejected. |
 | `AllowJoinDuringDreamDefaultApplied` | `false` | Internal. Set once when `AllowJoinDuringDream` is switched to its new default (true) in a cfg written while the default was false; after that the player's own value is kept. |

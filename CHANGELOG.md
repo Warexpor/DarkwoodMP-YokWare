@@ -3,12 +3,12 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.319**. The current Horde wire protocol is **77**. Every install in a session
+**0.8.320**. The current Horde wire protocol is **77**. Every install in a session
 needs the same DLL; the protocol is checked on join.
 
 Protocol history (newest first):
 
-- **77**, 0.8.308 to 0.8.319: `LocationTransport` gains `TargetKey`, the point inside the location to land on.
+- **77**, 0.8.308 to 0.8.320: `LocationTransport` gains `TargetKey`, the point inside the location to land on.
 - **76**, 0.8.306 to 0.8.307: new shared `MapPieceWire` (name, outside-location anchor, X/Z): `MapElementDiscovered` (69)
   is one piece, `MapStateSync` discoveries are pieces instead of bare names; `JournalItem` gains `Popup`.
 - **75**, 0.8.297 to 0.8.305: `CoHold` (170) gains mode 5, `ModePlayerPush`: a player walking into another
@@ -98,6 +98,15 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.320 — on/off for the hover health bar on players
+
+- **New:** Multiplayer > Settings has "Players' health" (Yes/No, default Yes), the
+  0.8.319 hover health bar on other players. Turned off, pointing at a player shows no bar
+  and a bar already up for one fades. Config `[Network] ShowPlayerHealth` (bool, default
+  `true`), per player, only this player's own screen. Russian label "Здоровье игроков".
+- `Config/ModConfig.cs`, `UI/MultiplayerScreens.cs`, `PeerHealthBarHoverPatch`, `docs/CONFIG.md`.
+  No protocol change (77). Code-only: not yet checked in game.
 
 ## 0.8.319 — hovering another player shows their health bar
 
