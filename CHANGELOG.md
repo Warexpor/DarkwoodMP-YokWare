@@ -3,12 +3,12 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.323**. The current Horde wire protocol is **77**. Every install in a session
+**0.8.324**. The current Horde wire protocol is **77**. Every install in a session
 needs the same DLL; the protocol is checked on join.
 
 Protocol history (newest first):
 
-- **77**, 0.8.308 to 0.8.323: `LocationTransport` gains `TargetKey`, the point inside the location to land on.
+- **77**, 0.8.308 to 0.8.324: `LocationTransport` gains `TargetKey`, the point inside the location to land on.
 - **76**, 0.8.306 to 0.8.307: new shared `MapPieceWire` (name, outside-location anchor, X/Z): `MapElementDiscovered` (69)
   is one piece, `MapStateSync` discoveries are pieces instead of bare names; `JournalItem` gains `Popup`.
 - **75**, 0.8.297 to 0.8.305: `CoHold` (170) gains mode 5, `ModePlayerPush`: a player walking into another
@@ -98,6 +98,21 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.324 — trader killed mid-trade no longer leaves its stock on screen
+
+- **What broke (playtest report, 0.8.322):** the host was trading with the night trader
+  when the client hit it by accident; the trader's stock panel ("Reputation: …") stayed on
+  the host's screen for good. The night trader has 1 health, so the blow killed it.
+  Vanilla `die2` removes only the NPC component; the body keeps its Inventory as loot. The
+  "talk partner gone" cleanup ended the talk and the trays but only knew how to close a
+  trade on a living trader, so the stock panel (its own UI object) was never hidden, and
+  the goods in the buy tray were thrown away instead of going back to the body.
+- **Now:** the cleanup remembers the trader's Inventory while it lives; when the trader dies
+  mid-trade it hides that panel and puts the buy tray back into the body's loot (a trader
+  gone altogether still takes them with it). Same on a client trading or listening in.
+  File: `TalkPartnerGonePatch.cs`.
+- No protocol change (77). Code-only: builds and tests pass; not yet checked in game.
 
 ## 0.8.323 — two players at one NPC: no stuck talk window, trade screens redraw
 

@@ -13,19 +13,24 @@ namespace DWMPHorde.Patches
     /// need it, and with it destroyed the window could not be closed and Esc in a trade threw
     /// halfway, the Sell and Buy trays and their Accept button left on screen for good. The
     /// talk ends as vanilla's close does, with nobody to close on: the goods laid out to sell go
-    /// back to the player, the gone trader's goods go with it.
+    /// back to the player; the buy tray goes back to a killed trader's body (its loot now) and its
+    /// stock panel closes, or goes with a trader that is gone altogether.
     /// </summary>
     [HarmonyPatch(typeof(DialogueWindow), "Update")]
     public static class TalkPartnerGonePatch
     {
         private static NPC _seen;   // reset-in: Reset
         private static NpcRef _ref; // reset-in: Reset (the talk's NPC as the lock knows it, taken while it lived)
+        // The trader's stock (its Inventory). A killed NPC loses only its NPC component (vanilla
+        // die2); the Inventory stays on the body as its loot. Its stock panel is its own UI object.
+        private static Inventory _stock; // reset-in: Reset
 
         /// <summary>Registered with NetworkResetRegistry.</summary>
         public static void Reset()
         {
             _seen = null;
             _ref = default;
+            _stock = null;
         }
 
         private static void Prefix(DialogueWindow __instance)
@@ -42,6 +47,7 @@ namespace DWMPHorde.Patches
                 {
                     _seen = npc;
                     _ref = NpcRef.Of(npc);
+                    _stock = npc.GetComponent<Inventory>();
                 }
                 return;
             }
@@ -53,7 +59,7 @@ namespace DWMPHorde.Patches
             {
                 if (listener)
                     DialogMirror.StopView(sendLeave: true); // its close finds the window shut
-                EndTrade(dw);
+                EndTrade(dw, ReferenceEquals(_seen, npc) ? _stock : null);
                 EndTalk(dw);
             }
             catch (System.Exception ex)
@@ -63,10 +69,12 @@ namespace DWMPHorde.Patches
             if (!listener && ReferenceEquals(_seen, npc))
                 ReleaseLock(net, _ref);
             _seen = null;
+            _stock = null;
         }
 
         /// <summary>Vanilla closeTrade without the trader.</summary>
-        private static void EndTrade(DialogueWindow dw)
+        /// <param name="stock">The trader's Inventory, when its body is still there (killed: it is the body's loot now).</param>
+        private static void EndTrade(DialogueWindow dw, Inventory stock)
         {
             Player p = Player.Instance;
             if (p == null || !p.inShop)
@@ -79,7 +87,16 @@ namespace DWMPHorde.Patches
             p.Inventory.hide();
             dw.exchangePlayer.transferAllItemsToPlayer();
             dw.exchangePlayer.hide();
-            dw.exchangeTrader.clear();
+            // Killed mid-trade (another player's blow; the night trader dies to one hit): its
+            // stock panel stayed on screen for good, and the goods in the buy tray were lost
+            // from the body's loot.
+            if (stock != null)
+            {
+                dw.exchangeTrader.transferAllItemsTo(stock);
+                stock.hide();
+            }
+            else
+                dw.exchangeTrader.clear();
             dw.exchangeTrader.hide();
             p.Hotbar.thisUI.transform.localPosition = p.Hotbar.position;
             PositionMe pos = p.Hotbar.thisUI.GetComponent<PositionMe>();
