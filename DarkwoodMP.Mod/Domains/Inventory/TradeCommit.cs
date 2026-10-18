@@ -158,11 +158,13 @@ namespace DWMPHorde.Patches
                     hasDead: true, dead: standing.dead, deadId: standing.deadID);
                 ModRuntime.LegacyInfo($"[RepSync] p{sender}'s trade: shared rep '{msg.NpcName}' {msg.RepDelta:+0;-0;0} → {standing.reputation}");
             }
-            try { stock.refreshReputation(); }
-            catch (System.Exception ex) { ModLog.Swallowed(ex); /* reputation UI not up */ }
-            var dw = Singleton<UI>.Instance?.dialogueWindow;
-            if (dw != null && dw.opened && dw.npc == npc && dw.currentMenu == DialogueWindow.CurrentMenu.trade)
+            // The host's own trade screen on this trader (another trader's, or none: vanilla
+            // refreshReputation reads the talked-to NPC).
+            if (TradeInventorySync.TradeOpenOn(npc))
+            {
+                stock.refreshReputation();
                 stock.refreshIcons();
+            }
 
             // The trader's copy on the trading client already shows this result; sending it back
             // rebuilt its stock under a trade window that may hold a new tray.
@@ -234,6 +236,27 @@ namespace DWMPHorde.Patches
             return created;
         }
 
+        /// <summary>Goods that do not fit the bag, dropped at the player (with their wear and upgrades).</summary>
+        private static void DropAtPlayer(List<TradeEntry> goods)
+        {
+            Player p = Player.Instance;
+            DialogueWindow dw = Singleton<UI>.Instance != null ? Singleton<UI>.Instance.dialogueWindow : null;
+            Inventory scratch = dw != null ? dw.exchangePlayer : null;
+            for (int i = 0; i < goods.Count; i++)
+            {
+                InvSlot slot = scratch != null ? scratch.getNextFreeSlot() : null;
+                InvItemClass item = p != null && slot != null ? Create(slot, goods[i]) : null;
+                if (item == null)
+                {
+                    ModRuntime.Log?.LogWarning("[TradeSync] refused trade: could not give back " + goods[i].Type);
+                    continue;
+                }
+                p.spawnDroppedInvItem(item);
+                slot.removeItem();
+                ModRuntime.LegacyInfo("[TradeSync] refused trade: no room, dropped " + goods[i].Type + " at the player");
+            }
+        }
+
         /// <summary>The host refused: give the purchases back and take the traded goods back.</summary>
         private static void ClientUndo(TradeCommitMessage msg)
         {
@@ -245,16 +268,22 @@ namespace DWMPHorde.Patches
                 TradeEntry e = msg.Bought[i];
                 ContainerSyncHelpers.RemoveGrantedFromPlayer(e.Type, e.IsRecipe, e.Count, e.Durability, e.Ammo);
             }
+            var noRoom = new List<TradeEntry>();
             for (int i = 0; i < msg.Sold.Length; i++)
             {
                 InvSlot slot = p.Inventory.getNextFreeSlotInPlayer();
                 if (slot == null)
                 {
-                    ModRuntime.Log?.LogWarning("[TradeSync] refused trade: no room to give back " + msg.Sold[i].Type);
+                    noRoom.Add(msg.Sold[i]);
                     continue;
                 }
                 Create(slot, msg.Sold[i]);
             }
+            // The bag filled up meanwhile (the purchases are gone again, but the player may have
+            // picked things up): the goods land at the player's feet. Dropped here they were lost.
+            // Next frame: the drop is not sent while this message is being applied.
+            if (noRoom.Count > 0)
+                Singleton<Controller>.Instance.waitFramesAndRun(() => DropAtPlayer(noRoom), 1);
             p.Inventory.refreshIcons();
             p.Hotbar.refreshIcons();
             // The standing the trade moved here goes back with the goods. A shared one is then

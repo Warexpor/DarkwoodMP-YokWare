@@ -118,7 +118,10 @@ namespace DWMPHorde.Patches
             if (net == null) return;
 
             int localId = net.LocalPlayerId;
-            NpcDialogueLock.RenewLease(__instance.npc, localId);
+            // A listener's own trade holds no lock: "renewing" took the slot whenever the
+            // talking player's lease had lapsed here, a second speaker on the NPC.
+            if (!DialogMirror.SpectatorActive)
+                NpcDialogueLock.RenewLease(__instance.npc, localId);
 
             // Host fans out authoritative stock; a client sends what it traded for the host to check.
             if (net.Role == NetworkRole.Host)
@@ -472,10 +475,9 @@ namespace DWMPHorde.Patches
             }
             // The trade window's balance line exists only while this trader's trade is open (vanilla
             // refreshReputation reads the talked-to NPC and the exchange panes).
-            if (dw != null && dw.opened && dw.npc == npc && dw.currentMenu == DialogueWindow.CurrentMenu.trade)
+            if (TradeOpenOn(npc))
             {
-                if (Player.Instance != null && Player.Instance.talkedToNPC != null)
-                    inv.refreshReputation();
+                inv.refreshReputation();
                 inv.refreshIcons();
                 if (dw.exchangeTrader != null)
                     dw.exchangeTrader.refreshIcons();
@@ -483,6 +485,20 @@ namespace DWMPHorde.Patches
 
             ModRuntime.LegacyInfo(
                 $"[TradeSync] applied absolute stock '{msg.NpcName}' types={msg.ItemCount}");
+        }
+
+        /// <summary>
+        /// This player's trading screen is open on this trader. Vanilla openTrade never sets
+        /// <c>DialogueWindow.currentMenu</c> to trade, so a check on that was never true: another
+        /// player's sale, purchase or spent standing did not redraw an open trade window.
+        /// </summary>
+        internal static bool TradeOpenOn(NPC npc)
+        {
+            if (npc == null)
+                return false;
+            DialogueWindow dw = Singleton<UI>.Instance != null ? Singleton<UI>.Instance.dialogueWindow : null;
+            Player p = Player.Instance;
+            return dw != null && dw.opened && dw.npc == npc && p != null && p.inShop && p.talkedToNPC == npc;
         }
 
         /// <summary>
@@ -548,10 +564,10 @@ namespace DWMPHorde.Patches
                 }
             }
 
-            npcInv.refreshReputation();
+            if (TradeInventorySync.TradeOpenOn(npc))
+                npcInv.refreshReputation();
 
-            var dw = Singleton<UI>.Instance?.dialogueWindow;
-            if (dw != null && dw.opened && dw.npc == npc && dw.currentMenu == DialogueWindow.CurrentMenu.trade)
+            if (TradeInventorySync.TradeOpenOn(npc))
                 npcInv.refreshIcons();
         }
     }

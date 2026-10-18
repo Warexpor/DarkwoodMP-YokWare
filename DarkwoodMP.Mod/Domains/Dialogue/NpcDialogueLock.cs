@@ -337,8 +337,17 @@ namespace DWMPHorde.Sync
                     FireRemoteEnterDialogue(npc, ownerPlayerId);
             }
             else
+            {
+                int holder = GetOwner(npc);
                 ModLog.Event(LogCat.Session,
-                    $"[DialogLock] denied NPC={npc} owner={ownerPlayerId} dream={npc.Dream} heldBy={GetOwner(npc)}");
+                    $"[DialogLock] denied NPC={npc} owner={ownerPlayerId} dream={npc.Dream} heldBy={holder}");
+                // The holder again, after the deny: the denied client still held its own
+                // optimistic lock when the holder's grant reached it, so it dropped that grant,
+                // and the deny then left it with no holder at all (the next talk there was a
+                // fresh request and a second deny instead of listening in).
+                if (holder >= 0 && holder != ownerPlayerId)
+                    BroadcastState(net, npc, holder, granted: true, release: false);
+            }
             return ok;
         }
 

@@ -90,6 +90,7 @@ namespace DWMPHorde.Sync
             _ownerOpen = false;
             _ownerDoneSent = false;
             _openAsOwner = false;
+            _openWaiting = false;
             _autoTradeDone = false;
             HandingOver = false;
             BoardDepth = 0;
@@ -657,6 +658,8 @@ namespace DWMPHorde.Sync
         private static int _renderFrame = -1; // reset-in: Reset
         /// <summary>The talk was handed to this player before its view had opened: open it as its own.</summary>
         private static bool _openAsOwner; // reset-in: Reset
+        /// <summary>OpenWhenIdle is waiting for the window to be free (it has not called initiateDialogue yet).</summary>
+        private static bool _openWaiting; // reset-in: Reset
         /// <summary>This listener's own trade already opened for the talking player's current trade.</summary>
         private static bool _autoTradeDone; // reset-in: Reset
 
@@ -686,20 +689,26 @@ namespace DWMPHorde.Sync
             Run(CloseDenied(dw, talked));
         }
 
-        private static IEnumerator CloseDenied(DialogueWindow dw, NPC talked)
+        /// <param name="listenAfter">Listen in on the talk once closed (a denied talk of this player's own).</param>
+        private static IEnumerator CloseDenied(DialogueWindow dw, NPC talked, bool listenAfter = true)
         {
             // Still opening: vanilla close() refuses while tweening, and the opening would carry on
             // by itself afterwards. Let it finish opening (its welcome is held back), then close.
-            float until = Time.realtimeSinceStartup + 4f;
-            while (dw.npc == talked && (!dw.opened || dw.tweening) && Time.realtimeSinceStartup < until)
+            // No time limit: the portrait clip can take seconds to prepare (Proton), and a window
+            // still opening when a 4 s wait ended opened afterwards as this player's own talk,
+            // without the lock, with the listener view asked for meanwhile drawn into it. The
+            // window only lets go of the NPC by closing; a session end clears DeniedNpc.
+            while (DeniedNpc == talked && dw.npc == talked && (!dw.opened || dw.tweening))
                 yield return null;
-            if (dw.npc == talked && dw.opened && !dw.tweening)
+            if (DeniedNpc != talked)
+                yield break;
+            if (dw.npc == talked)
             {
                 PrepareClose(dw);
                 dw.close();
             }
             DeniedNpc = null;
-            if (!TryStartSpectating(talked))
+            if (listenAfter && !TryStartSpectating(talked))
                 Say("Someone is already talking to them…");
         }
 
@@ -836,10 +845,16 @@ namespace DWMPHorde.Sync
         /// <summary>The window may still be closing (a denied talk of this player's own): open after it.</summary>
         private static IEnumerator OpenWhenIdle(DialogueWindow dw)
         {
-            float until = Time.realtimeSinceStartup + 4f;
-            while (SpectatorActive && Time.realtimeSinceStartup < until
-                   && (dw.opened || dw.tweening || (Player.Instance != null && Player.Instance.inDialogue)))
-                yield return null;
+            _openWaiting = true;
+            try
+            {
+                float until = Time.realtimeSinceStartup + 4f;
+                // A talk handed over meanwhile (SpectatorActive cleared) waits the same way.
+                while ((SpectatorActive || _openAsOwner) && Time.realtimeSinceStartup < until
+                       && (dw.opened || dw.tweening || (Player.Instance != null && Player.Instance.inDialogue)))
+                    yield return null;
+            }
+            finally { _openWaiting = false; }
             bool asOwner = _openAsOwner;
             _openAsOwner = false;
             if (!SpectatorActive && !asOwner)
@@ -898,8 +913,20 @@ namespace DWMPHorde.Sync
             _ownerId = -1;
             if (!ready)
             {
-                // Still opening (or about to): it opens as this player's own talk.
+                if (dw != null && _npc != null && dw.npc == _npc)
+                {
+                    // The view is opening already (initiateDialogue ran): its welcome now runs as
+                    // this player's own (SpectatorActive is off), the lock is this player's.
+                    dw.dontSaveOnExit = false;
+                    NpcDialogueLock.BeginLeaseRenewal(dw.npc);
+                    return;
+                }
+                // About to open: it opens as this player's own talk. Handed over before the host's
+                // Open reached this player, nothing was going to open it: the talk sat with
+                // nobody's window, holding the NPC until the lease ran out.
                 _openAsOwner = _npc != null;
+                if (_openAsOwner && !_openWaiting && dw != null)
+                    Run(OpenWhenIdle(dw));
                 return;
             }
             dw.dontSaveOnExit = false;
@@ -1339,8 +1366,15 @@ namespace DWMPHorde.Sync
         {
             Singleton<UI>.Instance.tweenBlackScreenTop(overlay ? new Color(1f, 1f, 1f, 1f) : new Color(0f, 0f, 0f, 1f), 1f);
             yield return new WaitForSecondsRealtime(1.5f);
-            if (!SpectatorActive || dw == null || dw.npc == null)
+            if (dw == null || dw.npc == null)
+                yield break; // closed: the close has its own fade
+            if (!SpectatorActive)
+            {
+                // Handed the talk mid-fade (its own options are up now): lift the black. Left
+                // up, it hid the window and vanilla drops Esc while it is up.
+                Singleton<UI>.Instance.tweenBlackScreenTop(new Color(0f, 0f, 0f, 0f), 1f);
                 yield break;
+            }
             Renderer r = dw.portrait.GetComponent<Renderer>();
             if (r != null && r.material.mainTexture != null)
                 Resources.UnloadAsset(r.material.mainTexture);
@@ -1350,7 +1384,7 @@ namespace DWMPHorde.Sync
             System.Action done = () =>
             {
                 // The view closed while the clip was loading: the close has its own fade.
-                if (!SpectatorActive || dw == null || dw.npc == null)
+                if (dw == null || dw.npc == null)
                     return;
                 VideoPlayer vp = dw.portrait.GetComponent<VideoPlayer>();
                 if (vp != null)
@@ -1395,16 +1429,29 @@ namespace DWMPHorde.Sync
 
         private static IEnumerator CloseWhenIdle(DialogueWindow dw)
         {
-            // Opening or a portrait tween: vanilla close() refuses while tweening.
-            float until = Time.realtimeSinceStartup + 8f;
-            while (SpectatorActive && dw.tweening && Time.realtimeSinceStartup < until)
+            // Opening or a portrait tween: vanilla close() refuses while tweening. A view that
+            // initiateDialogue is still opening (its portrait clip preparing) is waited for too:
+            // given up on there, it finished opening with SpectatorActive off, so it showed the
+            // NPC's own welcome as this player's talk, with no lock, and its decision board
+            // (the oven's look-at options) could not be left with Esc.
+            float until = Time.realtimeSinceStartup + 15f;
+            while (SpectatorActive && (dw.tweening || (dw.npc != null && !dw.opened))
+                   && Time.realtimeSinceStartup < until)
                 yield return null;
             if (!SpectatorActive)
                 yield break;
-            if (dw.npc == null || !dw.opened)
+            if (dw.npc == null)
             {
                 // Never opened (still waiting to): nothing to close.
                 SpectatorActive = false;
+                yield break;
+            }
+            if (!dw.opened || dw.tweening)
+            {
+                // Still not open: its welcome stays held back (DeniedNpc) and closes it once open.
+                DeniedNpc = dw.npc;
+                SpectatorActive = false;
+                Run(CloseDenied(dw, dw.npc, listenAfter: false));
                 yield break;
             }
             // The talk ended while this player was in its own trade: vanilla close() leaves the
