@@ -185,7 +185,7 @@ namespace DWMPHorde.Patches
             var ui = Singleton<UI>.Instance;
             DialogueWindow dw = ui != null ? ui.dialogueWindow : null;
             if (dw == null || !dw.opened || dw.npc == null || dw.npc.name != npcName
-                || dw.currentMenu != DialogueWindow.CurrentMenu.trade || dw.npc.inventory == null)
+                || !TradeInventorySync.TradeOpenOn(dw.npc) || dw.npc.inventory == null)
                 return;
             try { dw.npc.inventory.refreshReputation(); }
             catch (System.Exception ex) { ModLog.Swallowed(ex); /* the window is closing */ }

@@ -3,12 +3,12 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.322**. The current Horde wire protocol is **77**. Every install in a session
+**0.8.323**. The current Horde wire protocol is **77**. Every install in a session
 needs the same DLL; the protocol is checked on join.
 
 Protocol history (newest first):
 
-- **77**, 0.8.308 to 0.8.322: `LocationTransport` gains `TargetKey`, the point inside the location to land on.
+- **77**, 0.8.308 to 0.8.323: `LocationTransport` gains `TargetKey`, the point inside the location to land on.
 - **76**, 0.8.306 to 0.8.307: new shared `MapPieceWire` (name, outside-location anchor, X/Z): `MapElementDiscovered` (69)
   is one piece, `MapStateSync` discoveries are pieces instead of bare names; `JournalItem` gains `Popup`.
 - **75**, 0.8.297 to 0.8.305: `CoHold` (170) gains mode 5, `ModePlayerPush`: a player walking into another
@@ -98,6 +98,47 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.323 — two players at one NPC: no stuck talk window, trade screens redraw
+
+- **What broke (playtest report):** two players opened the hideout oven for the first time
+  at the same moment; the client stayed stuck in the oven's "look at oven / bottle / pot"
+  board and Esc did nothing until a rejoin. Both clicks started a talk; the host's won and
+  the client's own window was closed so it could listen in. Several paths left a window
+  open as the client's own talk without the lock (the NPC's own welcome, here the oven's
+  first-talk decision board, which vanilla never lets you Esc out of):
+  - the denied talk was closed only if it finished opening within 4 s (the portrait clip
+    can take longer to prepare under Proton); past that it opened anyway with the
+    listener view drawn into it. It now waits for the window however long it opens.
+  - a listener's view still opening when the talk ended or the player pressed Esc was
+    dropped as "never opened" and then opened as the player's own talk. It now waits for
+    it to open and closes it with nothing shown.
+  - a listener handed the talk (the talking player left) while its view was opening got
+    no lease renewal; handed it before the host's reply arrived, nothing opened at all and
+    the NPC stayed held for 90 s. Both now open as that player's own talk.
+  - a listener handed the talk during a portrait change (a door's look/listen) kept the
+    black fade over its window, which also blocks Esc. It is lifted now.
+  - the denied player did not learn who held the NPC (it dropped the holder's grant while
+    its own optimistic lock stood), so its next try was another deny instead of listening
+    in. The host sends the holder again after a deny (`NpcDialogueLock.HostTryGrant`).
+  Files: `DialogMirror.cs`, `NpcDialogueLock.cs`.
+- **Trade screens did not redraw for others' trades.** The open trade window refreshed
+  only when `DialogueWindow.currentMenu` was "trade", which vanilla never sets. Another
+  player's purchase or sale on the same trader, a restock and spent shared standing did
+  not redraw the stock icons or the standing line until the window was reopened. Now
+  checked by the trade screen actually being open on that trader
+  (`TradeInventorySync.TradeOpenOn`; stock sync, legacy trade sync, the host's applied
+  client trade, `ReputationSyncUtil.RefreshOpenTrade`). The host also no longer writes a
+  client trade's standing into a trade screen it has open on another trader.
+- **A listener's own trade took the talk lock.** Accepting a trade renewed the lock for
+  the accepting player, listener or not; with the talking player's lease lapsed on that
+  machine, the listener became a second speaker. Only the talking player renews now.
+- **Refused trade with a full bag lost the goods.** When the host refuses a client's trade
+  (stock or standing gone), the sold goods come back; with no room in the bag they were
+  dropped from existence. They now land at the player's feet with their wear and upgrades
+  (`TradeCommit.ClientUndo`).
+- No protocol change (77). Code-only: builds and tests pass; not yet checked in game.
+  The reporter's client `LogOutput.log` would confirm which of the races above hit.
 
 ## 0.8.322 — silent catches log, test pilot out of the shipped DLL, dead code removed
 
