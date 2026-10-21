@@ -502,7 +502,7 @@ reinstall), so a returning player is not taken for a new one.
   as in vanilla. Players together get about vanilla's pace of them, not one each.
 - **Night comes to every player, at vanilla's rate.** Each hideout a living player
   is home in gets the night's monsters at vanilla's pace and count, around a player
-  there (times the host's night monster setting, see [section 18](#18-balancing-for-the-party)). Each living, unwarded player gets its own worm, as in vanilla; a player in a
+  there (times the host's night monster setting, and with "per player" on, times the players home there; see [section 18](#18-balancing-for-the-party)). Each living, unwarded player gets its own worm, as in vanilla; a player in a
   dream gets none (the host's dream does not spare the players still out in the night). Wards count
   for the player a monster is after. Night events play in every hideout a living
   player stands in; an event that asks about "the player" (the Shadows perk, being
@@ -1146,12 +1146,14 @@ with such a change not applied asks first, since it changes the game for everyon
 | `FriendlyFireEnabled` | on | See [section 9](#9-player-combat-and-friendly-fire). |
 | `MaxPeerDamage` | 200 | Upper bound on one client-reported hit (anti-grief). |
 | `NightMonsterMultiplier` | x1 | Host settings > Night monsters (x1 to x10). Each hideout's night monsters: how many of each kind may be out at once and the pace they come at, times this. Read live by the host (the only one who spawns them), so it can be changed before hosting or mid-night. Worms, shadows and night events stay vanilla. |
+| `NightMonstersPerPlayer` | off | Host settings > Night monsters per player. On: each hideout's night monsters are also multiplied by the living players home in it (two at home: twice as many), on top of the setting above, together capped at x10. Off: one share per hideout however many are home. |
 
 Other party-relevant rules that are not settings:
 
 - Creature health, damage and numbers are not scaled with party size (apart from
-  the dream chompers). The night monster count is the host's own choice, not tied to
-  party size.
+  the dream chompers). The night monster count is the host's own choice; it follows
+  party size only with Night monsters per player on, and then counts the players
+  home in that hideout, not the whole party.
 - Players in the level-up menu, a dialogue or the pause menu are protected because
   the world no longer pauses for them (it pauses only when everyone is in the pause
   menu).

@@ -128,6 +128,8 @@ namespace DWMPHorde.Patches
     /// multiplier (<see cref="CoopBalance.NightMonsterMultiplier"/>) is above 1: then the same
     /// per-hideout path runs for the host alone. The multiplier raises how many of each kind may be
     /// out at once and the pace they come at; it is read every tick, so a change applies mid-night.
+    /// With the host's "per player" setting each living player home in a hideout adds a share
+    /// (<see cref="CoopBalance.NightMonsterMultiplierFor"/>).
     /// </summary>
     [HarmonyPatch(typeof(CharacterSpawner), "spawnNightChar")]
     public static class NightSpawnFlagPatch
@@ -170,10 +172,11 @@ namespace DWMPHorde.Patches
             {
                 if (home.Value.Count == 0)
                     continue;
-                int n = NightHideoutQuota.TakeSpawnsThisTick(home.Key, mult);
+                float homeMult = CoopBalance.NightMonsterMultiplierFor(home.Value.Count);
+                int n = NightHideoutQuota.TakeSpawnsThisTick(home.Key, homeMult);
                 for (int k = 0; k < n; k++)
                 {
-                    if (!SpawnAt(__instance, home.Key, home.Value[Random.Range(0, home.Value.Count)], mult, solo: !coop))
+                    if (!SpawnAt(__instance, home.Key, home.Value[Random.Range(0, home.Value.Count)], homeMult, solo: !coop))
                         break;
                 }
             }

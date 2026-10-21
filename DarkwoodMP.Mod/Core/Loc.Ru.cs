@@ -88,6 +88,7 @@ namespace DWMPHorde
             { "Friendly fire", "Огонь по своим" },
             { "Extra loot", "Больше добычи" },
             { "Night monsters", "Ночные твари" },
+            { "Night monsters per player", "Ночные твари на игрока" },
             { "x1", "×1" },
             { "x1.5", "×1,5" },
             { "x2", "×2" },

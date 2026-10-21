@@ -594,6 +594,7 @@ namespace DWMPHorde
             yield return Setting(ModConfig.LootShareModeSetting, ask: !offline);
             yield return Setting(ModConfig.DoubleItemsEnabled, ask: !offline);
             yield return Setting(ModConfig.NightMonsterMultiplier, ask: !offline);
+            yield return Setting(ModConfig.NightMonstersPerPlayer, ask: !offline);
             yield return Setting(ModConfig.VoiceAlertsEnemies, ask: !offline);
             yield return Setting(ModConfig.MaxPlayers, offline);
             yield return Setting(ModConfig.SteamLobbyType, offline);
@@ -619,6 +620,9 @@ namespace DWMPHorde
             z -= step;
             b.Choice("Night monsters", z, NightMonsterChoices, NightMonsterIndex,
                 i => { if (ModConfig.NightMonsterMultiplier != null) ModConfig.NightMonsterMultiplier.Value = NightMonsterValues[i]; });
+            z -= step;
+            b.Choice("Night monsters per player", z, YesNo, () => ModConfig.NightMonstersPerPlayer != null && ModConfig.NightMonstersPerPlayer.Value ? 1 : 0,
+                i => { if (ModConfig.NightMonstersPerPlayer != null) ModConfig.NightMonstersPerPlayer.Value = i == 1; });
             z -= step;
             b.Choice("Creatures hear voices", z, YesNo, () => ModConfig.VoiceAlertsEnemies == null || ModConfig.VoiceAlertsEnemies.Value ? 1 : 0,
                 i => { if (ModConfig.VoiceAlertsEnemies != null) ModConfig.VoiceAlertsEnemies.Value = i == 1; });

@@ -3,12 +3,12 @@
 ## Versioning
 
 The current product line is `0.8.x`. The plugin and display version are
-**0.8.324**. The current Horde wire protocol is **77**. Every install in a session
+**0.8.325**. The current Horde wire protocol is **77**. Every install in a session
 needs the same DLL; the protocol is checked on join.
 
 Protocol history (newest first):
 
-- **77**, 0.8.308 to 0.8.324: `LocationTransport` gains `TargetKey`, the point inside the location to land on.
+- **77**, 0.8.308 to 0.8.325: `LocationTransport` gains `TargetKey`, the point inside the location to land on.
 - **76**, 0.8.306 to 0.8.307: new shared `MapPieceWire` (name, outside-location anchor, X/Z): `MapElementDiscovered` (69)
   is one piece, `MapStateSync` discoveries are pieces instead of bare names; `JournalItem` gains `Popup`.
 - **75**, 0.8.297 to 0.8.305: `CoHold` (170) gains mode 5, `ModePlayerPush`: a player walking into another
@@ -98,6 +98,21 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.8.325 — night monsters can grow with the players at home
+
+- **New host setting:** Host settings > **Night monsters per player** (config
+  `Gameplay.NightMonstersPerPlayer`, default off). On, each hideout's night monsters are
+  multiplied by the living players home in it: two players at home get twice as many (how
+  many of each kind may be out at once and the pace they come at), three three times. It
+  stacks with the Night monsters multiplier, together capped at x10. Players in different
+  hideouts each count only for their own hideout, which already got its own night. Off
+  (default) keeps the old rule: one share per hideout however many are home.
+- Read live by the host every spawner tick, so it applies mid-night; clients spawn nothing
+  and need no change. Files: `ModConfig.cs`, `CoopBalance.NightMonsterMultiplierFor`,
+  `NightSpawnProxyPatch.cs` (`NightSpawnFlagPatch`), `MultiplayerScreens.cs`, `Loc.Ru.cs`,
+  `CONFIG.md`, `HOW_COOP_WORKS.md`.
+- No protocol change (77). Code-only: builds and tests pass; not yet checked in game.
 
 ## 0.8.324 — trader killed mid-trade no longer leaves its stock on screen
 
