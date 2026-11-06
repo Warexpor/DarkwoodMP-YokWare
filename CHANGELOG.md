@@ -99,6 +99,16 @@ tested in the game.
 
 ---
 
+## 0.9.0 — restore missing outside-location spawn references
+
+- A reported host and guest black screen on entering the doctor's underground bunker ended in
+  `OutsideLocations.transportToLocation` with a null reference. One possible cause is a saved
+  location losing its player spawn reference. Before multiplayer transport, the mod now restores
+  that reference from the location's own direct `PlayerSpawn` child, as vanilla initialization
+  does, and logs the repair. It does not replace an existing spawn or invent a position.
+- The original missing object is unknown, so this is a suspected fix, not a confirmed diagnosis;
+  the reported doctor-to-bunker sequence still needs a playtest. File: `OutsideLocationSpawnRepairPatch.cs`.
+
 ## 0.8.325 — night monsters can grow with the players at home
 
 - **New host setting:** Host settings > **Night monsters per player** (config
