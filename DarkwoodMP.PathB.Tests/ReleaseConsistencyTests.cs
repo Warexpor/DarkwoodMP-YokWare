@@ -19,7 +19,7 @@ public class ReleaseConsistencyTests
     [Fact]
     public void PluginInfo_IsWellFormed()
     {
-        Assert.Matches(@"^0\.8\.\d+$", PluginInfo.Version);
+        Assert.Matches(@"^0\.9\.\d+$", PluginInfo.Version);
         Assert.True(PluginInfo.ProtocolVersion > 0);
         // DisplayVersion already carries the product name; callers must not prefix it again.
         Assert.Equal("YokWare Branch " + PluginInfo.Version + " / Path B", PluginInfo.DisplayVersion);
@@ -86,8 +86,8 @@ public class ReleaseConsistencyTests
     {
         string log = Changelog;
 
-        var top = Regex.Match(log, @"^## (0\.8\.\d+)\b", RegexOptions.Multiline);
-        Assert.True(top.Success, "CHANGELOG has no '## 0.8.x' entry");
+        var top = Regex.Match(log, @"^## (0\.9\.\d+)\b", RegexOptions.Multiline);
+        Assert.True(top.Success, "CHANGELOG has no '## 0.9.x' entry");
         Assert.Equal(PluginInfo.Version, top.Groups[1].Value);
 
         var blurb = Regex.Match(log,

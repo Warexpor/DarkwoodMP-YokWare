@@ -148,6 +148,12 @@ overworld and dream copies can have the same names.
 Runtime checks still needed: dream entry, leave-door dialogue, cleanup,
 re-entry, late scene loading, and a peer remaining in the overworld.
 
+Before multiplayer outside-location transport, `OutsideLocationSpawnRepairPatch`
+restores a missing `playerSpawn` reference from that location's direct `PlayerSpawn`
+child, matching vanilla initialization. An absent location or absent child is not
+reconstructed. This addresses one possible cause of the reported bunker transport
+null reference; the original failure and doctor-to-bunker sequence need playtesting.
+
 ### Packet validation and relay
 
 `NetReader` bounds primitive and byte-array reads. Every message reads exactly

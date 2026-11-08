@@ -90,6 +90,21 @@ namespace DWMPHorde
             }
         }
 
+        /// <summary>
+        /// Host: the night monster multiplier for one hideout with <paramref name="playersHome"/>
+        /// living players home in it. With <c>NightMonstersPerPlayer</c> on, each of them adds a
+        /// full share (times <see cref="NightMonsterMultiplier"/>), capped at
+        /// <see cref="MaxNightMonsterMultiplier"/>; off, the hideout gets one share however many are home.
+        /// </summary>
+        public static float NightMonsterMultiplierFor(int playersHome)
+        {
+            float v = NightMonsterMultiplier;
+            if (playersHome <= 1 || ModConfig.NightMonstersPerPlayer == null || !ModConfig.NightMonstersPerPlayer.Value)
+                return v;
+            v *= playersHome;
+            return v > MaxNightMonsterMultiplier ? MaxNightMonsterMultiplier : v;
+        }
+
         /// <summary>A night scenario's per-kind count under the multiplier (rounded up, never below vanilla).</summary>
         public static int ScaledNightAmount(int amount, float mult)
         {

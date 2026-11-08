@@ -68,6 +68,7 @@ namespace DWMPHorde.Config
         public static ModSetting<int> MaxPeerDamage { get; private set; }
         /// <summary>Host: night monsters per hideout compared with vanilla (1..10).</summary>
         public static ModSetting<float> NightMonsterMultiplier { get; private set; }
+        public static ModSetting<bool> NightMonstersPerPlayer { get; private set; }
         public static ModSetting<float> PeerMovementVolume { get; private set; }
         /// <summary>Experimental: a second player can take hold of a body another player drags (<c>Sync.SharedDrag</c>).</summary>
         public static ModSetting<bool> SharedDrag { get; private set; }
@@ -289,6 +290,8 @@ namespace DWMPHorde.Config
                 "Host clamps peer-reported attack/FF damage to this max per hit (anti-grief). A per-peer budget (250 hits/s, burst 500; 4500 damage/s, burst 9000) caps sustained spam while a flamethrower on a pack or shotgun pellets still apply in full.");
             NightMonsterMultiplier = config.Bind("Gameplay", "NightMonsterMultiplier", 1f,
                 "Host: how many night monsters come to each hideout compared with vanilla (1 = vanilla, up to 10). Raises how many of each kind may be out at once and how fast they come. Also in Host settings, mid-game too.");
+            NightMonstersPerPlayer = config.Bind("Gameplay", "NightMonstersPerPlayer", false,
+                "Host: a hideout's night monsters also grow with the living players home in it: two players at home get twice as many, three three times, on top of NightMonsterMultiplier (together up to 10). Off: one player's share per hideout. Also in Host settings, mid-game too.");
             PeerMovementVolume = config.Bind("Gameplay", "PeerMovementVolume", 0.85f,
                 "Volume of other players' movement here (footsteps, clothes, dodge and landing steps), 0..1. Their other sounds (shots, hits, tools) stay at full volume.");
             SharedDrag = config.Bind("Gameplay", "SharedDrag", true,
