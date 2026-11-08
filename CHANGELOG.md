@@ -2,13 +2,13 @@
 
 ## Versioning
 
-The current product line is `0.8.x`. The plugin and display version are
-**0.8.325**. The current Horde wire protocol is **77**. Every install in a session
+The current product line is `0.9.x`. The plugin and display version are
+**0.9.0**. The current Horde wire protocol is **77**. Every install in a session
 needs the same DLL; the protocol is checked on join.
 
 Protocol history (newest first):
 
-- **77**, 0.8.308 to 0.8.325: `LocationTransport` gains `TargetKey`, the point inside the location to land on.
+- **77**, 0.8.308 to 0.9.0: `LocationTransport` gains `TargetKey`, the point inside the location to land on.
 - **76**, 0.8.306 to 0.8.307: new shared `MapPieceWire` (name, outside-location anchor, X/Z): `MapElementDiscovered` (69)
   is one piece, `MapStateSync` discoveries are pieces instead of bare names; `JournalItem` gains `Popup`.
 - **75**, 0.8.297 to 0.8.305: `CoHold` (170) gains mode 5, `ModePlayerPush`: a player walking into another
@@ -108,6 +108,11 @@ tested in the game.
   does, and logs the repair. It does not replace an existing spawn or invent a position.
 - The original missing object is unknown, so this is a suspected fix, not a confirmed diagnosis;
   the reported doctor-to-bunker sequence still needs a playtest. File: `OutsideLocationSpawnRepairPatch.cs`.
+
+## 0.9.0 — version milestone
+
+- Bumped the product version to 0.9.0; gameplay and wire protocol 77 are unchanged.
+- This version bump does not establish compatibility with other mods.
 
 ## 0.8.325 — night monsters can grow with the players at home
 
