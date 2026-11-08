@@ -1,3 +1,32 @@
+# Windows machine setup (2026-11-02)
+
+The current machine is Windows. These paths and commands supersede the Linux machine-specific paths and launch instructions below; the design and working rules remain applicable.
+
+- Repository: `C:\Users\amicu\Documents\Projects\DarkwoodMP-YokWare`.
+- Steam host: `C:\Program Files (x86)\Steam\steamapps\common\Darkwood` (Windows BepInEx 5 / Doorstop).
+- GOG clients: `C:\Users\amicu\Projects\Restored projects 2026-11-01\SecondDarkwood\Darkwood` and `C:\Users\amicu\Projects\Restored projects 2026-11-01\ThirdDarkwood\Darkwood`. Launch their `Darkwood.exe`; use LAN with the Steam host. Their saved settings are preserved and the mod isolates their saves by folder name.
+- Local `DarkwoodMP.Mod\GamePath.local.props` configures all three deploy targets. A normal `dotnet build DarkwoodMP.Mod -c Release` deploys the BepInEx build to them; `-p:SkipDeploy=true` avoids deployment. Verify DLL hashes after deploying.
+- .NET 8 SDK: `%LOCALAPPDATA%\Programs\dotnet\dotnet.exe`, added to the current user PATH; open a new terminal to pick it up. Tests: `dotnet test DarkwoodMP.PathB.Tests -c Release`. MelonLoader build: `dotnet build DarkwoodMP.Mod -c Release -p:Loader=MelonLoader -p:SkipDeploy=true`.
+- Decompile: `C:\Users\amicu\Restored media from 2026-11-01\Archive\Windows-Desktop\Dev\Darkwood DECOMPILED`; `DARKWOOD_EXPORT` is set for new processes. The bundled Python with PyYAML is `C:\Users\amicu\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe`.
+- Logs: `BepInEx\LogOutput.log` under each game directory. Existing configs and saves were retained. Linux-specific Steam launch options, Wine, Proton and Hyprland instructions do not apply here.
+- Launch commands (new terminals): `hostdarkwood` (Steam host), `seconddarkwood` and `thirddarkwood` (GOG boxes). Shims in `%USERPROFILE%\bin` (on user PATH) calling `scripts\run-host.ps1` / `run-second.ps1` / `run-third.ps1`; override dirs with `DARKWOOD_STEAM_DIR`, `SECOND_DARKWOOD_DIR`, `THIRD_DARKWOOD_DIR`.
+
+# Installing fixes
+
+Always install each completed fix into the local game after updating the changelog and technical docs, before reporting completion. Do not stop at building or packaging it, and do not ask again for permission to install.
+
+A normal `dotnet build DarkwoodMP.Mod -c Release` builds and deploys the BepInEx build to all three boxes (Steam host + Second + Third via `DarkwoodMP.Mod\GamePath.local.props`); `-p:SkipDeploy=true` builds without deploying. For release zips use `scripts\pack-release.ps1` per the Release zips section below. Preserve player settings and saves (existing `BepInEx/config` and save folders stay as they are) and verify the installed DLLs match the build (same hash as `bin\Release`). If installation is blocked, report the specific blocker.
+
+## Communication style
+
+When talking to the user: human language always, warm and plain. No robot lists unless asked.
+
+Still verify like an engineer: base claims on logs and code (`file:line`), run the tests, install to game, confirm MATCH, keep configs and saves as-is. Just tell it like a human.
+
+## Testing scope
+
+Never run the full test suite on a minor change: run only the focused tests for what changed (`dotnet test --filter ...`). The full suite (`dotnet test DarkwoodMP.PathB.Tests -c Release`) runs only when the change touches the shared harness or module boundaries, or the user asks for it.
+
 # DarkwoodMP-YokWare — agent memory (survives compact)
 
 This file is auto-loaded when the session workspace is this repo (or a child of it).
@@ -66,7 +95,7 @@ Sync path is **GameEventsFired** (host fires leave-door GE → clients apply), p
 ## Product snapshot
 
 - **Mod:** YokWare Branch / Path B Horde LAN, host-auth LiteNetLib
-- **Product version:** **0.8.x** (current version: README table / `PluginInfo`). **0.7.81** is the last pre-rewrite ship. Older docs/changelogs saying **0.9.x** were too ambitious — treat as historical mislabels.
+- **Product version:** **0.9.x** (current version: README table / `PluginInfo`). **0.7.81** is the last pre-rewrite ship. Older 0.9.x entries predating 0.9.0 are historical mislabels.
 - **Transport:** LAN LiteNetLib + SteamNetworkingSockets (lobby join); voice/walkie optional (msg 129).
 - **Protocol:** see README table / `PluginInfo.ProtocolVersion` (keep both installs same DLL)
 - **How the co-op rules fit together** (philosophy, shared vs personal, per-area rules, limits): `DarkwoodMP.Mod/docs/HOW_COOP_WORKS.md`. Update it when a rule in it changes.
@@ -123,7 +152,7 @@ The host runs the world. A client should barely notice they are not the host: en
 
 **Always** update root `CHANGELOG.md` in the **same turn** you ship playtest fixes, features, or intentional behavior changes — not “later,” not only in chat.
 
-- Add a new **`## 0.8.x — …`** section at the **top** (newest first), under the Versioning blurb. Historical `0.7.x` entries stay as history. Do **not** revive `0.9.x` labels.
+- Add a new **`## 0.9.x — …`** section at the **top** (newest first), under the Versioning blurb. Historical entries stay as history.
 - Cover **what broke / what changed / key files or systems** in plain language (player-facing symptoms + root cause when known).
 - Include **parked / deferred** items explicitly so the next session does not rediscover them as “missing changelog.” A bug that was found is not parked — it is fixed first (see above). Park only something the user explicitly chose to leave.
 - Protocol bumps, new message IDs, config keys, and join/save UX changes are always changelog-worthy.
@@ -162,3 +191,4 @@ scripts/pack-release.sh            # builds both loaders (SkipDeploy), runs the 
 ## When paths change
 
 Update **this file** (and any personal agent memory that still points at old Windows paths).
+
