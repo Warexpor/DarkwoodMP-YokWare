@@ -128,6 +128,24 @@ public class CoopPolicyTests
     }
 
     [Fact]
+    public void PersonalTransport_FirstMissingKey()
+    {
+        // All resolve: nothing missing.
+        Assert.Null(GameEventPersonalPolicy.FirstMissingKey(
+            new[] { "a", "b" }, _ => true));
+        // First unresolvable key is named.
+        Assert.Equal("b", GameEventPersonalPolicy.FirstMissingKey(
+            new[] { "a", "b", "c" }, k => k != "b"));
+        // Blank keys are not targets; a throwing resolver counts as missing.
+        Assert.Equal("x", GameEventPersonalPolicy.FirstMissingKey(
+            new[] { "", "x" }, _ => throw new System.Exception("registry gone")));
+        // No keys, no resolver: nothing missing.
+        Assert.Null(GameEventPersonalPolicy.FirstMissingKey(null, _ => true));
+        Assert.Null(GameEventPersonalPolicy.FirstMissingKey(new string[0], _ => false));
+        Assert.Null(GameEventPersonalPolicy.FirstMissingKey(new[] { "a" }, null));
+    }
+
+    [Fact]
     public void DialogPolicy_HostRemoteApply_SuppressesBagAndDefersWorld()
     {
         Assert.True(DialogApplyPolicy.ShouldSuppressPersonalInventoryMutation(true));

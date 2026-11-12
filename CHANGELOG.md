@@ -134,6 +134,13 @@ playtest before they count as verified.
   party that is down and fully eligible now runs the permadeath outcome instead of
   releasing (`DeathStateTracker.ShouldWipeInsteadOfMorningRelease`,
   `PermadeathPolicy.MorningWipeApplies`).
+- **Scripted personal transports could strand a peer in a black void.** If the
+  UniqueObject landing point has no copy on the replaying machine (an unspawned pad),
+  vanilla built an empty target list and threw after fading to black with inputs
+  locked. The replay now checks first: a missing target defers the event with the
+  target named (`GameEventNetHandlers.TransportTargetsResolve`,
+  `GameEventPersonalPolicy.FirstMissingKey`) so the pad load can still carry the
+  peer late instead of stranding them.
 
 ## 0.9.0 — restore missing outside-location spawn references
 

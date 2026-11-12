@@ -266,6 +266,34 @@ namespace DWMPHorde
         /// </summary>
         public static bool ShouldRunPersonalEffectsOnApply(int actorPlayerId, int localPlayerId)
             => actorPlayerId > 0 && localPlayerId > 0 && actorPlayerId == localPlayerId;
+
+        /// <summary>
+        /// First key a resolver cannot see (null), for a scripted personal transport whose
+        /// UniqueObject target may not exist on this machine yet (unspawned pad). Pure so
+        /// PathB tests pin it; the resolver wraps the Unity registry with a null guard.
+        /// </summary>
+        public static string FirstMissingKey(System.Collections.Generic.IEnumerable<string> keys, System.Func<string, bool> resolves)
+        {
+            if (keys == null || resolves == null)
+                return null;
+            foreach (string key in keys)
+            {
+                if (string.IsNullOrEmpty(key))
+                    continue;
+                bool ok;
+                try
+                {
+                    ok = resolves(key);
+                }
+                catch
+                {
+                    ok = false;
+                }
+                if (!ok)
+                    return key;
+            }
+            return null;
+        }
     }
 
     /// <summary>

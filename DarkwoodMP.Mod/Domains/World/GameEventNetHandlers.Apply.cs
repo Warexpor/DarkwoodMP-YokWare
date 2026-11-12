@@ -183,6 +183,18 @@ namespace DWMPHorde.Networking
             bool prevSuppress = GameEventPersonalActorPatch.SuppressPersonalForLocalPlayer;
             if (!runPersonal)
                 GameEventPersonalActorPatch.SuppressPersonalForLocalPlayer = true;
+            // A scripted personal transport whose UniqueObject target is missing on this
+            // machine (an unspawned pad) throws inside vanilla fire after fading to black
+            // with inputs locked — a stuck black void. Stay put instead: the pending queue
+            // retries until the pad loads (a late carry) or ages out naming the target.
+            if (runPersonal && !TransportTargetsResolve(best, out string missingTarget))
+            {
+                ModLog.Warn(LogCat.World,
+                    $"[GameEventsSync] defer '{geName}': transport target '{missingTarget}' missing here — staying put");
+                if (queueIfMissing)
+                    QueuePendingGameEvent(msg);
+                return false;
+            }
             // dontRunIfInactive starts the steps on the GameEvents object itself; this peer's copy
             // can be inactive (culled, far away) where the host's was not, and the start then
             // failed with the event latched as fired. The host ran them: run them here too.
@@ -365,6 +377,43 @@ namespace DWMPHorde.Networking
                 Consider(ge);
             }
             return best;
+        }
+
+        /// <summary>
+        /// Every personal transport step in this event resolves at least one target here.
+        /// Direct and location-scoped targets resolve in vanilla fire as they do in single
+        /// player; only pure unique-key steps can silently empty the target list (an
+        /// unspawned pad), which then throws after the fade with inputs locked.
+        /// </summary>
+        private static bool TransportTargetsResolve(GameEvents ges, out string missingKey)
+        {
+            missingKey = null;
+            if (ges == null || ges.events == null)
+                return true;
+            for (int i = 0; i < ges.events.Count; i++)
+            {
+                GameEvent e = ges.events[i];
+                if (e == null || e.disabled
+                    || e.type != GameEvent.Type.transportPlayerToObject || e.activeModifier)
+                    continue;
+                if ((e.targetGameObjects != null && e.targetGameObjects.Count > 0)
+                    || (e.locationObjects != null && e.locationObjects.Count > 0))
+                    continue;
+                if (e.targetUniqueObjects == null || e.targetUniqueObjects.Count == 0)
+                    continue;
+                string missing = GameEventPersonalPolicy.FirstMissingKey(
+                    e.targetUniqueObjects,
+                    key =>
+                    {
+                        UniqueObjects registry = Singleton<UniqueObjects>.Instance;
+                        return registry != null && registry.getObject(key) != null;
+                    });
+                if (missing == null)
+                    continue;
+                missingKey = missing;
+                return false;
+            }
+            return true;
         }
 
         /// <summary>
