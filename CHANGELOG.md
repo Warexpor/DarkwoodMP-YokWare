@@ -11,6 +11,14 @@ needs the same DLL; the protocol is checked on join.
 Code-only verification (build clean, focused tests pass): needs a real dual-box
 playtest before it counts as verified.
 
+- **Camera edge-pan died after any spectate.** Three spectate exit paths
+  (`ExitAndRespawn`, `ExitWithoutPositionRestore`, `ForceExit`) plus the final-dream
+  cleanup left `CamMain.followTarget` pointed at the local player. Vanilla only ever
+  sets that for the epilogue cinematic; while non-null, `CamMain.FixedUpdate` glues
+  the camera to the target instead of panning toward the cursor, so after the first
+  death-spectate the camera never moved again. All four now leave it null
+  (`SpectatorModeController`, `FinalDreamsceneManager`). Proven by the vanilla
+  experiment: unmodded game pans fine.
 - **Knife fast attack shows as a throw on the peer (candidate hardening, not yet
   confirmed).** `Player.throwItem` now only fans out when vanilla actually threw:
   if the captured held copy's `ThrownItem.thrown` is still false in the postfix
