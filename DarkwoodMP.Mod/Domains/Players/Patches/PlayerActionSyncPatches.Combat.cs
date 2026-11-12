@@ -66,6 +66,16 @@ namespace DWMPHorde.Patches
             if (ModRuntime.Network.Role == NetworkRole.Offline) return;
             if (TraverseHack.ApplyingFromNetwork) return;
 
+            // Vanilla throwItem always flips the held copy's ThrownItem.thrown when it really
+            // throws. If it did not (a swing that never released, a cancelled windup), there is
+            // no projectile here and peers must not invent one.
+            if (capture.HeldItem != null)
+            {
+                ThrownItem thrownCheck = capture.HeldItem.GetComponent<ThrownItem>();
+                if (thrownCheck != null && !thrownCheck.thrown)
+                    return;
+            }
+
             Vector3 pos = __instance.transform.position;
 
             // After vanilla throwItem: heldItem field is null, but the GO we captured
