@@ -111,6 +111,13 @@ playtest before they count as verified.
   `Player.teleportTo`; a still-valid scream raises it again through the normal sight
   and agitation paths), and a release whose banshee id is gone still goes out with id 0
   (`HostAIPatches.Targeting`), which only clears the victim's overlay and scream.
+- **The second player could never pass the snail eye.** Object-owned sight triggers
+  (`InSightOfPlayer` with no `Character` owner — the eye gaze and its open/close
+  loop) had their `Update` suppressed on clients along with creature AI, while their
+  `multipleFire` events are never fanned out from the host. The client's eye froze
+  open forever. Scenery sight now runs locally on clients as vanilla does
+  (`ClientAIConditionalHelper`, `AiSuppressionPolicy`); creature sight stays
+  host-driven.
 - **Achievements only landed on one machine.** Unlocks are a `GameEvent` step the sync
   never handled, and the per-machine `Flags.achievements` list never travels. Unlocks
   now ride the flag channel (`achievement:` names, no protocol change): whoever earns

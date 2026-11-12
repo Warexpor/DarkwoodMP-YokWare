@@ -114,6 +114,20 @@ public class CoopPolicyTests
     }
 
     [Fact]
+    public void AiSuppression_ScenerySightRunsLocallyOnClients()
+    {
+        // Creature and player-owned components stay suppressed on clients.
+        Assert.True(AiSuppressionPolicy.ShouldSuppressClientComponent(true, false, false));
+        Assert.True(AiSuppressionPolicy.ShouldSuppressClientComponent(true, false, false, false));
+        // Not a client, or a proxy / own body: untouched.
+        Assert.False(AiSuppressionPolicy.ShouldSuppressClientComponent(false, false, false));
+        Assert.False(AiSuppressionPolicy.ShouldSuppressClientComponent(true, true, false));
+        Assert.False(AiSuppressionPolicy.ShouldSuppressClientComponent(true, false, true));
+        // Scenery sight (no Character owner, e.g. the snail eye): runs locally.
+        Assert.False(AiSuppressionPolicy.ShouldSuppressClientComponent(true, false, false, true));
+    }
+
+    [Fact]
     public void DialogPolicy_HostRemoteApply_SuppressesBagAndDefersWorld()
     {
         Assert.True(DialogApplyPolicy.ShouldSuppressPersonalInventoryMutation(true));
