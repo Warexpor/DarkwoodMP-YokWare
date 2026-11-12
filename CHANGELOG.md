@@ -3,8 +3,30 @@
 ## Versioning
 
 The current product line is `0.9.x`. The plugin and display version are
-**0.9.1**. The current Horde wire protocol is **78**. Every install in a session
+**0.9.2**. The current Horde wire protocol is **78**. Every install in a session
 needs the same DLL; the protocol is checked on join.
+
+## 0.9.2 — spectate camera pin, knife throw guard
+
+Code-only verification (build clean, focused tests pass): needs a real dual-box
+playtest before it counts as verified.
+
+- **Camera edge-pan died after any spectate.** Three spectate exit paths
+  (`ExitAndRespawn`, `ExitWithoutPositionRestore`, `ForceExit`) plus the final-dream
+  cleanup left `CamMain.followTarget` pointed at the local player. Vanilla only ever
+  sets that for the epilogue cinematic; while non-null, `CamMain.FixedUpdate` glues
+  the camera to the target instead of panning toward the cursor, so after the first
+  death-spectate the camera never moved again. All four now leave it null
+  (`SpectatorModeController`, `FinalDreamsceneManager`). Proven by the vanilla
+  experiment: unmodded game pans fine.
+- **Knife fast attack shows as a throw on the peer (candidate hardening, not yet
+  confirmed).** `Player.throwItem` now only fans out when vanilla actually threw:
+  if the captured held copy's `ThrownItem.thrown` is still false in the postfix
+  (a swing that never released, a cancelled windup), no `ThrowableSpawn` goes
+  out, so peers cannot invent a projectile the thrower never had. No protocol
+  change. If what the peer sees is the arm motion rather than a flying knife,
+  this is not it — that would be animation relay, and I need to know which of
+  the two it is (does a knife fly on the peer's screen, or just the arm move?).
 
 Protocol history (newest first):
 

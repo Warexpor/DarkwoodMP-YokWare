@@ -149,7 +149,9 @@ namespace DWMPHorde.Spectator
             var cam = Singleton<CamMain>.Instance;
             if (cam != null && player != null)
             {
-                cam.followTarget = player.transform;
+                // Vanilla leaves followTarget null outside the epilogue cinematic: non-null
+                // pins the camera to the target (CamMain.FixedUpdate) and kills edge-pan.
+                cam.followTarget = null;
             }
 
             if (_proxyVision != null)
@@ -184,8 +186,9 @@ namespace DWMPHorde.Spectator
             if (player != null)
             {
                 var cam = Singleton<CamMain>.Instance;
+                // See ExitAndRespawn: followTarget must be null or edge-pan stays dead.
                 if (cam != null)
-                    cam.followTarget = player.transform;
+                    cam.followTarget = null;
                 if (player.immobilised)
                     player.stopImmobilise();
                 player.invulnerable = false;

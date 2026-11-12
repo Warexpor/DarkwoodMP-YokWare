@@ -546,7 +546,8 @@ namespace DWMPHorde.Sync
                 ModRuntime.Log?.LogWarning(
                     "[FinalDreamscene] Dreams.Instance not dreaming — cleaning up directly");
                 var cam = Singleton<CamMain>.Instance;
-                if (cam != null) cam.followTarget = player != null ? player.transform : null;
+                // Null: a stale player target pins the camera and kills edge-pan.
+                if (cam != null) cam.followTarget = null;
                 if (net != null && net.IsConnected && net.Role == NetworkRole.Host && DreamExit.HostHostsFromOutside
                     && DreamSession.IsActive)
                 {
