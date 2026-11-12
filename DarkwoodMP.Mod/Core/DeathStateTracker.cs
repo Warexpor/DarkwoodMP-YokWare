@@ -379,6 +379,28 @@ namespace DWMPHorde
         }
 
         /// <summary>
+        /// Host morning edge: everybody is down and every death was permadeath-eligible
+        /// (nightmare, or hard with lives spent — including a day one-life death, which
+        /// spectates until morning instead of respawning). Release would just continue a
+        /// run that vanilla had already ended, so the wipe runs instead.
+        /// </summary>
+        internal static bool ShouldWipeInsteadOfMorningRelease()
+        {
+            var net = ModRuntime.Network;
+            if (net == null || !net.IsConnected || net.Role != NetworkRole.Host)
+                return false;
+            if (_resolvingMorning || PartyWipeDeclared || _localDeathEndsRunInVanilla)
+                return false;
+            if (!LocalNightDeath || !_localPermadeathEligible)
+                return false;
+            return PermadeathPolicy.MorningWipeApplies(
+                localDownEligible: true,
+                remoteDead: RemoteNightDeathCount,
+                remoteEligibleDead: CountRemoteEligibleDeaths(),
+                totalRemotes: TotalRemoteCount);
+        }
+
+        /// <summary>
         /// Host-only: if everyone relevant is dead at night, advance morning once.
         /// Used by death handlers and disconnect cleanup.
         /// </summary>

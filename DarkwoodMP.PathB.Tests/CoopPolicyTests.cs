@@ -87,6 +87,33 @@ public class CoopPolicyTests
     }
 
     [Fact]
+    public void PermadeathPolicy_MorningWipeApplies_PartyDownAndEligible()
+    {
+        // Host down and eligible, every remote recorded dead and eligible: run ends.
+        Assert.True(PermadeathPolicy.MorningWipeApplies(true, 2, 2, 2));
+        // Solo connected host down and eligible: run ends.
+        Assert.True(PermadeathPolicy.MorningWipeApplies(true, 0, 0, 0));
+        // One remote death not eligible (a life left): normal morning.
+        Assert.False(PermadeathPolicy.MorningWipeApplies(true, 2, 1, 2));
+        // One remote still up: normal morning.
+        Assert.False(PermadeathPolicy.MorningWipeApplies(true, 1, 1, 2));
+        // Local not down or not eligible: normal morning.
+        Assert.False(PermadeathPolicy.MorningWipeApplies(false, 2, 2, 2));
+        Assert.False(PermadeathPolicy.MorningWipeApplies(false, 0, 0, 0));
+    }
+
+    [Fact]
+    public void AchievementSync_PrefixOnly()
+    {
+        Assert.True(AchievementSyncPolicy.TryParseAchievementFlag("achievement:tree_burned", out string id));
+        Assert.Equal("tree_burned", id);
+        Assert.False(AchievementSyncPolicy.TryParseAchievementFlag("wolf_givenKey", out _));
+        Assert.False(AchievementSyncPolicy.TryParseAchievementFlag("achievement:", out _));
+        Assert.False(AchievementSyncPolicy.TryParseAchievementFlag(null, out _));
+        Assert.False(AchievementSyncPolicy.TryParseAchievementFlag("", out _));
+    }
+
+    [Fact]
     public void DialogPolicy_HostRemoteApply_SuppressesBagAndDefersWorld()
     {
         Assert.True(DialogApplyPolicy.ShouldSuppressPersonalInventoryMutation(true));

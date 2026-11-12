@@ -93,6 +93,25 @@ namespace DWMPHorde
     }
 
     /// <summary>
+    /// Achievements ride the flag channel with an "achievement:" name prefix: an unlock is
+    /// a shared-world fact and the per-machine <c>Flags.achievements</c> list is never
+    /// synced, so without this whoever never ran the step never got the Steam achievement.
+    /// </summary>
+    public static class AchievementSyncPolicy
+    {
+        public const string FlagPrefix = "achievement:";
+
+        public static bool TryParseAchievementFlag(string name, out string achievementId)
+        {
+            achievementId = null;
+            if (string.IsNullOrEmpty(name) || !name.StartsWith(FlagPrefix, System.StringComparison.Ordinal))
+                return false;
+            achievementId = name.Substring(FlagPrefix.Length);
+            return achievementId.Length > 0;
+        }
+    }
+
+    /// <summary>
     /// Personal permadeath is a single-player profile end. A connected client
     /// dies on the shared night/day path instead of a local game-over the host
     /// never sees. Lives are the value before vanilla decrements them.
@@ -125,6 +144,14 @@ namespace DWMPHorde
         /// </summary>
         public static bool PartyWipeEndsRun(bool localDeathEligible, int remoteDeaths, int remoteEligibleDeaths)
             => localDeathEligible && remoteEligibleDeaths >= remoteDeaths;
+
+        /// <summary>
+        /// The morning edge version of the wipe check: the host is down and eligible and
+        /// every connected remote is recorded dead and eligible (a day one-life death
+        /// spectates until morning, so the wipe can land here, not only at night).
+        /// </summary>
+        public static bool MorningWipeApplies(bool localDownEligible, int remoteDead, int remoteEligibleDead, int totalRemotes)
+            => localDownEligible && totalRemotes >= 0 && remoteDead == totalRemotes && remoteEligibleDead >= remoteDead;
     }
 
     /// <summary>

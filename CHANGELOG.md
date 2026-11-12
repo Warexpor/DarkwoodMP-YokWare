@@ -3,12 +3,12 @@
 ## Versioning
 
 The current product line is `0.9.x`. The plugin and display version are
-**0.9.0**. The current Horde wire protocol is **77**. Every install in a session
+**0.9.1**. The current Horde wire protocol is **77**. Every install in a session
 needs the same DLL; the protocol is checked on join.
 
 Protocol history (newest first):
 
-- **77**, 0.8.308 to 0.9.0: `LocationTransport` gains `TargetKey`, the point inside the location to land on.
+- **77**, 0.8.308 to 0.9.1: `LocationTransport` gains `TargetKey`, the point inside the location to land on.
 - **76**, 0.8.306 to 0.8.307: new shared `MapPieceWire` (name, outside-location anchor, X/Z): `MapElementDiscovered` (69)
   is one piece, `MapStateSync` discoveries are pieces instead of bare names; `JournalItem` gains `Popup`.
 - **75**, 0.8.297 to 0.8.305: `CoHold` (170) gains mode 5, `ModePlayerPush`: a player walking into another
@@ -98,6 +98,30 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.9.1 — stuck banshee overlay, shared achievements, hardcore morning wipe
+
+Code-only verification (build clean, focused tests pass): these need a real dual-box
+playtest before they count as verified.
+
+- **Stuck black screen after leaving a screaming banshee.** The victim's overlay only
+  ever cleared on the host's release message, which never goes out when the banshee is
+  destroyed with its location or its id cannot be resolved anymore. Two cures: any far
+  teleport now fades the overlay out (`BansheeOverlayTeleportFailsafePatch` on
+  `Player.teleportTo`; a still-valid scream raises it again through the normal sight
+  and agitation paths), and a release whose banshee id is gone still goes out with id 0
+  (`HostAIPatches.Targeting`), which only clears the victim's overlay and scream.
+- **Achievements only landed on one machine.** Unlocks are a `GameEvent` step the sync
+  never handled, and the per-machine `Flags.achievements` list never travels. Unlocks
+  now ride the flag channel (`achievement:` names, no protocol change): whoever earns
+  one fans it out, the host rebroadcasts, every peer grants it locally
+  (`FlagSyncPatches.AchievementSync`, `FlagNetHandlers.ApplyAchievementSync`).
+- **Hard / Nightmare never ended the run.** Only a simultaneous night wipe with every
+  death eligible ended it; a day last-life death spectated until morning and was then
+  released, so out-of-lives parties played on forever. At the host morning edge, a
+  party that is down and fully eligible now runs the permadeath outcome instead of
+  releasing (`DeathStateTracker.ShouldWipeInsteadOfMorningRelease`,
+  `PermadeathPolicy.MorningWipeApplies`).
 
 ## 0.9.0 — restore missing outside-location spawn references
 

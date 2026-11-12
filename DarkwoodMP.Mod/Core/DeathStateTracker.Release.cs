@@ -58,6 +58,14 @@ namespace DWMPHorde
             if (net == null || net.Role != NetworkRole.Host)
                 return;
 
+            // Hard with lives spent, or nightmare: everybody down and eligible at the
+            // morning edge ends the run instead of releasing into another day.
+            if (ShouldWipeInsteadOfMorningRelease())
+            {
+                DeclarePartyWipe(net, "morning edge: party down and eligible");
+                return;
+            }
+
             // Night-dead remotes are released regardless of who is dreaming: each peer
             // decides for itself (ClientReleaseNightDeadAtMorning). Only the host's own
             // local release is skipped while the host itself is in a dream.
