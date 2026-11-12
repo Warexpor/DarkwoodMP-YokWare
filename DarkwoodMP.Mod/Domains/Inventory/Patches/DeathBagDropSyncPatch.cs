@@ -12,6 +12,10 @@ namespace DWMPHorde.Patches
     /// Postfix on Player.dropBody().
     /// After the death bag is dropped locally, sends a DeathBagSpawnMessage
     /// to the remote peer so it also spawns the bag with matching contents.
+    /// The snapshot goes out a frame later: other Postfixes on the same dropBody
+    /// (the night body's MoveRest) still fill the bag synchronously, and snapshotting
+    /// immediately raced them — whichever patch ran first decided what the peer got,
+    /// down to an empty bag for a small backpack.
     /// </summary>
     [HarmonyPatch(typeof(Player), "dropBody", new[] { typeof(Vector3) })]
     public static class DeathBagDropSyncPatch
@@ -32,19 +36,28 @@ namespace DWMPHorde.Patches
             var net = ModRuntime.Network;
             if (net == null) return;
 
+            bool inWater = __instance != null && __instance.inWater;
+            net.StartCoroutine(SendNextFrame(net, destPos, inWater));
+        }
+
+        private static System.Collections.IEnumerator SendNextFrame(LanNetworkManager net, Vector3 destPos, bool inWater)
+        {
+            yield return null;
+            if (net == null || !net.IsConnected)
+                yield break;
+
             DeathDrop deathDrop = FindDeathDropAt(destPos);
             if (deathDrop == null)
             {
                 ModRuntime.Log?.LogWarning("[Death] dropBody Postfix: could not find DeathDrop at " + destPos);
-                return;
+                yield break;
             }
 
             Inventory bagInv = deathDrop.GetComponent<Inventory>();
-            if (bagInv == null) return;
+            if (bagInv == null) yield break;
 
             bagInv.removeWhenEmpty = true;
 
-            bool inWater = __instance.inWater;
             string bagId = DeathBagNetworkId.GetOrAssignBagId(deathDrop.gameObject, inWater);
             net.RegisterDeathBag(bagId, deathDrop);
 

@@ -116,6 +116,11 @@ playtest before they count as verified.
   now ride the flag channel (`achievement:` names, no protocol change): whoever earns
   one fans it out, the host rebroadcasts, every peer grants it locally
   (`FlagSyncPatches.AchievementSync`, `FlagNetHandlers.ApplyAchievementSync`).
+- **Death bags sometimes arrived empty on peers.** The bag snapshot went out in the
+  same `dropBody` call that the night-body fill (`MoveRest`) runs in, so whichever
+  patch ran first decided what the peer got — down to an empty bag for a small
+  backpack. The send now snapshots a frame later (`DeathBagDropSyncPatch`), after
+  every same-frame fill has completed.
 - **Hard / Nightmare never ended the run.** Only a simultaneous night wipe with every
   death eligible ended it; a day last-life death spectated until morning and was then
   released, so out-of-lives parties played on forever. At the host morning edge, a
