@@ -6,7 +6,7 @@ The current product line is `0.9.x`. The plugin and display version are
 **0.9.2**. The current Horde wire protocol is **78**. Every install in a session
 needs the same DLL; the protocol is checked on join.
 
-## Unreleased
+## 0.9.2 — spectate camera pin, knife throw guard, ghost rabbits
 
 Code-only verification (build clean, focused tests pass): needs a real dual-box
 playtest before it counts as verified.
