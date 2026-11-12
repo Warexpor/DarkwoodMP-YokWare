@@ -84,6 +84,7 @@ appsettings.*.local.json
 /libs/
 
 # Agent / editor local
+.agents/
 .claude/
 CLAUDE.md
 CLAUDE_old.md
