@@ -6,7 +6,7 @@ join it: the same forest, the same nights, the same story, played together.
 | | |
 |--|--|
 | Product | YokWare Branch **0.9.1** |
-| Wire | Horde protocol **77** |
+| Wire | Horde protocol **78** |
 | Players | Up to 8 by default (`MaxPlayers`, host included) |
 | Transport | LAN (LiteNetLib) or Steam lobby (SteamNetworkingSockets) |
 | Loaders | BepInEx 5.x or MelonLoader 0.7.x |
@@ -294,7 +294,7 @@ mod.
 LAN and Steam carry the same messages. The host owns the world simulation and
 validates everything clients send; it relays a client's message to the other
 clients only after applying it, and drops message types only the host may send.
-The highest assigned message ID is 178 (`PartyHomeMoves`). Voice uses message 129.
+The highest assigned message ID is 179 (`LocationPadSlotPickReport`). Voice uses message 129.
 
 ---
 

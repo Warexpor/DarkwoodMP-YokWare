@@ -521,7 +521,13 @@ namespace DWMPHorde.Networking
         /// so a player who missed a move follows it. Protocol 74.
         /// </summary>
         [HostOnly] PartyHomeMoves = 178,
+        /// <summary>
+        /// Client→host: this peer spawned an outside-location pad with its own random layout-set
+        /// pick (vanilla <c>Location.sets</c> choice) because the host had not shared one yet.
+        /// The host relays it so late spawners converge on the first pick. Protocol 78.
+        /// </summary>
+        LocationPadSlotPickReport = 179,
         /// <summary>Highest used message type ID.</summary>
-        _Highest = 178
+        _Highest = 179
     }
 }

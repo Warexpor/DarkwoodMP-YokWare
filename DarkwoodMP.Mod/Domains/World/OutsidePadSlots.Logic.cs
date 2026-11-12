@@ -16,6 +16,8 @@ namespace DWMPHorde.Sync
         {
             public int Slot;
             public int Yaw;
+            /// <summary>Layout-set pick shared with this assignment ("" = host has none).</summary>
+            public string SetPick = "";
             /// <summary>This machine already spawned the marker with this assignment.</summary>
             public bool Consumed;
         }
@@ -196,13 +198,44 @@ namespace DWMPHorde.Sync
         /// Client: take the host's assignment for <paramref name="name"/> (Slot -1 = the host has none
         /// free: vanilla placement). Ignored while this machine is mid-spawn with the one it holds.
         /// </summary>
-        public bool ApplyHostAssignment(string name, int slot, int yaw)
+        public bool ApplyHostAssignment(string name, int slot, int yaw, string setPick = null)
         {
             if (string.IsNullOrEmpty(name) || _inFlight.Contains(name))
                 return false;
-            _entries[name] = new Entry { Slot = slot, Yaw = yaw, Consumed = false };
+            string keep = null;
+            if (_entries.TryGetValue(name, out Entry cur))
+                keep = cur.SetPick;
+            // A non-empty assignment wins; an empty one never wipes a locally recorded pick
+            // (the client's own spawn pick, kept until the host's pick arrives).
+            string pick = !string.IsNullOrEmpty(setPick) ? setPick : (keep ?? "");
+            _entries[name] = new Entry { Slot = slot, Yaw = yaw, SetPick = pick, Consumed = false };
             return true;
         }
+
+        /// <summary>
+        /// Index of the set whose name matches <paramref name="pick"/> ("(Clone)" tolerated),
+        /// exact match first; -1 when nothing matches.
+        /// </summary>
+        public static int MatchSetIndex(System.Collections.Generic.IList<string> setNames, string pick)
+        {
+            if (setNames == null || string.IsNullOrEmpty(pick))
+                return -1;
+            for (int i = 0; i < setNames.Count; i++)
+            {
+                if (string.Equals(setNames[i], pick, System.StringComparison.Ordinal))
+                    return i;
+            }
+            string want = StripCloneSuffix(pick);
+            for (int i = 0; i < setNames.Count; i++)
+            {
+                if (setNames[i] != null && string.Equals(StripCloneSuffix(setNames[i]), want, System.StringComparison.Ordinal))
+                    return i;
+            }
+            return -1;
+        }
+
+        internal static string StripCloneSuffix(string n)
+            => n != null && n.EndsWith("(Clone)", System.StringComparison.Ordinal) ? n.Substring(0, n.Length - 7) : n;
 
         /// <summary>
         /// An "unavailable" answer (Slot &lt; 0) places the pad the vanilla way. It is consumed so the

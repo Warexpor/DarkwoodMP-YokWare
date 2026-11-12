@@ -3,11 +3,12 @@
 ## Versioning
 
 The current product line is `0.9.x`. The plugin and display version are
-**0.9.1**. The current Horde wire protocol is **77**. Every install in a session
+**0.9.1**. The current Horde wire protocol is **78**. Every install in a session
 needs the same DLL; the protocol is checked on join.
 
 Protocol history (newest first):
 
+- **78**, 0.9.1: `LocationPadSlotEntry` gains `SetPick` (the surviving layout set), new `LocationPadSlotPickReport` (179), client→host.
 - **77**, 0.8.308 to 0.9.1: `LocationTransport` gains `TargetKey`, the point inside the location to land on.
 - **76**, 0.8.306 to 0.8.307: new shared `MapPieceWire` (name, outside-location anchor, X/Z): `MapElementDiscovered` (69)
   is one piece, `MapStateSync` discoveries are pieces instead of bare names; `JournalItem` gains `Popup`.
@@ -103,6 +104,14 @@ tested in the game.
 
 Code-only verification (build clean, focused tests pass): these need a real dual-box
 playtest before they count as verified.
+
+- **Same pad, different interiors on host and client (the village well).** Vanilla
+  `Location.Awake` picks one of the location's layout sets at random and destroys the
+  rest, per machine — one player got the passage, the other a wall. The first spawner
+  now wins: its pick rides the pad-slot assignment (`SetPick`, protocol 78, new
+  `LocationPadSlotPickReport` (179)), and every later spawn of the same location
+  forces it instead of rolling again; a client that spawned first reports its pick so
+  the host converges on it.
 
 - **Stuck black screen after leaving a screaming banshee.** The victim's overlay only
   ever cleared on the host's release message, which never goes out when the banshee is

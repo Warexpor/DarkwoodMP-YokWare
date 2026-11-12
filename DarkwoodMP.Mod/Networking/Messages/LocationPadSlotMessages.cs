@@ -2,7 +2,8 @@ namespace DWMPHorde.Networking
 {
     /// <summary>
     /// One host-assigned outside-location pad placement: which of vanilla
-    /// <c>OutsideLocations.locationPositions</c> the pad occupies, and its Y rotation.
+    /// <c>OutsideLocations.locationPositions</c> the pad occupies, its Y rotation, and the
+    /// layout-set pick (vanilla <c>Location.sets</c> survivor, "" when the host has none).
     /// Slot &lt; 0 means the host has no free slot left (peer falls back to vanilla).
     /// </summary>
     public struct LocationPadSlotEntry
@@ -10,19 +11,22 @@ namespace DWMPHorde.Networking
         public string LocationName;
         public int Slot;
         public int YawDeg;
+        public string SetPick;
 
         public void Serialize(NetWriter w)
         {
             w.Put(LocationName ?? string.Empty);
             w.Put(Slot);
             w.Put(YawDeg);
+            w.Put(SetPick ?? string.Empty);
         }
 
         public static LocationPadSlotEntry Deserialize(NetReader r) => new LocationPadSlotEntry
         {
             LocationName = r.GetString(),
             Slot = r.GetInt(),
-            YawDeg = r.GetInt()
+            YawDeg = r.GetInt(),
+            SetPick = r.GetString()
         };
     }
 
@@ -38,6 +42,26 @@ namespace DWMPHorde.Networking
 
         public static LocationPadSlotRequestMessage Deserialize(NetReader r) =>
             new LocationPadSlotRequestMessage { LocationName = r.GetString() };
+    }
+
+    /// <summary>
+    /// Client→host (<see cref="NetMessageType.LocationPadSlotPickReport"/>): this peer
+    /// spawned a pad with its own layout-set pick (the host had shared none). The host
+    /// relays it so late spawners converge on the first pick.
+    /// </summary>
+    public struct LocationPadSlotPickReportMessage
+    {
+        public string LocationName;
+        public string Pick;
+
+        public void Serialize(NetWriter w)
+        {
+            w.Put(LocationName ?? string.Empty);
+            w.Put(Pick ?? string.Empty);
+        }
+
+        public static LocationPadSlotPickReportMessage Deserialize(NetReader r) =>
+            new LocationPadSlotPickReportMessage { LocationName = r.GetString(), Pick = r.GetString() };
     }
 
     /// <summary>
