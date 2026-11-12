@@ -145,8 +145,8 @@ public class MessageRoundTripTests
             NextSlot = 3,
             Entries = new[]
             {
-                new LocationPadSlotEntry { LocationName = "outside_a", Slot = 0, YawDeg = 90 },
-                new LocationPadSlotEntry { LocationName = "outside_b", Slot = 2, YawDeg = 270 },
+                new LocationPadSlotEntry { LocationName = "outside_a", Slot = 0, YawDeg = 90, SetPick = "layout2" },
+                new LocationPadSlotEntry { LocationName = "outside_b", Slot = 2, YawDeg = 270, SetPick = "" },
                 new LocationPadSlotEntry { LocationName = "outside_c", Slot = -1, YawDeg = 0 },
             }
         };
@@ -160,7 +160,19 @@ public class MessageRoundTripTests
             Assert.Equal(msg.Entries[i].LocationName, back.Entries[i].LocationName);
             Assert.Equal(msg.Entries[i].Slot, back.Entries[i].Slot);
             Assert.Equal(msg.Entries[i].YawDeg, back.Entries[i].YawDeg);
+            Assert.Equal(msg.Entries[i].SetPick ?? "", back.Entries[i].SetPick);
         }
+        Assert.Equal(0, r.AvailableBytes);
+    }
+
+    [Fact]
+    public void LocationPadSlotPickReport_RoundTrips()
+    {
+        var msg = new LocationPadSlotPickReportMessage { LocationName = "outside_well_underground_01", Pick = "layout1" };
+        var r = new NetReader(Bytes(msg.Serialize));
+        var back = LocationPadSlotPickReportMessage.Deserialize(r);
+        Assert.Equal("outside_well_underground_01", back.LocationName);
+        Assert.Equal("layout1", back.Pick);
         Assert.Equal(0, r.AvailableBytes);
     }
 

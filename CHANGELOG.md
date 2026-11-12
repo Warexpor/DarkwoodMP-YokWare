@@ -3,12 +3,13 @@
 ## Versioning
 
 The current product line is `0.9.x`. The plugin and display version are
-**0.9.0**. The current Horde wire protocol is **77**. Every install in a session
+**0.9.1**. The current Horde wire protocol is **78**. Every install in a session
 needs the same DLL; the protocol is checked on join.
 
 Protocol history (newest first):
 
-- **77**, 0.8.308 to 0.9.0: `LocationTransport` gains `TargetKey`, the point inside the location to land on.
+- **78**, 0.9.1: `LocationPadSlotEntry` gains `SetPick` (the surviving layout set), new `LocationPadSlotPickReport` (179), client→host.
+- **77**, 0.8.308 to 0.9.1: `LocationTransport` gains `TargetKey`, the point inside the location to land on.
 - **76**, 0.8.306 to 0.8.307: new shared `MapPieceWire` (name, outside-location anchor, X/Z): `MapElementDiscovered` (69)
   is one piece, `MapStateSync` discoveries are pieces instead of bare names; `JournalItem` gains `Popup`.
 - **75**, 0.8.297 to 0.8.305: `CoHold` (170) gains mode 5, `ModePlayerPush`: a player walking into another
@@ -98,6 +99,57 @@ out separately. A runtime item is not considered verified until it has been
 tested in the game.
 
 ---
+
+## 0.9.1 — stuck banshee overlay, shared achievements, hardcore morning wipe
+
+Code-only verification (build clean, focused tests pass): these need a real dual-box
+playtest before they count as verified.
+
+- **Same pad, different interiors on host and client (the village well).** Vanilla
+  `Location.Awake` picks one of the location's layout sets at random and destroys the
+  rest, per machine — one player got the passage, the other a wall. The first spawner
+  now wins: its pick rides the pad-slot assignment (`SetPick`, protocol 78, new
+  `LocationPadSlotPickReport` (179)), and every later spawn of the same location
+  forces it instead of rolling again; a client that spawned first reports its pick so
+  the host converges on it.
+
+- **Stuck black screen after leaving a screaming banshee.** The victim's overlay only
+  ever cleared on the host's release message, which never goes out when the banshee is
+  destroyed with its location or its id cannot be resolved anymore. Two cures: any far
+  teleport now fades the overlay out (`BansheeOverlayTeleportFailsafePatch` on
+  `Player.teleportTo`; a still-valid scream raises it again through the normal sight
+  and agitation paths), and a release whose banshee id is gone still goes out with id 0
+  (`HostAIPatches.Targeting`), which only clears the victim's overlay and scream.
+- **The second player could never pass the snail eye.** Object-owned sight triggers
+  (`InSightOfPlayer` with no `Character` owner — the eye gaze and its open/close
+  loop) had their `Update` suppressed on clients along with creature AI, while their
+  `multipleFire` events are never fanned out from the host. The client's eye froze
+  open forever. Scenery sight now runs locally on clients as vanilla does
+  (`ClientAIConditionalHelper`, `AiSuppressionPolicy`); creature sight stays
+  host-driven.
+- **Achievements only landed on one machine.** Unlocks are a `GameEvent` step the sync
+  never handled, and the per-machine `Flags.achievements` list never travels. Unlocks
+  now ride the flag channel (`achievement:` names, no protocol change): whoever earns
+  one fans it out, the host rebroadcasts, every peer grants it locally
+  (`FlagSyncPatches.AchievementSync`, `FlagNetHandlers.ApplyAchievementSync`).
+- **Death bags sometimes arrived empty on peers.** The bag snapshot went out in the
+  same `dropBody` call that the night-body fill (`MoveRest`) runs in, so whichever
+  patch ran first decided what the peer got — down to an empty bag for a small
+  backpack. The send now snapshots a frame later (`DeathBagDropSyncPatch`), after
+  every same-frame fill has completed.
+- **Hard / Nightmare never ended the run.** Only a simultaneous night wipe with every
+  death eligible ended it; a day last-life death spectated until morning and was then
+  released, so out-of-lives parties played on forever. At the host morning edge, a
+  party that is down and fully eligible now runs the permadeath outcome instead of
+  releasing (`DeathStateTracker.ShouldWipeInsteadOfMorningRelease`,
+  `PermadeathPolicy.MorningWipeApplies`).
+- **Scripted personal transports could strand a peer in a black void.** If the
+  UniqueObject landing point has no copy on the replaying machine (an unspawned pad),
+  vanilla built an empty target list and threw after fading to black with inputs
+  locked. The replay now checks first: a missing target defers the event with the
+  target named (`GameEventNetHandlers.TransportTargetsResolve`,
+  `GameEventPersonalPolicy.FirstMissingKey`) so the pad load can still carry the
+  peer late instead of stranding them.
 
 ## 0.9.0 — restore missing outside-location spawn references
 

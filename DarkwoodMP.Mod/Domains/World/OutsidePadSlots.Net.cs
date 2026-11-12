@@ -16,7 +16,8 @@ namespace DWMPHorde.Sync
         {
             LocationName = name,
             Slot = e != null ? e.Slot : -1,
-            YawDeg = e != null ? e.Yaw : 0
+            YawDeg = e != null ? e.Yaw : 0,
+            SetPick = e != null ? e.SetPick ?? "" : ""
         };
 
         private static void BroadcastEntry(string name, OutsidePadSlotLogic.Entry e)
@@ -86,12 +87,53 @@ namespace DWMPHorde.Sync
                 if (string.IsNullOrEmpty(w.LocationName))
                     continue;
                 // Ignored while this machine is mid-spawn with the assignment it already holds.
-                Logic.ApplyHostAssignment(w.LocationName, w.Slot, w.YawDeg);
+                Logic.ApplyHostAssignment(w.LocationName, w.Slot, w.YawDeg, w.SetPick);
             }
             Logic.RaiseHighWater(msg.NextSlot);
             SeedFromWorld(ol, authority: false); // marks assignments whose pad already exists here consumed
             if (ol.actualSpawnedLocationsCount < Logic.HighWater)
                 ol.actualSpawnedLocationsCount = Logic.HighWater;
+        }
+
+        /// <summary>
+        /// Host: a client spawned a pad with its own layout-set pick (the host had shared none).
+        /// Adopt it so late spawners converge; a different pick already recorded here means both
+        /// sides spawned at once and diverged — loud, since only a resync can reunite them.
+        /// </summary>
+        internal static void HandlePickReport(LanNetworkManager net, int playerId,
+            LocationPadSlotPickReportMessage msg)
+        {
+            if (net == null || net.Role != NetworkRole.Host || playerId <= 0
+                || string.IsNullOrEmpty(msg.LocationName) || string.IsNullOrEmpty(msg.Pick))
+                return;
+            var ol = Singleton<OutsideLocations>.Instance;
+            if (ol != null && !Logic.TryGet(msg.LocationName, out _))
+            {
+                // The client spawned (timeout fallback) before any assignment existed here:
+                // allocate so the pick has a home and later spawns converge on it.
+                AllocateAuthoritative(ol, msg.LocationName, out _);
+            }
+            if (!Logic.TryGet(msg.LocationName, out OutsidePadSlotLogic.Entry e) || e == null)
+            {
+                ModLog.WarnRate(LogCat.World, "padslot-pick-noentry:" + msg.LocationName,
+                    "[PadSlot] pick report for '" + msg.LocationName + "' with no assignment — dropped", 60f);
+                return;
+            }
+            if (string.IsNullOrEmpty(e.SetPick))
+            {
+                e.SetPick = msg.Pick;
+                ModRuntime.LegacyInfo("[PadSlot] adopted '" + msg.LocationName
+                    + "' set pick '" + msg.Pick + "' from p" + playerId);
+                BroadcastEntry(msg.LocationName, e);
+                return;
+            }
+            if (!string.Equals(e.SetPick, msg.Pick, System.StringComparison.Ordinal))
+            {
+                ModLog.Warn(LogCat.World,
+                    "[PadSlot] CONFLICT '" + msg.LocationName + "': kept '" + e.SetPick
+                    + "', peer p" + playerId + " spawned '" + msg.Pick
+                    + "' — interiors diverge, re-enter together after a rejoin");
+            }
         }
 
         /// <summary>Host: hand a late joiner every live/reserved assignment.</summary>

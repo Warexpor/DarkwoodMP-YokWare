@@ -106,7 +106,7 @@ public class OutsidePadSlotLogicTests
     public void HostUnavailable_MinusOne_IsConsumedAndFallsBackToVanilla()
     {
         var logic = new OutsidePadSlotLogic();
-        Assert.True(logic.ApplyHostAssignment("pocket", -1, 0));
+        Assert.True(logic.ApplyHostAssignment("pocket", -1, 0, ""));
         Assert.True(logic.TryGet("pocket", out var entry));
 
         Assert.Null(OutsidePadSlotLogic.ConsumeIfUnavailable(entry));
@@ -124,22 +124,22 @@ public class OutsidePadSlotLogicTests
     public void HostAssignment_IsIgnoredWhileThatSpawnIsInFlight()
     {
         var logic = new OutsidePadSlotLogic();
-        Assert.True(logic.ApplyHostAssignment("village", 1, 180));
+        Assert.True(logic.ApplyHostAssignment("village", 1, 180, ""));
         logic.BeginSpawn("village");
 
-        Assert.False(logic.ApplyHostAssignment("village", 3, 0));
+        Assert.False(logic.ApplyHostAssignment("village", 3, 0, ""));
         Assert.True(logic.TryGet("village", out var e));
         Assert.Equal(1, e.Slot);
 
         logic.EndSpawn("village");
-        Assert.True(logic.ApplyHostAssignment("village", 3, 0));
+        Assert.True(logic.ApplyHostAssignment("village", 3, 0, ""));
     }
 
     [Fact]
     public void Yaw_IsHandedOutOnce()
     {
         var logic = new OutsidePadSlotLogic();
-        logic.ApplyHostAssignment("bunker", 0, 270);
+        logic.ApplyHostAssignment("bunker", 0, 270, "");
 
         Assert.True(logic.TryConsumeYaw("bunker", out int yaw));
         Assert.Equal(270, yaw);
@@ -162,7 +162,7 @@ public class OutsidePadSlotLogicTests
         Assert.Equal(180, learned.Yaw);
 
         var client = new OutsidePadSlotLogic();
-        client.ApplyHostAssignment("a", 1, 0);
+        client.ApplyHostAssignment("a", 1, 0, "");
         Assert.Equal(OutsidePadSlotLogic.SeedResult.Mismatch, client.NotePadExists("a", 2, 90, authority: false));
         Assert.True(client.TryGet("a", out var kept));
         Assert.Equal(1, kept.Slot); // the host's assignment wins on a client
@@ -197,6 +197,32 @@ public class OutsidePadSlotLogicTests
         => Assert.Equal(expected, OutsidePadSlotLogic.NormalizeYaw(input));
 
     [Fact]
+    public void SetPick_MatchSetIndex_PrefersExactThenCloneStripped()
+    {
+        var names = new System.Collections.Generic.List<string> { "layout1", "layout2", "layout3" };
+        Assert.Equal(1, OutsidePadSlotLogic.MatchSetIndex(names, "layout2"));
+        Assert.Equal(0, OutsidePadSlotLogic.MatchSetIndex(names, "layout1(Clone)"));
+        Assert.Equal(-1, OutsidePadSlotLogic.MatchSetIndex(names, "layout9"));
+        Assert.Equal(-1, OutsidePadSlotLogic.MatchSetIndex(names, ""));
+        Assert.Equal(-1, OutsidePadSlotLogic.MatchSetIndex(null, "layout1"));
+        Assert.Equal(-1, OutsidePadSlotLogic.MatchSetIndex(names, null));
+    }
+
+    [Fact]
+    public void HostAssignment_CarriesLayoutSetPick()
+    {
+        var logic = new OutsidePadSlotLogic();
+        Assert.True(logic.ApplyHostAssignment("well", 4, 90, "layout2"));
+        Assert.True(logic.TryGet("well", out var e));
+        Assert.Equal("layout2", e.SetPick);
+
+        // Empty picks stay empty.
+        Assert.True(logic.ApplyHostAssignment("hut", 5, 0, ""));
+        Assert.True(logic.TryGet("hut", out var h));
+        Assert.Equal("", h.SetPick);
+    }
+
+    [Fact]
     public void DeriveSlot_MatchesWithinEpsilonOnly()
     {
         float[] xs = { 0f, 5000f, 10000f };
@@ -210,3 +236,6 @@ public class OutsidePadSlotLogicTests
         Assert.Equal(-1, Find(123f, 456f));
     }
 }
+
+
+

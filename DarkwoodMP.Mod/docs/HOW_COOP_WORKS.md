@@ -592,7 +592,9 @@ night for players who are still alive, so in co-op:
 - **The run ends only on a party wipe:** everyone down at the same time and every one
   of those deaths permadeath-eligible. Then everyone sees the permadeath ending, and
   "start over" resets every player's character on every machine. If anyone who died
-  still had a life left, it is a normal all-dead morning.
+  still had a life left, it is a normal all-dead morning. The wipe is also evaluated at
+  the morning edge, so a party that went down eligible across day and night still ends
+  the run instead of being released into another day.
 
 ### Spectator mode (F4)
 

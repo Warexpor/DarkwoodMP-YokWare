@@ -10,6 +10,51 @@ namespace DWMPHorde.Patches
     /// avoids the old bug where cooldown updated last-sent before the packet went out,
     /// permanently dropping intermediate values.
     /// </summary>
+    /// <summary>
+    /// Achievements ride the flag channel: an unlock is a shared-world fact (the wolf died,
+    /// the tree burned) and the per-machine <c>Flags.achievements</c> list is never synced,
+    /// so whoever never ran the step never got the Steam achievement. The name carries the
+    /// <see cref="AchievementSyncPolicy.FlagPrefix"/> prefix and is applied by
+    /// <c>FlagNetHandlers</c> on every peer.
+    /// </summary>
+    internal static class AchievementSync
+    {
+        [HarmonyPatch(typeof(Flags), nameof(Flags.unlockAchievement))]
+        public static class AchievementSyncPatch
+        {
+            private static string _pendingId; // process-scoped: Prefix/Postfix pair of one call
+            private static bool _hadBefore; // process-scoped: Prefix/Postfix pair of one call
+
+            private static void Prefix(Flags __instance, string achievementName)
+            {
+                _pendingId = achievementName;
+                _hadBefore = __instance != null && __instance.achievements != null
+                    && __instance.achievements.Contains(achievementName);
+            }
+
+            private static void Postfix()
+            {
+                string id = _pendingId;
+                _pendingId = null;
+                if (string.IsNullOrEmpty(id) || _hadBefore)
+                    return;
+                var net = ModRuntime.Network;
+                if (net == null || !net.IsConnected
+                    || (net.Role != NetworkRole.Host && net.Role != NetworkRole.Client))
+                    return;
+                // Applying a received achievement must not echo it back.
+                if (LanNetworkManager.IsApplyingRemoteState
+                    && !DWMPHorde.Sync.HostApplyGuard.Active)
+                    return;
+                var msg = new FlagSyncMessage { Name = AchievementSyncPolicy.FlagPrefix + id, IsInt = false, BoolValue = true, IntValue = 0 };
+                if (net.Role == NetworkRole.Host)
+                    net.Broadcast(NetMessageType.FlagSync, w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);
+                else
+                    net.Send(NetMessageType.FlagSync, w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);
+            }
+        }
+    }
+
     [HarmonyPatch(typeof(Flags), "setFlag", typeof(string), typeof(bool))]
     public static class FlagSyncBoolPatch
     {

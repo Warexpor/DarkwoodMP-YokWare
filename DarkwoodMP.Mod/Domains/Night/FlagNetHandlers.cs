@@ -43,6 +43,14 @@ namespace DWMPHorde.Networking
             if (string.IsNullOrEmpty(msg.Name))
                 return;
 
+            // An achievement another peer unlocked (wolf, tree, doctor dream): grant it
+            // here too, so every peer's Steam profile gets what the shared world earned.
+            if (AchievementSyncPolicy.TryParseAchievementFlag(msg.Name, out string achievementId))
+            {
+                ApplyAchievementSync(msg, achievementId);
+                return;
+            }
+
             // Per-player flags never travel; drop one an older peer still sends.
             if (FlagSyncBoolPatch.IsLocalOnlyFlag(msg.Name))
                 return;
@@ -92,6 +100,38 @@ namespace DWMPHorde.Networking
 
             if (ModRuntime.VerboseLogging)
                 ModRuntime.LegacyInfo($"[FlagSync] applied flag '{msg.Name}' isInt={msg.IsInt} boolVal={msg.BoolValue} intVal={msg.IntValue}");
+        }
+
+        /// <summary>
+        /// Host: apply a peer's achievement and rebroadcast it (originator excluded when
+        /// known). A client just grants its own. Runs under the network-apply guard so the
+        /// unlock below does not echo back onto the flag channel.
+        /// </summary>
+        private void ApplyAchievementSync(FlagSyncMessage msg, string achievementId)
+        {
+            try
+            {
+                using (new NetworkApplyGuard())
+                {
+                    if (Singleton<Flags>.Instance != null)
+                        Core.unlockAchievement(achievementId);
+                }
+            }
+            catch (System.Exception ex)
+            {
+                ModLog.Warn(LogCat.Network, "[FlagSync] applying achievement '" + achievementId + "': " + ex.Message);
+            }
+            ModRuntime.LegacyInfo($"[FlagSync] applied achievement '{achievementId}'");
+
+            if (_net.Role != NetworkRole.Host)
+                return;
+            int from = _net.CurrentReceivePlayerId;
+            if (from > 0)
+                _net.SendToAllExcept(from, NetMessageType.FlagSync, w => msg.Serialize(w),
+                    LiteNetLib.DeliveryMethod.ReliableOrdered);
+            else
+                _net.Broadcast(NetMessageType.FlagSync, w => msg.Serialize(w),
+                    LiteNetLib.DeliveryMethod.ReliableOrdered);
         }
 
         /// <summary>Host: apply a client's flag delta and rebroadcast it (originator excluded when known).</summary>

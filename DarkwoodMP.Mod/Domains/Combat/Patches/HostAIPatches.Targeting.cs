@@ -244,9 +244,16 @@ namespace DWMPHorde.Patches
         {
             if (!NetGuard.ConnectedHost(out var net))
                 return;
-            if (!CharacterTracker.TryGetStableId(banshee, out short id) || id == 0)
+            // A release must reach the victim even when the banshee is already gone
+            // (destroyed with its unloaded location, tracker cleared on scene change):
+            // an unresolved id goes out as 0, which only clears the overlay and stops
+            // the scream. An agitation still needs its banshee (the client places the
+            // shake and the overlay by it), so that one stays dropped.
+            short id = 0;
+            bool resolved = banshee != null && CharacterTracker.TryGetStableId(banshee, out id) && id != 0;
+            if (!resolved && agitated)
                 return;
-            var msg = new BansheeAgitationMessage { HostId = id, VictimId = victimId, Agitated = agitated, Overlay = overlay };
+            var msg = new BansheeAgitationMessage { HostId = resolved ? id : (short)0, VictimId = victimId, Agitated = agitated, Overlay = overlay };
             net.Broadcast(NetMessageType.BansheeAgitation, w => msg.Serialize(w), LiteNetLib.DeliveryMethod.ReliableOrdered);
         }
     }

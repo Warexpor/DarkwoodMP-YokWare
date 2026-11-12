@@ -98,6 +98,48 @@ namespace DWMPHorde.Sync
             return PositionsField != null ? PositionsField.GetValue(ol) as List<Vector3> : null;
         }
 
+        // ---- layout-set picks -------------------------------------------------------------
+        // Vanilla Location.Awake picks one of the location's layout sets at random and destroys
+        // the rest, per machine. Pads spawned on different peers picked different interiors
+        // (the village well: a passage for one player, a wall for the other). The pick is the
+        // surviving set's name; the first spawner wins and every later spawn of the same name
+        // forces it (see the Location.Awake hook in OutsidePadSetPickPatches).
+
+        internal static bool TryGetForcedPick(string name, out string pick)
+        {
+            pick = null;
+            if (string.IsNullOrEmpty(name))
+                return false;
+            if (!Logic.TryGet(name, out OutsidePadSlotLogic.Entry e) || e == null)
+                return false;
+            if (string.IsNullOrEmpty(e.SetPick))
+                return false;
+            pick = e.SetPick;
+            return true;
+        }
+
+        /// <summary>
+        /// Remember this machine's own layout-set pick for <paramref name="name"/> (vanilla
+        /// roll on first spawn). The host fans a newly learned pick out at once; a client
+        /// reports its own pick separately (see the Awake hook).
+        /// </summary>
+        internal static void NoteOwnPick(string name, string pick)
+        {
+            if (string.IsNullOrEmpty(name) || string.IsNullOrEmpty(pick))
+                return;
+            bool learned = false;
+            if (Logic.TryGet(name, out OutsidePadSlotLogic.Entry e) && e != null
+                && string.IsNullOrEmpty(e.SetPick))
+            {
+                e.SetPick = pick;
+                learned = true;
+            }
+            var net = ModRuntime.Network;
+            if (learned && net != null && net.Role == NetworkRole.Host && net.IsConnected
+                && Logic.TryGet(name, out OutsidePadSlotLogic.Entry updated) && updated != null)
+                BroadcastEntry(name, updated);
+        }
+
         private static int DeriveSlot(OutsideLocations ol, Vector3 pos)
         {
             var slots = Positions(ol);

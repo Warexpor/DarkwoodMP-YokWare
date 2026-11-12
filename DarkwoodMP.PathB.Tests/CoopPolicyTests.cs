@@ -87,6 +87,65 @@ public class CoopPolicyTests
     }
 
     [Fact]
+    public void PermadeathPolicy_MorningWipeApplies_PartyDownAndEligible()
+    {
+        // Host down and eligible, every remote recorded dead and eligible: run ends.
+        Assert.True(PermadeathPolicy.MorningWipeApplies(true, 2, 2, 2));
+        // Solo connected host down and eligible: run ends.
+        Assert.True(PermadeathPolicy.MorningWipeApplies(true, 0, 0, 0));
+        // One remote death not eligible (a life left): normal morning.
+        Assert.False(PermadeathPolicy.MorningWipeApplies(true, 2, 1, 2));
+        // One remote still up: normal morning.
+        Assert.False(PermadeathPolicy.MorningWipeApplies(true, 1, 1, 2));
+        // Local not down or not eligible: normal morning.
+        Assert.False(PermadeathPolicy.MorningWipeApplies(false, 2, 2, 2));
+        Assert.False(PermadeathPolicy.MorningWipeApplies(false, 0, 0, 0));
+    }
+
+    [Fact]
+    public void AchievementSync_PrefixOnly()
+    {
+        Assert.True(AchievementSyncPolicy.TryParseAchievementFlag("achievement:tree_burned", out string id));
+        Assert.Equal("tree_burned", id);
+        Assert.False(AchievementSyncPolicy.TryParseAchievementFlag("wolf_givenKey", out _));
+        Assert.False(AchievementSyncPolicy.TryParseAchievementFlag("achievement:", out _));
+        Assert.False(AchievementSyncPolicy.TryParseAchievementFlag(null, out _));
+        Assert.False(AchievementSyncPolicy.TryParseAchievementFlag("", out _));
+    }
+
+    [Fact]
+    public void AiSuppression_ScenerySightRunsLocallyOnClients()
+    {
+        // Creature and player-owned components stay suppressed on clients.
+        Assert.True(AiSuppressionPolicy.ShouldSuppressClientComponent(true, false, false));
+        Assert.True(AiSuppressionPolicy.ShouldSuppressClientComponent(true, false, false, false));
+        // Not a client, or a proxy / own body: untouched.
+        Assert.False(AiSuppressionPolicy.ShouldSuppressClientComponent(false, false, false));
+        Assert.False(AiSuppressionPolicy.ShouldSuppressClientComponent(true, true, false));
+        Assert.False(AiSuppressionPolicy.ShouldSuppressClientComponent(true, false, true));
+        // Scenery sight (no Character owner, e.g. the snail eye): runs locally.
+        Assert.False(AiSuppressionPolicy.ShouldSuppressClientComponent(true, false, false, true));
+    }
+
+    [Fact]
+    public void PersonalTransport_FirstMissingKey()
+    {
+        // All resolve: nothing missing.
+        Assert.Null(GameEventPersonalPolicy.FirstMissingKey(
+            new[] { "a", "b" }, _ => true));
+        // First unresolvable key is named.
+        Assert.Equal("b", GameEventPersonalPolicy.FirstMissingKey(
+            new[] { "a", "b", "c" }, k => k != "b"));
+        // Blank keys are not targets; a throwing resolver counts as missing.
+        Assert.Equal("x", GameEventPersonalPolicy.FirstMissingKey(
+            new[] { "", "x" }, _ => throw new System.Exception("registry gone")));
+        // No keys, no resolver: nothing missing.
+        Assert.Null(GameEventPersonalPolicy.FirstMissingKey(null, _ => true));
+        Assert.Null(GameEventPersonalPolicy.FirstMissingKey(new string[0], _ => false));
+        Assert.Null(GameEventPersonalPolicy.FirstMissingKey(new[] { "a" }, null));
+    }
+
+    [Fact]
     public void DialogPolicy_HostRemoteApply_SuppressesBagAndDefersWorld()
     {
         Assert.True(DialogApplyPolicy.ShouldSuppressPersonalInventoryMutation(true));

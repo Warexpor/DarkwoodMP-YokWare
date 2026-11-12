@@ -68,11 +68,17 @@ namespace DWMPHorde.Patches
                 return false;
             if (comp == null)
                 return false;
+            // Scenery sight (the snail eye, area gaze triggers) has no Character owner, so no
+            // host-driven copy exists for it: the client's own body must drive it, as vanilla
+            // does, or it freezes in its initial state (the eye never closes, the pass never
+            // opens). Creature sight stays suppressed — the host drives it and sends the state.
+            bool scenerySight = comp is InSightOfPlayer && comp.GetComponentInParent<Character>() == null;
             bool isRemotePlayer = IsRemotePlayerObject(comp);
             bool isLocalPlayer = Player.Instance != null
                 && comp.gameObject == Player.Instance.gameObject;
             return AiSuppressionPolicy.ShouldSuppressClientComponent(
-                isClient: true, isRemotePlayer: isRemotePlayer, isLocalPlayer: isLocalPlayer);
+                isClient: true, isRemotePlayer: isRemotePlayer, isLocalPlayer: isLocalPlayer,
+                sightWithoutCharacterOwner: scenerySight);
         }
     }
 

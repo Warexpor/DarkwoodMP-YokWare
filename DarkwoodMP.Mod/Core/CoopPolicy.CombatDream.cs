@@ -101,7 +101,7 @@ namespace DWMPHorde
     public static class AiSuppressionPolicy
     {
         public static bool ShouldSuppressClientComponent(
-            bool isClient, bool isRemotePlayer, bool isLocalPlayer)
-            => isClient && !isRemotePlayer && !isLocalPlayer;
+            bool isClient, bool isRemotePlayer, bool isLocalPlayer, bool sightWithoutCharacterOwner = false)
+            => isClient && !isRemotePlayer && !isLocalPlayer && !sightWithoutCharacterOwner;
     }
 }

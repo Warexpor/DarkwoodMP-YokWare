@@ -82,6 +82,7 @@ namespace DWMPHorde.Networking
             On(NetMessageType.TrapTriggered, TrapTriggeredMessage.Deserialize, m => LocationEntityTrapHandlers.HandleTrapTriggered(m));
             On(NetMessageType.LocationPadSlotRequest, LocationPadSlotRequestMessage.Deserialize, m => OutsidePadSlots.HandleRequest(this, _currentReceivePlayerId, m));
             On(NetMessageType.LocationPadSlotSync, LocationPadSlotSyncMessage.Deserialize, m => OutsidePadSlots.HandleSync(this, m));
+            On(NetMessageType.LocationPadSlotPickReport, LocationPadSlotPickReportMessage.Deserialize, m => OutsidePadSlots.HandlePickReport(this, _currentReceivePlayerId, m));
             On(NetMessageType.TrapBulk, TrapBulkMessage.Deserialize, m => WorldObjectSendHandlers.HandleTrapBulk(m));
         }
     }
