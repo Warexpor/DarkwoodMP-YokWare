@@ -215,7 +215,21 @@ namespace DWMPHorde.Networking
                 string name = c.name;
                 if (name.Contains("RemotePlayer"))
                     continue;
-                if (c.gameObject.activeSelf && HasSyncedTwin(c, name, allChars, nChars))
+                if (!c.gameObject.activeSelf)
+                    continue;
+                if (HasSyncedTwin(c, name, allChars, nChars))
+                {
+                    c.gameObject.SetActive(false);
+                    continue;
+                }
+                // No host id and no synced twin in range: nothing drives this live body —
+                // client AI is suppressed and no snapshots carry it — so it would sit frozen
+                // forever while the host never had it (a pre-handshake / link-flap /
+                // runtime-pad leftover, e.g. the ghost rabbits). Hide it like a twin, unless
+                // a pending host entry is about to claim it. Matchers still find hidden
+                // bodies (save-twin, inactive and closest-by-name all see them) and adoption
+                // reactivates through the next snapshot. Corpses keep existing behavior.
+                if (c.alive && !HasPendingClaim(name, c.transform.position))
                     c.gameObject.SetActive(false);
             }
         }
@@ -357,6 +371,21 @@ namespace DWMPHorde.Networking
         }
 
         private const int CloneSuffixLength = 7; // "(Clone)"
+
+        /// <summary>An unresolved host entry of this name nearby: about to claim this body, leave it be.</summary>
+        private static bool HasPendingClaim(string name, Vector3 pos)
+        {
+            for (int i = 0; i < _pendingMatches.Count; i++)
+            {
+                PendingEntry p = _pendingMatches[i];
+                if (!CharacterTracker.BaseNameEquals(p.EntityName, name))
+                    continue;
+                Vector3 d = p.Position - pos;
+                if (d.x * d.x + d.z * d.z <= TwinRadiusSq)
+                    return true;
+            }
+            return false;
+        }
 
     }
 }

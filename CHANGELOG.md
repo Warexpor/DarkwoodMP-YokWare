@@ -6,6 +6,20 @@ The current product line is `0.9.x`. The plugin and display version are
 **0.9.2**. The current Horde wire protocol is **78**. Every install in a session
 needs the same DLL; the protocol is checked on join.
 
+## Unreleased
+
+Code-only verification (build clean, focused tests pass): needs a real dual-box
+playtest before it counts as verified.
+
+- **Ghost rabbits on the client (stuck, host-invisible).** A live client body with
+  no host id and no synced twin in range is nothing the host drives — client AI is
+  suppressed and no snapshots carry it — so a pre-handshake, link-flap or
+  runtime-pad leftover sat frozen forever while the host never had it. The
+  unmatched cleanup hid twins and out-of-interest roamers but left exactly this
+  case visible. It now hides those too, unless a pending host entry is about to
+  claim the body; matchers still find hidden bodies and adoption reactivates
+  through the next snapshot (`ClientEntityInterpolationService.Tick`).
+
 ## 0.9.2 — spectate camera pin, knife throw guard
 
 Code-only verification (build clean, focused tests pass): needs a real dual-box
