@@ -992,6 +992,11 @@ party events.
 - Cutscenes, slow motion and camera steps follow the scene's location, so a player
   elsewhere is not frozen by someone else's scene.
 - One-shot moves and entry events are delivered to each player once.
+- The routes from the radio tower underground and the burned tree to the Road
+  Home start when each player enters the trigger. The tower's darkness and
+  reveal volumes also follow each player's own movement.
+- The host chooses the village well layout before sending its pad assignment.
+  An existing well supplies its saved layout.
 - The player who walks into a new location gets its popup, sound and journal page;
   the others get the journal page, the map piece and the same "discovered" popup
   (only when the finder got one). The hideout flags and the biome name follow each

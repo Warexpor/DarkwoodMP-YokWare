@@ -65,6 +65,11 @@ namespace DWMPHorde.Sync
         /// </summary>
         private const float SlotWaitTimeoutSec = 30f;
 
+        // The well scene's Location.sets contains these two direct children.
+        private const string VillageWell = "outside_well_underground_01";
+        private const string VillageWellLayout2 = "layout2";
+        private const string VillageWellLayout3 = "layout3";
+
         // ---- state ----------------------------------------------------------------------------
 
         /// <summary>
@@ -102,8 +107,8 @@ namespace DWMPHorde.Sync
         // Vanilla Location.Awake picks one of the location's layout sets at random and destroys
         // the rest, per machine. Pads spawned on different peers picked different interiors
         // (the village well: a passage for one player, a wall for the other). The pick is the
-        // surviving set's name; the first spawner wins and every later spawn of the same name
-        // forces it (see the Location.Awake hook in OutsidePadSetPickPatches).
+        // surviving set's name. The well gets its pick at allocation, and other pads learn it
+        // from the first spawn (see the Location.Awake hook in OutsidePadSetPickPatches).
 
         internal static bool TryGetForcedPick(string name, out string pick)
         {
@@ -178,6 +183,15 @@ namespace DWMPHorde.Sync
 
                 var result = Logic.NotePadExists(kv.Key, slot,
                     OutsidePadSlotLogic.NormalizeYaw(loc.transform.eulerAngles.y), authority);
+                if (authority && kv.Key == VillageWell && Logic.TryGet(kv.Key, out var well))
+                {
+                    Transform first = loc.transform.Find(VillageWellLayout2);
+                    Transform second = loc.transform.Find(VillageWellLayout3);
+                    if (first != null && second == null)
+                        well.SetPick = VillageWellLayout2;
+                    else if (second != null && first == null)
+                        well.SetPick = VillageWellLayout3;
+                }
                 if (result == OutsidePadSlotLogic.SeedResult.Mismatch
                     && Logic.TryGet(kv.Key, out OutsidePadSlotLogic.Entry assigned))
                 {
@@ -213,6 +227,11 @@ namespace DWMPHorde.Sync
                     + slotCount + " slots in use) — vanilla placement will fail");
                 return null;
             }
+            // Send the well's layout even if the slot was reserved before anyone connected.
+            if (name == VillageWell && string.IsNullOrEmpty(e.SetPick) && !IsAlive(ol, name)
+                && NetGuard.ConnectedHost(out _))
+                e.SetPick = YawRng.Next(2) == 0 ? VillageWellLayout2 : VillageWellLayout3;
+
             if (isNew)
             {
                 if (ol.actualSpawnedLocationsCount < Logic.HighWater)

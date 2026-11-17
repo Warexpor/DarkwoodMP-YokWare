@@ -6,6 +6,22 @@ The current product line is `0.9.x`. The plugin and display version are
 **0.9.2**. The current Horde wire protocol is **78**. Every install in a session
 needs the same DLL; the protocol is checked on join.
 
+## 0.9.2 — radio tower visibility, Road Home exits, and village well layout
+
+- The radio tower's darkness and reveal triggers now follow the local player. A
+  teammate inside a trigger could keep the mask up after the local player left.
+  The banshee scream overlay has its own cleanup (`EventTriggersProxyPatches`).
+- The Road Home entrances from the tower underground and the burned tree route
+  now fire for each player's own body. A remote stand-in could occupy either
+  repeatable trigger first and prevent the real player from starting the trip
+  (`EventTriggersProxyPatches`).
+- Players entering the village well at the same time could still roll different
+  layouts before the first pick reached the host. The host now picks `layout2`
+  or `layout3` before sending the well's pad assignment and reads the surviving
+  layout from an existing well (`OutsidePadSlots`).
+
+These changes need a co-op playtest.
+
 ## 0.9.2 — spectate camera pin, knife throw guard, ghost rabbits
 
 Code-only verification (build clean, focused tests pass): needs a real dual-box

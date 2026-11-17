@@ -154,6 +154,13 @@ child, matching vanilla initialization. An absent location or absent child is no
 reconstructed. This addresses one possible cause of the reported bunker transport
 null reference; the original failure and doctor-to-bunker sequence need playtesting.
 
+The radio tower's darkness and reveal volumes and both repeatable Road Home
+entrances use the local player's area triggers. Test with one player still in
+the tower volume while the other leaves, and enter each Road Home route with
+overlapping arrivals in both role orders. The host chooses the village well's
+layout before its slot reaches the clients. Test simultaneous first entry and
+a late entry into an already spawned well.
+
 ### Packet validation and relay
 
 `NetReader` bounds primitive and byte-array reads. Every message reads exactly

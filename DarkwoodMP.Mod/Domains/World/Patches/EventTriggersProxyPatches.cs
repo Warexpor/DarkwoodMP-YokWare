@@ -50,12 +50,26 @@ namespace DWMPHorde.Patches
             return true;
         }
 
-        /// <summary>Footstep / SoundArea volumes are local-body only; proxy path owns peer steps.</summary>
-        internal static bool IsLocalBodyOnlyVolume(string etName)
+        /// <summary>These authored volumes use the local body's vanilla enter and exit.</summary>
+        internal static bool IsLocalBodyOnlyVolume(EventTriggers triggers)
         {
-            if (string.IsNullOrEmpty(etName)) return false;
-            return etName.IndexOf("footsteps", System.StringComparison.OrdinalIgnoreCase) >= 0
-                || etName.IndexOf("soundarea", System.StringComparison.OrdinalIgnoreCase) >= 0;
+            string name = triggers.name;
+            switch (name)
+            {
+                // Each player walks into the repeatable transport and loads their own pad.
+                case "goToRoadToHome_oneChance":
+                case "goToRoadToHome_treeVillage":
+                // Tower masks fade according to the local player's position.
+                case "area_spot_med_undergroundCh2Entrance_01":
+                case "area_tween_color_med_undergroundCh2Entrance_01":
+                case "area_tween_color_med_undergroundCh2Entrance_02":
+                    return true;
+                case "area_signs_01":
+                    return triggers.transform.parent != null
+                        && triggers.transform.parent.name == "event_radioTower_enter";
+            }
+            return name.IndexOf("footsteps", System.StringComparison.OrdinalIgnoreCase) >= 0
+                || name.IndexOf("soundarea", System.StringComparison.OrdinalIgnoreCase) >= 0;
         }
 
         /// <summary>
@@ -234,6 +248,8 @@ namespace DWMPHorde.Patches
             {
                 if (EventTriggersAuth.IsHost())
                     ThreatTriggerContext.NoteHostEnter();
+                if (EventTriggersAuth.IsLocalBodyOnlyVolume(__instance))
+                    return;
                 bool occupied = __state > __instance.exited;
                 if (__instance.entered == __state
                     && Player.Instance != null
@@ -260,9 +276,7 @@ namespace DWMPHorde.Patches
             // through" on the host, which opened the door there and nowhere else.
             RemotePlayerProxy proxy = other.GetComponent<RemotePlayerProxy>();
             if (proxy == null) return;
-
-            if (EventTriggersAuth.IsLocalBodyOnlyVolume(__instance.name))
-                return;
+            if (EventTriggersAuth.IsLocalBodyOnlyVolume(__instance)) return;
 
             // Multi-collider on the SAME proxy — do not re-count / re-fire.
             if (!EventTriggersProxyOccupancy.TryAdd(__instance, proxy.PlayerId))
@@ -322,7 +336,7 @@ namespace DWMPHorde.Patches
             RemotePlayerProxy proxy = other.GetComponent<RemotePlayerProxy>();
             if (proxy == null) return;
 
-            if (EventTriggersAuth.IsLocalBodyOnlyVolume(__instance.name))
+            if (EventTriggersAuth.IsLocalBodyOnlyVolume(__instance))
                 return;
 
             Vector3 pos = proxy.transform.position;
