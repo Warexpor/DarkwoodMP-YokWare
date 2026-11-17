@@ -6,6 +6,21 @@ The current product line is `0.9.x`. The plugin and display version are
 **0.9.2**. The current Horde wire protocol is **78**. Every install in a session
 needs the same DLL; the protocol is checked on join.
 
+## 0.9.2 — client reconnect saves, death bags, and manual-save pins
+
+- A client no longer writes the shared world during a gap in its connection.
+  Vanilla saves and the manual-save add-on use the session role, so world writes
+  still come from the host (`SaveSyncPatches`, `AddOnApi`).
+- A death now syncs the exact bag it created, after the night-death path fills
+  it. Repeated loot notices cannot remove a neighboring bag, and observers
+  receive a client's final take before the emptied bag is removed
+  (`DeathBagDropSyncPatch`, `CombatDeathBagNetHandlers`).
+- Manual save slots keep the party's map pins as they were at the time of the
+  save. Loading a slot moves its board to the newly minted campaign ID
+  (`CampaignFiles`, `MapPinStore`).
+
+These changes need a co-op playtest.
+
 ## 0.9.2 — tower trigger and pad-loading follow-up
 
 - Tower view and Road Home arrival triggers recover when a pad load temporarily

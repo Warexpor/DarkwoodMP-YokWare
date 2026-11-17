@@ -10,56 +10,54 @@ namespace DWMPHorde.Patches
 {
     /// <summary>
     /// Postfix on Player.dropBody().
-    /// After the death bag is dropped locally, sends a DeathBagSpawnMessage
-    /// to the remote peer so it also spawns the bag with matching contents.
-    /// The snapshot goes out a frame later: other Postfixes on the same dropBody
-    /// (the night body's MoveRest) still fill the bag synchronously, and snapshotting
-    /// immediately raced them — whichever patch ran first decided what the peer got,
-    /// down to an empty bag for a small backpack.
+    /// Captures the bag created by vanilla and adds the night body's remaining gear before syncing it.
     /// </summary>
     [HarmonyPatch(typeof(Player), "dropBody", new[] { typeof(Vector3) })]
     public static class DeathBagDropSyncPatch
     {
-        private static void Postfix(Player __instance, object[] __args)
+        private static void Prefix(out int __state)
         {
-            Vector3 destPos = (Vector3)__args[0];
-
-            if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected)
-                return;
-            if (LanNetworkManager.IsApplyingRemoteState)
-                return;
-
-            // Don't sync death bags during dream deaths — player keeps their inventory
-            if (Sync.FinalDreamsceneManager.IsActive)
-                return;
-
-            var net = ModRuntime.Network;
-            if (net == null) return;
-
-            bool inWater = __instance != null && __instance.inWater;
-            net.StartCoroutine(SendNextFrame(net, destPos, inWater));
+            __state = NetGuard.Connected(out _) && Core.ItemContainer != null
+                ? Core.ItemContainer.transform.childCount : -1;
         }
 
-        private static System.Collections.IEnumerator SendNextFrame(LanNetworkManager net, Vector3 destPos, bool inWater)
+        private static void Postfix(Player __instance, int __state, bool __runOriginal)
+        {
+            if (!__runOriginal || __state < 0 || !NetGuard.Connected(out var net)
+                || Core.ItemContainer == null || Core.ItemContainer.transform.childCount <= __state)
+                return;
+
+            // Vanilla appends the bag to ItemContainer before filling it and creating the map marker.
+            DeathDrop deathDrop = Core.ItemContainer.transform.GetChild(__state).GetComponent<DeathDrop>();
+            if (deathDrop == null)
+                return;
+
+            if (NightBodyBag.Applies())
+            {
+                NightBodyBag.Dropped = true;
+                Players.PlayerCorpses.ClaimNewBag(deathDrop);
+                NightBodyBag.MoveRest(__instance, deathDrop);
+            }
+
+            if (LanNetworkManager.IsApplyingRemoteState || Sync.FinalDreamsceneManager.IsActive)
+                return;
+            bool inWater = __instance.inWater;
+            string bagId = DeathBagNetworkId.GetOrAssignBagId(deathDrop.gameObject, inWater);
+            net.RegisterDeathBag(bagId, deathDrop);
+            net.StartCoroutine(SendNextFrame(net, deathDrop, bagId, inWater));
+        }
+
+        private static System.Collections.IEnumerator SendNextFrame(
+            LanNetworkManager net, DeathDrop deathDrop, string bagId, bool inWater)
         {
             yield return null;
-            if (net == null || !net.IsConnected)
+            if (net == null || !net.IsConnected || deathDrop == null || net.IsDeathBagLooted(bagId))
                 yield break;
-
-            DeathDrop deathDrop = FindDeathDropAt(destPos);
-            if (deathDrop == null)
-            {
-                ModRuntime.Log?.LogWarning("[Death] dropBody Postfix: could not find DeathDrop at " + destPos);
-                yield break;
-            }
 
             Inventory bagInv = deathDrop.GetComponent<Inventory>();
             if (bagInv == null) yield break;
 
             bagInv.removeWhenEmpty = true;
-
-            string bagId = DeathBagNetworkId.GetOrAssignBagId(deathDrop.gameObject, inWater);
-            net.RegisterDeathBag(bagId, deathDrop);
 
             var types = new List<string>();
             var amounts = new List<int>();
@@ -115,60 +113,5 @@ namespace DWMPHorde.Patches
             net.Broadcast(NetMessageType.DeathBagSpawn, w => msg.Serialize(w), DeliveryMethod.ReliableOrdered);
         }
 
-        internal static DeathDrop FindDeathDropAt(Vector3 pos)
-        {
-            // Use XZ-only distance because dropBody() adjusts Y via
-            // Core.getYPos(destPos, PosType.items2), so the spawned bag
-            // is at ground level while destPos retains the player's Y.
-            Vector2 posXZ = new Vector2(pos.x, pos.z);
-
-            GameObject container = Core.ItemContainer;
-            if (container != null)
-            {
-                // dropBody appends its bag as the last child, and that bag has no network id yet.
-                // An older bag lying within 2 m (a second death on the same spot) already has one:
-                // taking the first match used to re-send the old bag and never the new one.
-                Transform ct = container.transform;
-                DeathDrop known = null;
-                for (int i = ct.childCount - 1; i >= 0; i--)
-                {
-                    Transform child = ct.GetChild(i);
-                    DeathDrop dd = child.GetComponent<DeathDrop>();
-                    if (dd == null)
-                        continue;
-                    Vector2 childXZ = new Vector2(child.position.x, child.position.z);
-                    if (Vector2.Distance(childXZ, posXZ) >= 2f)
-                        continue;
-                    if (string.IsNullOrEmpty(Sync.DeathBagNetworkId.GetBagId(child.gameObject)))
-                        return dd;
-                    if (known == null)
-                        known = dd;
-                }
-                if (known != null)
-                    return known;
-            }
-
-            DeathDrop[] all = WorldQueryHelper.GetCachedSceneComponents<DeathDrop>();
-            DeathDrop best = null;
-            float bestDist = 15f;
-            for (int i = 0; i < all.Length; i++)
-            {
-                DeathDrop dd = all[i];
-                if (dd == null) continue;
-                Vector2 ddXZ = new Vector2(dd.transform.position.x, dd.transform.position.z);
-                float d = Vector2.Distance(ddXZ, posXZ);
-                if (d < bestDist)
-                {
-                    bestDist = d;
-                    best = dd;
-                }
-            }
-            if (best != null)
-                ModRuntime.LegacyInfo($"[Death] FindDeathDropAt: found via fallback scan ({bestDist:F1}m), container was {(container != null ? "OK" : "NULL")}");
-            else
-                ModRuntime.LegacyInfo($"[Death] FindDeathDropAt: no DeathDrop within 15m of {pos}");
-
-            return best;
-        }
     }
 }

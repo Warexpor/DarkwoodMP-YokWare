@@ -20,9 +20,8 @@ namespace DWMPHorde
         /// <summary>In a co-op session (hosting, joined, or connecting).</summary>
         public static bool InSession => ModRuntime.Network != null && ModRuntime.Network.Role != NetworkRole.Offline;
 
-        /// <summary>Joined to someone else's world: the host owns the world save.</summary>
-        public static bool IsClient => ModRuntime.Network != null && ModRuntime.Network.Role == NetworkRole.Client
-            && ModRuntime.Network.IsConnected;
+        /// <summary>The client role continues to belong to the host's world while the link reconnects.</summary>
+        public static bool IsClient => ModRuntime.Network != null && ModRuntime.Network.Role == NetworkRole.Client;
 
         /// <summary>Why the world must not be saved right now (night death, dream, prologue, …), or null.</summary>
         public static string WorldSaveBlockReason() => WorldSaveGuards.GetWorldSaveBlockReason();

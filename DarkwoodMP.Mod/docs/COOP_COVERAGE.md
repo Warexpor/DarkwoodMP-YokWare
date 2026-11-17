@@ -77,6 +77,18 @@ Runtime checks still needed: reorder snapshots on both host and client paths,
 cross a session reset, and verify a late unreliable update cannot overwrite a
 reliable door, trap, or generator event.
 
+### Saves and death bags
+
+Check a vanilla save and the F3 save action during a client reconnect gap.
+They should leave the world files alone until a host-coordinated save runs.
+For an F3 slot, save just after editing a party pin, edit it again, then load
+the slot offline and host that world. The board should reflect the save.
+
+For death bags, drop two near each other and empty one as the host, then repeat
+as a client with a third observer. Check the last item, the correct remaining
+bag and any entrance marker. At night, check that the original bag still
+contains the whole kit.
+
 ### Combat authority
 
 The host derives the attacker from the receiving peer. It uses the host proxy

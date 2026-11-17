@@ -91,7 +91,7 @@ namespace YokWare.ManualSaves
         {
             if (Singleton<SaveManager>.Instance == null)
                 return "Error: SaveManager not available";
-            // A connected client's world Save is blocked (the host owns the world), so the profile
+            // A client's world Save is blocked, including during reconnect, so the profile
             // files on disk are stale: copying them would report a save that never happened.
             if (AddOnApi.IsClient)
                 return "Blocked: only the host can save the co-op world";

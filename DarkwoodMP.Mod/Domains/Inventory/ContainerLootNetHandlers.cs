@@ -238,9 +238,6 @@ namespace DWMPHorde.Networking
                                     ModRuntime.Log?.LogWarning("[Container] empty itemInv destroy: " + ex.Message);
                             }
                         }
-                        // Death bag emptied by take: fan Looted now (do not wait for opener hide).
-                        if (_net.Role == NetworkRole.Host && inv.invType == Inventory.InvType.deathDrop)
-                            _net.CombatDeathBagHandlers?.TryHostFanDeathBagEmptied(inv);
                     }
                     else
                     {
@@ -251,9 +248,9 @@ namespace DWMPHorde.Networking
                             try { Sync.WorldPhysicsSyncService.DestroyEmptyItemInvAt(inv.transform.position); }
                             catch (Exception ex) { ModLog.Swallowed(ex); /* non-fatal */ }
                         }
-                        if (_net.Role == NetworkRole.Host && inv.invType == Inventory.InvType.deathDrop)
-                            _net.CombatDeathBagHandlers?.TryHostFanDeathBagEmptied(inv);
                     }
+                    if (fromClient && inv.invType == Inventory.InvType.deathDrop)
+                        _net.CombatDeathBagHandlers?.TryHostFanDeathBagEmptied(inv, afterClientTake: true);
                 }
                 else
                 {
