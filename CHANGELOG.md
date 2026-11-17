@@ -6,6 +6,21 @@ The current product line is `0.9.x`. The plugin and display version are
 **0.9.2**. The current Horde wire protocol is **78**. Every install in a session
 needs the same DLL; the protocol is checked on join.
 
+## 0.9.2 — tower trigger and pad-loading follow-up
+
+- Tower view and Road Home arrival triggers recover when a pad load temporarily
+  blocks the local player's entry. They ignore duplicate contacts and discard
+  queued entry events after departure. The tower also restores its view when the
+  trigger is unloaded before the player gets an exit callback (`LocalAreaPresence`).
+- A local trip and a remote arrival can overlap while loading the same pad.
+  The second load now waits for and reuses the first pad. The host restores the
+  previous grid if a remote-only load changed it while local travel was pending
+  (`OutsidePadSlots`, `RemotePadSpawn`).
+- The well uses its assigned layout through a brief reconnect, and a late join
+  that receives the well's reserved slot also receives its layout (`OutsidePadSlots`).
+
+These changes need a co-op playtest.
+
 ## 0.9.2 — radio tower visibility, Road Home exits, and village well layout
 
 - The radio tower's darkness and reveal triggers now follow the local player. A

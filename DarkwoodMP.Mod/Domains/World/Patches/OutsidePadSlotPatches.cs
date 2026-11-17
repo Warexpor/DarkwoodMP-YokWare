@@ -17,12 +17,12 @@ namespace DWMPHorde.Patches
     {
         // spawnLocation is an iterator: the original enumerator has not run yet when the
         // postfix sees it, so it can be wrapped without changing what vanilla does.
-        private static void Postfix(OutsideLocations __instance, string locationName,
+        private static void Postfix(OutsideLocations __instance, string locationName, bool transportAfterSpawn,
             ref IEnumerator __result)
         {
             if (__instance == null || __result == null)
                 return;
-            __result = OutsidePadSlots.WrapSpawn(__instance, locationName, __result);
+            __result = OutsidePadSlots.WrapSpawn(__instance, locationName, transportAfterSpawn, __result);
         }
     }
 

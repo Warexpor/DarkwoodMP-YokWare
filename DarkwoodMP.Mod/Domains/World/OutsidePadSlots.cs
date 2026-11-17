@@ -2,6 +2,7 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Reflection;
+using System.Runtime.CompilerServices;
 using DWMPHorde.Logging;
 using DWMPHorde.Networking;
 using HarmonyLib;
@@ -48,6 +49,11 @@ namespace DWMPHorde.Sync
         private static readonly OutsidePadSlotLogic Logic = new OutsidePadSlotLogic();
 
         private static readonly System.Random YawRng = new System.Random();
+
+        // Scene loads can outlive the connection that started them. Keep one load per pad
+        // on this OutsideLocations instance, including while a client waits for its slot.
+        private static readonly ConditionalWeakTable<OutsideLocations, HashSet<string>> SpawnOperations =
+            new ConditionalWeakTable<OutsideLocations, HashSet<string>>(); // process-scoped: weak world keys
 
         private static readonly FieldInfo PositionsField =
             AccessTools.Field(typeof(OutsideLocations), "locationPositions");
@@ -114,6 +120,9 @@ namespace DWMPHorde.Sync
         {
             pick = null;
             if (string.IsNullOrEmpty(name))
+                return false;
+            if (!ReferenceEquals(_owner, Singleton<OutsideLocations>.Instance)
+                || (!Logic.IsInFlight(name) && !NetGuard.Connected(out _)))
                 return false;
             if (!Logic.TryGet(name, out OutsidePadSlotLogic.Entry e) || e == null)
                 return false;
@@ -227,10 +236,8 @@ namespace DWMPHorde.Sync
                     + slotCount + " slots in use) — vanilla placement will fail");
                 return null;
             }
-            // Send the well's layout even if the slot was reserved before anyone connected.
-            if (name == VillageWell && string.IsNullOrEmpty(e.SetPick) && !IsAlive(ol, name)
-                && NetGuard.ConnectedHost(out _))
-                e.SetPick = YawRng.Next(2) == 0 ? VillageWellLayout2 : VillageWellLayout3;
+            if (NetGuard.Host(out _))
+                ReserveWellLayout(ol, name, e);
 
             if (isNew)
             {
@@ -240,6 +247,12 @@ namespace DWMPHorde.Sync
                     "[PadSlot] assigned '" + name + "' slot " + e.Slot + " yaw " + e.Yaw);
             }
             return e;
+        }
+
+        private static void ReserveWellLayout(OutsideLocations ol, string name, OutsidePadSlotLogic.Entry entry)
+        {
+            if (name == VillageWell && string.IsNullOrEmpty(entry.SetPick) && !IsAlive(ol, name))
+                entry.SetPick = YawRng.Next(2) == 0 ? VillageWellLayout2 : VillageWellLayout3;
         }
 
         // ---- spawn wrapper --------------------------------------------------------------------
@@ -257,7 +270,45 @@ namespace DWMPHorde.Sync
         /// Wraps vanilla <c>OutsideLocations.spawnLocation</c>: obtains the host-assigned slot first (a client
         /// waits for the host), makes vanilla read that slot, and restores the shared counter afterwards.
         /// </summary>
-        internal static IEnumerator WrapSpawn(OutsideLocations ol, string name, IEnumerator original)
+        internal static IEnumerator WrapSpawn(OutsideLocations ol, string name, bool transportAfterSpawn,
+            IEnumerator original)
+        {
+            var active = SpawnOperations.GetOrCreateValue(ol);
+            bool ownsSpawn = false;
+            try
+            {
+                while (ol != null && !(ownsSpawn = active.Add(name)))
+                    yield return null;
+                if (ol == null)
+                    yield break;
+
+                if (IsAlive(ol, name))
+                {
+                    if (transportAfterSpawn)
+                        ol.transportToLocation(name, fromWorld: !ol.playerInOutsideLocation);
+                    yield break;
+                }
+
+                IEnumerator assigned = SpawnAssigned(ol, name, original);
+                try
+                {
+                    while (assigned.MoveNext())
+                        yield return assigned.Current;
+                }
+                finally
+                {
+                    (assigned as IDisposable)?.Dispose();
+                }
+            }
+            finally
+            {
+                if (ownsSpawn)
+                    active.Remove(name);
+                (original as IDisposable)?.Dispose();
+            }
+        }
+
+        private static IEnumerator SpawnAssigned(OutsideLocations ol, string name, IEnumerator original)
         {
             int savedCount = ol != null ? ol.actualSpawnedLocationsCount : 0;
             OutsidePadSlotLogic.Entry entry = null;
@@ -271,10 +322,7 @@ namespace DWMPHorde.Sync
                 while (true)
                 {
                     if (ol == null)
-                    {
-                        (original as IDisposable)?.Dispose();
                         yield break;
-                    }
                     if (!IsClientOfHost(out net))
                     {
                         ModLog.Warn(LogCat.World,
@@ -354,7 +402,6 @@ namespace DWMPHorde.Sync
             }
             finally
             {
-                (original as IDisposable)?.Dispose();
                 if (ol != null && slot >= 0)
                 {
                     Logic.EndSpawn(name);

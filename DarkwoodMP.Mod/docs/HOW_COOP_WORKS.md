@@ -996,7 +996,8 @@ party events.
   Home start when each player enters the trigger. The tower's darkness and
   reveal volumes also follow each player's own movement.
 - The host chooses the village well layout before sending its pad assignment.
-  An existing well supplies its saved layout.
+  An existing well supplies its saved layout. A brief reconnect keeps a layout
+  the current load has already received.
 - The player who walks into a new location gets its popup, sound and journal page;
   the others get the journal page, the map piece and the same "discovered" popup
   (only when the finder got one). The hideout flags and the biome name follow each

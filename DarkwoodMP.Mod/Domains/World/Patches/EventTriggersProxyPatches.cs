@@ -43,7 +43,7 @@ namespace DWMPHorde.Patches
         internal static bool CanFireTriggers(EventTriggers et)
         {
             if (et == null) return false;
-            if ((Core.loadingGame || Singleton<SaveManager>.Instance.dontFireTriggers) && !et.canFireWhenLoadingGame)
+            if ((Core.loadingGame || Singleton<SaveManager>.Instance?.dontFireTriggers == true) && !et.canFireWhenLoadingGame)
                 return false;
             if (!Core.worldGenFinished())
                 return false;
@@ -53,23 +53,9 @@ namespace DWMPHorde.Patches
         /// <summary>These authored volumes use the local body's vanilla enter and exit.</summary>
         internal static bool IsLocalBodyOnlyVolume(EventTriggers triggers)
         {
-            string name = triggers.name;
-            switch (name)
-            {
-                // Each player walks into the repeatable transport and loads their own pad.
-                case "goToRoadToHome_oneChance":
-                case "goToRoadToHome_treeVillage":
-                // Tower masks fade according to the local player's position.
-                case "area_spot_med_undergroundCh2Entrance_01":
-                case "area_tween_color_med_undergroundCh2Entrance_01":
-                case "area_tween_color_med_undergroundCh2Entrance_02":
-                    return true;
-                case "area_signs_01":
-                    return triggers.transform.parent != null
-                        && triggers.transform.parent.name == "event_radioTower_enter";
-            }
-            return name.IndexOf("footsteps", System.StringComparison.OrdinalIgnoreCase) >= 0
-                || name.IndexOf("soundarea", System.StringComparison.OrdinalIgnoreCase) >= 0;
+            return LocalAreaPresence.IsPersonalArea(triggers)
+                || triggers.name.IndexOf("footsteps", System.StringComparison.OrdinalIgnoreCase) >= 0
+                || triggers.name.IndexOf("soundarea", System.StringComparison.OrdinalIgnoreCase) >= 0;
         }
 
         /// <summary>
@@ -225,11 +211,15 @@ namespace DWMPHorde.Patches
     [HarmonyPatch(typeof(EventTriggers), "OnTriggerEnter", new[] { typeof(Collider) })]
     public static class EventTriggersProxyEnterPatch
     {
-        private static void Prefix(EventTriggers __instance, Collider other, out int __state)
+        private static bool Prefix(EventTriggers __instance, Collider other, out int __state)
         {
             // Snapshot entered so Postfix can detect vanilla skipping local increment
             // when a proxy already occupies the volume (N-peer occupancy parity).
             __state = __instance != null ? __instance.entered : 0;
+            if (!LocalAreaPresence.OwnsContact(__instance, other))
+                return true;
+            LocalAreaPresence.TryEnter(__instance);
+            return false;
         }
 
         private static void Postfix(EventTriggers __instance, Collider other, int __state)
@@ -248,7 +238,7 @@ namespace DWMPHorde.Patches
             {
                 if (EventTriggersAuth.IsHost())
                     ThreatTriggerContext.NoteHostEnter();
-                if (EventTriggersAuth.IsLocalBodyOnlyVolume(__instance))
+                if (LocalAreaPresence.IsPersonalArea(__instance))
                     return;
                 bool occupied = __state > __instance.exited;
                 if (__instance.entered == __state
