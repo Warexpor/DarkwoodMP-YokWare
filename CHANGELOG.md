@@ -3,10 +3,12 @@
 ## Versioning
 
 The current product line is `0.9.x`. The plugin and display version are
-**0.9.2**. The current Horde wire protocol is **78**. Every install in a session
+**0.9.3**. The current Horde wire protocol is **78**. Every install in a session
 needs the same DLL; the protocol is checked on join.
 
-## 0.9.2 — client reconnect saves, death bags, and manual-save pins
+## 0.9.3 — shared saves, death bags, and Chapter 2 travel
+
+### Reconnect saves, death bags, and manual-save pins
 
 - A client no longer writes the shared world during a gap in its connection.
   Vanilla saves and the manual-save add-on use the session role, so world writes
@@ -19,9 +21,7 @@ needs the same DLL; the protocol is checked on join.
   save. Loading a slot moves its board to the newly minted campaign ID
   (`CampaignFiles`, `MapPinStore`).
 
-These changes need a co-op playtest.
-
-## 0.9.2 — tower trigger and pad-loading follow-up
+### Tower triggers and pad loading
 
 - Tower view and Road Home arrival triggers recover when a pad load temporarily
   blocks the local player's entry. They ignore duplicate contacts and discard
@@ -34,9 +34,7 @@ These changes need a co-op playtest.
 - The well uses its assigned layout through a brief reconnect, and a late join
   that receives the well's reserved slot also receives its layout (`OutsidePadSlots`).
 
-These changes need a co-op playtest.
-
-## 0.9.2 — radio tower visibility, Road Home exits, and village well layout
+### Radio tower visibility, Road Home exits, and village well layout
 
 - The radio tower's darkness and reveal triggers now follow the local player. A
   teammate inside a trigger could keep the mask up after the local player left.
