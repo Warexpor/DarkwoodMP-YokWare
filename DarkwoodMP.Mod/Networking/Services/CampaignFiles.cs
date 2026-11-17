@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using DWMPHorde.Logging;
+using DWMPHorde.Sync;
 using UnityEngine;
 
 namespace DWMPHorde.Networking
@@ -76,7 +77,8 @@ namespace DWMPHorde.Networking
         /// </summary>
         public static void CopyIntoSlot(int profileId, string slotDir)
         {
-            string campaign = Sanitize(CoopWorldCopyMeta.TryGetCampaignIdForCurrentProfile());
+            string campaignId = CoopWorldCopyMeta.TryGetCampaignIdForCurrentProfile();
+            string campaign = Sanitize(campaignId);
             string profDir = CoopWorldCopyMeta.ProfileDir(profileId);
             string dst = Path.Combine(slotDir, SubDir);
             var files = Read(profDir, campaign);
@@ -85,8 +87,12 @@ namespace DWMPHorde.Networking
                 File.Delete(old);
             foreach (var f in files)
                 File.WriteAllBytes(Path.Combine(dst, f.Key), f.Value);
+            // Recent pin edits are debounced on disk. Take the board as it stands at this save.
+            MapPinBoard.EnsureSeeded(force: true);
+            MapPinStore.Flush();
+            CopyMapBoard(profDir, dst, campaignId, campaignId);
             if (campaign != null)
-                CoopWorldCopyMeta.WriteAllTextAtomic(Path.Combine(dst, CampaignFile), campaign);
+                CoopWorldCopyMeta.WriteAllTextAtomic(Path.Combine(dst, CampaignFile), campaignId);
             ModLog.Event(LogCat.Save, "[ManualSave] slot keeps " + files.Count + " co-op file(s) of this save → " + dst);
 
             var net = ModRuntime.Network;
@@ -144,8 +150,10 @@ namespace DWMPHorde.Networking
             string oldCampaign = null;
             string campaignPath = Path.Combine(src, CampaignFile);
             if (File.Exists(campaignPath))
-                oldCampaign = Sanitize(File.ReadAllText(campaignPath).Trim());
+                oldCampaign = File.ReadAllText(campaignPath).Trim();
             string profDir = CoopWorldCopyMeta.ProfileDir(profileId);
+            CopyMapBoard(src, profDir, oldCampaign, newCampaign);
+            string oldSafe = Sanitize(oldCampaign);
             int n = 0;
             foreach (string path in Directory.GetFiles(src, "*.json"))
             {
@@ -153,12 +161,21 @@ namespace DWMPHorde.Networking
                 if (name.IndexOf(Token, StringComparison.Ordinal) < 0)
                     continue;
                 string text = File.ReadAllText(path);
-                if (oldCampaign != null)
-                    text = ReplaceIgnoreCase(text, oldCampaign, newCampaign);
+                if (oldSafe != null)
+                    text = ReplaceIgnoreCase(text, oldSafe, newCampaign);
                 CoopWorldCopyMeta.WriteAllTextAtomic(Path.Combine(profDir, name.Replace(Token, newSafe)), text);
                 n++;
             }
             ModLog.Event(LogCat.Save, "[ManualSave] put back " + n + " co-op file(s) of the slot's save under campaign " + newSafe.Substring(0, Math.Min(8, newSafe.Length)) + "…");
+        }
+
+        private static void CopyMapBoard(string srcDir, string dstDir, string campaign, string targetCampaign)
+        {
+            try { MapPinStore.CopyForCampaign(srcDir, dstDir, campaign, targetCampaign); }
+            catch (Exception ex)
+            {
+                ModLog.Warn(LogCat.Save, "[ManualSave] could not copy map pins: " + ex.Message);
+            }
         }
 
         private static string ReplaceIgnoreCase(string text, string find, string with)

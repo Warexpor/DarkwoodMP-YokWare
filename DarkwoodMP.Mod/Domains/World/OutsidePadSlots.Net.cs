@@ -151,6 +151,8 @@ namespace DWMPHorde.Sync
                 // Stale entries (pad gone) are skipped: a fresh spawn will ask again.
                 if (!Logic.ShouldSnapshot(kv.Key, kv.Value, n => IsAlive(ol, n)))
                     continue;
+                // A join can land between reserving the slot and loading the scene.
+                ReserveWellLayout(ol, kv.Key, kv.Value);
                 list.Add(ToWire(kv.Key, kv.Value));
                 if (list.Count >= 128)
                     break;

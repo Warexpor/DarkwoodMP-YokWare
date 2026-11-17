@@ -55,13 +55,15 @@ namespace DWMPHorde.Networking
             finally
             {
                 bool localTrip = _localPrepares != preparesBefore;
-                if (!localTrip)
-                {
-                    if (!loadingBefore)
-                        ol.loading = false;
-                    if (wg != null && !string.IsNullOrEmpty(gridBefore))
-                        wg.setGrid(gridBefore);
-                }
+                if (!localTrip && !loadingBefore)
+                    ol.loading = false;
+
+                // addObjectsToGrid sets currentGrid even for a remote-only spawn. Restore
+                // the origin while a local prepare waits, unless that player already arrived.
+                if (wg != null && !string.IsNullOrEmpty(gridBefore)
+                    && (!localTrip || (wg.currentGrid?.name == locationName
+                        && (!ol.playerInOutsideLocation || ol.currentLocationName != locationName))))
+                    wg.setGrid(gridBefore);
             }
 
             ScanGraph(locationName);

@@ -43,19 +43,19 @@ namespace DWMPHorde.Patches
         internal static bool CanFireTriggers(EventTriggers et)
         {
             if (et == null) return false;
-            if ((Core.loadingGame || Singleton<SaveManager>.Instance.dontFireTriggers) && !et.canFireWhenLoadingGame)
+            if ((Core.loadingGame || Singleton<SaveManager>.Instance?.dontFireTriggers == true) && !et.canFireWhenLoadingGame)
                 return false;
             if (!Core.worldGenFinished())
                 return false;
             return true;
         }
 
-        /// <summary>Footstep / SoundArea volumes are local-body only; proxy path owns peer steps.</summary>
-        internal static bool IsLocalBodyOnlyVolume(string etName)
+        /// <summary>These authored volumes use the local body's vanilla enter and exit.</summary>
+        internal static bool IsLocalBodyOnlyVolume(EventTriggers triggers)
         {
-            if (string.IsNullOrEmpty(etName)) return false;
-            return etName.IndexOf("footsteps", System.StringComparison.OrdinalIgnoreCase) >= 0
-                || etName.IndexOf("soundarea", System.StringComparison.OrdinalIgnoreCase) >= 0;
+            return LocalAreaPresence.IsPersonalArea(triggers)
+                || triggers.name.IndexOf("footsteps", System.StringComparison.OrdinalIgnoreCase) >= 0
+                || triggers.name.IndexOf("soundarea", System.StringComparison.OrdinalIgnoreCase) >= 0;
         }
 
         /// <summary>
@@ -211,11 +211,15 @@ namespace DWMPHorde.Patches
     [HarmonyPatch(typeof(EventTriggers), "OnTriggerEnter", new[] { typeof(Collider) })]
     public static class EventTriggersProxyEnterPatch
     {
-        private static void Prefix(EventTriggers __instance, Collider other, out int __state)
+        private static bool Prefix(EventTriggers __instance, Collider other, out int __state)
         {
             // Snapshot entered so Postfix can detect vanilla skipping local increment
             // when a proxy already occupies the volume (N-peer occupancy parity).
             __state = __instance != null ? __instance.entered : 0;
+            if (!LocalAreaPresence.OwnsContact(__instance, other))
+                return true;
+            LocalAreaPresence.TryEnter(__instance);
+            return false;
         }
 
         private static void Postfix(EventTriggers __instance, Collider other, int __state)
@@ -234,6 +238,8 @@ namespace DWMPHorde.Patches
             {
                 if (EventTriggersAuth.IsHost())
                     ThreatTriggerContext.NoteHostEnter();
+                if (LocalAreaPresence.IsPersonalArea(__instance))
+                    return;
                 bool occupied = __state > __instance.exited;
                 if (__instance.entered == __state
                     && Player.Instance != null
@@ -260,9 +266,7 @@ namespace DWMPHorde.Patches
             // through" on the host, which opened the door there and nowhere else.
             RemotePlayerProxy proxy = other.GetComponent<RemotePlayerProxy>();
             if (proxy == null) return;
-
-            if (EventTriggersAuth.IsLocalBodyOnlyVolume(__instance.name))
-                return;
+            if (EventTriggersAuth.IsLocalBodyOnlyVolume(__instance)) return;
 
             // Multi-collider on the SAME proxy — do not re-count / re-fire.
             if (!EventTriggersProxyOccupancy.TryAdd(__instance, proxy.PlayerId))
@@ -322,7 +326,7 @@ namespace DWMPHorde.Patches
             RemotePlayerProxy proxy = other.GetComponent<RemotePlayerProxy>();
             if (proxy == null) return;
 
-            if (EventTriggersAuth.IsLocalBodyOnlyVolume(__instance.name))
+            if (EventTriggersAuth.IsLocalBodyOnlyVolume(__instance))
                 return;
 
             Vector3 pos = proxy.transform.position;

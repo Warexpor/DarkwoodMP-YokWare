@@ -61,23 +61,6 @@ namespace DWMPHorde.Patches
         }
     }
 
-    /// <summary>Runs before <see cref="DeathBagDropSyncPatch"/> sends the bag, so the others get the full one.</summary>
-    [HarmonyPatch(typeof(Player), "dropBody", new[] { typeof(Vector3) })]
-    public static class NightBodyDropAllPatch
-    {
-        [HarmonyPriority(Priority.First)]
-        private static void Postfix(Player __instance, Vector3 destPos)
-        {
-            if (__instance == null || !NightBodyBag.Applies())
-                return;
-            NightBodyBag.Dropped = true;
-            DeathDrop drop = DeathBagDropSyncPatch.FindDeathDropAt(destPos);
-            // Hidden under the body before its first frame is drawn.
-            Players.PlayerCorpses.ClaimNewBag(drop);
-            NightBodyBag.MoveRest(__instance, drop);
-        }
-    }
-
     /// <summary>
     /// The step of vanilla's death sequence right after its bag drop (its one caller is
     /// <c>Player.onDeath</c>): when vanilla dropped nothing (one backpack item or none), the

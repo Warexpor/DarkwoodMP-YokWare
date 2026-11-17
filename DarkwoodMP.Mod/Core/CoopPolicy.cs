@@ -155,7 +155,7 @@ namespace DWMPHorde
     }
 
     /// <summary>
-    /// Connected clients must not write DynamicSave / Flags to disk except during
+    /// Clients must not write DynamicSave / Flags to disk except during
     /// host-coordinated SaveSync. Personal bag/skills go through ClientStateBackup;
     /// the host owns the shared world save.
     /// </summary>
@@ -163,7 +163,10 @@ namespace DWMPHorde
     {
         public static bool ShouldBlockConnectedClientWorldSave(
             bool connectedClient, bool hostCoordinatedSaveInProgress)
-            => connectedClient && !hostCoordinatedSaveInProgress;
+            => ShouldBlockClientWorldSave(connectedClient, hostCoordinatedSaveInProgress);
+
+        internal static bool ShouldBlockClientWorldSave(bool clientRole, bool hostCoordinatedSaveInProgress)
+            => clientRole && !hostCoordinatedSaveInProgress;
     }
 
     /// <summary>

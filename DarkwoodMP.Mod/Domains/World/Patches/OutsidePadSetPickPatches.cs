@@ -33,10 +33,7 @@ namespace DWMPHorde.Patches
             if (__instance == null || __state == null || __state.Count == 0)
                 return;
             string name = __instance.name;
-            string forced = null;
-            if (ModRuntime.Network != null && ModRuntime.Network.IsConnected
-                && OutsidePadSlots.TryGetForcedPick(__instance.name, out forced)
-                && !string.IsNullOrEmpty(forced))
+            if (OutsidePadSlots.TryGetForcedPick(name, out string forced))
             {
                 ApplyForcedPick(__instance, __state, name, forced);
                 return;

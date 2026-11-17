@@ -9,7 +9,7 @@ using HarmonyLib;
 namespace DWMPHorde.Patches
 {
     /// <summary>
-    /// Connected clients must not write DynamicSave / Flags (vanilla Save persists
+    /// Clients, including during reconnect, must not write DynamicSave / Flags (vanilla Save persists
     /// <c>Flags.SaveState</c>). Host-coordinated SaveSync sets
     /// <see cref="LanNetworkManager.RemoteSaveInProgress"/> and is allowed so the
     /// peer checkpoint matches the host. Other client Saves redirect to personal
@@ -21,12 +21,8 @@ namespace DWMPHorde.Patches
         [HarmonyPriority(Priority.High)]
         private static bool Prefix(bool showSavingIndicator)
         {
-            if (ModRuntime.Network == null || !ModRuntime.Network.IsConnected)
-                return true;
-            if (ModRuntime.Network.Role != NetworkRole.Client)
-                return true;
-            if (!ClientWorldSavePolicy.ShouldBlockConnectedClientWorldSave(
-                    connectedClient: true,
+            if (!ClientWorldSavePolicy.ShouldBlockClientWorldSave(
+                    clientRole: AddOnApi.IsClient,
                     hostCoordinatedSaveInProgress: LanNetworkManager.RemoteSaveInProgress))
                 return true;
 
@@ -36,7 +32,7 @@ namespace DWMPHorde.Patches
             // it (SaveManager.finishSaving). Blocked here, the client never saw it where the host
             // did: the dream entry, a level-up, a sleep. Not for a death held until morning: no
             // save is made for it on any machine.
-            if (showSavingIndicator && !NightDeathSavePatch.IsHeld())
+            if (showSavingIndicator && ModRuntime.Network.IsConnected && !NightDeathSavePatch.IsHeld())
             {
                 try
                 {

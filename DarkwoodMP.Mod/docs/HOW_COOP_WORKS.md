@@ -306,12 +306,14 @@ ever written inside a dream: such a save strands the player on the pad at the ne
   optional manual-saves add-on) makes every client save its copy at the same moment
   and send its character snapshot to the host. Every player's character belongs to the
   save it was taken with: an add-on slot keeps its own copy of everyone's character (and
-  the co-op records of that save), and loading the slot brings them back as they were.
+  the co-op records and party map pins of that save), and loading the slot brings
+  them back as they were.
   The add-on's Save is greyed out on a
   client. Every machine shows the corner "Saving" notice only when the save that
   started it does (none at the new day's save, as in vanilla).
-- A connected client never writes the world to disk on its own, because a
-  client-side save could overwrite shared state with a partial picture.
+- A client only writes the world to disk for a host-coordinated save. This
+  also applies during reconnect, when the client still owns its character and
+  the host still owns the world.
 - Loading a save is refused while in a session.
 - No saves happen during a prologue, a dream, a held night death or a chapter
   change.
@@ -739,6 +741,8 @@ Items are unique. When two players race for the same thing, the host decides:
 - **Ground items:** a pickup is a claim the host grants or refuses. Dropped items
   carry their throw velocity so they land in the same place everywhere.
 - **Death bags** are ordinary shared loot and vanish for everyone once emptied.
+  Each new bag has its own ID so an emptied bag can be removed even if another
+  player died at the same spot.
 
 ### Journal and story items
 
@@ -992,6 +996,12 @@ party events.
 - Cutscenes, slow motion and camera steps follow the scene's location, so a player
   elsewhere is not frozen by someone else's scene.
 - One-shot moves and entry events are delivered to each player once.
+- The routes from the radio tower underground and the burned tree to the Road
+  Home start when each player enters the trigger. The tower's darkness and
+  reveal volumes also follow each player's own movement.
+- The host chooses the village well layout before sending its pad assignment.
+  An existing well supplies its saved layout. A brief reconnect keeps a layout
+  the current load has already received.
 - The player who walks into a new location gets its popup, sound and journal page;
   the others get the journal page, the map piece and the same "discovered" popup
   (only when the finder got one). The hideout flags and the biome name follow each

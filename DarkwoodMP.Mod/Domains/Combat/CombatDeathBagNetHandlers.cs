@@ -160,7 +160,7 @@ namespace DWMPHorde.Networking
         /// still be open); vanilla removeWhenEmpty + hide cleans the opener copy. The host's
         /// own copy is destroyed here unless the host has that bag open.
         /// </summary>
-        internal void TryHostFanDeathBagEmptied(Inventory inv)
+        internal void TryHostFanDeathBagEmptied(Inventory inv, bool afterClientTake = false)
         {
             if (_net.Role != NetworkRole.Host || inv == null) return;
             if (inv.invType != Inventory.InvType.deathDrop) return;
@@ -183,15 +183,11 @@ namespace DWMPHorde.Networking
             }
 
             Vector3 pos = inv.transform.position;
-            _net.Broadcast(NetMessageType.DeathBagLooted,
-                w => new DeathBagLootedMessage
-                {
-                    PosX = pos.x,
-                    PosY = pos.y,
-                    PosZ = pos.z,
-                    BagId = bagId ?? ""
-                }.Serialize(w),
-                LiteNetLib.DeliveryMethod.ReliableOrdered);
+            var msg = new DeathBagLootedMessage { PosX = pos.x, PosY = pos.y, PosZ = pos.z, BagId = bagId };
+            if (afterClientTake)
+                _net.StartCoroutine(SendLootedAfterRelay(msg));
+            else
+                SendLooted(msg);
             ModRuntime.LegacyInfo(
                 $"[Death] host fan DeathBagLooted (emptied via container take) id={(bagId ?? "?")} at {pos}");
 
@@ -207,6 +203,18 @@ namespace DWMPHorde.Networking
             }
             ModRuntime.LegacyInfo($"[Death] host dropped its copy of the emptied bag id={(bagId ?? "?")}");
         }
+
+        private System.Collections.IEnumerator SendLootedAfterRelay(DeathBagLootedMessage msg)
+        {
+            // The dispatcher relays the client's final ContainerItem after this handler returns.
+            // Observers must apply that take while the right bag still exists.
+            yield return null;
+            if (_net.Role == NetworkRole.Host && IsDeathBagLooted(msg.BagId))
+                SendLooted(msg);
+        }
+
+        private void SendLooted(DeathBagLootedMessage msg)
+            => _net.Broadcast(NetMessageType.DeathBagLooted, w => msg.Serialize(w), LiteNetLib.DeliveryMethod.ReliableOrdered);
 
         /// <summary>Lookup by BagId; purges destroyed entries.</summary>
         internal DeathDrop FindDeathBagById(string bagId)
@@ -338,51 +346,27 @@ namespace DWMPHorde.Networking
             // Primary: stable BagId
             if (!string.IsNullOrEmpty(msg.BagId))
             {
-                _lootedDeathBagIds.Add(msg.BagId);
+                if (!_lootedDeathBagIds.Add(msg.BagId))
+                    return;
                 found = FindDeathBagById(msg.BagId);
-                if (found != null)
-                    _spawnedDeathBags.Remove(msg.BagId);
             }
-
-            // Fallback: XZ near position (legacy / missing id)
-            if (found == null)
+            else
             {
-                GameObject container = Core.ItemContainer;
-                if (container != null)
-                {
-                    Vector2 posXZ = new Vector2(pos.x, pos.z);
-                    foreach (Transform child in container.transform)
-                    {
-                        if (child == null) continue;
-                        DeathDrop dd = child.GetComponent<DeathDrop>();
-                        if (dd == null) continue;
-                        Vector2 childXZ = new Vector2(child.position.x, child.position.z);
-                        if (Vector2.Distance(childXZ, posXZ) < 2f)
-                        {
-                            found = dd;
-                            break;
-                        }
-                    }
-                }
-            }
-
-            if (found == null)
-            {
+                // Legacy packets lacked an id. Keep this fallback scoped to untagged bags.
                 Vector2 posXZ = new Vector2(pos.x, pos.z);
-                DeathDrop best = null;
                 float bestDist = 2f;
-                foreach (DeathDrop dd in WorldQueryHelper.GetCachedSceneComponents<DeathDrop>())
+                foreach (DeathDrop dd in Players.DeathBagRegistry.Live)
                 {
-                    if (dd == null) continue;
+                    if (dd == null || !string.IsNullOrEmpty(Sync.DeathBagNetworkId.GetBagId(dd.gameObject)))
+                        continue;
                     Vector2 ddXZ = new Vector2(dd.transform.position.x, dd.transform.position.z);
                     float d = Vector2.Distance(ddXZ, posXZ);
                     if (d < bestDist)
                     {
                         bestDist = d;
-                        best = dd;
+                        found = dd;
                     }
                 }
-                found = best;
             }
 
             if (found != null)

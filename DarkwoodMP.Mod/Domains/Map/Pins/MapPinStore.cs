@@ -105,12 +105,7 @@ namespace DWMPHorde.Sync
                 }
                 string dir = CoopWorldCopyMeta.ProfileDir(pid);
                 Directory.CreateDirectory(dir);
-                string path = Path.Combine(dir, FileName);
-                string tmp = path + ".tmp";
-                File.WriteAllText(tmp, JsonConvert.SerializeObject(file, Formatting.Indented));
-                if (File.Exists(path))
-                    File.Delete(path);
-                File.Move(tmp, path);
+                Write(dir, file);
                 _dirty = false;
             }
             catch (Exception ex)
@@ -128,17 +123,9 @@ namespace DWMPHorde.Sync
                 return null;
             try
             {
-                string path = Path.Combine(CoopWorldCopyMeta.ProfileDir(profileId), FileName);
-                if (!File.Exists(path))
+                SaveFile file = Read(CoopWorldCopyMeta.ProfileDir(profileId), campaignId);
+                if (file == null)
                     return null;
-                var file = JsonConvert.DeserializeObject<SaveFile>(File.ReadAllText(path));
-                if (file == null || file.Pins == null)
-                    return null;
-                if (!string.Equals(file.CampaignId, campaignId, StringComparison.OrdinalIgnoreCase))
-                {
-                    ModLog.Event(LogCat.Save, "[MapPin] saved board belongs to another world; not loaded");
-                    return null;
-                }
                 var list = new List<MapPin>(file.Pins.Count);
                 foreach (SavedPin s in file.Pins)
                 {
@@ -159,6 +146,29 @@ namespace DWMPHorde.Sync
                 return null;
             }
         }
+
+        internal static void CopyForCampaign(string srcDir, string dstDir, string campaign, string targetCampaign)
+        {
+            SaveFile file = Read(srcDir, campaign);
+            if (file == null)
+                return;
+            file.CampaignId = targetCampaign;
+            Write(dstDir, file);
+        }
+
+        private static SaveFile Read(string dir, string campaign)
+        {
+            string path = Path.Combine(dir, FileName);
+            if (string.IsNullOrEmpty(campaign) || !File.Exists(path))
+                return null;
+            SaveFile file = JsonConvert.DeserializeObject<SaveFile>(File.ReadAllText(path));
+            return file?.Pins != null && string.Equals(file.CampaignId, campaign, StringComparison.OrdinalIgnoreCase)
+                ? file : null;
+        }
+
+        private static void Write(string dir, SaveFile file)
+            => CoopWorldCopyMeta.WriteAllTextAtomic(Path.Combine(dir, FileName),
+                JsonConvert.SerializeObject(file, Formatting.Indented));
 
         /// <summary>Session teardown: MapPinBoard.Reset flushes first, this drops what is left pending.</summary>
         internal static void ResetPending()

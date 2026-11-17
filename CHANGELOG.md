@@ -3,8 +3,52 @@
 ## Versioning
 
 The current product line is `0.9.x`. The plugin and display version are
-**0.9.2**. The current Horde wire protocol is **78**. Every install in a session
+**0.9.3**. The current Horde wire protocol is **78**. Every install in a session
 needs the same DLL; the protocol is checked on join.
+
+## 0.9.3 — shared saves, death bags, and Chapter 2 travel
+
+### Reconnect saves, death bags, and manual-save pins
+
+- A client no longer writes the shared world during a gap in its connection.
+  Vanilla saves and the manual-save add-on use the session role, so world writes
+  still come from the host (`SaveSyncPatches`, `AddOnApi`).
+- A death now syncs the exact bag it created, after the night-death path fills
+  it. Repeated loot notices cannot remove a neighboring bag, and observers
+  receive a client's final take before the emptied bag is removed
+  (`DeathBagDropSyncPatch`, `CombatDeathBagNetHandlers`).
+- Manual save slots keep the party's map pins as they were at the time of the
+  save. Loading a slot moves its board to the newly minted campaign ID
+  (`CampaignFiles`, `MapPinStore`).
+
+### Tower triggers and pad loading
+
+- Tower view and Road Home arrival triggers recover when a pad load temporarily
+  blocks the local player's entry. They ignore duplicate contacts and discard
+  queued entry events after departure. The tower also restores its view when the
+  trigger is unloaded before the player gets an exit callback (`LocalAreaPresence`).
+- A local trip and a remote arrival can overlap while loading the same pad.
+  The second load now waits for and reuses the first pad. The host restores the
+  previous grid if a remote-only load changed it while local travel was pending
+  (`OutsidePadSlots`, `RemotePadSpawn`).
+- The well uses its assigned layout through a brief reconnect, and a late join
+  that receives the well's reserved slot also receives its layout (`OutsidePadSlots`).
+
+### Radio tower visibility, Road Home exits, and village well layout
+
+- The radio tower's darkness and reveal triggers now follow the local player. A
+  teammate inside a trigger could keep the mask up after the local player left.
+  The banshee scream overlay has its own cleanup (`EventTriggersProxyPatches`).
+- The Road Home entrances from the tower underground and the burned tree route
+  now fire for each player's own body. A remote stand-in could occupy either
+  repeatable trigger first and prevent the real player from starting the trip
+  (`EventTriggersProxyPatches`).
+- Players entering the village well at the same time could still roll different
+  layouts before the first pick reached the host. The host now picks `layout2`
+  or `layout3` before sending the well's pad assignment and reads the surviving
+  layout from an existing well (`OutsidePadSlots`).
+
+These changes need a co-op playtest.
 
 ## 0.9.2 — spectate camera pin, knife throw guard, ghost rabbits
 
